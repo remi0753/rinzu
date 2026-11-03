@@ -2,6 +2,8 @@
 use crate::ast::*;
 use crate::{AbiScalar, Diagnostic, DiagnosticCode, SourceRange};
 use std::collections::{HashMap, HashSet};
+mod inference;
+mod methods;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Requirement {
@@ -40,6 +42,12 @@ struct Expander {
     constants: std::collections::BTreeMap<String, crate::IntegerConstant>,
     module_constants: std::collections::BTreeMap<String, crate::IntegerConstant>,
     locals: HashSet<String>,
+    known: HashMap<String, Declaration>,
+    type_locals: HashMap<String, TypeRef>,
+    expected_result: Option<TypeRef>,
+    lexical_owner: Option<String>,
+    inference_active: bool,
+    instance_types: HashMap<String, (String, Vec<TypeRef>)>,
 }
 
 impl Expander {
@@ -76,6 +84,7 @@ impl Expander {
                             .into_iter()
                             .map(|(name, ty)| FieldDecl {
                                 is_const: true,
+                                is_private: false,
                                 name: name.to_owned(),
                                 ty: TypeRef {
                                     kind: TypeRefKind::Named(vec![ty.to_owned()]),
@@ -89,6 +98,11 @@ impl Expander {
                 range,
             }));
         }
+        let known = module
+            .declarations
+            .iter()
+            .map(|d| (d.name().to_owned(), d.clone()))
+            .collect();
         Self {
             module,
             templates: HashMap::new(),
@@ -100,6 +114,12 @@ impl Expander {
             constants: constants.clone(),
             module_constants: constants,
             locals: HashSet::new(),
+            known,
+            type_locals: HashMap::new(),
+            expected_result: None,
+            lexical_owner: None,
+            inference_active: false,
+            instance_types: HashMap::new(),
         }
     }
 
@@ -196,10 +216,41 @@ impl Expander {
                 ),
             ));
         }
-        let identity = format!(
-            "{name}<{}>",
-            args.iter().map(spelling).collect::<Vec<_>>().join(",")
-        );
+        let identity = if let Declaration::Function(f) = &declaration
+            && let Some((owner, member)) = crate::methods::parts(name)
+        {
+            let count = f.owner_type_parameter_count;
+            let owner = if count > 0 {
+                format!(
+                    "{owner}<{}>",
+                    args[..count]
+                        .iter()
+                        .map(spelling)
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            } else {
+                owner.to_owned()
+            };
+            let member = if count < args.len() {
+                format!(
+                    "{member}<{}>",
+                    args[count..]
+                        .iter()
+                        .map(spelling)
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            } else {
+                member.to_owned()
+            };
+            format!("{owner}.{member}")
+        } else {
+            format!(
+                "{name}<{}>",
+                args.iter().map(spelling).collect::<Vec<_>>().join(",")
+            )
+        };
         if let Some(instance) = self.instances.get(&identity) {
             return Ok(instance.clone());
         }
@@ -210,6 +261,14 @@ impl Expander {
             ));
         }
         self.instances.insert(identity.clone(), identity.clone());
+        self.instance_types
+            .insert(identity.clone(), (name.to_owned(), args.to_vec()));
+        if let Declaration::Function(f) = &declaration
+            && f.owner_type_parameter_count > 0
+            && let Some((owner, _)) = crate::methods::parts(name)
+        {
+            self.instantiate(owner, &args[..f.owner_type_parameter_count], range)?;
+        }
         let substitution = parameters
             .iter()
             .zip(args)
@@ -231,6 +290,7 @@ impl Expander {
             Declaration::Function(value) => {
                 value.name = identity.clone();
                 value.type_parameters.clear();
+                value.owner_type_parameter_count = 0;
             }
             Declaration::Record(value) => {
                 value.name = identity.clone();
@@ -376,6 +436,10 @@ impl Expander {
     ) -> Result<(), Diagnostic> {
         let saved_constants = std::mem::replace(&mut self.constants, self.module_constants.clone());
         let saved_locals = std::mem::take(&mut self.locals);
+        let saved_types = std::mem::take(&mut self.type_locals);
+        let saved_result = self.expected_result.take();
+        let saved_owner = self.lexical_owner.take();
+        let saved_active = self.inference_active;
         match declaration {
             Declaration::TypeAlias(alias) => self.ty(&mut alias.ty, substitution, instance)?,
             Declaration::Error(error) => {
@@ -386,6 +450,8 @@ impl Expander {
                 }
             }
             Declaration::Function(value) => {
+                self.inference_active = self.needs_inference(&value.body);
+                self.lexical_owner = value.lexical_owner.clone();
                 for parameter in &value.parameters {
                     self.constants.remove(&parameter.name);
                     self.locals.insert(parameter.name.clone());
@@ -394,8 +460,13 @@ impl Expander {
                 for parameter in &mut value.parameters {
                     parameter.range.instance = instance;
                     self.ty(&mut parameter.ty, substitution, instance)?;
+                    self.type_locals
+                        .insert(parameter.name.clone(), parameter.ty.clone());
                 }
                 self.ty(&mut value.result, substitution, instance)?;
+                self.expected_result = Some(value.result.clone());
+                self.known
+                    .insert(value.name.clone(), Declaration::Function(value.clone()));
                 self.block(&mut value.body, substitution, instance)?;
                 if let Some(fallback) = &mut value.fallback {
                     self.expression(fallback, substitution, instance)?;
@@ -427,6 +498,10 @@ impl Expander {
         }
         self.constants = saved_constants;
         self.locals = saved_locals;
+        self.type_locals = saved_types;
+        self.expected_result = saved_result;
+        self.lexical_owner = saved_owner;
+        self.inference_active = saved_active;
         Ok(())
     }
 
@@ -438,12 +513,14 @@ impl Expander {
     ) -> Result<(), Diagnostic> {
         let saved_constants = self.constants.clone();
         let saved_locals = self.locals.clone();
+        let saved_types = self.type_locals.clone();
         block.range.instance = instance;
         for statement in &mut block.statements {
             self.statement(statement, substitution, instance)?;
         }
         self.constants = saved_constants;
         self.locals = saved_locals;
+        self.type_locals = saved_types;
         Ok(())
     }
 
@@ -465,7 +542,14 @@ impl Expander {
                 if let Some(ty) = annotation {
                     self.ty(ty, substitution, instance)?;
                 }
-                self.expression(initializer, substitution, instance)?;
+                self.expression_expected(initializer, substitution, instance, annotation.as_ref())?;
+                if self.inference_active
+                    && let Some(ty) = annotation
+                        .clone()
+                        .or_else(|| self.probe_type(initializer, None))
+                {
+                    self.type_locals.insert(name.clone(), ty);
+                }
                 let expected = annotation.as_ref().and_then(|ty| match &ty.kind {
                     TypeRefKind::Named(path) if path.len() == 1 => AbiScalar::from_name(&path[0])
                         .filter(|scalar| scalar.integer_bounds().is_some()),
@@ -491,12 +575,17 @@ impl Expander {
                 self.expression(base, substitution, instance)?;
                 self.expression(value, substitution, instance)?;
             }
-            StatementKind::Assign { value, .. }
-            | StatementKind::Expression(value)
-            | StatementKind::Throw(value) => self.expression(value, substitution, instance)?,
+            StatementKind::Assign { name, value } => {
+                let expected = self.type_locals.get(name).cloned();
+                self.expression_expected(value, substitution, instance, expected.as_ref())?;
+            }
+            StatementKind::Expression(value) | StatementKind::Throw(value) => {
+                self.expression(value, substitution, instance)?
+            }
             StatementKind::Return(value) => {
                 if let Some(value) = value {
-                    self.expression(value, substitution, instance)?;
+                    let expected = self.expected_result.clone();
+                    self.expression_expected(value, substitution, instance, expected.as_ref())?;
                 }
             }
             StatementKind::If {
@@ -513,6 +602,33 @@ impl Expander {
             StatementKind::While { condition, body } => {
                 self.expression(condition, substitution, instance)?;
                 self.block(body, substitution, instance)?;
+            }
+            StatementKind::For {
+                binding,
+                iterable,
+                binding_range,
+                body,
+                ..
+            } => {
+                binding_range.instance = instance;
+                self.expression(iterable, substitution, instance)?;
+                let saved_constants = self.constants.clone();
+                let saved_locals = self.locals.clone();
+                self.constants.remove(binding);
+                self.locals.insert(binding.clone());
+                let saved_types = self.type_locals.clone();
+                if self.inference_active
+                    && let Some(TypeRef {
+                        kind: TypeRefKind::List(element),
+                        ..
+                    }) = self.probe_type(iterable, None)
+                {
+                    self.type_locals.insert(binding.clone(), *element);
+                }
+                self.block(body, substitution, instance)?;
+                self.type_locals = saved_types;
+                self.constants = saved_constants;
+                self.locals = saved_locals;
             }
             StatementKind::Switch { value, cases } => {
                 self.expression(value, substitution, instance)?;
@@ -651,25 +767,82 @@ impl Expander {
         substitution: &HashMap<String, TypeRef>,
         instance: u32,
     ) -> Result<(), Diagnostic> {
+        self.expression_expected(expression, substitution, instance, None)
+    }
+
+    fn expression_expected(
+        &mut self,
+        expression: &mut Expression,
+        substitution: &HashMap<String, TypeRef>,
+        instance: u32,
+        expected: Option<&TypeRef>,
+    ) -> Result<(), Diagnostic> {
         expression.range.instance = instance;
+        if self.method_expression(expression, substitution, instance, expected)? {
+            return Ok(());
+        }
+        if let ExpressionKind::Call { target, arguments }
+        | ExpressionKind::Spawn { target, arguments } = &mut expression.kind
+            && !self.local_target(target)
+        {
+            let template = if self.templates.contains_key(&target.join(".")) {
+                Some((target.join("."), None))
+            } else if target.len() > 1
+                && self
+                    .templates
+                    .contains_key(&target[..target.len() - 1].join("."))
+            {
+                Some((target[..target.len() - 1].join("."), target.last().cloned()))
+            } else {
+                None
+            };
+            if let Some((name, variant)) = template {
+                let type_arguments = self.inferred_arguments(
+                    &name,
+                    variant.as_deref(),
+                    arguments,
+                    expected,
+                    substitution,
+                    instance,
+                    expression.range,
+                    &[],
+                )?;
+                let arguments = arguments.clone();
+                let spawn = matches!(expression.kind, ExpressionKind::Spawn { .. });
+                expression.kind = ExpressionKind::GenericCall {
+                    target: vec![name],
+                    type_arguments,
+                    variant,
+                    member_type_arguments: Vec::new(),
+                    arguments,
+                    spawn,
+                };
+            }
+        }
         match &mut expression.kind {
             ExpressionKind::Function(f) => {
                 let saved_constants = self.constants.clone();
                 let saved_locals = self.locals.clone();
+                let saved_types = self.type_locals.clone();
+                let saved_result = self.expected_result.clone();
                 for parameter in &f.parameters {
                     self.constants.remove(&parameter.name);
                     self.locals.insert(parameter.name.clone());
                 }
                 for p in &mut f.parameters {
                     self.ty(&mut p.ty, substitution, instance)?;
+                    self.type_locals.insert(p.name.clone(), p.ty.clone());
                 }
                 self.ty(&mut f.result, substitution, instance)?;
+                self.expected_result = Some(f.result.clone());
                 self.block(&mut f.body, substitution, instance)?;
                 if let Some(e) = &mut f.fallback {
                     self.expression(e, substitution, instance)?;
                 }
                 self.constants = saved_constants;
                 self.locals = saved_locals;
+                self.type_locals = saved_types;
+                self.expected_result = saved_result;
                 f.range.instance = instance;
             }
             ExpressionKind::Record(fields) => {
@@ -678,7 +851,18 @@ impl Expander {
                     if let Some(t) = &mut field.annotation {
                         self.ty(t, substitution, instance)?;
                     }
-                    self.expression(&mut field.value, substitution, instance)?;
+                    let contextual = expected.and_then(|t| match &t.kind {
+                        TypeRefKind::Record(fields) => {
+                            fields.iter().find(|f| f.name == field.name).map(|f| &f.ty)
+                        }
+                        _ => None,
+                    });
+                    self.expression_expected(
+                        &mut field.value,
+                        substitution,
+                        instance,
+                        field.annotation.as_ref().or(contextual),
+                    )?;
                 }
             }
             ExpressionKind::Bind {
@@ -710,20 +894,27 @@ impl Expander {
                 target,
                 type_arguments,
                 variant,
+                member_type_arguments,
                 arguments,
                 spawn,
             } => {
+                if !member_type_arguments.is_empty() {
+                    return Err(error(
+                        expression.range,
+                        "this generic invocation has no generic member",
+                    ));
+                }
                 self.require_template_visible(target, expression.range)?;
                 for argument in type_arguments.iter_mut() {
                     self.ty(argument, substitution, instance)?;
                     self.canonical_argument(argument)?;
                 }
                 let name = self.instantiate(&target.join("."), type_arguments, expression.range)?;
-                self.arguments(arguments, substitution, instance)?;
                 let mut target = vec![name];
                 if let Some(variant) = variant {
                     target.push(variant.clone());
                 }
+                self.arguments_expected(&target, arguments, substitution, instance)?;
                 expression.kind = if *spawn {
                     ExpressionKind::Spawn {
                         target,
@@ -735,6 +926,25 @@ impl Expander {
                         arguments: arguments.clone(),
                     }
                 };
+            }
+            ExpressionKind::GenericReference {
+                target,
+                type_arguments,
+                member,
+                ..
+            } => {
+                if self.local_target(target) || member.is_some() {
+                    return Err(error(
+                        expression.range,
+                        "use a concrete unbound function or method reference",
+                    ));
+                }
+                for t in type_arguments.iter_mut() {
+                    self.ty(t, substitution, instance)?;
+                    self.canonical_argument(t)?;
+                }
+                let name = self.instantiate(&target.join("."), type_arguments, expression.range)?;
+                expression.kind = ExpressionKind::Name(vec![name]);
             }
             ExpressionKind::Call { target, arguments }
             | ExpressionKind::Spawn { target, arguments } => {
@@ -750,36 +960,73 @@ impl Expander {
                         "generic invocation requires explicit type arguments",
                     ));
                 }
-                self.arguments(arguments, substitution, instance)?;
+                self.arguments_expected(target, arguments, substitution, instance)?;
             }
             ExpressionKind::Name(path)
                 if !self.local_target(path) && self.templates.contains_key(&path.join(".")) =>
             {
-                return Err(error(
-                    expression.range,
-                    "generic function reference requires a concrete wrapper",
-                ));
+                let name = path.join(".");
+                let args =
+                    self.inferred_reference(&name, &[], expected, instance, expression.range)?;
+                *path = vec![self.instantiate(&name, &args, expression.range)?];
             }
-            ExpressionKind::List(values) | ExpressionKind::FormatString(values) => {
+            ExpressionKind::List(values) => {
+                let element = expected.and_then(|t| {
+                    if let TypeRefKind::List(element) = &t.kind {
+                        Some(element.as_ref())
+                    } else {
+                        None
+                    }
+                });
+                for value in values {
+                    self.expression_expected(value, substitution, instance, element)?;
+                }
+            }
+            ExpressionKind::FormatString(values) => {
                 for value in values {
                     self.expression(value, substitution, instance)?;
                 }
             }
             ExpressionKind::RecordUpdate { base, fields } => {
                 self.expression(base, substitution, instance)?;
-                for (_, value, range) in fields {
+                let base_type = if self.inference_active {
+                    self.probe_type(base, None)
+                } else {
+                    None
+                };
+                for (name, value, range) in fields {
                     range.instance = instance;
-                    self.expression(value, substitution, instance)?;
+                    let expected = base_type.as_ref().and_then(|t| match &t.kind {
+                        TypeRefKind::Record(fields) => {
+                            fields.iter().find(|f| &f.name == name).map(|f| &f.ty)
+                        }
+                        _ => None,
+                    });
+                    self.expression_expected(value, substitution, instance, expected)?;
                 }
             }
             ExpressionKind::Map(entries) => {
+                let (key_type, value_type) = expected.map_or((None, None), |t| {
+                    if let TypeRefKind::Map(k, v) = &t.kind {
+                        (Some(k.as_ref()), Some(v.as_ref()))
+                    } else {
+                        (None, None)
+                    }
+                });
                 for (key, value) in entries {
-                    self.expression(key, substitution, instance)?;
-                    self.expression(value, substitution, instance)?;
+                    self.expression_expected(key, substitution, instance, key_type)?;
+                    self.expression_expected(value, substitution, instance, value_type)?;
                 }
             }
-            ExpressionKind::Unary { operand, .. } | ExpressionKind::Await(operand) => {
-                self.expression(operand, substitution, instance)?
+            ExpressionKind::Await(operand) => {
+                let expected = expected.map(|t| TypeRef {
+                    range: t.range,
+                    kind: TypeRefKind::Future(Box::new(t.clone())),
+                });
+                self.expression_expected(operand, substitution, instance, expected.as_ref())?;
+            }
+            ExpressionKind::Unary { operand, .. } => {
+                self.expression_expected(operand, substitution, instance, expected)?
             }
             ExpressionKind::Binary { left, right, .. } => {
                 self.expression(left, substitution, instance)?;

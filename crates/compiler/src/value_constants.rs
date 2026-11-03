@@ -104,6 +104,7 @@ pub(crate) fn expand(module: &Module) -> Result<Module, Vec<Diagnostic>> {
                 name: accessor(name),
                 is_private: false,
                 lexical_owner: None,
+                owner_type_parameter_count: 0,
                 type_parameters: Vec::new(),
                 is_async: false,
                 parameters: Vec::new(),
@@ -220,6 +221,7 @@ fn constant_type(
                 types.push(FieldDecl {
                     name: field.name.clone(),
                     is_const: true,
+                    is_private: false,
                     ty,
                     range: field.range,
                 });
@@ -437,6 +439,17 @@ fn rewrite_statement(
             rewrite_expression(condition, locals, rich, used);
             rewrite_block(body, locals, rich, used);
         }
+        For {
+            binding,
+            iterable,
+            body,
+            ..
+        } => {
+            rewrite_expression(iterable, locals, rich, used);
+            let mut scope = locals.clone();
+            scope.insert(binding.clone());
+            rewrite_block(body, &scope, rich, used);
+        }
         Switch { value, cases } => {
             rewrite_expression(value, locals, rich, used);
             for c in cases {
@@ -583,7 +596,9 @@ fn rewrite_expression(
             rewrite_expression(left, locals, rich, used);
             rewrite_expression(right, locals, rich, used);
         }
-        ExpressionKind::Literal(_) | ExpressionKind::Unit => {}
+        ExpressionKind::Literal(_)
+        | ExpressionKind::Unit
+        | ExpressionKind::GenericReference { .. } => {}
         ExpressionKind::RecordUpdate { base, fields } => {
             rewrite_expression(base, locals, rich, used);
             for (_, value, _) in fields {

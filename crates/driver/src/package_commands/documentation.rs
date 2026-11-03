@@ -198,6 +198,9 @@ pub(super) fn render(
                 result.push_str("\n\n");
             }
             for member in &declaration.members {
+                if member.is_private {
+                    continue;
+                }
                 result.push_str(&format!("### {} {}\n\n", member.kind, escape(&member.name)));
                 result.push_str(&format!(
                     "[source]({}#L{}).\n\n",

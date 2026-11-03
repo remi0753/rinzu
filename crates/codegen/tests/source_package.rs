@@ -107,7 +107,7 @@ fn rejects_wire_contract_drift_before_publishing() {
             d.interface.backend.callback_rule = 2
         }),
         ("template-version", |d: &mut SourceDescriptor| {
-            d.interface.backend.template_layout = 2
+            d.interface.backend.template_layout = rinzu_abi::TEMPLATE_LAYOUT_VERSION + 1
         }),
         ("service-version", |d: &mut SourceDescriptor| {
             d.interface.backend.service_registry = 2

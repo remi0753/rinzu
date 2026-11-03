@@ -315,6 +315,7 @@ fn ensure_backend(
                         || !matches!(
                             operation.kind,
                             rinzu_compiler::OperationKind::Field { .. }
+                                | rinzu_compiler::OperationKind::ListElement { .. }
                                 | rinzu_compiler::OperationKind::EnumPayload { .. }
                         ))
                     && (scalar_values

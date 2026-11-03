@@ -184,7 +184,7 @@ fn build_registry_bytes() -> Vec<u8> {
         "schema": "rinzu.standard-library-v1", "revision": REVISION,
         "toolchainVersion": env!("CARGO_PKG_VERSION"), "language": "0.5",
         "semantics": crate::LANGUAGE_SEMANTICS_REVISION, "target": TARGET,
-        "sourcePackageAbi": "2.4", "runtimeCodegenRevision": RUNTIME_CODEGEN_REVISION,
+        "sourcePackageAbi": format!("{}.{}",rinzu_abi::SOURCE_PACKAGE_MAJOR,rinzu_abi::SOURCE_PACKAGE_MINOR), "runtimeCodegenRevision": RUNTIME_CODEGEN_REVISION,
         "packages": packages, "files": inventory,
     }))
     .expect("static standard-library registry is serializable")
@@ -333,7 +333,7 @@ pub fn fingerprint() -> serde_json::Value {
     serde_json::json!({"schema":"rinzu.toolchain-resource-receipt-v1", "revision": REVISION,
         "toolchainVersion": env!("CARGO_PKG_VERSION"), "standardPackageVersion":"0.1.0",
         "target": TARGET, "language":"0.5", "semantics":crate::LANGUAGE_SEMANTICS_REVISION,
-        "sourcePackageAbi":"2.4", "runtimeCodegenRevision":RUNTIME_CODEGEN_REVISION,
+        "sourcePackageAbi":format!("{}.{}",rinzu_abi::SOURCE_PACKAGE_MAJOR,rinzu_abi::SOURCE_PACKAGE_MINOR), "runtimeCodegenRevision":RUNTIME_CODEGEN_REVISION,
         "registrySha256":sha256(&registry_bytes())})
 }
 

@@ -133,6 +133,10 @@ pub(crate) fn statement(s: &mut Statement, v: &mut impl Visitor) {
             expression(condition, v);
             block(body, v);
         }
+        StatementKind::For { iterable, body, .. } => {
+            expression(iterable, v);
+            block(body, v);
+        }
         StatementKind::Switch { value, cases } => {
             expression(value, v);
             for c in cases {
@@ -232,16 +236,34 @@ pub(crate) fn expression(e: &mut Expression, v: &mut impl Visitor) {
             arguments: args,
             type_arguments,
             ..
-        }
-        | ExpressionKind::GenericCall {
-            arguments: args,
-            type_arguments,
-            ..
         } => {
             for t in type_arguments {
                 ty(t, v);
             }
             arguments(args, v);
+        }
+        ExpressionKind::GenericCall {
+            arguments: args,
+            type_arguments,
+            member_type_arguments,
+            ..
+        } => {
+            for t in type_arguments {
+                ty(t, v);
+            }
+            for t in member_type_arguments {
+                ty(t, v);
+            }
+            arguments(args, v);
+        }
+        ExpressionKind::GenericReference {
+            type_arguments,
+            member_type_arguments,
+            ..
+        } => {
+            for t in type_arguments.iter_mut().chain(member_type_arguments) {
+                ty(t, v);
+            }
         }
         ExpressionKind::Call { arguments: a, .. } | ExpressionKind::Spawn { arguments: a, .. } => {
             arguments(a, v)

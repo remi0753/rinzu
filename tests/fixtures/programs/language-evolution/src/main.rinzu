@@ -1,0 +1,114 @@
+class Box<T> {
+    private const item: T
+
+    fn create(value: T) -> Box<T> {
+        return Box<T>(item: value);
+    }
+
+    fn get(self: Box<T>) -> T {
+        return self.item;
+    }
+
+    fn map<U>(self: Box<T>, transform: fn (T) -> U) -> Box<U> {
+        return Box<U>.create(transform(self.item));
+    }
+}
+
+type Pair = {
+    x: Int, y: Int
+};
+
+fn synchronous() -> Int {
+    var source = [1, 2, 3];
+    var handlers: List<fn (Int) -> Int> = [];
+    for offset in source {
+        source = [9];
+        handlers = listAppend(
+            handlers,
+            fn (value: Int) -> Int {
+                return value + offset;
+            }
+        );
+    }
+    var total = 0;
+    for handle in handlers {
+        total = total + handle(10);
+    }
+    if total != 36 {
+        panic("iteration capture or snapshot changed");
+    }
+    let boxed = Box.create(total);
+    let next = boxed.map(
+        fn (value: Int) -> Int {
+            return value + 6;
+        }
+    );
+    let get = Box<Int>.get;
+    let before: Pair = {
+        x = 1, y = 2
+    };
+    let after = {
+        ...before, x = get(next)
+    };
+    if after.y != 2 || before.x != 1 {
+        panic("record update mutated its base");
+    }
+    let named: Map<String, fn (Int) -> Int> = {
+        "identity": fn (value: Int) -> Int {
+            return value;
+        }
+    };
+    switch mapGet(named, "identity") {
+        case Option.Some(handle): {
+            return handle(after.x);
+        }
+        case Option.None: {
+            return 0;
+        }
+    }
+}
+
+// async scenarios
+error Failed {}
+
+async fn fail() -> Int {
+    throw Failed(message: "expected failure");
+}
+
+async fn ready() -> Int {
+    return 7;
+}
+
+async fn makeHandler() -> fn (Int) -> Int {
+    let offset = 2;
+    return fn (value: Int) -> Int {
+        return value + offset;
+    };
+}
+
+async fn observe(handlers: List<fn () -> Future<Int>>) {
+    for get in handlers {
+        try {
+            let value = await get();
+        }
+        catch errors {}
+    }
+}
+
+async fn main() {
+    if synchronous() != 42 {
+        panic("synchronous result");
+    }
+    let handle = await makeHandler();
+    if handle(40) != 42 {
+        panic("function Future result");
+    }
+    let pending = fail();
+    let handlers: List<fn () -> Future<Int>> = [
+        ready,
+        fn () -> Future<Int> {
+            return pending;
+        }
+    ];
+    await observe(handlers);
+}

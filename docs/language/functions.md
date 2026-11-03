@@ -19,7 +19,7 @@ fn main() {
 }
 ```
 
-All arguments are required. Ordinary calls use positional arguments. Class and enum constructors use named arguments. Overloads, default arguments, partial application, and generic methods are unavailable.
+All arguments are required. Ordinary calls use positional arguments. Class and enum constructors use named arguments. Overloads, default arguments and partial application are unavailable. Methods can have generic owner and method parameters.
 
 ## Capture values at creation
 
@@ -44,7 +44,7 @@ let answer = await pending;
 
 A named function can also be used where its function type is expected. `Type.method` includes an explicit `self` parameter for an instance method. To retain a particular receiver, wrap a call in a closure; `receiver.method` alone does not create a bound method.
 
-Function values can be local values and class fields, subject to capture and effect checks. They do not have Equality, Key, or Transferable. Direct function elements of List, Map, or Future are unsupported. Worker calls and native callbacks impose additional restrictions on effects and captured values.
+Function values can be local values and class fields, subject to capture and effect checks. They do not have Equality, Key, or Transferable. Function values can be List elements, Map values and Future results within one Domain. Their code and capture environment remain in the typed GC graph. Storing or returning a captured Future does not observe it, and awaiting an outer Future does not observe Futures held by its returned function. Worker calls and native callbacks impose additional restrictions on effects and captured values.
 
 A same-Domain managed closure can capture a Future, but its creation alone does not discharge responsibility for observing that Future. Future capture across the native ABI is prohibited.
 

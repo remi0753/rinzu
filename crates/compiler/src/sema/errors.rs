@@ -176,6 +176,7 @@ impl Checker<'_> {
             .map(|(name, ty)| FieldDecl {
                 name: name.to_owned(),
                 is_const: true,
+                is_private: false,
                 ty: self.generated_type_ref(&ty, range),
                 range,
             })
@@ -250,6 +251,7 @@ impl Checker<'_> {
             self.error_schemas.insert(
                 error.name.clone(),
                 SourceTypeSchema {
+                    private_fields: Vec::new(),
                     kind: "error".into(),
                     const_fields: (0..fields.len() as u32).collect(),
                     fields,

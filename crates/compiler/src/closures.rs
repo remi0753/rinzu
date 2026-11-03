@@ -57,6 +57,27 @@ pub(crate) fn convert(
             collect(&f.result_type, &mut selected);
         }
     }
+    // Container elements are managed values: lower both code and captures into
+    // the existing typed environment graph instead of storing an untraced code
+    // index in a List/Map/Future slot.
+    for ty in checked
+        .expression_types
+        .values()
+        .chain(checked.functions.iter().flat_map(|f| {
+            f.parameter_types
+                .iter()
+                .chain(std::iter::once(&f.result_type))
+        }))
+    {
+        match ty {
+            Type::List(t) | Type::Future(t) => collect(t, &mut selected),
+            Type::Map(k, v) => {
+                collect(k, &mut selected);
+                collect(v, &mut selected);
+            }
+            _ => {}
+        }
+    }
     for b in checked.bindings.values() {
         collect(
             &Type::FunctionReference(Box::new(b.signature.clone())),
@@ -250,6 +271,7 @@ impl Converter<'_> {
     fn field(&mut self, name: String, ty: &Type) -> FieldDecl {
         FieldDecl {
             is_const: false,
+            is_private: false,
             name,
             ty: self.type_ref(ty),
             range: self.range(),
@@ -399,6 +421,7 @@ impl Converter<'_> {
             name: shape.dispatch.clone(),
             is_private: false,
             lexical_owner: None,
+            owner_type_parameter_count: 0,
             type_parameters: Vec::new(),
             is_async: false,
             parameters,
@@ -455,6 +478,7 @@ impl Converter<'_> {
                     name: format!("{}_callback_{index}", shape.name),
                     is_private: false,
                     lexical_owner: None,
+                    owner_type_parameter_count: 0,
                     type_parameters: Vec::new(),
                     is_async: false,
                     parameters,

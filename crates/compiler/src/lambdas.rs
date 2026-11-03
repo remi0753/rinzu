@@ -125,6 +125,17 @@ fn statement(
             expression(condition, bound, visit);
             block(body, bound, visit);
         }
+        StatementKind::For {
+            binding,
+            iterable,
+            body,
+            ..
+        } => {
+            expression(iterable, bound, visit);
+            let mut inner = bound.clone();
+            inner.insert(binding.clone());
+            block(body, &inner, visit);
+        }
         StatementKind::Switch { value, cases } => {
             expression(value, bound, visit);
             for c in cases {
@@ -257,10 +268,28 @@ fn expression(
         ExpressionKind::GenericCall {
             target,
             type_arguments,
+            member_type_arguments,
             arguments: args,
             ..
+        } => {
+            path(target, e.range, bound, visit);
+            for t in type_arguments.iter_mut().chain(member_type_arguments) {
+                ty(t, bound, visit);
+            }
+            arguments(args, bound, visit);
         }
-        | ExpressionKind::Bind {
+        ExpressionKind::GenericReference {
+            target,
+            type_arguments,
+            member_type_arguments,
+            ..
+        } => {
+            path(target, e.range, bound, visit);
+            for t in type_arguments.iter_mut().chain(member_type_arguments) {
+                ty(t, bound, visit);
+            }
+        }
+        ExpressionKind::Bind {
             target,
             type_arguments,
             arguments: args,

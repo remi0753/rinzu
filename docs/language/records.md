@@ -12,9 +12,7 @@ type ReorderedPoint = {
 };
 
 fn moved(point: Point) -> Point {
-    return {
-        x = point.x + 1, y = point.y
-    };
+    return { ...point, x = point.x + 1 };
 }
 
 fn main() {
@@ -43,7 +41,7 @@ Field evaluation follows source order. The type comparison ignores field order. 
 
 Assignment copies the record value shallowly. Referenced immutable values can share storage. A class inside a record still refers to the same class instance in that Domain.
 
-Fields cannot be reassigned. To change a record, construct another one and list every field. There is no record update operator.
+Fields cannot be reassigned. `{ ...base, field = value }` constructs a new structural record with the same fields and types. Evaluate base once, then update expressions in written order; publish the result only after all succeed. Updates are shallow, require at least one existing field, and cannot add fields, combine multiple bases, or update classes/native records. Overwriting a Future field does not remove the old Future’s observation responsibility.
 
 ## Type aliases
 

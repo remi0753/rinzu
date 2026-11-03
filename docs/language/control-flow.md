@@ -23,7 +23,11 @@ fn main() {
 }
 ```
 
-Collection traversal uses `while` and collection APIs. There is no general `for` or range syntax. Read the length before a list traversal and fetch elements from the same snapshot.
+## Iterate a List snapshot
+
+`for value in values { ... }` evaluates the List once and visits its elements in increasing index order. Each iteration has a fresh, read-only binding. Reassigning the source variable does not change the snapshot, while class elements retain their ordinary shared reference semantics. `_` discards a binding; it does not observe a Future.
+
+Continue advances to the next element; break exits the innermost loop. Return and loop exits run finally as usual. Async bodies can await. Complete traversal can observe all Future elements; an early break or a conditional skip must not lose responsibility. The first supported iterable is List; ranges, Map, strings, user iterators and for-await are unavailable.
 
 ## Switch over variants
 

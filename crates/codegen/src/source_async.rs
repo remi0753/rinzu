@@ -2557,6 +2557,7 @@ impl SourceTask {
             }
             OperationKind::StoreField { .. }
             | OperationKind::Field { .. }
+            | OperationKind::ListElement { .. }
             | OperationKind::EnumPayload { .. } => {
                 bail!("typed data projection requires the managed composite backend")
             }
@@ -4757,6 +4758,7 @@ fn evaluate_sync_context(
                     | OperationKind::NativeCall { .. }
                     | OperationKind::StoreField { .. }
                     | OperationKind::Field { .. }
+                    | OperationKind::ListElement { .. }
                     | OperationKind::EnumPayload { .. }
                     | OperationKind::Construct { .. } => {
                         bail!("worker function {name} contains an operation that may suspend")

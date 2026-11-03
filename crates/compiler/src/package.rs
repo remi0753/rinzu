@@ -818,32 +818,15 @@ fn complete_source_interface(
             })?
         })
         .collect();
-    let alias_targets: HashSet<_> = source
-        .type_aliases
-        .values()
-        .filter_map(|ty| match ty {
-            Type::Named(name) | Type::Native { name, .. } => Some(name.as_str()),
-            _ => None,
-        })
-        .collect();
-    source.types = checked
-        .source_types
-        .iter()
-        .filter(|(name, _)| {
-            exported.contains(name.as_str())
-                || alias_targets.contains(name.as_str())
-                || exported.contains(name.split('<').next().unwrap_or(name))
-        })
-        .map(|(name, schema)| (name.clone(), schema.clone()))
-        .collect();
+    // Private storage still participates in layout, capabilities, native and
+    // Future checks. Public bindings, not omission from this complete graph,
+    // determine what a caller can name or construct.
+    source.types = checked.source_types.clone();
     source.templates = syntax
         .declarations
         .iter()
         .filter_map(|declaration| {
-            exported
-                .contains(declaration.name())
-                .then(|| crate::package_templates::schema(declaration))
-                .flatten()
+            crate::package_templates::schema(declaration)
                 .map(|schema| (declaration.name().to_owned(), schema))
         })
         .collect();
@@ -1101,7 +1084,12 @@ pub(crate) fn validate_public_signatures(
                 types.insert(record.name.clone());
                 signatures.push((
                     &record.name,
-                    record.fields.iter().map(|field| &field.ty).collect(),
+                    record
+                        .fields
+                        .iter()
+                        .filter(|field| !field.is_private)
+                        .map(|field| &field.ty)
+                        .collect(),
                 ));
             }
             Declaration::Enum(enumeration) => {
@@ -2683,6 +2671,17 @@ fn rewrite_statement(
             rewrite_expression(condition, context, locals);
             rewrite_block(body, context, locals);
         }
+        StatementKind::For {
+            binding,
+            iterable,
+            body,
+            ..
+        } => {
+            rewrite_expression(iterable, context, locals);
+            let mut bindings = locals.clone();
+            bindings.insert(binding.clone());
+            rewrite_block(body, context, &bindings);
+        }
         StatementKind::Switch { value, cases } => {
             rewrite_expression(value, context, locals);
             for case in cases {
@@ -2796,10 +2795,28 @@ fn rewrite_expression(
         ExpressionKind::GenericCall {
             target,
             type_arguments,
+            member_type_arguments,
             arguments,
             ..
+        } => {
+            rewrite_value_path(target, context, locals);
+            for argument in type_arguments.iter_mut().chain(member_type_arguments) {
+                rewrite_type(argument, context, locals);
+            }
+            rewrite_arguments(arguments, context, locals);
         }
-        | ExpressionKind::Bind {
+        ExpressionKind::GenericReference {
+            target,
+            type_arguments,
+            member_type_arguments,
+            ..
+        } => {
+            rewrite_value_path(target, context, locals);
+            for argument in type_arguments.iter_mut().chain(member_type_arguments) {
+                rewrite_type(argument, context, locals);
+            }
+        }
+        ExpressionKind::Bind {
             target,
             type_arguments,
             arguments,

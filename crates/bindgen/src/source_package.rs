@@ -155,6 +155,8 @@ pub struct SourceTypeRecord {
     pub kind: String,
     #[serde(default)]
     pub const_fields: Vec<u32>,
+    #[serde(default)]
+    pub private_fields: Vec<u32>,
     pub fields: Vec<(String, String)>,
     pub variants: Vec<(String, Vec<(String, String)>)>,
 }
@@ -164,8 +166,12 @@ pub struct SourceTypeRecord {
 pub struct SourceTemplateRecord {
     pub kind: String,
     pub type_parameters: Vec<(String, Vec<String>)>,
+    #[serde(default)]
+    pub owner_type_parameters: Vec<(String, Vec<String>)>,
     pub signature: String,
     pub const_fields: Vec<u32>,
+    #[serde(default)]
+    pub private_fields: Vec<u32>,
     pub fields: Vec<(String, String)>,
     pub variants: Vec<(String, Vec<(String, String)>)>,
 }
@@ -505,10 +511,16 @@ impl SourceInterface {
         self.functions.sort_by(|a, b| a.identity.cmp(&b.identity));
         for schema in self.source_types.values_mut() {
             schema.const_fields.sort_unstable();
+            schema.private_fields.sort_unstable();
         }
         for schema in self.source_templates.values_mut() {
             schema.const_fields.sort_unstable();
-            for (_, markers) in &mut schema.type_parameters {
+            schema.private_fields.sort_unstable();
+            for (_, markers) in schema
+                .type_parameters
+                .iter_mut()
+                .chain(&mut schema.owner_type_parameters)
+            {
                 markers.sort();
                 markers.dedup();
             }
@@ -598,6 +610,13 @@ impl SourceInterface {
             };
             if identity.is_empty()
                 || schema
+                    .private_fields
+                    .iter()
+                    .any(|i| *i as usize >= schema.fields.len())
+                || schema.private_fields.windows(2).any(|p| p[0] >= p[1])
+                || !schema.private_fields.is_empty()
+                    && !matches!(schema.kind.as_str(), "record" | "state")
+                || schema
                     .const_fields
                     .iter()
                     .any(|index| *index as usize >= schema.fields.len())
@@ -658,21 +677,33 @@ impl SourceInterface {
                         == fields.len()
             };
             if identity.is_empty()
-                || schema.type_parameters.is_empty()
-                || schema.type_parameters.iter().any(|(name, markers)| {
-                    !identifier(name)
-                        || markers
-                            .iter()
-                            .any(|m| !matches!(m.as_str(), "Transferable" | "Equality" | "Key"))
-                })
+                || schema.type_parameters.is_empty() && schema.owner_type_parameters.is_empty()
+                || !schema.owner_type_parameters.is_empty() && schema.kind != "function"
                 || schema
                     .type_parameters
                     .iter()
+                    .chain(&schema.owner_type_parameters)
+                    .any(|(name, markers)| {
+                        !identifier(name)
+                            || markers
+                                .iter()
+                                .any(|m| !matches!(m.as_str(), "Transferable" | "Equality" | "Key"))
+                    })
+                || schema
+                    .type_parameters
+                    .iter()
+                    .chain(&schema.owner_type_parameters)
                     .map(|(name, _)| name)
                     .collect::<BTreeSet<_>>()
                     .len()
-                    != schema.type_parameters.len()
+                    != schema.type_parameters.len() + schema.owner_type_parameters.len()
                 || !fields_valid(&schema.fields)
+                || schema
+                    .private_fields
+                    .iter()
+                    .any(|i| *i as usize >= schema.fields.len())
+                || schema.private_fields.windows(2).any(|p| p[0] >= p[1])
+                || !schema.private_fields.is_empty() && schema.kind != "class"
                 || schema
                     .variants
                     .iter()

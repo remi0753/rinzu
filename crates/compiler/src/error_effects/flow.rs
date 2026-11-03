@@ -330,6 +330,84 @@ impl<'a> Analyzer<'a> {
                 join_env(env, &loop_env);
                 result
             }
+            StatementKind::For {
+                binding,
+                iterable,
+                body,
+                ..
+            } => {
+                let source = self.expression(iterable, env, false);
+                let ty = self
+                    .checked
+                    .expression_type(iterable.range)
+                    .expect("checked List");
+                let Type::List(element) = ty else {
+                    unreachable!("checked List")
+                };
+                let value = source
+                    .value
+                    .project(Projection::AllElements(ty.to_string()), self.typed(element));
+                let mut loop_env = env.clone();
+                let mut body_flow = Flow::default();
+                loop {
+                    let before = loop_env.clone();
+                    if binding != "_" {
+                        loop_env.insert(binding.clone(), value.clone());
+                    }
+                    let flow = self.block(body, &mut loop_env);
+                    body_flow.join(flow);
+                    loop_env.remove(binding);
+                    for value in loop_env.values_mut() {
+                        *value = value.forget_elements();
+                    }
+                    join_env(&mut loop_env, &before);
+                    if loop_env == before {
+                        break;
+                    }
+                }
+                if !source.success {
+                    return Flow {
+                        errors: source.errors,
+                        ..Flow::default()
+                    };
+                }
+                join_env(env, &loop_env);
+                if self.all {
+                    let delta = language::independent_elements(&body_flow.exit_words());
+                    let mut iterations = language::empty_word();
+                    if body_flow.normal || body_flow.continues {
+                        loop {
+                            let next = language::concatenate(&iterations, &delta, self.bound);
+                            let before = iterations.len();
+                            iterations.extend(next);
+                            if iterations.len() == before {
+                                break;
+                            }
+                        }
+                    }
+                    let mut words = iterations.clone();
+                    if body_flow.breaks || body_flow.returns {
+                        words.extend(language::concatenate(&iterations, &delta, self.bound));
+                    }
+                    return Flow {
+                        normal: true,
+                        returns: body_flow.returns,
+                        returned: body_flow.returned,
+                        errors: source.errors,
+                        collected: Some(words),
+                        ..Flow::default()
+                    };
+                }
+                let mut errors = source.errors;
+                errors.extend(body_flow.errors);
+                Flow {
+                    normal: true,
+                    returns: body_flow.returns,
+                    errors,
+                    returned: body_flow.returned,
+                    ..Flow::default()
+                }
+            }
             StatementKind::Switch { value, cases } => {
                 let value_type = self.checked.expression_type(value.range).cloned();
                 let value = self.expression(value, env, false);
@@ -532,6 +610,9 @@ impl<'a> Analyzer<'a> {
         immediate_await: bool,
     ) -> Evaluated {
         match &expression.kind {
+            ExpressionKind::GenericReference { .. } => {
+                unreachable!("generic references are specialized before effects")
+            }
             ExpressionKind::Literal(Literal::Bool(value)) => {
                 Evaluated::pure(Value::Bool(Some(*value)))
             }

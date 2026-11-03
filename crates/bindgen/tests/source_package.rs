@@ -87,6 +87,8 @@ fn public_templates_are_closed_and_change_source_identity() {
     value.source_templates.insert(
         "generic::id".into(),
         SourceTemplateRecord {
+            owner_type_parameters: Vec::new(),
+            private_fields: Vec::new(),
             kind: "function".into(),
             type_parameters: vec![("T".into(), vec!["Equality".into()])],
             signature: "fn(T)->T".into(),
@@ -101,7 +103,7 @@ fn public_templates_are_closed_and_change_source_identity() {
     let template = generate_source_package(value.clone(), b"native").unwrap();
     assert_eq!(
         (template.descriptor.major, template.descriptor.minor),
-        (2, 4)
+        (2, 5)
     );
     assert_ne!(base.descriptor.import_keys, template.descriptor.import_keys);
     value
@@ -134,6 +136,8 @@ fn generic_error_templates_are_readonly_and_distinguish_optional_constructors() 
         ("payload".into(), "Option<T>".into()),
     ];
     let schema = SourceTemplateRecord {
+        owner_type_parameters: Vec::new(),
+        private_fields: Vec::new(),
         kind: "error".into(),
         type_parameters: vec![("T".into(), vec![])],
         signature: "error(payload?:T)".into(),
@@ -437,6 +441,7 @@ fn managed_code_fallback_and_public_aliases_are_canonical_without_native_entries
 fn public_error_metadata_is_immutable_and_part_of_the_semantic_digest() {
     let mut model = interface();
     let schema = SourceTypeRecord {
+        private_fields: Vec::new(),
         kind: "error".into(),
         const_fields: vec![0, 1, 2, 3, 4],
         fields: vec![
@@ -493,6 +498,7 @@ fn public_schema_changes_invalidate_semantics_and_keys() {
     model.source_types.insert(
         "spike.math.Packet".to_owned(),
         SourceTypeRecord {
+            private_fields: Vec::new(),
             const_fields: vec![],
             kind: "record".to_owned(),
             fields: vec![("bytes".to_owned(), "Bytes(4)".to_owned())],
@@ -645,6 +651,7 @@ fn const_field_schema_changes_keys_and_rejects_invalid_indices() {
     model.source_types.insert(
         "spike.math.Mutable".into(),
         SourceTypeRecord {
+            private_fields: Vec::new(),
             kind: "state".into(),
             const_fields: vec![],
             fields: vec![
@@ -657,7 +664,7 @@ fn const_field_schema_changes_keys_and_rejects_invalid_indices() {
     let original = generate_source_package(model.clone(), b"native").unwrap();
     assert_eq!(
         (original.descriptor.major, original.descriptor.minor),
-        (2, 4)
+        (2, 5)
     );
     model
         .source_types
@@ -698,6 +705,7 @@ fn native_data_contract_plans_distinguish_positions_and_reject_stale_wire() {
         model.source_types.insert(
             name.into(),
             SourceTypeRecord {
+                private_fields: Vec::new(),
                 kind: kind.into(),
                 fields,
                 const_fields: vec![],

@@ -1,0 +1,687 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rinzu.dev/schema/package-api-v3.schema.json",
+  "title": "Rinzu public source package API v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "version",
+    "package",
+    "language",
+    "target",
+    "semantics",
+    "exports"
+  ],
+  "properties": {
+    "schema": {
+      "const": "rinzu.package-api"
+    },
+    "version": {
+      "const": 3
+    },
+    "package": {
+      "type": "string"
+    },
+    "language": {
+      "type": "string"
+    },
+    "target": {
+      "type": "string"
+    },
+    "semantics": {
+      "type": "string"
+    },
+    "exports": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/entry"
+      }
+    }
+  },
+  "$defs": {
+    "fallback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scalar",
+        "value",
+        "bytes_length"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "scalar": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "value": {
+          "type": "string"
+        },
+        "bytes_length": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "code": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "declaration",
+        "version",
+        "fallback"
+      ],
+      "properties": {
+        "declaration": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fallback": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/fallback"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "callback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_type",
+        "foreign_to_main",
+        "lifetime",
+        "gate",
+        "origin",
+        "parent_scope",
+        "target",
+        "code_version",
+        "fallback"
+      ],
+      "properties": {
+        "source_type": {
+          "type": "string"
+        },
+        "foreign_to_main": {
+          "type": "boolean"
+        },
+        "lifetime": {
+          "type": "string"
+        },
+        "gate": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "parent_scope": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "code_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fallback": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "callbackSite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "native_function",
+        "parameter",
+        "source_type",
+        "targets"
+      ],
+      "properties": {
+        "native_function": {
+          "type": "string"
+        },
+        "parameter": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_type": {
+          "type": "string"
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/code"
+          }
+        }
+      }
+    },
+    "function": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity",
+        "source_type",
+        "kind",
+        "effects",
+        "parameter_requirements",
+        "symbol",
+        "service",
+        "c_prototype",
+        "conversion_plan",
+        "callbacks",
+        "callback_sites",
+        "code"
+      ],
+      "properties": {
+        "identity": {
+          "type": "string"
+        },
+        "source_type": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "sync",
+            "async",
+            "native",
+            "supplant"
+          ]
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "parameter_requirements": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "symbol": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "service": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "c_prototype": {
+          "type": "string"
+        },
+        "conversion_plan": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "callbacks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/callback"
+          }
+        },
+        "callback_sites": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/callbackSite"
+          }
+        },
+        "code": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/code"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "sourceType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "const_fields",
+        "fields",
+        "variants",
+        "private_fields"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "const_fields": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "items": false,
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "private_fields": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "sourceTemplate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "type_parameters",
+        "signature",
+        "const_fields",
+        "fields",
+        "variants",
+        "private_fields",
+        "owner_type_parameters"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "function",
+            "class",
+            "enum"
+          ]
+        },
+        "type_parameters": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "signature": {
+          "type": "string"
+        },
+        "const_fields": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "items": false,
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "private_fields": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "owner_type_parameters": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      }
+    },
+    "fieldLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "c_type",
+        "offset"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "c_type": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "string"
+        }
+      }
+    },
+    "nativeType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity",
+        "canonical",
+        "c_type",
+        "size",
+        "alignment",
+        "bytes_length",
+        "fields",
+        "storage_mapping"
+      ],
+      "properties": {
+        "identity": {
+          "type": "string"
+        },
+        "canonical": {
+          "type": "string"
+        },
+        "c_type": {
+          "type": "string"
+        },
+        "size": {
+          "type": "string"
+        },
+        "alignment": {
+          "type": "string"
+        },
+        "bytes_length": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/fieldLayout"
+          }
+        },
+        "storage_mapping": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity",
+        "function",
+        "source_type",
+        "source_template",
+        "source_value",
+        "native_type",
+        "constant",
+        "constructor_visibility",
+        "private_graph"
+      ],
+      "properties": {
+        "identity": {
+          "type": "string"
+        },
+        "function": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/function"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sourceType"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_template": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sourceTemplate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "native_type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nativeType"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "constant": {
+          "anyOf": [
+            {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "constructor_visibility": {
+          "anyOf": [
+            {
+              "enum": [
+                "public",
+                "owner"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "private_graph": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

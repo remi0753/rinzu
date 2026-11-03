@@ -294,6 +294,11 @@ pub enum OperationKind {
         failure: Option<BlockId>,
         cleanup_chain: Vec<BlockId>,
     },
+    /// Direct typed projection; the finite List loop proves the index bound.
+    ListElement {
+        operand: ValueId,
+        index: ValueId,
+    },
     EnumPayload {
         operand: ValueId,
         identity: String,
@@ -893,6 +898,172 @@ impl<'a> Builder<'a> {
         self.goto_if_open(next, ExitReason::Normal);
         self.current = next;
     }
+    fn store_scoped_local(&mut self, name: String, ty: Type, value: ValueId, range: SourceRange) {
+        self.local_types.insert(name.clone(), ty);
+        let scope = *self.scope_stack.last().expect("active scope");
+        self.scopes
+            .iter_mut()
+            .find(|info| info.scope == scope)
+            .expect("scope info")
+            .locals
+            .push(name.clone());
+        self.emit(
+            OperationKind::DeclareLocal { name: name.clone() },
+            None,
+            range,
+        );
+        self.emit(OperationKind::StoreLocal { name, value }, None, range);
+    }
+
+    fn lower_for(
+        &mut self,
+        binding: &str,
+        iterable: &Expression,
+        body: &Block,
+        range: SourceRange,
+    ) {
+        let outer = Block {
+            statements: Vec::new(),
+            range: SourceRange {
+                instance: range.instance.wrapping_add(0x10000000),
+                ..range
+            },
+        };
+        self.lower_block_with_prelude(&outer, |this| {
+            let ty = this.type_of(iterable);
+            let Type::List(element) = &ty else {
+                unreachable!("checked List iteration")
+            };
+            let list = this.lower_expression(iterable);
+            let saved = format!("$for_list{}", list.0);
+            let counter = format!("$for_index{}", list.0);
+            let bound = format!("$for_length{}", list.0);
+            this.store_scoped_local(saved.clone(), ty.clone(), list, range);
+            this.emit_poll(PollReason::Allocation, range);
+            let length = this.emit_value(
+                OperationKind::DataOperation {
+                    kind: crate::DataOperation::ListLength,
+                    arguments: vec![list],
+                    argument_types: vec![ty.clone()],
+                    error: this.error_edge(),
+                    failure: this.failure,
+                    cleanup_chain: this.cleanup_chain(),
+                },
+                Type::Int,
+                range,
+            );
+            this.store_scoped_local(bound.clone(), Type::Int, length, range);
+            let zero = this.emit_value(
+                OperationKind::Constant(ConstantValue::Int(0)),
+                Type::Int,
+                range,
+            );
+            this.store_scoped_local(counter.clone(), Type::Int, zero, range);
+            let header = this.new_block(range);
+            let enter = this.new_block(body.range);
+            let step = this.new_block(range);
+            let exit = this.new_block(range);
+            this.goto_if_open(header, ExitReason::Normal);
+            this.current = header;
+            this.emit_poll(PollReason::LoopBackedge, range);
+            let index = this.emit_value(
+                OperationKind::LoadLocal {
+                    name: counter.clone(),
+                },
+                Type::Int,
+                range,
+            );
+            let length =
+                this.emit_value(OperationKind::LoadLocal { name: bound }, Type::Int, range);
+            let condition = this.emit_value(
+                OperationKind::Binary {
+                    operator: BinaryOperator::Less,
+                    left: index,
+                    right: length,
+                    failure: None,
+                    cleanup_chain: Vec::new(),
+                },
+                Type::Bool,
+                range,
+            );
+            this.set_terminator(Terminator::Branch {
+                condition,
+                then_target: enter,
+                else_target: exit,
+            });
+            this.loop_stack
+                .push((step, exit, this.scope_stack.len(), this.cleanup_stack.len()));
+            this.current = enter;
+            this.lower_block_with_prelude(body, |this| {
+                if binding != "_" {
+                    let list = this.emit_value(
+                        OperationKind::LoadLocal {
+                            name: saved.clone(),
+                        },
+                        ty.clone(),
+                        range,
+                    );
+                    let index = this.emit_value(
+                        OperationKind::LoadLocal {
+                            name: counter.clone(),
+                        },
+                        Type::Int,
+                        range,
+                    );
+                    let value = this.emit_value(
+                        OperationKind::ListElement {
+                            operand: list,
+                            index,
+                        },
+                        *element.clone(),
+                        range,
+                    );
+                    this.store_scoped_local(binding.to_owned(), *element.clone(), value, range);
+                }
+            });
+            if this.is_open(this.current) {
+                this.emit_poll(PollReason::LoopBackedge, body.range);
+            }
+            this.goto_if_open(step, ExitReason::Continue);
+            this.loop_stack.pop();
+            this.current = step;
+            let old = this.emit_value(
+                OperationKind::LoadLocal {
+                    name: counter.clone(),
+                },
+                Type::Int,
+                range,
+            );
+            let one = this.emit_value(
+                OperationKind::Constant(ConstantValue::Int(1)),
+                Type::Int,
+                range,
+            );
+            let next = this.emit_value(
+                OperationKind::Binary {
+                    operator: BinaryOperator::Add,
+                    left: old,
+                    right: one,
+                    failure: Some(this.failure),
+                    cleanup_chain: this.cleanup_chain(),
+                },
+                Type::Int,
+                range,
+            );
+            this.emit(
+                OperationKind::StoreLocal {
+                    name: counter,
+                    value: next,
+                },
+                None,
+                range,
+            );
+            this.emit_poll(PollReason::LoopBackedge, range);
+            this.goto_if_open(header, ExitReason::Continue);
+            this.current = exit;
+        });
+    }
+
     fn lower_statement(&mut self, statement: &Statement) {
         match &statement.kind {
             StatementKind::Throw(value) => self.lower_throw(value, statement.range),
@@ -1063,6 +1234,14 @@ impl<'a> Builder<'a> {
                 self.goto_if_open(header, ExitReason::Continue);
                 self.loop_stack.pop();
                 self.current = exit;
+            }
+            StatementKind::For {
+                binding,
+                iterable,
+                body,
+                ..
+            } => {
+                self.lower_for(binding, iterable, body, statement.range);
             }
             StatementKind::Switch { value, cases } => {
                 let Type::Named(identity) = self.type_of(value) else {
@@ -1321,7 +1500,9 @@ impl<'a> Builder<'a> {
             }
             ExpressionKind::Record(_) => unreachable!("record literals normalized before lowering"),
             ExpressionKind::Bind { .. } => unreachable!("bind converted before IR"),
-            ExpressionKind::GenericCall { .. } => unreachable!("generic calls do not enter IR"),
+            ExpressionKind::GenericCall { .. } | ExpressionKind::GenericReference { .. } => {
+                unreachable!("generic syntax does not enter IR")
+            }
             ExpressionKind::FormatString(parts) => {
                 let parts: Vec<_> = parts
                     .iter()
@@ -3172,6 +3353,21 @@ fn verify_function(module: &IrModule, function: &IrFunction, diagnostics: &mut V
                         ));
                     }
                 }
+                OperationKind::ListElement { operand, index } => {
+                    let element = match value_types.get(operand) {
+                        Some(Type::List(element)) => Some(element.as_ref()),
+                        _ => None,
+                    };
+                    if element.is_none()
+                        || value_types.get(index) != Some(&Type::Int)
+                        || operation.result.as_ref().map(|v| &v.ty) != element
+                    {
+                        diagnostics.push(ir_error(
+                            operation.range,
+                            "List projection has an invalid collection, index or element type",
+                        ));
+                    }
+                }
                 OperationKind::StoreField {
                     operand,
                     identity,
@@ -4130,6 +4326,7 @@ fn operation_inputs(kind: &OperationKind) -> Vec<ValueId> {
         }
         OperationKind::StoreLocal { value, .. } => vec![*value],
         OperationKind::StoreField { operand, value, .. } => vec![*operand, *value],
+        OperationKind::ListElement { operand, index } => vec![*operand, *index],
         OperationKind::ErrorMessage { error } | OperationKind::ErrorField { error, .. } => {
             vec![*error]
         }
@@ -4184,6 +4381,7 @@ fn operation_inputs_mut(kind: &mut OperationKind) -> Vec<&mut ValueId> {
         }
         OperationKind::StoreLocal { value, .. } => vec![value],
         OperationKind::StoreField { operand, value, .. } => vec![operand, value],
+        OperationKind::ListElement { operand, index } => vec![operand, index],
         OperationKind::ErrorMessage { error } | OperationKind::ErrorField { error, .. } => {
             vec![error]
         }

@@ -222,6 +222,12 @@ impl Engine<'_> {
             StatementKind::While { condition, body } => {
                 self.while_loop(condition, body, state, all)
             }
+            StatementKind::For {
+                binding,
+                iterable,
+                body,
+                ..
+            } => self.list_for(binding, iterable, body, state, all),
             StatementKind::Switch { value, cases } => {
                 let mut result = Vec::new();
                 let ty = self.type_at(value.range);
@@ -238,6 +244,20 @@ impl Engine<'_> {
                                     for guards in candidate.effect().selection_guards(variant) {
                                         if let Some(mut state) = evaluated.state.condition(&guards)
                                         {
+                                            if let Tracked::Iteration { at, path, .. } = &candidate
+                                            {
+                                                let key = (*at, path.clone());
+                                                if state
+                                                    .iteration_variants
+                                                    .get(&key)
+                                                    .is_some_and(|known| !known.contains(variant))
+                                                {
+                                                    continue;
+                                                }
+                                                state
+                                                    .iteration_variants
+                                                    .insert(key, BTreeSet::from([variant.clone()]));
+                                            }
                                             let outer: BTreeSet<_> =
                                                 state.env.keys().cloned().collect();
                                             for (index, binding) in case.bindings.iter().enumerate()
@@ -719,6 +739,7 @@ fn same_path(previous: &Path, path: &Path) -> bool {
         && left.env == right.env
         && left.pending == right.pending
         && left.observed == right.observed
+        && left.iterated == right.iterated
         && left.requirements == right.requirements
         && left.guards == right.guards
         && left.objects == right.objects
@@ -775,6 +796,7 @@ fn path_hash(path: &Path) -> u64 {
     state.env.hash(&mut hash);
     state.pending.hash(&mut hash);
     state.observed.hash(&mut hash);
+    state.iterated.hash(&mut hash);
     state.requirements.hash(&mut hash);
     state.guards.hash(&mut hash);
     state.objects.hash(&mut hash);

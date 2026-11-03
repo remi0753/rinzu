@@ -230,6 +230,7 @@ fn body_classifier_rejects_contract_and_unsupported_body_changes() {
     layout.ir.source_types.insert(
         "Data".into(),
         rinzu_compiler::SourceTypeSchema {
+            private_fields: Vec::new(),
             kind: "class".into(),
             fields: vec![("value".into(), Type::Int)],
             const_fields: vec![],

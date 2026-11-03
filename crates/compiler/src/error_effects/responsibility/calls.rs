@@ -284,7 +284,8 @@ impl Engine<'_> {
                                     .functions
                                     .iter()
                                     .find(|function| function.declaration.name == name)
-                                && (contract.disrupts_observers
+                                && (values.iter().any(Tracked::contains_iteration)
+                                    || contract.disrupts_observers
                                     || (!self.can_use_data_contract(&name)
                                         && function
                                             .parameter_types

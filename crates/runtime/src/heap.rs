@@ -725,6 +725,30 @@ impl DomainHeap {
         Ok(self.words[offset + 1] as i64)
     }
 
+    /// A typed immutable projection validates only the selected slot. Whole
+    /// object decoders still validate every tag, including malformed tails.
+    pub(crate) fn field_at(
+        &self,
+        reference: HeapRef,
+        index: usize,
+    ) -> Result<HeapValue, HeapError> {
+        let header = self.header(reference)?;
+        if index >= header.field_count as usize {
+            return Err(HeapError::InvalidObject(reference));
+        }
+        let offset = reference.offset_words + HEADER_WORDS + index * FIELD_WORDS;
+        Ok(match self.words[offset] {
+            TAG_NULL => HeapValue::Null,
+            TAG_INTEGER => HeapValue::Integer(self.words[offset + 1] as i64),
+            TAG_REFERENCE => HeapValue::Reference(HeapRef {
+                epoch: self.epoch,
+                offset_words: usize::try_from(self.words[offset + 1])
+                    .map_err(|_| HeapError::AddressSpaceExhausted)?,
+            }),
+            _ => return Err(HeapError::InvalidObject(reference)),
+        })
+    }
+
     /// Used only to initialize fixed native-wrapper integer metadata after
     /// physical return; never mutate a reference tag or allocate new fields.
     pub(crate) fn set_integer_field(

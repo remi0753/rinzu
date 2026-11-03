@@ -1344,6 +1344,29 @@ impl OwnerValues {
                 ))?;
                 Value::Unit
             }
+            OperationKind::ListElement { operand, index } => {
+                let result = result_type()?;
+                let Value::Managed { ty, handle } = get(*operand)? else {
+                    bail!("List projection operand is not managed");
+                };
+                let index = get(*index)?
+                    .scalar()
+                    .ok_or_else(|| anyhow!("List index is not scalar"))?;
+                let index = usize::try_from(index.bits() as i64)?;
+                match checked(self.data.project(&mut self.heap, *handle, *ty, None, index))? {
+                    ManagedSlot::Scalar(value) => Value::Scalar(value),
+                    ManagedSlot::Unit => Value::Unit,
+                    ManagedSlot::Reference(handle) => Value::Managed { ty: result, handle },
+                    ManagedSlot::Opaque(bits)
+                        if matches!(operation.result.as_ref().unwrap().ty, Type::Future(_)) =>
+                    {
+                        Value::Future(bits)
+                    }
+                    ManagedSlot::Opaque(_) => {
+                        bail!("opaque List projection requires its typed executable backend")
+                    }
+                }
+            }
             OperationKind::Field { operand, field, .. }
             | OperationKind::EnumPayload { operand, field, .. } => {
                 let result = result_type()?;

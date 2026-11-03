@@ -860,6 +860,22 @@ impl Tracked {
         }
         visit(self, &mut BTreeSet::new())
     }
+    pub fn contains_iteration(&self) -> bool {
+        match self {
+            Self::Iteration { .. } => true,
+            Self::Record { fields, .. }
+            | Self::Reference {
+                snapshot: Some(fields),
+                ..
+            } => fields.values().any(Self::contains_iteration),
+            Self::Variant { fields, .. }
+            | Self::List(fields)
+            | Self::Batch(fields)
+            | Self::Choice(fields) => fields.iter().any(Self::contains_iteration),
+            Self::Map(entries) => entries.iter().any(|(_, value)| value.contains_iteration()),
+            _ => false,
+        }
+    }
     pub fn erase_opaque_local_tokens(&mut self) {
         match self {
             Self::Unknown { held, .. } => held.retain(|token| matches!(token, Token::Input(_))),

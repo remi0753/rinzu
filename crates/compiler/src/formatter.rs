@@ -312,7 +312,7 @@ impl<'a> Hints<'a> {
 
 impl Visitor for Hints<'_> {
     fn enter_function(&mut self, function: &FunctionDecl) {
-        self.parameters(&function.type_parameters);
+        self.parameters(&function.type_parameters[function.owner_type_parameter_count..]);
     }
 
     fn ty(&mut self, ty: &mut TypeRef) {
@@ -349,8 +349,20 @@ impl Visitor for Hints<'_> {
 
     fn expression(&mut self, expression: &mut Expression) {
         match &expression.kind {
-            ExpressionKind::Bind { type_arguments, .. }
-            | ExpressionKind::GenericCall { type_arguments, .. } => self.arguments(type_arguments),
+            ExpressionKind::Bind { type_arguments, .. } => self.arguments(type_arguments),
+            ExpressionKind::GenericCall {
+                type_arguments,
+                member_type_arguments,
+                ..
+            }
+            | ExpressionKind::GenericReference {
+                type_arguments,
+                member_type_arguments,
+                ..
+            } => {
+                self.arguments(type_arguments);
+                self.arguments(member_type_arguments);
+            }
             ExpressionKind::Binary { left, right, .. } => {
                 let index = self
                     .tokens

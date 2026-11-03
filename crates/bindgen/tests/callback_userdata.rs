@@ -7,6 +7,7 @@ fn model() -> SourceInterface {
     model.source_types.insert(
         "spike.State".into(),
         SourceTypeRecord {
+            private_fields: Vec::new(),
             const_fields: vec![],
             kind: "record".into(),
             fields: vec![("id".into(), "Int".into())],
@@ -82,6 +83,7 @@ fn captured_callback_metadata_checks_the_hidden_managed_argument() {
     original.source_types.insert(
         "spike.Capture".into(),
         SourceTypeRecord {
+            private_fields: Vec::new(),
             kind: "state".into(),
             const_fields: vec![],
             fields: vec![("environment".into(), "spike.Environment".into())],
@@ -91,6 +93,7 @@ fn captured_callback_metadata_checks_the_hidden_managed_argument() {
     original.source_types.insert(
         "spike.Environment".into(),
         SourceTypeRecord {
+            private_fields: Vec::new(),
             kind: "enum".into(),
             const_fields: vec![],
             fields: vec![],

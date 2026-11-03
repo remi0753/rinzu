@@ -76,6 +76,8 @@ pub struct FunctionDecl {
     pub is_private: bool,
     /// Canonical lexical owner; inherited by closures created inside a method.
     pub lexical_owner: Option<String>,
+    /// Owner parameters precede a method's own parameters in specialization.
+    pub owner_type_parameter_count: usize,
     pub type_parameters: Vec<TypeParameter>,
     pub is_async: bool,
     pub parameters: Vec<Parameter>,
@@ -136,6 +138,7 @@ pub struct FieldDecl {
     pub name: String,
     /// Immutable after aggregate construction. Methods are not fields.
     pub is_const: bool,
+    pub is_private: bool,
     pub ty: TypeRef,
     pub range: SourceRange,
 }
@@ -306,6 +309,13 @@ pub enum StatementKind {
         condition: Expression,
         body: Block,
     },
+    /// Finite traversal of one immutable List snapshot.
+    For {
+        binding: String,
+        binding_range: SourceRange,
+        iterable: Expression,
+        body: Block,
+    },
     Switch {
         value: Expression,
         cases: Vec<SwitchCase>,
@@ -366,8 +376,15 @@ pub enum ExpressionKind {
         target: Vec<String>,
         type_arguments: Vec<TypeRef>,
         variant: Option<String>,
+        member_type_arguments: Vec<TypeRef>,
         arguments: Arguments,
         spawn: bool,
+    },
+    GenericReference {
+        target: Vec<String>,
+        type_arguments: Vec<TypeRef>,
+        member: Option<String>,
+        member_type_arguments: Vec<TypeRef>,
     },
     List(Vec<Expression>),
     Map(Vec<(Expression, Expression)>),

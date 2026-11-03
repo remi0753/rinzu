@@ -1396,7 +1396,7 @@ fn interface(
         backend: BackendRecord {
             native_data_contract: rinzu_abi::NATIVE_DATA_CONTRACT_VERSION,
             callback_rule: 1,
-            template_layout: 1,
+            template_layout: rinzu_abi::TEMPLATE_LAYOUT_VERSION,
             service_registry: rinzu_abi::CLOSED_SERVICE_REGISTRY_VERSION,
             page_size: "16384".to_owned(),
             entry_stride: "32".to_owned(),
@@ -1434,6 +1434,8 @@ fn interface(
                 (
                     name.clone(),
                     SourceTemplateRecord {
+                        owner_type_parameters: schema.owner_type_parameters.clone(),
+                        private_fields: schema.private_fields.clone(),
                         kind: schema.kind.clone(),
                         type_parameters: schema.type_parameters.clone(),
                         signature: schema.signature.clone(),
@@ -1456,6 +1458,7 @@ fn interface(
                 (
                     name.clone(),
                     SourceTypeRecord {
+                        private_fields: schema.private_fields.clone(),
                         kind: schema.kind.clone(),
                         const_fields: schema.const_fields.clone(),
                         fields: schema
@@ -1494,6 +1497,7 @@ fn interface(
                             Some((
                                 name.clone(),
                                 SourceTypeRecord {
+                                    private_fields: Vec::new(),
                                     kind: "opaque".into(),
                                     const_fields: Vec::new(),
                                     fields: Vec::new(),
@@ -1751,7 +1755,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(descriptor.interface.package.language, "rinzu-0.5");
-        assert_eq!((descriptor.major, descriptor.minor), (2, 4));
+        assert_eq!((descriptor.major, descriptor.minor), (2, 5));
         let inputs = &descriptor.interface.package.build_inputs;
         assert_eq!(
             inputs["rinzu.language-semantics"],

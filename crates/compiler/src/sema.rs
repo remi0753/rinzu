@@ -199,6 +199,8 @@ pub struct SupplantCall {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceTypeSchema {
     pub kind: String,
+    /// Private storage remains in the complete safety/layout graph.
+    pub private_fields: Vec<u32>,
     pub fields: Vec<(String, Type)>,
     /// Field indices which a verified StoreField must never write.
     pub const_fields: Vec<u32>,
@@ -315,6 +317,123 @@ struct DirectFacts {
 
 pub fn check_module(module: &Module) -> Result<CheckedModule, Vec<Diagnostic>> {
     check_module_with_options(module, &CompilerOptions::default())
+}
+
+/// Generic constraint collection uses the ordinary expression checker, including
+/// literal defaults, record canonicalization and numeric rules. This probe has
+/// no effect/escape authority; the fully specialized program is checked again.
+pub(crate) fn probe_expression_type(
+    module: &Module,
+    expression: &Expression,
+    locals: &HashMap<String, TypeRef>,
+    expected: Option<&TypeRef>,
+    lexical_owner: Option<&str>,
+    data_operation: Option<crate::DataOperation>,
+) -> Option<TypeRef> {
+    let options = CompilerOptions {
+        is_library: true,
+        ..CompilerOptions::default()
+    };
+    let mut checker = Checker::new(module, &options);
+    checker.collect_declarations();
+    checker.constants = evaluate_module_constants(module).unwrap_or_default();
+    checker.prepare_error_types();
+    checker.collect_function_signatures();
+    if let Ok(signatures) =
+        crate::native_interface::source_native_signatures_with_records(module, |ty, constants| {
+            checker.native_context_record(ty, constants)
+        })
+    {
+        checker.source_signatures = signatures
+            .into_iter()
+            .map(|s| (s.name.clone(), s))
+            .collect();
+    }
+    let function = FunctionDecl {
+        name: "$type_probe".into(),
+        is_private: false,
+        lexical_owner: lexical_owner.map(str::to_owned),
+        type_parameters: Vec::new(),
+        owner_type_parameter_count: 0,
+        is_async: true,
+        parameters: Vec::new(),
+        result: TypeRef::unit(expression.range),
+        body: crate::ast::Block {
+            statements: Vec::new(),
+            range: expression.range,
+        },
+        fallback: None,
+        range: expression.range,
+    };
+    let mut context = FunctionContext::new(&function, Type::Unit, false);
+    for (name, ty) in locals {
+        if let Some(ty) = checker.resolve_type(ty) {
+            let targets = if let Type::FunctionReference(signature) = &ty {
+                checker.compatible_reference_targets(signature)
+            } else {
+                Vec::new()
+            };
+            context.locals.insert(
+                name.clone(),
+                Local {
+                    ty,
+                    mutable: false,
+                    constant: None,
+                    targets,
+                },
+            );
+        }
+    }
+    let expected = expected.and_then(|ty| checker.resolve_type(ty));
+    checker.diagnostics.clear();
+    let mut ty = checker.check_expression(expression, expected.as_ref(), &mut context)?;
+    if !checker.diagnostics.is_empty() {
+        return None;
+    }
+    if let Some(operation) = data_operation {
+        let (parameters, result) = crate::core::data_signature(operation, &ty)?;
+        ty = Type::FunctionReference(Box::new(FunctionReferenceType {
+            supplant: false,
+            parameters,
+            result: Box::new(result),
+        }));
+    }
+    fn source(checker: &Checker<'_>, ty: &Type, range: SourceRange) -> TypeRef {
+        let mut result = crate::core::type_ref(ty, range);
+        match ty {
+            Type::Named(name) if name.starts_with("$rinzu_record_") => {
+                if let Some(record) = checker.record_declaration(name) {
+                    result.kind = crate::ast::TypeRefKind::Record(record.fields.clone());
+                }
+            }
+            Type::List(t) => {
+                result.kind = crate::ast::TypeRefKind::List(Box::new(source(checker, t, range)))
+            }
+            Type::Future(t) => {
+                result.kind = crate::ast::TypeRefKind::Future(Box::new(source(checker, t, range)))
+            }
+            Type::Map(k, v) => {
+                result.kind = crate::ast::TypeRefKind::Map(
+                    Box::new(source(checker, k, range)),
+                    Box::new(source(checker, v, range)),
+                )
+            }
+            Type::FunctionReference(signature) => {
+                result.kind = crate::ast::TypeRefKind::Function {
+                    supplant: signature.supplant,
+                    parameters: signature
+                        .parameters
+                        .iter()
+                        .map(|t| source(checker, t, range))
+                        .collect(),
+                    result: Box::new(source(checker, &signature.result, range)),
+                }
+            }
+            _ => {}
+        }
+        result
+    }
+    Some(source(&checker, &ty, expression.range))
 }
 
 pub fn check_module_with_options(
@@ -520,6 +639,13 @@ impl<'a> Checker<'a> {
         for declaration in self.declarations.values() {
             let schema = match declaration {
                 Declaration::Record(record) => SourceTypeSchema {
+                    private_fields: record
+                        .fields
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, f)| f.is_private)
+                        .map(|(i, _)| i as u32)
+                        .collect(),
                     kind: if record.mutable && record.fields.iter().any(|field| !field.is_const) {
                         "state"
                     } else {
@@ -537,6 +663,7 @@ impl<'a> Checker<'a> {
                     variants: Vec::new(),
                 },
                 Declaration::Enum(enumeration) => SourceTypeSchema {
+                    private_fields: Vec::new(),
                     kind: "enum".to_owned(),
                     fields: Vec::new(),
                     const_fields: Vec::new(),
@@ -562,6 +689,7 @@ impl<'a> Checker<'a> {
                     source_types.insert(
                         name.clone(),
                         SourceTypeSchema {
+                            private_fields: Vec::new(),
                             kind: "opaque".to_owned(),
                             fields: Vec::new(),
                             const_fields: Vec::new(),
@@ -573,6 +701,7 @@ impl<'a> Checker<'a> {
                     source_types.insert(
                         record.name.clone(),
                         SourceTypeSchema {
+                            private_fields: Vec::new(),
                             kind: "native-record".to_owned(),
                             fields: fields(&record.fields),
                             // Source assignment is prohibited by the declaration,
@@ -1148,14 +1277,6 @@ impl<'a> Checker<'a> {
                     (Some(expected), None) => expected,
                     (None, None) => return,
                 };
-                if !matches!(ty, Type::FunctionReference(_)) && contains_function_reference(&ty) {
-                    self.diagnostics.push(Diagnostic::error(
-                        DiagnosticCode::TypeMismatch,
-                        initializer.range,
-                        "function references cannot be stored in collections or Future",
-                        "store the reference in a local directly",
-                    ));
-                }
                 if self.contains_call_only_type(&ty, &mut HashSet::new()) {
                     self.diagnostics.push(Diagnostic::error(
                         DiagnosticCode::CallOnlyEscape,
@@ -1233,6 +1354,10 @@ impl<'a> Checker<'a> {
                     self.type_error(statement.range, format!("unknown class field `{field}`"));
                     return;
                 };
+                if declaration.is_private && !self.owner_access(&identity, context) {
+                    self.private_field_error(field, statement.range);
+                    return;
+                }
                 if declaration.is_const {
                     self.type_error(
                         statement.range,
@@ -1332,8 +1457,8 @@ impl<'a> Checker<'a> {
                     self.diagnostics.push(Diagnostic::error(
                         DiagnosticCode::InvalidControlFlow,
                         statement.range,
-                        "loop control is only valid inside `while`",
-                        "move this statement into a `while` body or remove it",
+                        "loop control is only valid inside `while` or `for`",
+                        "move this statement into a loop body or remove it",
                     ));
                 }
             }
@@ -1367,6 +1492,57 @@ impl<'a> Checker<'a> {
                 self.check_block(body, context);
                 context.narrowed_errors = previous;
                 context.loop_depth -= 1;
+            }
+            StatementKind::For {
+                binding,
+                binding_range,
+                iterable,
+                body,
+            } => {
+                let Some(ty) = self.check_expression(iterable, None, context) else {
+                    return;
+                };
+                let Type::List(element) = ty else {
+                    self.type_error(iterable.range, "`for` requires a List value");
+                    return;
+                };
+                let declared_names = context.declared_names.clone();
+                if binding != "_" {
+                    if let Some(previous) = context.declared_names.get(binding).copied() {
+                        self.diagnostics.push(
+                            Diagnostic::error(
+                                DiagnosticCode::DuplicateName,
+                                *binding_range,
+                                format!("local `{binding}` shadows an existing name"),
+                                "choose an unused loop binding name",
+                            )
+                            .with_secondary(previous, "existing declaration is here"),
+                        );
+                        return;
+                    }
+                    context
+                        .declared_names
+                        .insert(binding.clone(), *binding_range);
+                    let targets = if let Type::FunctionReference(signature) = element.as_ref() {
+                        self.compatible_reference_targets(signature)
+                    } else {
+                        Vec::new()
+                    };
+                    context.locals.insert(
+                        binding.clone(),
+                        Local {
+                            ty: *element,
+                            mutable: false,
+                            constant: None,
+                            targets,
+                        },
+                    );
+                }
+                context.loop_depth += 1;
+                self.check_block(body, context);
+                context.loop_depth -= 1;
+                context.locals.remove(binding);
+                context.declared_names = declared_names;
             }
             StatementKind::Switch { value, cases } => {
                 let value_type = self.check_expression(value, None, context);
@@ -1693,7 +1869,7 @@ impl<'a> Checker<'a> {
             ExpressionKind::Record(fields) => {
                 self.check_record_literal(fields, expression.range, expected, context)
             }
-            ExpressionKind::GenericCall { .. } => {
+            ExpressionKind::GenericCall { .. } | ExpressionKind::GenericReference { .. } => {
                 unreachable!("generic calls expanded before checking")
             }
             ExpressionKind::Bind { arguments, .. } => {
@@ -1785,10 +1961,10 @@ impl<'a> Checker<'a> {
                     self.type_error(base.range, "record update requires a language record");
                     return None;
                 };
-                if record.mutable {
+                if record.mutable || !identity.starts_with("$rinzu_record_") {
                     self.type_error(
                         base.range,
-                        "state preserves identity; use field assignment instead of with",
+                        "record update requires a structural record; classes retain their identity",
                     );
                     return None;
                 }
@@ -2069,6 +2245,10 @@ impl<'a> Checker<'a> {
                     return None;
                 };
                 let field_type = declaration.ty.clone();
+                if declaration.is_private && !self.owner_access(name, context) {
+                    self.private_field_error(field, range);
+                    return None;
+                }
                 if self.module.native_blocks.iter().flat_map(|block| &block.members).any(|member| matches!(member, crate::ast::NativeMember::Record(record) if record.name == *name)) {
                     self.native_record_reads.insert(range);
                 }
@@ -2247,6 +2427,7 @@ impl<'a> Checker<'a> {
                             name: "Some".to_owned(),
                             fields: vec![FieldDecl {
                                 is_const: true,
+                                is_private: false,
                                 name: "value".to_owned(),
                                 ty: payload,
                                 range,
@@ -2258,6 +2439,24 @@ impl<'a> Checker<'a> {
             );
         }
         Some(Type::Named(name))
+    }
+
+    fn owner_access(&self, owner: &str, context: &FunctionContext<'_>) -> bool {
+        self.closure_conversion
+            || context
+                .function
+                .lexical_owner
+                .as_deref()
+                .is_some_and(|lexical| lexical.split('<').next() == owner.split('<').next())
+    }
+
+    fn private_field_error(&mut self, field: &str, range: SourceRange) {
+        self.diagnostics.push(Diagnostic::error(
+            DiagnosticCode::UnknownName,
+            range,
+            format!("private field `{field}` can only be used by methods of its owner type"),
+            "use a public method of the owning class",
+        ));
     }
 
     fn method_visible(
@@ -2290,6 +2489,10 @@ impl<'a> Checker<'a> {
             || crate::methods::module_name(name)
                 == crate::methods::module_name(&context.function.name)
             || self.options.exported_methods.contains(name)
+            || self
+                .options
+                .exported_methods
+                .contains(&crate::methods::template_name(name))
             || self
                 .module
                 .exports
@@ -2837,6 +3040,20 @@ impl<'a> Checker<'a> {
         if target.len() == 1
             && let Some(record) = self.record_declaration(&target[0]).cloned()
         {
+            if record.fields.iter().any(|f| f.is_private)
+                && !self.owner_access(&record.name, context)
+            {
+                self.diagnostics.push(Diagnostic::error(
+                    DiagnosticCode::UnknownName,
+                    range,
+                    format!(
+                        "class `{}` has a private constructor because it contains private fields",
+                        record.name
+                    ),
+                    "construct this class through a public factory method",
+                ));
+                return None;
+            }
             context.facts.may_fail = true;
             return self
                 .check_named_arguments(&record.fields, arguments, range, context)
@@ -3532,6 +3749,7 @@ impl<'a> Checker<'a> {
                 .map(|(name, ty)| crate::ast::FieldDecl {
                     name,
                     is_const: true,
+                    is_private: false,
                     ty: self.generated_type_ref(&ty, range),
                     range,
                 })
@@ -3948,19 +4166,11 @@ impl<'a> Checker<'a> {
             }
             TypeRefKind::List(element) => {
                 let value = self.resolve_type_with_constants(element, values)?;
-                if contains_function_reference(&value) {
-                    self.reference_storage_error(type_ref.range);
-                    return None;
-                }
                 Some(Type::List(Box::new(value)))
             }
             TypeRefKind::Map(key, value) => {
                 let key = self.resolve_type_with_constants(key, values)?;
                 let value = self.resolve_type_with_constants(value, values)?;
-                if contains_function_reference(&key) || contains_function_reference(&value) {
-                    self.reference_storage_error(type_ref.range);
-                    return None;
-                }
                 if !self.is_key(&key, &mut HashSet::new()) {
                     self.diagnostics.push(Diagnostic::error(
                         DiagnosticCode::TypeMismatch,
@@ -3973,22 +4183,9 @@ impl<'a> Checker<'a> {
             }
             TypeRefKind::Future(value) => {
                 let value = self.resolve_type_with_constants(value, values)?;
-                if contains_function_reference(&value) {
-                    self.reference_storage_error(type_ref.range);
-                    return None;
-                }
                 Some(Type::Future(Box::new(value)))
             }
         }
-    }
-
-    fn reference_storage_error(&mut self, range: SourceRange) {
-        self.diagnostics.push(Diagnostic::error(
-            DiagnosticCode::TypeMismatch,
-            range,
-            "function references cannot be stored in collections or Future",
-            "use references only in locals and function parameters",
-        ));
     }
 
     fn infer_facts(&self) -> HashMap<String, FunctionFacts> {
@@ -4630,16 +4827,5 @@ pub(crate) fn source_abi_type(abi: &crate::SourceAbiType) -> Type {
                 supplant: false,
             }))
         }
-    }
-}
-
-fn contains_function_reference(ty: &Type) -> bool {
-    match ty {
-        Type::FunctionReference(_) | Type::StaticHandler(_) => true,
-        Type::List(inner) | Type::Future(inner) => contains_function_reference(inner),
-        Type::Map(key, value) => {
-            contains_function_reference(key) || contains_function_reference(value)
-        }
-        _ => false,
     }
 }

@@ -98,6 +98,7 @@ fn contains(outer: SourceRange, inner: SourceRange) -> bool {
         && inner.start_byte < outer.end_byte
 }
 fn base_name(name: &str) -> &str {
+    let name = crate::methods::parts(name).map_or(name, |(_, member)| member);
     name.split('<')
         .next()
         .unwrap_or(name)
@@ -367,6 +368,15 @@ impl Visitor for Lexical<'_> {
     }
     fn enter_statement(&mut self, statement: &Statement) {
         match &statement.kind {
+            StatementKind::For {
+                binding,
+                binding_range,
+                body,
+                ..
+            } if binding != "_" => {
+                self.pending
+                    .insert(body.range, vec![(binding.clone(), *binding_range)]);
+            }
             StatementKind::TryErrors { handlers, .. } => {
                 for handler in handlers {
                     self.pending.insert(
@@ -434,6 +444,7 @@ impl Visitor for Lexical<'_> {
             | ExpressionKind::Call { target: path, .. }
             | ExpressionKind::Spawn { target: path, .. }
             | ExpressionKind::GenericCall { target: path, .. }
+            | ExpressionKind::GenericReference { target: path, .. }
             | ExpressionKind::Bind { target: path, .. } => {
                 self.reference(&path.join("."), expression.range)
             }
@@ -455,9 +466,12 @@ struct Resolved<'a> {
 impl Resolved<'_> {
     fn reference(&mut self, path: &[String], range: SourceRange) {
         let name = path.join(".");
-        if let (Some(definition), Some(span)) =
-            (self.targets.get(&name), self.names.span(range, &name))
-        {
+        if let (Some(definition), Some(span)) = (
+            self.targets
+                .get(&name)
+                .or_else(|| self.targets.get(&crate::methods::template_name(&name))),
+            self.names.span(range, &name),
+        ) {
             // A lexical variable/function alias already resolved at this token
             // must not be replaced by a same-named global target.
             if !self
@@ -477,10 +491,26 @@ impl Resolved<'_> {
 impl Visitor for Resolved<'_> {
     fn expression(&mut self, expression: &mut Expression) {
         match &expression.kind {
+            ExpressionKind::GenericCall {
+                target,
+                variant: Some(member),
+                ..
+            }
+            | ExpressionKind::GenericReference {
+                target,
+                member: Some(member),
+                ..
+            } => {
+                self.reference(target, expression.range);
+                let mut path = target.clone();
+                path.push(member.clone());
+                self.reference(&path, expression.range);
+            }
             ExpressionKind::Name(path)
             | ExpressionKind::Call { target: path, .. }
             | ExpressionKind::Spawn { target: path, .. }
             | ExpressionKind::GenericCall { target: path, .. }
+            | ExpressionKind::GenericReference { target: path, .. }
             | ExpressionKind::Bind { target: path, .. } => self.reference(path, expression.range),
             _ => {}
         }

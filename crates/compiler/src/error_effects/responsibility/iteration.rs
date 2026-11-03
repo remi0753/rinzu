@@ -2,6 +2,174 @@
 //! An ordinary unknown index still denotes just one possible element.
 use super::*;
 impl Engine<'_> {
+    pub(super) fn list_for(
+        &self,
+        binding: &str,
+        iterable: &Expression,
+        body: &Block,
+        state: State,
+        all: bool,
+    ) -> Vec<Path> {
+        let mut result = Vec::new();
+        let at = self.at(iterable.range);
+        let ty = self.type_at(iterable.range);
+        let Type::List(element) = &ty else {
+            return result;
+        };
+        for evaluated in self.expression(iterable, state) {
+            let original = match evaluated.result {
+                Ok(value) => value,
+                Err(stop) => {
+                    result.push(Path {
+                        state: evaluated.state,
+                        control: stop.control(),
+                    });
+                    continue;
+                }
+            };
+            let state = evaluated.state;
+            if let Tracked::List(elements) = &original
+                && elements.len() <= 16
+            {
+                // Keep concrete aliases/closure variants for a small known
+                // snapshot. The bound prevents compile-time path explosion;
+                // larger or symbolic populations use the invariant proof below.
+                let stable = state
+                    .task_population()
+                    .into_iter()
+                    .chain(state.env.values().flat_map(Tracked::tokens))
+                    .chain(state.object_tokens())
+                    .collect();
+                let mut active = vec![Path {
+                    state,
+                    control: Control::Normal,
+                }];
+                let mut exits = Vec::new();
+                for element in elements {
+                    let mut next = Vec::new();
+                    for mut path in active {
+                        if binding != "_" {
+                            path.state.env.insert(binding.to_owned(), element.clone());
+                        }
+                        for mut path in self.block(body, vec![path], all) {
+                            path.state.env.remove(binding);
+                            match path.control {
+                                Control::Normal | Control::Continue => {
+                                    path.control = Control::Normal;
+                                    path.state.age(&stable);
+                                    next.push(path);
+                                }
+                                Control::Break => {
+                                    path.control = Control::Normal;
+                                    exits.push(path);
+                                }
+                                _ => exits.push(path),
+                            }
+                        }
+                    }
+                    active = self.unique_paths(next);
+                }
+                exits.extend(active);
+                result.extend(exits);
+                continue;
+            }
+            let mut probe = state.clone();
+            probe.iterated.retain(|(owner, _)| *owner != at);
+            probe
+                .iteration_variants
+                .retain(|(owner, _), _| *owner != at);
+            let source = Tracked::Iteration {
+                at,
+                base: Box::new(original.clone()),
+                path: Vec::new(),
+                effect: original.effect(),
+            };
+            if binding != "_" {
+                probe.env.insert(
+                    binding.to_owned(),
+                    source.project(
+                        Access::Each(ty.to_string()),
+                        self.typed(element),
+                        matches!(element.as_ref(), Type::Future(_)),
+                    ),
+                );
+            }
+            for group in &mut probe.groups {
+                group.errors = language::empty_word();
+            }
+            let mut paths = self.block(
+                body,
+                vec![Path {
+                    state: probe,
+                    control: Control::Normal,
+                }],
+                all,
+            );
+            for path in &mut paths {
+                path.state.env.remove(binding);
+                if path.control == Control::Continue {
+                    path.control = Control::Normal;
+                }
+            }
+            if let Some(paths) = self.complete_list_traversal(at, &original, &state, paths, None) {
+                result.extend(paths);
+                continue;
+            }
+            // A partial traversal proves no all-elements observation. Use the
+            // same bounded state meet as an ordinary loop, retaining obligations.
+            let mut header = state;
+            let stable = header
+                .task_population()
+                .into_iter()
+                .chain(header.env.values().flat_map(Tracked::tokens))
+                .chain(header.object_tokens())
+                .collect();
+            loop {
+                let before = header.clone();
+                result.push(Path {
+                    state: header.clone(),
+                    control: Control::Normal,
+                });
+                let mut iteration = header.clone();
+                if binding != "_" {
+                    iteration.env.insert(
+                        binding.to_owned(),
+                        original.project(
+                            Access::Element(ty.to_string(), None, at),
+                            self.typed(element),
+                            matches!(element.as_ref(), Type::Future(_)),
+                        ),
+                    );
+                }
+                for mut path in self.block(
+                    body,
+                    vec![Path {
+                        state: iteration,
+                        control: Control::Normal,
+                    }],
+                    all,
+                ) {
+                    path.state.env.remove(binding);
+                    match path.control {
+                        Control::Normal | Control::Continue => {
+                            path.state.age(&stable);
+                            header.join(&path.state);
+                        }
+                        Control::Break => {
+                            path.control = Control::Normal;
+                            result.push(path);
+                        }
+                        _ => result.push(path),
+                    }
+                }
+                if header == before {
+                    break;
+                }
+            }
+        }
+        self.unique_paths(result)
+    }
+
     /// A map starting empty with a single insertion at each increasing Int
     /// counter cannot overwrite an earlier key. Other writes invalidate this
     /// proof, including nested writes and shadowing. Unknown keys stay opaque.
@@ -219,6 +387,17 @@ impl Engine<'_> {
             }],
             all,
         );
+        self.complete_list_traversal(at, &original, state, paths, Some(&collection[0]))
+    }
+
+    fn complete_list_traversal(
+        &self,
+        at: Site,
+        original: &Tracked,
+        state: &State,
+        paths: Vec<Path>,
+        collection_name: Option<&str>,
+    ) -> Option<Vec<Path>> {
         let (mut blocked, paths): (Vec<_>, Vec<_>) = paths.into_iter().partition(|path| {
             path.control == Control::Diverges
                 && path
@@ -247,6 +426,7 @@ impl Engine<'_> {
         let mut grouped: Vec<Option<BTreeSet<Vec<Access>>>> = vec![None; state.groups.len()];
         let mut deltas = vec![Language::new(); state.groups.len()];
         let mut exit = state.clone();
+        let mut observations = Vec::new();
         for path in paths {
             let current: BTreeSet<_> = path
                 .state
@@ -255,6 +435,7 @@ impl Engine<'_> {
                 .filter(|(owner, _)| *owner == at)
                 .map(|(_, path)| path.clone())
                 .collect();
+            observations.push((current.clone(), path.state.iteration_variants.clone()));
             intersect(&mut observed, current);
             for (index, group) in path.state.groups.iter().enumerate() {
                 let seen = group
@@ -273,7 +454,16 @@ impl Engine<'_> {
             }
             exit.join(&path.state);
         }
-        let observed = observed?;
+        let mut observed = observed?;
+        let candidates: BTreeSet<_> = observations
+            .iter()
+            .flat_map(|(paths, _)| paths.iter().cloned())
+            .collect();
+        observed.extend(candidates.into_iter().filter(|candidate| {
+            observations.iter().all(|(seen, variants)| {
+                seen.contains(candidate) || projection_absent(at, candidate, variants)
+            })
+        }));
         if observed.is_empty() {
             return None;
         }
@@ -283,7 +473,7 @@ impl Engine<'_> {
                     .producers
                     .contains_key(&Token::Iteration(at, path.clone()))
             });
-            for token in self.observation_tokens(&all_projection(&original, &path)) {
+            for token in self.observation_tokens(&all_projection(original, &path)) {
                 if delegated {
                     exit.provisional_observe(&token);
                 } else {
@@ -300,7 +490,7 @@ impl Engine<'_> {
                 if let Token::Iteration(owner, path) = receivers::canonical(token)
                     && owner == at
                 {
-                    self.completion_tokens(&all_projection(&original, &path))
+                    self.completion_tokens(&all_projection(original, &path))
                 } else {
                     BTreeSet::from([token.clone()])
                 }
@@ -346,34 +536,43 @@ impl Engine<'_> {
             for path in grouped[index].take().unwrap_or_default() {
                 exit.groups[index]
                     .observed
-                    .extend(self.observation_tokens(&all_projection(&original, &path)));
+                    .extend(self.observation_tokens(&all_projection(original, &path)));
             }
         }
         exit.guards = state.guards.clone();
         exit.iterated.retain(|(owner, _)| *owner != at);
+        exit.iteration_variants.retain(|(owner, _), _| *owner != at);
         for value in exit.env.values_mut() {
             value.finish_iteration(at);
         }
-        exit.env.insert(collection[0].clone(), original.clone());
+        if let Some(name) = collection_name {
+            exit.env.insert(name.to_owned(), original.clone());
+        }
         for path in &mut blocked {
             // This representative element stops traversal. It cannot transfer
             // all of the collection's responsibilities to a blocked receiver.
             path.state.iterated.retain(|(owner, _)| *owner != at);
+            path.state
+                .iteration_variants
+                .retain(|(owner, _), _| *owner != at);
             for value in path.state.env.values_mut() {
                 value.finish_iteration(at);
             }
-            path.state
-                .env
-                .insert(collection[0].clone(), original.clone());
+            if let Some(name) = collection_name {
+                path.state.env.insert(name.to_owned(), original.clone());
+            }
         }
         for path in &mut early {
             path.state.iterated.retain(|(owner, _)| *owner != at);
+            path.state
+                .iteration_variants
+                .retain(|(owner, _), _| *owner != at);
             for value in path.state.env.values_mut() {
                 value.finish_iteration(at);
             }
-            path.state
-                .env
-                .insert(collection[0].clone(), original.clone());
+            if let Some(name) = collection_name {
+                path.state.env.insert(name.to_owned(), original.clone());
+            }
         }
         blocked.extend(early);
         blocked.push(Path {
@@ -382,6 +581,22 @@ impl Engine<'_> {
         });
         Some(blocked)
     }
+}
+fn projection_absent(
+    at: Site,
+    path: &[Access],
+    variants: &BTreeMap<(Site, Vec<Access>), BTreeSet<String>>,
+) -> bool {
+    for (index, access) in path.iter().enumerate() {
+        if let Access::Variant(_, variant, _) = access
+            && variants
+                .get(&(at, path[..index].to_vec()))
+                .is_some_and(|known| !known.contains(variant))
+        {
+            return true;
+        }
+    }
+    false
 }
 fn intersect<T: Ord>(common: &mut Option<BTreeSet<T>>, next: BTreeSet<T>) {
     if let Some(common) = common {

@@ -43,6 +43,8 @@ impl Parser<'_> {
                 native_blocks.push(self.native_block()?);
             } else if self.at_identifier("class") {
                 declarations.extend(self.class()?);
+            } else if self.at(&TokenKind::Enum) {
+                declarations.extend(self.enum_with_methods()?);
             } else {
                 declarations.push(self.declaration()?);
             }
@@ -191,6 +193,7 @@ impl Parser<'_> {
             name,
             is_private,
             lexical_owner: (path.len() == 2).then(|| path[0].clone()),
+            owner_type_parameter_count: 0,
             type_parameters,
             is_async,
             parameters,
@@ -264,14 +267,23 @@ impl Parser<'_> {
                 }
                 method.name = format!("{name}.{}", method.name);
                 method.lexical_owner = Some(name.clone());
+                Self::owner_parameters(&mut method, &type_parameters)?;
                 methods.push(Declaration::Function(method));
             } else {
+                let start = self.current().range;
+                let is_private = self.at_identifier("private")
+                    && matches!(self.peek_kind(1), Some(TokenKind::Identifier(_)));
+                if is_private {
+                    self.advance();
+                }
                 let is_const = self.at_identifier("const");
                 if is_const {
                     self.advance();
                 }
                 let mut field = self.field()?;
                 field.is_const = is_const;
+                field.is_private = is_private;
+                field.range = start.join(field.range);
                 fields.push(field);
                 if self.consume(&TokenKind::Comma).is_none()
                     && !self.at(&TokenKind::RightBrace)
@@ -311,6 +323,72 @@ impl Parser<'_> {
             variants,
             range: start.join(end),
         })
+    }
+
+    fn owner_parameters(
+        method: &mut FunctionDecl,
+        owner: &[crate::ast::TypeParameter],
+    ) -> Result<(), Diagnostic> {
+        if let Some(parameter) = method
+            .type_parameters
+            .iter()
+            .find(|p| owner.iter().any(|o| o.name == p.name))
+        {
+            return Err(Diagnostic::error(
+                DiagnosticCode::DuplicateName,
+                parameter.range,
+                "method type parameter shadows its owner's type parameter",
+                "choose a different method type parameter name",
+            ));
+        }
+        method.owner_type_parameter_count = owner.len();
+        let mut all = owner.to_vec();
+        all.append(&mut method.type_parameters);
+        method.type_parameters = all;
+        Ok(())
+    }
+
+    fn enum_with_methods(&mut self) -> Result<Vec<Declaration>, Diagnostic> {
+        let start = self.take(&TokenKind::Enum)?.range;
+        let (name, _) = self.identifier()?;
+        let type_parameters = self.type_parameters()?;
+        self.take(&TokenKind::LeftBrace)?;
+        let mut variants = Vec::new();
+        let mut methods = Vec::new();
+        while !self.at(&TokenKind::RightBrace) {
+            if self.at(&TokenKind::Fn) || self.at(&TokenKind::Async) || self.at_private_method() {
+                let mut method = self.function()?;
+                if method.name.contains('.') {
+                    return Err(self.unexpected("an unqualified enum method name"));
+                }
+                method.name = format!("{name}.{}", method.name);
+                method.lexical_owner = Some(name.clone());
+                Self::owner_parameters(&mut method, &type_parameters)?;
+                methods.push(Declaration::Function(method));
+            } else {
+                variants.push(self.variant()?);
+                if self.consume(&TokenKind::Comma).is_none()
+                    && !self.at(&TokenKind::RightBrace)
+                    && !self.at(&TokenKind::Fn)
+                    && !self.at(&TokenKind::Async)
+                    && !self.at_private_method()
+                {
+                    return Err(self.unexpected("a comma, enum method, or closing brace"));
+                }
+            }
+        }
+        if variants.is_empty() {
+            return Err(self.unexpected("at least one enum variant"));
+        }
+        let end = self.take(&TokenKind::RightBrace)?.range;
+        let mut declarations = vec![Declaration::Enum(EnumDecl {
+            name,
+            type_parameters,
+            variants,
+            range: start.join(end),
+        })];
+        declarations.extend(methods);
+        Ok(declarations)
     }
 
     fn error_decl(&mut self) -> Result<ErrorDecl, Diagnostic> {
@@ -401,6 +479,7 @@ impl Parser<'_> {
         Ok(FieldDecl {
             name,
             is_const: true,
+            is_private: false,
             range: start.join(ty.range),
             ty,
         })
@@ -640,6 +719,25 @@ impl Parser<'_> {
         }
         if self.at(&TokenKind::While) {
             return self.while_statement();
+        }
+        if matches!(&self.current().kind, TokenKind::Identifier(word) if word == "for")
+            && matches!(self.peek_kind(1), Some(TokenKind::Identifier(_)))
+            && matches!(self.peek_kind(2), Some(TokenKind::Identifier(word)) if word == "in")
+        {
+            let start = self.advance().range;
+            let (binding, binding_range) = self.identifier()?;
+            self.advance(); // contextual `in`
+            let iterable = self.expression()?;
+            let body = self.block()?;
+            return Ok(Statement {
+                range: start.join(body.range),
+                kind: StatementKind::For {
+                    binding,
+                    binding_range,
+                    iterable,
+                    body,
+                },
+            });
         }
         if self.at(&TokenKind::Switch) {
             return self.switch_statement();
@@ -1142,6 +1240,7 @@ impl Parser<'_> {
                 name: String::new(),
                 is_private: false,
                 lexical_owner: None,
+                owner_type_parameter_count: 0,
                 type_parameters: Vec::new(),
                 is_async,
                 parameters,
@@ -1210,6 +1309,11 @@ impl Parser<'_> {
                 } else {
                     None
                 };
+                let member_type_arguments = if variant.is_some() && self.at(&TokenKind::Less) {
+                    self.type_arguments()?
+                } else {
+                    Vec::new()
+                };
                 if self.consume(&TokenKind::LeftParen).is_some() {
                     let arguments = self.arguments()?;
                     let close = self.take(&TokenKind::RightParen)?.range;
@@ -1218,10 +1322,30 @@ impl Parser<'_> {
                             target: path,
                             type_arguments,
                             variant,
+                            member_type_arguments,
                             arguments,
                             spawn: false,
                         },
                         range: start.join(close),
+                    });
+                }
+                if matches!(
+                    self.current().kind,
+                    TokenKind::Semicolon
+                        | TokenKind::Comma
+                        | TokenKind::RightParen
+                        | TokenKind::RightBracket
+                        | TokenKind::RightBrace
+                ) {
+                    let end = self.previous().range;
+                    return Ok(Expression {
+                        kind: ExpressionKind::GenericReference {
+                            target: path,
+                            type_arguments,
+                            member: variant,
+                            member_type_arguments,
+                        },
+                        range: start.join(end),
                     });
                 }
             }
@@ -1308,6 +1432,27 @@ impl Parser<'_> {
     }
 
     fn record_or_map(&mut self) -> Result<Expression, Diagnostic> {
+        if matches!(self.peek_kind(1), Some(TokenKind::Ellipsis)) {
+            let start = self.take(&TokenKind::LeftBrace)?.range;
+            self.take(&TokenKind::Ellipsis)?;
+            let base = Box::new(self.expression()?);
+            self.take(&TokenKind::Comma)?;
+            if self.at(&TokenKind::RightBrace) {
+                return Err(self.unexpected("at least one record update field"));
+            }
+            let fields = self.comma_list(TokenKind::RightBrace, |parser| {
+                let (name, start) = parser.identifier()?;
+                parser.take(&TokenKind::Equal)?;
+                let value = parser.expression()?;
+                let range = start.join(value.range);
+                Ok((name, value, range))
+            })?;
+            let end = self.take(&TokenKind::RightBrace)?.range;
+            return Ok(Expression {
+                kind: ExpressionKind::RecordUpdate { base, fields },
+                range: start.join(end),
+            });
+        }
         // A record starts with name[ : Type ] =. A Map keeps key : value.
         let save = self.cursor;
         self.advance();

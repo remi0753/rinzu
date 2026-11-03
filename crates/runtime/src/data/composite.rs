@@ -491,6 +491,21 @@ impl ManagedData {
     ) -> Result<ManagedSlot, DataError> {
         let reference = self.reference(heap, handle, DataKind::Composite(ty))?;
         self.require_native_record_readable(heap, reference)?;
+        if let ValueType::List(child) = self.value_schema()?.ty(ty)? {
+            let child = *child;
+            let header = heap.header(reference)?;
+            if header.type_id != COMPOSITE_TYPE
+                || variant.is_some()
+                || usize::try_from(heap.integer_field(reference, 0)?).ok() != Some(ty)
+                || heap.integer_field(reference, 1)? != -1
+            {
+                return Err(DataError::WrongKind);
+            }
+            let field = index
+                .checked_add(2)
+                .ok_or(DataError::AddressSpaceExhausted)?;
+            return self.slot_from_field(heap, child, heap.field_at(reference, field)?);
+        }
         let (actual, mut fields) = self.composite_fields_iter(heap, reference, ty)?;
         if variant != actual {
             return Err(ValueError::TypeMismatch.into());

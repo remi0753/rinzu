@@ -84,7 +84,7 @@ fn generic_constraints_arity_and_growth_are_diagnosed_before_ir() {
         "fn id<T: Safe>(value: T) -> T { return value; } fn main() {}",
         "fn id<T: Key>(value: T) -> T { return value; } fn main() { let b = id<Float>(1.0); }",
         "fn grow<T>(value: T) { grow<List<T>>([value]); } fn main() { grow<Int>(1); }",
-        "fn id<T>(value: T) -> T { return value; } fn main() { let b = id(1); }",
+        "fn empty<T>() -> Option<T> { return Option<T>.None(); } fn main() { let b = empty(); }",
     ] {
         assert!(compile_source(&file(source)).is_err(), "{source}");
     }

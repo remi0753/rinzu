@@ -8,8 +8,10 @@ use crate::ast::{
 pub struct SourceTemplateSchema {
     pub kind: String,
     pub type_parameters: Vec<(String, Vec<String>)>,
+    pub owner_type_parameters: Vec<(String, Vec<String>)>,
     pub signature: String,
     pub const_fields: Vec<u32>,
+    pub private_fields: Vec<u32>,
     pub fields: Vec<(String, String)>,
     pub variants: Vec<(String, Vec<(String, String)>)>,
 }
@@ -103,6 +105,8 @@ pub(crate) fn schema(declaration: &Declaration) -> Option<SourceTemplateSchema> 
                 "error()".into()
             };
             return Some(SourceTemplateSchema {
+                owner_type_parameters: Vec::new(),
+                private_fields: Vec::new(),
                 kind: "error".into(),
                 type_parameters: type_parameters(&error.type_parameters),
                 signature,
@@ -116,9 +120,21 @@ pub(crate) fn schema(declaration: &Declaration) -> Option<SourceTemplateSchema> 
     if parameters.is_empty() {
         return None;
     }
+    let owner_count = if let Declaration::Function(f) = declaration {
+        f.owner_type_parameter_count
+    } else {
+        0
+    };
     Some(SourceTemplateSchema {
+        owner_type_parameters: type_parameters(&parameters[..owner_count]),
+        private_fields: members
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.is_private)
+            .map(|(i, _)| i as u32)
+            .collect(),
         kind: kind.into(),
-        type_parameters: type_parameters(parameters),
+        type_parameters: type_parameters(&parameters[owner_count..]),
         signature,
         const_fields: members
             .iter()

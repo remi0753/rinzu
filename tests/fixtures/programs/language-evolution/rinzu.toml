@@ -1,0 +1,5 @@
+[package]
+name = "language_evolution"
+language = "0.5"
+kind = "application"
+entry = "src/main.rinzu"

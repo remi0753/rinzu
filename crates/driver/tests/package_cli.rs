@@ -9,6 +9,54 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 struct Fixture(PathBuf);
 
 #[test]
+fn api_v3_hides_private_storage_and_preserves_generic_owner_groups() {
+    let f = Fixture::new();
+    std::fs::write(f.path("sdk/src/model.rinzu"),"class Internal{value:Int}class Counter{private const hiddenValue:Internal fn create()->Counter{return Counter(hiddenValue:Internal(value:3));}fn read(self:Counter)->Int{return self.hiddenValue.value;}}class Box<T>{private const item:T fn create(value:T)->Box<T>{return Box<T>(item:value);}fn get(self:Box<T>)->T{return self.item;}}export Counter;export Box;").unwrap();
+    let snapshot = f.path("privacy-api.json");
+    let markdown = f.path("privacy-api.md");
+    success(f.cli(
+        "api",
+        "sdk",
+        &[
+            "--output",
+            snapshot.to_str().unwrap(),
+            "--markdown",
+            markdown.to_str().unwrap(),
+        ],
+    ));
+    let api = json(&snapshot);
+    assert_eq!(api["version"], 3);
+    assert_eq!(
+        api["exports"]["model.Counter"]["constructor_visibility"],
+        "owner"
+    );
+    assert_eq!(
+        api["exports"]["model.Counter"]["source_type"]["private_fields"],
+        serde_json::json!([0])
+    );
+    assert!(
+        api["exports"]["model.Counter"]["private_graph"]
+            .as_str()
+            .is_some_and(|s| s.len() == 64)
+    );
+    let serialized = std::fs::read_to_string(&snapshot).unwrap();
+    assert!(
+        !serialized.contains("hiddenValue") && !serialized.contains("Internal"),
+        "{serialized}"
+    );
+    let text = std::fs::read_to_string(&markdown).unwrap();
+    assert!(!text.contains("hiddenValue"));
+    assert_eq!(
+        api["exports"]["model.Box.get"]["source_template"]["owner_type_parameters"],
+        serde_json::json!([["T", []]])
+    );
+    assert_eq!(
+        api["exports"]["model.Box.get"]["source_template"]["type_parameters"],
+        serde_json::json!([])
+    );
+}
+
+#[test]
 fn api_reference_distinguishes_native_data_and_class_methods() {
     let f = Fixture::new();
     let source = "native{opaque Handle;record Packet{value:Int}}class Owner{const handle:Handle,const packet:Packet fn read(self:Owner)->Int{return self.packet.value;}}\n/// First context declaration.\ntype Context={owner:Owner};\n/// Second context declaration.\ntype Session=Context;export Handle;export Packet;export Owner;export Context;export Session;";
@@ -273,7 +321,7 @@ fn markdown_reference_filters_private_exports_and_runs_captured_doc_examples() {
     assert!(first.contains("Kept value."));
     assert!(!first.contains("SECRET_PRIVATE_DOCUMENTATION"));
     assert!(first.contains("sdk/src/model.rinzu#L2"));
-    assert_eq!(json(&snapshot)["version"], 2);
+    assert_eq!(json(&snapshot)["version"], 3);
     success(f.cli(
         "test",
         "sdk",
@@ -468,7 +516,7 @@ fn public_templates_lock_refresh_api_report_and_all_backends() {
     std::fs::write(main, format!("{body}\n// application-only change\n")).unwrap();
     success(f.cli("lock", "app", &["--check"]));
     success(f.cli("api", "sdk", &[]));
-    let api = f.path("sdk/build/package-api-v2.json");
+    let api = f.path("sdk/build/package-api-v3.json");
     let baseline = f.path("old-api.json");
     std::fs::copy(&api, &baseline).unwrap();
     let value = json(&api);
@@ -495,7 +543,7 @@ fn public_templates_lock_refresh_api_report_and_all_backends() {
     rejected(f.cli("lock", "app", &["--check"]), "package lock mismatch");
     assert_eq!(lock, std::fs::read(&lock_path).unwrap());
     success(f.cli("api", "sdk", &["--compare", baseline.to_str().unwrap()]));
-    let report = f.path("sdk/build/package-api-v2.report.json");
+    let report = f.path("sdk/build/package-api-v3.report.json");
     assert_eq!(json(&report)["breaking_candidates"], serde_json::json!([]));
     assert_eq!(json(&report)["behavior_equivalence"], false);
     std::fs::write(
@@ -561,12 +609,12 @@ fn diamond_reexports_file_moves_deletion_and_cycles_recheck() {
     success(f.cli("run", "app", &[]));
     success(f.cli("api", "left", &[]));
     assert_eq!(
-        json(&f.path("left/build/package-api-v2.json"))["exports"]["left.Box"]["identity"],
+        json(&f.path("left/build/package-api-v3.json"))["exports"]["left.Box"]["identity"],
         "model::Box"
     );
     success(f.cli("api", "sdk", &[]));
     let baseline = f.path("before-move.json");
-    std::fs::copy(f.path("sdk/build/package-api-v2.json"), &baseline).unwrap();
+    std::fs::copy(f.path("sdk/build/package-api-v3.json"), &baseline).unwrap();
     std::fs::rename(f.path("sdk/src/model.rinzu"), f.path("sdk/src/moved.rinzu")).unwrap();
     let manifest = f.path("sdk/rinzu.toml");
     std::fs::write(
@@ -579,7 +627,7 @@ fn diamond_reexports_file_moves_deletion_and_cycles_recheck() {
     rejected(f.cli("lock", "app", &["--check"]), "package lock mismatch");
     success(f.cli("api", "sdk", &["--compare", baseline.to_str().unwrap()]));
     assert_eq!(
-        json(&f.path("sdk/build/package-api-v2.report.json"))["breaking_candidates"],
+        json(&f.path("sdk/build/package-api-v3.report.json"))["breaking_candidates"],
         serde_json::json!([])
     );
     let source = f.path("sdk/src/moved.rinzu");
@@ -592,7 +640,7 @@ fn diamond_reexports_file_moves_deletion_and_cycles_recheck() {
     .unwrap();
     success(f.cli("api", "sdk", &["--compare", baseline.to_str().unwrap()]));
     assert!(
-        json(&f.path("sdk/build/package-api-v2.report.json"))["breaking_candidates"]
+        json(&f.path("sdk/build/package-api-v3.report.json"))["breaking_candidates"]
             .as_array()
             .unwrap()
             .iter()
@@ -706,7 +754,7 @@ fn actual_header_source_archive_and_corrupt_native_cache_are_revalidated() {
 }
 
 #[test]
-fn native_data_lock_requires_explicit_refresh_and_regenerates_v24_bundles() {
+fn native_data_lock_requires_explicit_refresh_and_regenerates_v25_bundles() {
     let f = Fixture::new();
     std::fs::write(f.path("sdk/rinzu.toml"), "[package]\nname=\"model\"\nlanguage=\"0.5\"\nkind=\"sdk\"\nentry=\"src/model.rinzu\"\n[native]\nheaders=[\"api.h\"]\nsources=[\"api.c\"]\n").unwrap();
     std::fs::write(
@@ -760,7 +808,7 @@ fn native_data_lock_requires_explicit_refresh_and_regenerates_v24_bundles() {
     let bundle = f.path("app/build/consumer.source-packages");
     let manifest = json(&bundle.join("manifest.json"));
     let descriptor = json(&bundle.join(manifest["packages"][0]["descriptor"].as_str().unwrap()));
-    assert_eq!(descriptor["minor"], 4);
+    assert_eq!(descriptor["minor"], 5);
     assert_eq!(
         descriptor["interface"]["backend"]["native_data_contract"],
         1

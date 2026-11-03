@@ -110,6 +110,9 @@ impl Engine<'_> {
     }
     fn raw_expression(&self, expression: &Expression, state: State) -> Vec<Evaluation> {
         match &expression.kind {
+            ExpressionKind::GenericReference { .. } => {
+                unreachable!("generic references are specialized before responsibility analysis")
+            }
             ExpressionKind::Name(path) => {
                 let mut value = if let Some(ty) =
                     self.checked.error_narrowings.get(&expression.range)

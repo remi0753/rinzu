@@ -3347,6 +3347,27 @@ mod target {
                     );
                     Some(value)
                 }
+                OperationKind::ListElement { operand, index } => {
+                    let ty = runtime.data_schema.index(&value_types[operand])?;
+                    let operand = value_of(values, *operand)?;
+                    let index = value_of(values, *index)?;
+                    let ty = builder.ins().iconst(types::I64, i64::try_from(ty)?);
+                    let variant = builder.ins().iconst(types::I64, -1);
+                    let call = builder.ins().call(
+                        owner_helper(runtime, "project", runtime.project, owner_proven),
+                        &[context_value, operand, ty, variant, index],
+                    );
+                    let result = builder.inst_results(call)[0];
+                    branch_after_runtime_call(
+                        builder,
+                        runtime,
+                        context_value,
+                        blocks,
+                        function.failure,
+                        &cleanup_chain,
+                    );
+                    Some(result)
+                }
                 OperationKind::Field {
                     operand,
                     identity,

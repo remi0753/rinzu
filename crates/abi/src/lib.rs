@@ -93,11 +93,11 @@ pub type NativePackageEntryV1 = unsafe extern "C" fn() -> *const NativePackageDe
 /// Source-driven ABI is separate from the legacy uniform invocation ABI.
 pub const SOURCE_PACKAGE_ENTRY_V2: &str = "rinzu_source_package_v2";
 pub const SOURCE_PACKAGE_MAJOR: u16 = 2;
-pub const SOURCE_PACKAGE_MINOR: u16 = 4;
+pub const SOURCE_PACKAGE_MINOR: u16 = 5;
 /// Shared native records and call-scoped ordinary record context tokens.
 pub const NATIVE_DATA_CONTRACT_VERSION: u32 = 1;
 pub const CALLBACK_RULE_VERSION: u32 = 1;
-pub const TEMPLATE_LAYOUT_VERSION: u32 = 1;
+pub const TEMPLATE_LAYOUT_VERSION: u32 = 2;
 pub const CLOSED_SERVICE_REGISTRY_VERSION: u32 = 3;
 
 #[repr(C)]

@@ -112,11 +112,7 @@ fn invalid_method_surfaces_report_source_ranges() {
         ),
         (
             "class Box<T> {value:T\n    fn read(self:Box<Int>)->Int {return self.value;}\n}  fn main(){}",
-            "generic",
-        ),
-        (
-            "class Editor {value:Int\n    fn read<T>(self:Editor,value:T)->T {return value;}\n}  fn main(){}",
-            "generic",
+            "first parameter",
         ),
         (
             "class Editor {value:Int\n    fn create()->Editor {return Editor(value:0);}\n}  fn main(){let e=Editor(value:1);let copy=e.create();}",

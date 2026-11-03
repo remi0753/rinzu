@@ -6,6 +6,7 @@ use crate::{Diagnostic, SourceFile, SourceRange, parse_source};
 #[derive(Clone, Debug)]
 pub struct SourceMemberDocumentation {
     pub name: String,
+    pub is_private: bool,
     pub kind: &'static str,
     pub signature: String,
     pub documentation: String,
@@ -112,6 +113,7 @@ impl Collector<'_> {
                 };
                 SourceMemberDocumentation {
                     name: field.name.clone(),
+                    is_private: field.is_private,
                     kind: "field",
                     signature: self.slice(start, field.range.end_byte).trim().to_owned(),
                     documentation: self.before(start),
@@ -180,6 +182,7 @@ pub fn source_documentation(
                     .payload
                     .as_ref()
                     .map(|payload| SourceMemberDocumentation {
+                        is_private: false,
                         name: "payload".to_owned(),
                         kind: "field",
                         signature: collector
@@ -202,6 +205,7 @@ pub fn source_documentation(
                     .variants
                     .iter()
                     .map(|variant| SourceMemberDocumentation {
+                        is_private: false,
                         name: variant.name.clone(),
                         kind: "variant",
                         signature: collector

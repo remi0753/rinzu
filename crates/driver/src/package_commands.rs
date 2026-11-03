@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 const LOCK_SCHEMA: &str = "rinzu.package-lock";
 const API_SCHEMA: &str = "rinzu.package-api";
 const VERSION: u32 = 2;
+const API_VERSION: u32 = 3;
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -83,6 +84,10 @@ struct PackageLock {
 #[serde(deny_unknown_fields)]
 struct ApiEntry {
     identity: String,
+    #[serde(default)]
+    constructor_visibility: Option<String>,
+    #[serde(default)]
+    private_graph: Option<String>,
     function: Option<FunctionRecord>,
     source_type: Option<SourceTypeRecord>,
     source_template: Option<SourceTemplateRecord>,
@@ -374,11 +379,45 @@ fn api(descriptor: &SourceDescriptor) -> Result<PackageApi, String> {
         if let Some(function) = &mut function {
             function.callback_sites.clear();
         }
+        let mut source_type = interface.source_types.get(identity).cloned();
+        let mut source_template = interface.source_templates.get(identity).cloned();
+        let private = source_type
+            .as_ref()
+            .is_some_and(|t| !t.private_fields.is_empty())
+            || source_template
+                .as_ref()
+                .is_some_and(|t| !t.private_fields.is_empty());
+        let constructor = source_type
+            .as_ref()
+            .is_some_and(|t| matches!(t.kind.as_str(), "record" | "state"))
+            || source_template.as_ref().is_some_and(|t| t.kind == "class");
+        if let Some(schema) = &mut source_type {
+            for index in &schema.private_fields {
+                schema.fields[*index as usize] = (format!("$private:{index}"), "<private>".into());
+            }
+        }
+        if let Some(schema) = &mut source_template {
+            for index in &schema.private_fields {
+                schema.fields[*index as usize] = (format!("$private:{index}"), "<private>".into());
+            }
+        }
         let entry = ApiEntry {
             identity: identity.clone(),
+            constructor_visibility: constructor
+                .then(|| if private { "owner" } else { "public" }.into()),
+            // Keep a conservative change signal for hidden layout/capability
+            // graphs without publishing their source names as usable API.
+            private_graph: if private {
+                Some(sha256(
+                    &serde_json::to_vec(&(&interface.source_types, &interface.source_templates))
+                        .map_err(|e| e.to_string())?,
+                ))
+            } else {
+                None
+            },
             function,
-            source_type: interface.source_types.get(identity).cloned(),
-            source_template: interface.source_templates.get(identity).cloned(),
+            source_type,
+            source_template,
             source_value: interface.source_values.get(identity).cloned(),
             native_type: interface
                 .types
@@ -405,7 +444,7 @@ fn api(descriptor: &SourceDescriptor) -> Result<PackageApi, String> {
     }
     Ok(PackageApi {
         schema: API_SCHEMA.into(),
-        version: VERSION,
+        version: API_VERSION,
         package: interface.package.package.clone(),
         language: interface.package.language.clone(),
         target: interface.package.target.clone(),
@@ -415,13 +454,21 @@ fn api(descriptor: &SourceDescriptor) -> Result<PackageApi, String> {
 }
 
 fn compare(previous: &PackageApi, current: &PackageApi) -> Result<ApiReport, String> {
-    if previous.schema != API_SCHEMA || previous.version != VERSION {
+    if previous.schema != API_SCHEMA
+        || !matches!(previous.version, 2 | API_VERSION)
+        || current.schema != API_SCHEMA
+        || current.version != API_VERSION
+    {
         return Err("unsupported package API schema/version".into());
     }
     if previous.package != current.package {
         return Err("package API comparison requires the same package identity".into());
     }
     let mut breaking_candidates = Vec::new();
+    if previous.version != API_VERSION {
+        breaking_candidates
+            .push("baseline v2 has no visibility contracts; compatibility is unknown".into());
+    }
     if previous.language != current.language
         || previous.target != current.target
         || previous.semantics != current.semantics
@@ -445,7 +492,7 @@ fn compare(previous: &PackageApi, current: &PackageApi) -> Result<ApiReport, Str
         .collect();
     Ok(ApiReport {
         schema: "rinzu.package-api-report",
-        version: VERSION,
+        version: API_VERSION,
         package: current.package.clone(),
         breaking_candidates,
         additions,
@@ -578,7 +625,7 @@ pub fn run(command: &str, mut arguments: impl Iterator<Item = String>) -> Result
             .transpose()?;
         let output = parsed
             .output
-            .unwrap_or_else(|| manifest.root.join("build/package-api-v2.json"));
+            .unwrap_or_else(|| manifest.root.join("build/package-api-v3.json"));
         let rendered = markdown
             .as_ref()
             .map(|path| {
@@ -616,7 +663,7 @@ mod tests {
     #[test]
     fn snapshots_are_closed_versioned_and_api_diffs_are_conservative() {
         let value = serde_json::json!({
-            "schema": API_SCHEMA, "version": VERSION, "package": "model", "language": "rinzu-0.5",
+            "schema": API_SCHEMA, "version": API_VERSION, "package": "model", "language": "rinzu-0.5",
             "target": "aarch64-apple-darwin", "semantics": "rinzu-language-0.5-r2", "exports": {}
         });
         let original: PackageApi = serde_json::from_value(value.clone()).unwrap();
@@ -631,6 +678,8 @@ mod tests {
             "model.value".into(),
             ApiEntry {
                 identity: "value".into(),
+                constructor_visibility: None,
+                private_graph: None,
                 function: None,
                 source_type: None,
                 source_template: None,
@@ -647,6 +696,14 @@ mod tests {
             compare(&current, &original).unwrap().breaking_candidates,
             ["removed model.value (value)"]
         );
+        let legacy = PackageApi {
+            version: 2,
+            ..serde_json::from_str(&serde_json::to_string(&original).unwrap()).unwrap()
+        };
+        let migration = compare(&legacy, &original).unwrap();
+        assert_eq!(migration.breaking_candidates.len(), 1);
+        assert!(migration.breaking_candidates[0].contains("compatibility is unknown"));
+        assert!(!migration.behavior_equivalence);
         current.version = 1;
         assert!(compare(&current, &original).is_err());
     }

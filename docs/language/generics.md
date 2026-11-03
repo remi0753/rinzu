@@ -1,6 +1,6 @@
 # Generics and markers
 
-Functions, classes, enums, and type aliases can have type parameters. Specify type arguments explicitly at use sites.
+Functions, classes, enums, and type aliases can have type parameters. Type arguments can be explicit or inferred from arguments and an expected result type. All omitted parameters must have a unique solution; partial type-argument lists are unsupported.
 
 ```rinzu-test
 class Box<T> {
@@ -16,14 +16,22 @@ fn equal<T: Equality>(left: T, right: T) -> Bool {
 }
 
 fn main() {
-    let boxed = Box<Int>(value: identity<Int>(42));
-    if !equal<Int>(boxed.value, 42) {
+    let boxed = Box(value: identity(42));
+    if !equal(boxed.value, 42) {
         panic("generic failure");
     }
 }
 ```
 
 Types are invariant: `Box<A>` does not become `Box<B>` because a conversion or another relationship exists between A and B. Generic implementation code is specialized for concrete arguments.
+
+## Local inference
+
+Typed arguments and the expected result constrain parameters before unconstrained numeric literals use their ordinary local defaults. `same(7, CInt8(3))` can select CInt8; an already typed Int is never implicitly converted to match CInt8. Empty collections and `Option.None()` need a sufficient expected type. Later statements do not infer the type of an earlier local.
+
+## Generic methods
+
+A generic class or enum can define instance and static methods, and each method can declare additional type parameters. Write `receiver.map<String>(callback)` or `Box<Int>.create(value)`; omit arguments when local constraints determine them. Method parameters cannot shadow owner type parameters. Concrete unbound references such as `Box<Int>.map<String>` include the explicit self parameter. A receiver method reference does not implicitly capture its receiver.
 
 ## Marker constraints
 
@@ -43,6 +51,6 @@ Integer, Boolean, text, byte, record, enum, and const-class capabilities depend 
 
 An SDK can export generic functions, classes, and enums. Its source templates are instantiated by the consumer. Export types used by public signatures too. An unused template body is not proof that every possible instantiation will type-check.
 
-Implicit type-argument inference, higher-kinded types, generic methods, native generic declarations, and retaining an unspecialized generic function value are unavailable. Specialization has implementation limits, including a maximum of 256 instances and nesting depth 32.
+Higher-kinded types, native generic declarations, and retaining an unspecialized polymorphic function value are unavailable. An expected concrete function type can specialize a generic function reference; `identity<Int>` explicitly names one specialization. Specialization has implementation limits, including a maximum of 256 instances and nesting depth 32.
 
 Next: [Lists and maps](collections.md).

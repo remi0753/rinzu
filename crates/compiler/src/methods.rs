@@ -5,13 +5,48 @@ type OwnerMembers<'a> = Vec<(&'a str, SourceRange)>;
 
 /// Ignore dots in a package namespace; only the local declaration can be a method.
 pub(crate) fn parts(name: &str) -> Option<(&str, &str)> {
-    let local = name.rsplit_once("::").map_or(name, |(_, local)| local);
-    (local.split('.').count() == 2)
-        .then(|| name.rsplit_once('.'))
-        .flatten()
+    let module = top_separator(name, "::");
+    let start = module.map_or(0, |i| i + 2);
+    let local = &name[start..];
+    let dot = top_separator(local, ".")?;
+    if top_separator(&local[..dot], ".").is_some() {
+        return None;
+    }
+    Some((&name[..start + dot], &name[start + dot + 1..]))
 }
 pub(crate) fn module_name(name: &str) -> &str {
-    name.rsplit_once("::").map_or("", |(module, _)| module)
+    top_separator(name, "::").map_or("", |index| &name[..index])
+}
+
+fn top_separator(name: &str, separator: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut found = None;
+    let mut previous = '\0';
+    for (index, ch) in name.char_indices() {
+        if ch == '<' {
+            depth += 1;
+        }
+        if ch == '>' && previous != '-' {
+            depth = depth.saturating_sub(1);
+        }
+        if depth == 0 && name[index..].starts_with(separator) {
+            found = Some(index);
+        }
+        previous = ch;
+    }
+    found
+}
+
+pub(crate) fn template_name(name: &str) -> String {
+    if let Some((owner, member)) = parts(name) {
+        format!(
+            "{}.{}",
+            owner.split('<').next().unwrap(),
+            member.split('<').next().unwrap()
+        )
+    } else {
+        name.split('<').next().unwrap_or(name).to_owned()
+    }
 }
 pub(crate) fn export_name(path: &[String], target: &str) -> String {
     if parts(target).is_some() && path.len() >= 2 {
@@ -209,12 +244,12 @@ pub(crate) fn validate(module: &Module) -> Result<(), Vec<Diagnostic>> {
                 "move the method into the class and use an unqualified method name",
             ));
         }
-        if *generic || !f.type_parameters.is_empty() {
+        if *generic && f.owner_type_parameter_count == 0 {
             errors.push(Diagnostic::error(
                 DiagnosticCode::TypeMismatch,
                 f.range,
-                "generic owners and generic methods are not supported by this method surface",
-                "use a generic free function with an explicit receiver argument",
+                "generic owner methods must be declared inside their owner type",
+                "move the method into the generic class or enum declaration",
             ));
         }
         if let Some((_, range)) = fields.iter().find(|(name, _)| *name == member) {
@@ -234,9 +269,14 @@ pub(crate) fn validate(module: &Module) -> Result<(), Vec<Diagnostic>> {
             .enumerate()
             .filter(|(_, p)| p.name == "self")
         {
-            if index != 0
-                || !matches!(&parameter.ty.kind,TypeRefKind::Named(path) if path.join(".")==owner)
-            {
+            let owner_type=match &parameter.ty.kind {
+                TypeRefKind::Named(path)=>!*generic&&path.join(".")==owner,
+                TypeRefKind::Generic {path,arguments}=>*generic&&path.join(".")==owner
+                    && arguments.len()==f.owner_type_parameter_count
+                    && arguments.iter().zip(&f.type_parameters).all(|(t,p)|matches!(&t.kind,TypeRefKind::Named(path) if path==&vec![p.name.clone()])),
+                _=>false,
+            };
+            if index != 0 || !owner_type {
                 errors.push(Diagnostic::error(
                     DiagnosticCode::TypeMismatch,
                     parameter.range,

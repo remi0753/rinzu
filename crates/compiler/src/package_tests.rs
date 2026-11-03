@@ -88,6 +88,7 @@ pub(crate) fn entry(case: Option<&PackageTestCase>, range: SourceRange) -> Decla
         name: "main".into(),
         is_private: false,
         lexical_owner: None,
+        owner_type_parameter_count: 0,
         type_parameters: Vec::new(),
         is_async: true,
         parameters: Vec::new(),

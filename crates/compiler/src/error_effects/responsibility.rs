@@ -52,6 +52,8 @@ struct State {
     groups: Vec<Group>,
     resolved: BTreeMap<Token, BTreeSet<usize>>,
     iterated: BTreeSet<(Site, Vec<Access>)>,
+    /// Variant facts for one representative element, never a whole population.
+    iteration_variants: BTreeMap<(Site, Vec<Access>), BTreeSet<String>>,
     map_appends: BTreeSet<Site>,
     objects: shared_map::SharedMap<Token, objects::Object>,
     async_mutable: BTreeSet<Token>,
@@ -907,6 +909,14 @@ impl State {
         self.join_mutations(other);
         self.map_appends.retain(|at| other.map_appends.contains(at));
         self.iterated.retain(|item| other.iterated.contains(item));
+        self.iteration_variants.retain(|key, value| {
+            if let Some(variants) = other.iteration_variants.get(key) {
+                value.extend(variants.iter().cloned());
+                true
+            } else {
+                false
+            }
+        });
         self.resolved.retain(|token, selected| {
             if let Some(other) = other.resolved.get(token) {
                 selected.extend(other);
