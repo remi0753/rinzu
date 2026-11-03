@@ -96,7 +96,8 @@ fn shared_record_constructor_capture_and_display_agree_in_jit_and_aot() {
 
 #[test]
 fn record_cli_compares_common_sdk_and_compiled_sync_values() {
-    for (module, name, calls) in [("records", "record_app", 102)] {
+    {
+        let (module, name, calls) = ("records", "record_app", 102);
         let root =
             std::env::temp_dir().join(format!("rinzu-cli-{module}-common-{}", std::process::id()));
         records::create(&root);

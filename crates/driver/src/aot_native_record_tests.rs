@@ -137,7 +137,16 @@ fn warm_native_record_storage_is_reused_in_jit_source_async_compiled_async_and_c
         compare_source_async_values_and_transport(&reference, &text).unwrap();
         compare_source_async_failures(&reference, &text).unwrap();
     }
-    let output=Command::new(std::env::current_exe().unwrap()).args(["--exact","aot::native_record_tests::warm_native_record_storage_is_reused_in_jit_source_async_compiled_async_and_c_aot","--nocapture"]).env(CHILD,&manifest.root.parent().unwrap()).env("RINZU_NATIVE_RECORD_EVIDENCE","1").output().unwrap();
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "aot::native_record_tests::warm_native_record_storage_is_reused_in_jit_source_async_compiled_async_and_c_aot",
+            "--nocapture",
+        ])
+        .env(CHILD, manifest.root.parent().unwrap())
+        .env("RINZU_NATIVE_RECORD_EVIDENCE", "1")
+        .output()
+        .unwrap();
     assert!(output.status.success(), "{output:?}");
     // The embedding report captures its own evidence; private C diagnostics
     // retain the host stderr channel, which this disposable child captures.

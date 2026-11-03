@@ -22,6 +22,7 @@ fn account(bytes: isize, allocation: bool) {
 // thread-local counters observe requested bytes and allocation/reallocation calls.
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        // SAFETY: forward the caller's valid layout unchanged to System.
         let p = unsafe { System.alloc(layout) };
         if !p.is_null() {
             account(layout.size() as isize, true);
@@ -29,6 +30,7 @@ unsafe impl GlobalAlloc for Counting {
         p
     }
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        // SAFETY: forward the caller's valid layout unchanged to System.
         let p = unsafe { System.alloc_zeroed(layout) };
         if !p.is_null() {
             account(layout.size() as isize, true);
@@ -36,6 +38,8 @@ unsafe impl GlobalAlloc for Counting {
         p
     }
     unsafe fn realloc(&self, p: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+        // SAFETY: the caller supplies System's live allocation and matching
+        // layout, and a valid new size; forward all three unchanged.
         let out = unsafe { System.realloc(p, layout, size) };
         if !out.is_null() {
             account(size as isize - layout.size() as isize, true);
@@ -44,6 +48,7 @@ unsafe impl GlobalAlloc for Counting {
     }
     unsafe fn dealloc(&self, p: *mut u8, layout: Layout) {
         account(-(layout.size() as isize), false);
+        // SAFETY: forward the caller's live System allocation and its layout.
         unsafe { System.dealloc(p, layout) }
     }
 }

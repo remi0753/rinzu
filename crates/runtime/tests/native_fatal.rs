@@ -17,17 +17,22 @@ fn allocation_check() {
 unsafe impl GlobalAlloc for NoDiagnosticAllocation {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         allocation_check();
+        // SAFETY: forward the caller's valid allocation layout to System.
         unsafe { System.alloc(layout) }
     }
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         allocation_check();
+        // SAFETY: forward the caller's valid allocation layout to System.
         unsafe { System.alloc_zeroed(layout) }
     }
     unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
         allocation_check();
+        // SAFETY: preserve the caller's live System pointer, matching layout
+        // and valid new allocation size.
         unsafe { System.realloc(pointer, layout, size) }
     }
     unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+        // SAFETY: preserve the caller's live System pointer and matching layout.
         unsafe { System.dealloc(pointer, layout) }
     }
 }
@@ -36,6 +41,8 @@ static ALLOCATOR: NoDiagnosticAllocation = NoDiagnosticAllocation;
 struct Cleanup;
 impl Drop for Cleanup {
     fn drop(&mut self) {
+        // SAFETY: the static byte string contains all 12 bytes read by write;
+        // an unavailable stdout descriptor simply returns an OS error.
         unsafe {
             libc::write(1, b"CLEANUP_RAN\n".as_ptr().cast(), 12);
         }
@@ -54,10 +61,14 @@ fn configure_stderr(mode: &str) {
         });
         ready.wait();
     } else if mode == "closed" {
+        // SAFETY: this isolated child deliberately closes its stderr descriptor.
         unsafe {
             libc::close(2);
         }
     } else if mode == "full" || mode == "broken" {
+        // SAFETY: pipe receives writable space for two descriptors; successful
+        // creation is checked, write uses a live byte array, and all descriptor
+        // and signal changes are confined to this disposable child process.
         unsafe {
             let mut pipes = [0; 2];
             assert_eq!(libc::pipe(pipes.as_mut_ptr()), 0);

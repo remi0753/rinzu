@@ -789,7 +789,8 @@ mod tests {
             .reference(&heap, first, DataKind::Composite(1))
             .unwrap();
         assert_eq!(heap.integer_field(reference, 2).unwrap(), 0);
-        // Repair the test fixture to complete its otherwise fatal loan.
+        // SAFETY: the loan still owns this C buffer; repair its byte encoding
+        // before committing the test fixture's otherwise fatal writeback.
         unsafe {
             b.write(0);
         }

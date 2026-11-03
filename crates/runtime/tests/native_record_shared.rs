@@ -465,7 +465,7 @@ fn writeback_publishes_all_targets_and_echo_restores_a_durable_alias() {
         read(&mut data, &mut heap, other),
         values(99, false).map(ManagedSlot::Scalar)
     );
-    // Result decoding may occur after publication while the correspondence is retained.
+    // SAFETY: the loan still retains the live buffer and its pointer correspondence.
     let after = unsafe { data.receive_native_record(&mut heap, &layout, first) }.unwrap();
     assert_eq!(
         data.native_record_identity(&heap, &layout, after).unwrap(),
@@ -495,7 +495,9 @@ fn unknown_native_result_is_copied_while_known_pointer_is_not_interned_after_rel
     let layout = Arc::new(layout(PAIR));
     let original = create(&mut data, &mut heap, PAIR);
     let buffer = rinzu_runtime::data::NativeRecordBuffer::new(&layout, &values(5, true)).unwrap();
+    // SAFETY: buffer owns initialized storage matching layout for this synchronous copy.
     let first = unsafe { data.receive_native_record(&mut heap, &layout, buffer.as_ptr()) }.unwrap();
+    // SAFETY: the same initialized buffer remains alive and is not mutated by receiving it.
     let second =
         unsafe { data.receive_native_record(&mut heap, &layout, buffer.as_ptr()) }.unwrap();
     assert_ne!(
@@ -531,6 +533,8 @@ fn native_record_writeback_fatal_child() {
     data.enter_native_records(&heap, loan).unwrap();
     match mode.as_str() {
         "invalid-bool" => {
+            // SAFETY: this is an in-bounds byte in the exclusively loaned C buffer,
+            // not a Rust bool; the invalid encoding exercises checked writeback.
             unsafe { pointer.add(8).write(2) };
             data.return_native_records(&heap, loan).unwrap();
             data.commit_native_records(&mut heap, loan);

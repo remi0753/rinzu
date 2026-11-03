@@ -4697,7 +4697,6 @@ mod target {
             Terminator::Goto {
                 target,
                 cleanup_chain,
-                release_scopes: _,
                 ..
             } => {
                 if cleanup_chain.is_empty() {
@@ -4722,7 +4721,6 @@ mod target {
             Terminator::Return {
                 value,
                 cleanup_chain,
-                release_scopes: _,
                 ..
             } => {
                 let value = value

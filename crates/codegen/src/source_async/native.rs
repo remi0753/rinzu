@@ -1312,8 +1312,8 @@ impl NativeCall {
             );
         }
         for callback in &mut self.callbacks {
-            // SAFETY: this call was cancelled before publishing C capabilities.
             ensure!(
+                // SAFETY: this call was cancelled before publishing C capabilities.
                 unsafe { callback.retire() },
                 "prepared callback control not retired"
             );

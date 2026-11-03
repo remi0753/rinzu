@@ -346,12 +346,8 @@ export Event;
     let sdk = Package::new("sdk", "api", &[("api", text)]);
     let (_, artifact) = check_package(&sdk.0).unwrap();
     let interface = artifact.source_interface.unwrap();
-    for name in ["Event.read"] {
-        assert!(interface.modules["fixture"].contains_key(name));
-    }
-    for name in ["Event.raw"] {
-        assert!(!interface.modules["fixture"].contains_key(name));
-    }
+    assert!(interface.modules["fixture"].contains_key("Event.read"));
+    assert!(!interface.modules["fixture"].contains_key("Event.raw"));
     let app = Package::new(
         "application",
         "main",
@@ -362,13 +358,11 @@ export Event;
     );
     app.depend(&sdk);
     check_package(&app.0).unwrap();
-    for (owner, result) in [("Event", "Int")] {
-        let errors = compile_source(&source(&format!(
-            "{text}fn outside(value:{owner})->{result}{{return value.raw();}}fn main(){{}}"
-        )))
-        .unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("private method")));
-    }
+    let errors = compile_source(&source(&format!(
+        "{text}fn outside(value:Event)->Int{{return value.raw();}}fn main(){{}}"
+    )))
+    .unwrap_err();
+    assert!(errors.iter().any(|e| e.message.contains("private method")));
 }
 
 #[test]
