@@ -1,0 +1,59 @@
+import rinzu.stdio;
+
+class Snapshot {
+    const value: Int
+
+    fn add(self: Snapshot, value: Int) -> Snapshot {
+        return Snapshot(value: self.value + value);
+    }
+}
+
+class Editor {
+    value: Int,
+    command: fn (Int) -> Int
+
+    fn create(value: Int) -> Editor {
+        return Editor(value: value, command: idle);
+    }
+
+    fn replace(self: Editor, value: Int) -> Int {
+        self.value = value;
+        return self.value;
+    }
+
+    fn snapshot(self: Editor) -> Snapshot {
+        return Snapshot(value: self.value);
+    }
+}
+
+class Holder {
+    editor: Editor
+}
+
+fn idle(value: Int) -> Int {
+    return value;
+}
+
+fn swap(holder: Holder, replacement: Editor) -> Int {
+    holder.editor = replacement;
+    return 42;
+}
+
+fn main() {
+    try {
+        let editor = Editor.create(0);
+        let replacement = Editor.create(7);
+        let holder = Holder(editor: editor);
+        let value = holder.editor.replace(swap(holder, replacement));
+        let unbound = Editor.replace;
+        let indirect = unbound(editor, 43);
+        editor.command = fn (argument0: Int) -> Int {
+            return Editor.replace(editor, argument0);
+        };
+        let bound = editor.command(44);
+        let snapshot = editor.snapshot();
+        let revised = snapshot.add(2);
+        rinzu.stdio.writeLine(f"{value},{editor.value},{holder.editor.value},{snapshot.value},{revised.value}");
+    }
+    catch errors {}
+}

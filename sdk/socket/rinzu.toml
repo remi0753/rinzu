@@ -1,0 +1,10 @@
+[package]
+name = "rinzu.socket"
+language = "0.5"
+kind = "sdk"
+entry = "src/socket.rinzu"
+
+[native]
+sources = ["native/src/socket.c"]
+headers = ["native/include/rinzu_socket.h"]
+include-dirs = ["native/include"]

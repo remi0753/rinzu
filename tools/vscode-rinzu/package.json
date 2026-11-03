@@ -1,0 +1,26 @@
+{
+  "name": "rinzu-source",
+  "displayName": "Rinzu Source",
+  "description": "Rinzu diagnostics, navigation, completion and formatting through the versioned source protocol.",
+  "publisher": "rinzu-local",
+  "version": "0.1.0",
+  "engines": { "vscode": "^1.95.0" },
+  "main": "./extension.js",
+  "activationEvents": ["onLanguage:rinzu"],
+  "capabilities": { "untrustedWorkspaces": { "supported": false } },
+  "contributes": {
+    "languages": [{ "id": "rinzu", "aliases": ["Rinzu"], "extensions": [".rinzu"], "configuration": "./language-configuration.json" }],
+    "commands": [
+      { "command": "rinzu.refresh", "title": "Rinzu: Refresh Diagnostics" },
+      { "command": "rinzu.organizeImports", "title": "Rinzu: Organize Imports" }
+    ],
+    "configuration": {
+      "title": "Rinzu",
+      "properties": {
+        "rinzu.executable": { "type": "string", "default": "rinzu", "description": "Path to the Rinzu executable with the editor command." },
+        "rinzu.workspace": { "type": "string", "default": "", "description": "Package workspace path (relative to the opened folder). Empty uses a manifest in that folder, or single-buffer library checks." },
+        "rinzu.entry": { "type": "string", "default": "", "description": "Explicit .rinzu entry file (relative to the opened folder). Takes precedence over the package workspace and checks its path import graph, including open unsaved files. Reload Window after changing it." }
+      }
+    }
+  }
+}

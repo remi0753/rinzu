@@ -1,0 +1,191 @@
+import rinzu.macos;
+import rinzu.testing;
+import rinzu.stdio;
+
+fn expect(condition: Bool, context: String) {
+    rinzu.testing.assertTrue(condition, context);
+}
+
+async fn body(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    let input = scope.textView("native before binding", rinzu.macos.Rect(x: 0.0, y: 0.0, width: 300.0, height: 180.0));
+    let root = scope.window.contentView();
+    let attached = root.addSubview(input.view);
+    let focused = input.view.focus();
+    let doc = rinzu.macos.Document.create("A\u{0}日本🙂", true);
+    let binding = rinzu.macos.DocumentBinding.create(scope.session, input, doc);
+    expect(input.text() == doc.text && doc.version == 0 && !doc.dirty(), "binding step 1");
+    var started = false;
+    while !started {
+        let startedEvent = await scope.session.nextEvent();
+        started = startedEvent.kind == rinzu.macos.eventStarted;
+    }
+    let inserted = rinzu.macos.testInput(input.view, 0);
+    expect(inserted == 0, "binding step 2");
+    let target = scope.session.eventSequence();
+    var seen = 0;
+    var previous = Option<rinzu.macos.UiEvent>.None();
+    while seen < target {
+        let inputEvent = await scope.session.nextEvent();
+        seen = inputEvent.sequence;
+        let before = scope.session.eventSequence();
+        let received = binding.receive(inputEvent);
+        expect(scope.session.eventSequence() == before, "binding step 3");
+        if inputEvent.kind == rinzu.macos.eventTextChanged {
+            previous = Option<rinzu.macos.UiEvent>.Some(value: inputEvent);
+        }
+    }
+    expect(doc.text == "入力 日本🙂" && doc.start == 3 && doc.end == 5 && doc.undo.length() == 1, "binding step 4");
+    let first = doc.snapshot();
+    let replaced = binding.replace("new version", 0, 3);
+    expect(replaced && !doc.accepts(first), "binding step 5");
+    switch previous {
+        case Option.Some(savedEvent): {
+            expect(!binding.receive(savedEvent), "binding step 6");
+        }
+        case Option.None: {
+            panic("missing owned input");
+        }
+    }
+    let queued = rinzu.macos.testInput(input.view, 0);
+    let captured = binding.capture();
+    let barrier = binding.barrier;
+    let selected = rinzu.macos.testInput(input.view, 3);
+    let selectionTarget = scope.session.eventSequence();
+    expect(selectionTarget > barrier, "binding coalesced input advances barrier");
+    var selectionSeen = 0;
+    while selectionSeen < selectionTarget {
+        let selectionEvent = await scope.session.nextEvent();
+        selectionSeen = selectionEvent.sequence;
+        let receivedSelection = binding.receive(selectionEvent);
+    }
+    expect(doc.start == 0 && doc.end == 1, "binding receives input coalesced after capture");
+    let undone = binding.undoEdit();
+    expect(undone && doc.text == "new version" && input.text() == doc.text, "binding step 7");
+    let redone = binding.redoEdit();
+    expect(redone && doc.text == "入力 日本🙂" && doc.start == 0 && doc.end == 1, "binding step 8");
+    let beforeComposition = doc.snapshot();
+    let historyBeforeComposition = doc.undo.length();
+    let composing = rinzu.macos.testInput(input.view, 1);
+    expect(composing == 1, "binding step 9");
+    let marked = input.text();
+    let compositionTarget = scope.session.eventSequence();
+    var compositionSeen = 0;
+    while compositionSeen < compositionTarget {
+        let provisional = await scope.session.nextEvent();
+        compositionSeen = provisional.sequence;
+        let ignored = binding.receive(provisional);
+    }
+    var caught = false;
+    try {
+        let busy = binding.replace("must not overwrite IME", 0, 0);
+    }
+    catch errors {
+        caught = true;
+    }
+    expect(
+        caught
+            && input.isComposing()
+            && input.text() == marked
+            && doc.text == beforeComposition.text
+            && doc.version == beforeComposition.version
+            && doc.undo.length() == historyBeforeComposition,
+        "binding step 10: provisional input stays outside model/history"
+    );
+    var guarded = 0;
+    try {
+        let rejectedUndo = binding.undoEdit();
+    }
+    catch undoErrors {
+        guarded = guarded + 1;
+    }
+    try {
+        let rejectedRedo = binding.redoEdit();
+    }
+    catch redoErrors {
+        guarded = guarded + 1;
+    }
+    try {
+        let rejectedLoad = binding.load("must not replace composition");
+    }
+    catch loadErrors {
+        guarded = guarded + 1;
+    }
+    try {
+        let rejectedClose = binding.setAccepting(false);
+    }
+    catch closeErrors {
+        guarded = guarded + 1;
+    }
+    try {
+        let rejectedOpen = await scope.window.openFile("Open", "");
+    }
+    catch openErrors {
+        guarded = guarded + 1;
+    }
+    try {
+        let rejectedAlert = await scope.window.alert("Close", "Unsaved", "Save", "Discard", "Cancel");
+    }
+    catch alertErrors {
+        guarded = guarded + 1;
+    }
+    expect(
+        guarded == 6 && doc.accepting && input.view.isEnabled() && input.text() == marked,
+        "IME protects undo/redo/open/load/close without disabling input"
+    );
+    let committed = rinzu.macos.testInput(input.view, 2);
+    let commitTarget = scope.session.eventSequence();
+    var commitSeen = 0;
+    while commitSeen < commitTarget {
+        let committedEvent = await scope.session.nextEvent();
+        commitSeen = committedEvent.sequence;
+        let receivedCommit = binding.receive(committedEvent);
+    }
+    expect(
+        !input.isComposing()
+            && doc.text == marked
+            && doc.version == beforeComposition.version + 1
+            && doc.undo.length() == historyBeforeComposition + 1,
+        "one committed IME edit"
+    );
+    let loaded = binding.load("Opened 日本🙂");
+    expect(
+        loaded
+            && !doc.dirty()
+            && doc.undo.length() == 0
+            && doc.redo.length() == 0
+            && !doc.accepts(beforeComposition)
+            && input.text() == doc.text,
+        "load resets history and invalidates old work"
+    );
+    let final = binding.replace("final 日本🙂", 0, 2);
+    let closed = binding.setAccepting(false);
+    expect(!binding.replace("rejected", 0, 0) && !doc.accepts(doc.snapshot()), "binding step 11");
+    expect(input.text() == doc.text && doc.text == "final 日本🙂", "binding step 12");
+    rinzu.stdio.writeLine("BINDING:input:undo:redo:barrier:IME:closing-ok");
+    scope.requestStop();
+}
+
+async fn main() {
+    try {
+        try {
+            let result = await rinzu.macos.application("Document binding", 320.0, 200.0, body);
+        }
+        finally {
+            let closed = await rinzu.macos.closeOwnerSessions();
+            let stats = rinzu.macos.statistics();
+            expect(
+                stats.sessions == 0
+                    && stats.windows == 0
+                    && stats.retainedControls == 0
+                    && stats.eventPayloadBytes == 0
+                    && stats.snapshotBytes == 0,
+                "binding step 13"
+            );
+            rinzu.stdio.writeLine("BINDING:closed");
+        }
+    }
+    catch errors {
+        panic(f"binding failed: {errors}");
+    }
+}

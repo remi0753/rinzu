@@ -1,0 +1,3 @@
+[package]
+name = "package_fixture"
+language = "0.1"

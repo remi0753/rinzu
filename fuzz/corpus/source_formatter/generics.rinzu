@@ -1,0 +1,21 @@
+class Box<T> {
+    value: T
+}
+
+enum Choice<T> {
+    Some(value: T),
+    None
+}
+
+type Rows<T> = Map<String, List<Box<T>>>;
+
+fn identity<T>(value: T) -> T {
+    return value;
+}
+
+fn main() {
+    let value = identity<Int>(3);
+    if value < 4 && value > 0 {
+        let items = [value, 7];
+    }
+}

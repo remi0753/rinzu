@@ -1,0 +1,97 @@
+import rinzu.sqlite;
+import rinzu.stdio;
+
+fn query() -> ByteArray {
+    try {
+        let resultValue9 = rinzu.sqlite.openMemory();
+        try {
+            try {
+                let resultValue8 = resultValue9.queryBytes("SELECT x'00ff0001'");
+                return resultValue8;
+            }
+            catch [resultError8: Error, ...resultRest8] {
+                panic("badWorkerQuery");
+            }
+        }
+        finally {
+            let closed = resultValue9.close();
+        }
+    }
+    catch [resultError9: Error, ...resultRest9] {
+        panic("badWorkerOpen");
+    }
+    return byteArray(b"");
+}
+
+async fn main() {
+    try {
+        try {
+            let resultValue7 = rinzu.sqlite.openMemory();
+            try {
+                try {
+                    let resultValue6 = resultValue7.queryText("SELECT cast(x'610062' AS TEXT)");
+                    if resultValue6 != "a\u{0}b" {
+                        panic("badNul");
+                    }
+                }
+                catch [resultError6: Error, ...resultRest6] {
+                    panic("badText");
+                }
+                try {
+                    let resultValue5 = resultValue7.queryText("SELECT cast(x'ff' AS TEXT)");
+                    panic("badUtf8");
+                }
+                catch [resultError5: Error, ...resultRest5] {
+                    if errorCode(resultError5) != 200 {
+                        panic("badUtf8Code");
+                    }
+                }
+                try {
+                    let resultValue4 = resultValue7.queryBytes("SELECT x''");
+                    if bytesLength(resultValue4) != 0 {
+                        panic("badEmptyLength");
+                    }
+                }
+                catch [resultError4: Error, ...resultRest4] {
+                    panic("badEmpty");
+                }
+                try {
+                    let resultValue3 = resultValue7.queryBytes("SELECT zeroblob(65536)");
+                    if bytesLength(resultValue3) != 65536 {
+                        panic("badLimitLength");
+                    }
+                }
+                catch [resultError3: Error, ...resultRest3] {
+                    panic("badLimit");
+                }
+                try {
+                    let resultValue2 = resultValue7.queryBytes("SELECT zeroblob(65537)");
+                    panic("badOver");
+                }
+                catch [resultError2: Error, ...resultRest2] {}
+                try {
+                    let resultValue1 = resultValue7.queryBytes("SELECT 'wrong type'");
+                    panic("badType");
+                }
+                catch [resultError1: Error, ...resultRest1] {}
+            }
+            finally {
+                let closed = resultValue7.close();
+            }
+        }
+        catch [resultError7: Error, ...resultRest7] {
+            panic("badOpen");
+        }
+        let result = spawn query();
+        if await result != byteArray(b"\x00\xff\x00\x01") || await result != byteArray(b"\x00\xff\x00\x01") {
+            panic("badWorkerResult");
+        }
+        if rinzu.sqlite.ownedLive() != 0 || rinzu.sqlite.ownedAllocations() != rinzu.sqlite.ownedReleases() {
+            panic("badBaseline");
+        }
+        rinzu.stdio.writeLine("owned-ok");
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}

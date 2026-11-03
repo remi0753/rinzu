@@ -1,0 +1,51 @@
+native {
+    fn take(kind: CInt) -> ByteArray symbol "span_result";
+
+    fn mutate() -> Unit symbol "span_mutate";
+
+    fn empty() -> ByteArray symbol "span_empty";
+
+    fn withCallback(measure: fn (Bytes(4)) -> CSize) -> ByteArray symbol "span_callback";
+}
+
+fn exercise() -> Int {
+    try {
+        let small = take(1);
+        let emptyValue = empty();
+        let unreadableEmpty = take(3);
+        let large = take(4);
+        let measure: fn (Bytes(4)) -> CSize = byteLength;
+        let callbackValue = withCallback(measure);
+        mutate();
+        if small != byteArray(b"\x00\xff\x80\x00")
+            || bytesLength(emptyValue) != 0
+            || callbackValue != small
+            || bytesLength(unreadableEmpty) != 0
+            || bytesLength(large) != 65536
+            || bytesGet(large, 0) != Option<CUInt8>.Some(value: CUInt8(0))
+            || bytesGet(large, 32768) != Option<CUInt8>.Some(value: CUInt8(0))
+            || bytesGet(large, 65535) != Option<CUInt8>.Some(value: CUInt8(117)) {
+            panic("wrongSnapshot");
+        }
+        var caught = 0;
+        try {
+            let missing = take(0);
+        }
+        catch [problem: Error, ...rest] {
+            if problem.message != "native value is NULL" {
+                panic("wrongNull");
+            }
+            caught = caught + 1;
+        }
+        if caught != 1 {
+            panic("missingError");
+        }
+        return bytesLength(large) + bytesLength(small);
+    }
+    catch errors {
+        panic("unexpected");
+        return 0;
+    }
+}
+
+export exercise;

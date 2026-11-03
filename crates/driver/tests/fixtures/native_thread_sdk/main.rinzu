@@ -1,0 +1,40 @@
+import threads;
+
+fn worker() -> Int {
+    let normal = threads.exercise(0);
+    let orphan = threads.orphan(0);
+    return normal + orphan;
+}
+
+async fn main() {
+    try {
+        let normal = threads.exercise(1);
+        let orphan = threads.orphan(1);
+        let a = spawn worker();
+        let b = spawn worker();
+        let c = spawn worker();
+        let d = spawn worker();
+        let e = spawn worker();
+        let f = spawn worker();
+        let g = spawn worker();
+        let h = spawn worker();
+        let ra = await a;
+        let rb = await b;
+        let rc = await c;
+        let rd = await d;
+        let re = await e;
+        let rf = await f;
+        let rg = await g;
+        let rh = await h;
+        if normal + orphan != 2
+            || ra + rb + rc + rd + re + rf + rg + rh != 16
+            || threads.live() != 9
+            || threads.clear() != 9
+            || threads.live() != 0 {
+            panic("wrongLifetime");
+        }
+    }
+    catch unexpectedErrors {
+        panic("failed");
+    }
+}

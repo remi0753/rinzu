@@ -1,0 +1,736 @@
+// H1 experiment: bounded octet framing, not a public standard package.
+import rinzu.socket;
+import rinzu.httpcodec;
+
+class Header {
+    const name: String,
+    const value: ByteArray
+}
+
+class Request {
+    const method: String,
+    const target: String,
+    const headers: List<Header>,
+    const body: ByteArray
+}
+
+class Response {
+    const status: Int,
+    const headers: List<Header>,
+    const body: ByteArray
+}
+
+error Failure {
+    payload: FailureData
+}
+
+class FailureData {
+    const cause: Error,
+    const stage: String,
+    const status: Int,
+    const partialBody: ByteArray,
+    wireSent: Int,
+    bodySent: Int
+}
+
+class Endpoint {
+    const address: rinzu.socket.Address,
+    const authority: String,
+    const target: String
+}
+
+class Encoded {
+    const head: ByteArray,
+    const body: ByteArray
+}
+
+class Parser {
+    const request: Bool,
+    phase: Int,
+    raw: ByteArray,
+    cursor: Int,
+    lineStart: Int,
+    headerBytes: Int,
+    method: String,
+    target: String,
+    status: Int,
+    headers: List<Header>,
+    expected: Int,
+    body: ByteArray,
+    residual: ByteArray,
+    failure: Option<Failure>,
+    scanned: Int,
+    peakRaw: Int
+}
+
+fn at(data: ByteArray, index: Int) -> Int {
+    switch bytesGet(data, index) {
+        case Option.Some(value): {
+            return Int(value);
+        }
+        case Option.None: {
+            return -1;
+        }
+    }
+}
+
+fn slice(data: ByteArray, start: Int, end: Int) -> ByteArray {
+    switch bytesSlice(data, start, end) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            return byteArray(b"");
+        }
+    }
+}
+
+fn text(data: ByteArray) -> String {
+    try {
+        let resultValue7 = utf8Decode(data);
+        return resultValue7;
+    }
+    catch [resultError7: Error, ...resultRest7] {
+        return "";
+    }
+}
+
+fn failure(cause: Error, stage: String, status: Int, body: ByteArray, wire: Int, sent: Int) -> Failure {
+    return Failure(
+        message: "HTTP protocol failure",
+        cause: cause,
+        payload: FailureData(
+            cause: cause,
+            stage: stage,
+            status: status,
+            partialBody: body,
+            wireSent: wire,
+            bodySent: sent
+        )
+    );
+}
+
+fn fresh(request: Bool) -> Parser {
+    let empty = byteArray(b"");
+    return Parser(
+        request: request,
+        phase: 0,
+        raw: empty,
+        cursor: 0,
+        lineStart: 0,
+        headerBytes: 0,
+        method: "",
+        target: "",
+        status: 0,
+        headers: [],
+        expected: 0,
+        body: empty,
+        residual: empty,
+        failure: Option<Failure>.None(),
+        scanned: 0,
+        peakRaw: 0
+    );
+}
+
+fn bad(parser: Parser, code: Int, status: Int, stage: String) -> Bool {
+    var known = status;
+    if !parser.request {
+        known = parser.status;
+    }
+    let value = failure(error(code, stage), stage, known, parser.body, 0, 0);
+    parser.phase = 3;
+    parser.failure = Option<Failure>.Some(value: value);
+    throw value;
+}
+
+fn findAny(data: ByteArray, members: ByteArray, start: Int) -> Int {
+    switch bytesFindAny(data, members, start) {
+        case Option.Some(index): {
+            return index;
+        }
+        case Option.None: {
+            return -1;
+        }
+    }
+}
+
+fn hasOutside(data: ByteArray, members: ByteArray) -> Bool {
+    return !bytesAllIn(data, members);
+}
+
+fn validToken(data: ByteArray) -> Bool {
+    return bytesLength(data) != 0
+        && !hasOutside(
+            data,
+            byteArray(b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+        );
+}
+
+fn name(data: ByteArray) -> String {
+    if !validToken(data) {
+        return "";
+    }
+    return text(bytesLowerAscii(data));
+}
+
+fn fieldValue(data: ByteArray) -> Bool {
+    return !bytesContainsAny(
+        data,
+        byteArray(
+            b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f"
+        )
+    );
+}
+
+fn trim(data: ByteArray) -> ByteArray {
+    return bytesTrim(data, byteArray(b" \t"));
+}
+
+fn decimal(data: ByteArray) -> Int {
+    if bytesLength(data) == 0 || hasOutside(data, byteArray(b"0123456789")) {
+        return -1;
+    }
+    try {
+        return parseInt(utf8Decode(data));
+    }
+    catch errors {
+        return -1;
+    }
+}
+
+fn validTarget(data: ByteArray) -> Bool {
+    if bytesLength(data) == 0 || bytesLength(data) > 4096 || at(data, 0) != 47 {
+        return false;
+    }
+    return !hasOutside(
+        data,
+        byteArray(b"!\"$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~")
+    );
+}
+
+fn authority(value: String) -> rinzu.socket.Address {
+    let parts = stringSplit(value, ":");
+    if listLength(parts) < 1 || listLength(parts) > 2 {
+        throw error(7801, "http.authority");
+    }
+    var host = "";
+    switch listGet(parts, 0) {
+        case Option.Some(part): {
+            host = part;
+        }
+        case Option.None: {}
+    }
+    var port = 80;
+    if listLength(parts) == 2 {
+        switch listGet(parts, 1) {
+            case Option.Some(part): {
+                port = decimal(utf8Encode(part));
+            }
+            case Option.None: {
+                port = -1;
+            }
+        }
+    }
+    if port < 1 || port > 65535 {
+        throw error(7801, "http.authority");
+    }
+    return rinzu.socket.address(host, port);
+}
+
+// The request Host is an HTTP authority, not a connect() address. In
+// particular, a virtual host must not be checked by inet_pton or resolved.
+// This bounded prototype accepts ASCII reg-name/IPv4 and an optional port;
+// bracketed IPv6/IPvFuture authorities are outside its current scope.
+fn validHost(data: ByteArray) -> Bool {
+    if bytesLength(data) == 0 || bytesLength(data) > 4096 {
+        return false;
+    }
+    var index = findAny(data, byteArray(b":"), 0);
+    if index < 0 {
+        index = bytesLength(data);
+    }
+    if index == 0
+        || hasOutside(
+            slice(data, 0, index),
+            byteArray(b"!$&'()*+,-.0123456789;=ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz~")
+        ) {
+        return false;
+    }
+    if index == bytesLength(data) {
+        return true;
+    }
+    let port = decimal(slice(data, index + 1, bytesLength(data)));
+    return port > 0 && port <= 65535;
+}
+
+fn endpoint(url: String) -> Endpoint {
+    let data = utf8Encode(url);
+    if slice(data, 0, 7) != byteArray(b"http://") {
+        throw error(7801, "http.url");
+    }
+    var end = 7;
+    while end < bytesLength(data) && at(data, end) != 47 && at(data, end) != 63 {
+        end = end + 1;
+    }
+    let host = text(slice(data, 7, end));
+    var target = slice(data, end, bytesLength(data));
+    if bytesLength(target) == 0 {
+        target = byteArray(b"/");
+    }
+    if at(target, 0) == 63 {
+        target = bytesConcat(byteArray(b"/"), target);
+    }
+    if !validTarget(target) {
+        throw error(7801, "http.target");
+    }
+    {
+        let resultValue6 = authority(host);
+        return (Endpoint(address: resultValue6, authority: host, target: text(target)));
+    }
+}
+
+fn startLine(parser: Parser, data: ByteArray) -> Bool {
+    if parser.request {
+        try {
+            let line = rinzu.httpcodec.requestLine(data);
+            parser.method = line.method;
+            parser.target = line.target;
+        }
+        catch [problem: rinzu.httpcodec.InvalidRequestLine, ...rest] {
+            if problem.payload == 414 {
+                return bad(parser, 7802, 414, "head");
+            }
+            return bad(parser, 7801, 400, "head");
+        }
+    }
+    else {
+        if bytesLength(data) < 13 || slice(data, 0, 9) != byteArray(b"HTTP/1.1 ") || at(data, 12) != 32 {
+            return bad(parser, 7801, 0, "head");
+        }
+        let status = decimal(slice(data, 9, 12));
+        if status < 100 || status > 599 || !fieldValue(slice(data, 13, bytesLength(data))) {
+            return bad(parser, 7801, 0, "head");
+        }
+        parser.status = status;
+        if status < 200 {
+            return bad(parser, 7803, status, "head");
+        }
+    }
+    parser.phase = 1;
+    return (false);
+}
+
+fn headerLine(parser: Parser, data: ByteArray) -> Bool {
+    if listLength(parser.headers) >= 64 {
+        return bad(parser, 7802, 431, "head");
+    }
+    let colon = findAny(data, byteArray(b":"), 0);
+    if colon < 0 {
+        return bad(parser, 7801, 400, "head");
+    }
+    let key = name(slice(data, 0, colon));
+    let value = slice(data, colon + 1, bytesLength(data));
+    if key == "" || colon >= bytesLength(data) || !fieldValue(value) {
+        return bad(parser, 7801, 400, "head");
+    }
+    parser.headers = listAppend(parser.headers, Header(name: key, value: trim(value)));
+    return (false);
+}
+
+fn finishHead(parser: Parser) -> Bool {
+    var hosts = 0;
+    var lengths = 0;
+    var transfers = 0;
+    var length = 0;
+    var index = 0;
+    while index < listLength(parser.headers) {
+        switch listGet(parser.headers, index) {
+            case Option.Some(header): {
+                if parser.request && header.name == "host" {
+                    hosts = hosts + 1;
+                    if !validHost(header.value) {
+                        return bad(parser, 7801, 400, "head");
+                    }
+                }
+                if header.name == "content-length" {
+                    lengths = lengths + 1;
+                    length = decimal(header.value);
+                }
+                if header.name == "transfer-encoding" {
+                    transfers = transfers + 1;
+                }
+            }
+            case Option.None: {}
+        }
+        index = index + 1;
+    }
+    if (parser.request && hosts != 1) || lengths > 1 || length < 0 || (transfers > 0 && lengths > 0) {
+        return bad(parser, 7801, 400, "head");
+    }
+    if !parser.request && parser.status == 204 && (lengths > 0 || transfers > 0) {
+        return bad(parser, 7801, 204, "head");
+    }
+    if transfers > 0 {
+        return bad(parser, 7803, 501, "head");
+    }
+    if !parser.request && (parser.status == 204 || parser.status == 304) {
+        length = 0;
+    }
+    else {
+        if !parser.request && lengths == 0 {
+            return bad(parser, 7803, parser.status, "head");
+        }
+        if length > 65536 {
+            return bad(parser, 7802, 413, "body");
+        }
+    }
+    parser.expected = length;
+    parser.phase = 2;
+    return (length == 0);
+}
+
+fn takeBody(parser: Parser, data: ByteArray) -> Bool {
+    return takeBodyAt(parser, data, 0);
+}
+
+fn takeBodyAt(parser: Parser, data: ByteArray, start: Int) -> Bool {
+    let end = takeBodyRange(parser, data, start);
+    if end < 0 {
+        return false;
+    }
+    keepResidual(parser, data, end);
+    return true;
+}
+
+fn keepResidual(parser: Parser, data: ByteArray, end: Int) {
+    let dataLength = bytesLength(data);
+    if end < dataLength {
+        parser.residual = slice(data, end, dataLength);
+    }
+}
+
+fn takeBodyRange(parser: Parser, data: ByteArray, start: Int) -> Int {
+    let dataLength = bytesLength(data);
+    let bodyLength = bytesLength(parser.body);
+    if start < 0 || start > dataLength {
+        return invalidOffset(parser, 7802, 413, "body");
+    }
+    let available = dataLength - start;
+    var count = parser.expected - bodyLength;
+    if count > available {
+        count = available;
+    }
+    if count < 0 || bodyLength + count > 65536 {
+        return invalidOffset(parser, 7802, 413, "body");
+    }
+    if count > 0 {
+        var part = data;
+        if start != 0 || count != dataLength {
+            part = slice(data, start, start + count);
+        }
+        if bodyLength == 0 {
+            parser.body = part;
+        }
+        else {
+            parser.body = bytesConcat(parser.body, part);
+        }
+    }
+    if bodyLength + count == parser.expected {
+        return start + count;
+    }
+    return -1;
+}
+
+fn feed(parser: Parser, input: ByteArray) -> Bool {
+    let end = feedAt(parser, input, 0);
+    if end < 0 {
+        return false;
+    }
+    keepResidual(parser, input, end);
+    return true;
+}
+
+fn invalidOffset(parser: Parser, code: Int, status: Int, stage: String) -> Int {
+    let rejected = bad(parser, code, status, stage);
+    return -1;
+}
+
+fn pendingHead(parser: Parser, start: Int) -> Int {
+    // A partial head must own only its active bytes before the next input.
+    if start > 0 {
+        parser.raw = slice(parser.raw, start, bytesLength(parser.raw));
+        parser.cursor = parser.cursor - start;
+        parser.lineStart = parser.lineStart - start;
+    }
+    return -1;
+}
+
+// Return an absolute end offset, or -1 when all active input was consumed but
+// more input is needed. The caller retains the buffer for the next parser.
+// A transport buffer can contain several messages; framing limits apply to
+// each message independently of this 64KiB input limit.
+fn feedAt(parser: Parser, input: ByteArray, inputStart: Int) -> Int {
+    switch parser.failure {
+        case Option.Some(problem): {
+            throw problem;
+        }
+        case Option.None: {}
+    }
+    let inputLength = bytesLength(input);
+    if inputLength > 65536 {
+        return invalidOffset(parser, 7802, 431, "input");
+    }
+    if inputStart < 0 || inputStart > inputLength {
+        return invalidOffset(parser, 7801, 400, "input");
+    }
+    if parser.phase == 2 {
+        if bytesLength(parser.body) == parser.expected {
+            return invalidOffset(parser, 7801, 400, "complete");
+        }
+        return takeBodyRange(parser, input, inputStart);
+    }
+    let previousLength = bytesLength(parser.raw);
+    let activeLength = inputLength - inputStart;
+    // Maximum pending head (8192 + CRLF + 32768) plus one transport buffer.
+    if previousLength + activeLength > 106498 {
+        return invalidOffset(parser, 7802, 431, "head");
+    }
+    var rawStart = 0;
+    if previousLength == 0 {
+        parser.raw = input;
+        rawStart = inputStart;
+        if inputStart > 0 {
+            parser.cursor = inputStart;
+            parser.lineStart = inputStart;
+        }
+    }
+    else {
+        var part = input;
+        if inputStart > 0 {
+            part = slice(input, inputStart, inputLength);
+        }
+        parser.raw = bytesConcat(parser.raw, part);
+    }
+    let rawLength = previousLength + activeLength + rawStart;
+    if rawLength - rawStart > parser.peakRaw {
+        parser.peakRaw = rawLength - rawStart;
+    }
+    let lineMarkers = byteArray(b"\r\n");
+    while parser.cursor < rawLength {
+        if parser.cursor > parser.lineStart
+            && at(parser.raw, parser.cursor - 1) == 13
+            && at(parser.raw, parser.cursor) != 10 {
+            return invalidOffset(parser, 7801, 400, "head");
+        }
+        var marker = findAny(parser.raw, lineMarkers, parser.cursor);
+        if marker < 0 {
+            marker = rawLength;
+        }
+        let skipped = marker - parser.cursor;
+        if skipped > 0 {
+            if marker - parser.lineStart > 8192 {
+                if parser.phase == 0 {
+                    return invalidOffset(parser, 7802, 414, "head");
+                }
+                return invalidOffset(parser, 7802, 431, "head");
+            }
+            parser.scanned = parser.scanned + skipped;
+            if parser.phase == 1 {
+                parser.headerBytes = parser.headerBytes + skipped;
+                if parser.headerBytes > 32768 {
+                    return invalidOffset(parser, 7802, 431, "head");
+                }
+            }
+            parser.cursor = marker;
+        }
+        if parser.cursor == rawLength {
+            return pendingHead(parser, rawStart);
+        }
+        var value = at(parser.raw, parser.cursor);
+        var markerWidth = 1;
+        // Keep partial/malformed/publicly mutated or overflow-adjacent state
+        // on the original one-byte path. At line processing, cursor must be LF.
+        if value == 13
+            && parser.lineStart >= 0
+            && parser.cursor >= parser.lineStart
+            && parser.cursor + 1 < rawLength
+            && parser.scanned <= 9223372036854775805
+            && (parser.phase != 1 || parser.headerBytes <= 32766)
+            && at(parser.raw, parser.cursor + 1) == 10 {
+            // Preserve the public mutation order of the CR iteration before
+            // skipping its repeated search at LF, including cancellation.
+            parser.scanned = parser.scanned + 1;
+            if parser.phase == 1 {
+                parser.headerBytes = parser.headerBytes + 1;
+            }
+            parser.cursor = parser.cursor + 1;
+            value = 10;
+            markerWidth = 2;
+        }
+        parser.scanned = parser.scanned + 1;
+        if parser.phase == 1 {
+            parser.headerBytes = parser.headerBytes + 1;
+            if parser.headerBytes > 32768 {
+                return invalidOffset(parser, 7802, 431, "head");
+            }
+        }
+        if value == 10 {
+            if markerWidth == 1 && (parser.cursor == parser.lineStart || at(parser.raw, parser.cursor - 1) != 13) {
+                return invalidOffset(parser, 7801, 400, "head");
+            }
+            let line = slice(parser.raw, parser.lineStart, parser.cursor - 1);
+            var result: Bool = (false);
+            if parser.phase == 0 {
+                result = startLine(parser, line);
+            }
+            else {
+                if bytesLength(line) == 0 {
+                    result = finishHead(parser);
+                }
+                else {
+                    result = headerLine(parser, line);
+                }
+            }
+            {
+                let resultValue4 = result;
+            }
+            parser.cursor = parser.cursor + 1;
+            parser.lineStart = parser.cursor;
+            if parser.phase == 2 {
+                let body = parser.raw;
+                let bodyStart = parser.cursor;
+                parser.raw = byteArray(b"");
+                parser.cursor = 0;
+                parser.lineStart = 0;
+                let end = takeBodyRange(parser, body, bodyStart);
+                if end >= 0 && previousLength > 0 {
+                    return inputStart + end - previousLength;
+                }
+                return end;
+            }
+        }
+        else {
+            if parser.cursor - parser.lineStart >= 8192 && value != 13 {
+                if parser.phase == 0 {
+                    return invalidOffset(parser, 7802, 414, "head");
+                }
+                return invalidOffset(parser, 7802, 431, "head");
+            }
+            parser.cursor = parser.cursor + 1;
+        }
+    }
+    return pendingHead(parser, rawStart);
+}
+
+fn end(parser: Parser) -> Bool {
+    switch parser.failure {
+        case Option.Some(problem): {
+            throw problem;
+        }
+        case Option.None: {}
+    }
+    if parser.phase == 2 && bytesLength(parser.body) == parser.expected {
+        return (true);
+    }
+    return bad(parser, 7804, parser.status, "eof");
+}
+
+fn request(parser: Parser) -> Request {
+    return Request(method: parser.method, target: parser.target, headers: parser.headers, body: parser.body);
+}
+
+fn response(parser: Parser) -> Response {
+    return Response(status: parser.status, headers: parser.headers, body: parser.body);
+}
+
+fn appendHeaders(head: ByteArray, headers: List<Header>, generated: Int) -> ByteArray {
+    if listLength(headers) + generated > 64 {
+        throw error(7802, "http.encode.headers");
+    }
+    var result = head;
+    var index = 0;
+    while index < listLength(headers) {
+        switch listGet(headers, index) {
+            case Option.Some(header): {
+                let key = name(utf8Encode(header.name));
+                if key == ""
+                    || key == "host"
+                    || key == "content-length"
+                    || key == "transfer-encoding"
+                    || key == "connection"
+                    || !fieldValue(header.value) {
+                    throw error(7801, "http.encode.header");
+                }
+                let prefix = utf8Encode(f"{key}: ");
+                let length = bytesLength(prefix) + bytesLength(header.value);
+                if length > 8192 || bytesLength(result) + length + 4 > 32768 {
+                    throw error(7802, "http.encode.headers");
+                }
+                result = bytesConcat(bytesConcat(bytesConcat(result, prefix), header.value), byteArray(b"\r\n"));
+            }
+            case Option.None: {}
+        }
+        index = index + 1;
+    }
+    return (bytesConcat(result, byteArray(b"\r\n")));
+}
+
+fn encodeRequest(method: String, endpoint: Endpoint, headers: List<Header>, body: ByteArray) -> Encoded {
+    if (method != "GET" && method != "POST")
+        || (method == "GET" && bytesLength(body) != 0)
+        || bytesLength(body) > 65536
+        || !validTarget(utf8Encode(endpoint.target)) {
+        throw error(7801, "http.encode.request");
+    }
+    {
+        let resultValue3 = authority(endpoint.authority);
+    }
+    let start = utf8Encode(f"{method} {endpoint.target} HTTP/1.1\r\n");
+    let base =
+        utf8Encode(f"Host: {endpoint.authority}\r\nContent-Length: {bytesLength(body)}\r\nConnection: close\r\n");
+    {
+        let resultValue2 = appendHeaders(base, headers, 3);
+        return (Encoded(head: bytesConcat(start, resultValue2), body: body));
+    }
+}
+
+fn encodeResponse(value: Response) -> Encoded {
+    if value.status < 200
+        || value.status > 599
+        || bytesLength(value.body) > 65536
+        || ((value.status == 204 || value.status == 304) && bytesLength(value.body) > 0) {
+        throw error(7801, "http.encode.response");
+    }
+    let start = utf8Encode(f"HTTP/1.1 {value.status} Rinzu\r\n");
+    var base = utf8Encode(f"Content-Length: {bytesLength(value.body)}\r\nConnection: close\r\n");
+    var generated = 2;
+    if value.status == 204 || value.status == 304 {
+        base = byteArray(b"Connection: close\r\n");
+        generated = 1;
+    }
+    {
+        let resultValue1 = appendHeaders(base, value.headers, generated);
+        return (Encoded(head: bytesConcat(start, resultValue1), body: value.body));
+    }
+}
+
+export Header;
+export Request;
+export Response;
+export Failure;
+export FailureData;
+export Endpoint;
+export Encoded;
+export Parser;
+export failure;
+export fresh;
+export feed;
+export feedAt;
+export end;
+export request;
+export response;
+export endpoint;
+export encodeRequest;
+export encodeResponse;
+export at;
+export slice;

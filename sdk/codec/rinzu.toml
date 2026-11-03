@@ -1,0 +1,5 @@
+[package]
+name="rinzu.codec"
+language="0.5"
+kind="sdk"
+entry="src/codec.rinzu"

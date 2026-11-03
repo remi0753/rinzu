@@ -1,0 +1,4197 @@
+import rinzu.timer;
+import "./document.rinzu" as documents;
+import "./document_files.rinzu" as documentFiles;
+import "./image_files.rinzu" as imageFiles;
+import rinzu.shutdown;
+
+class Buffer {
+    const handle: BufferHandle
+
+    fn write(self: Buffer, offset: Int, bytes: ByteArray) -> Int {
+        return checked(Int(rawBufferWrite(self.handle, offset, bytes, byteLength(bytes))), "macos.buffer.write");
+    }
+
+    fn read(self: Buffer, offset: Int, length: Int) -> ByteArray {
+        let status = checked(Int(rawBufferRead(self.handle, offset, length)), "macos.buffer.read");
+        return rawBufferBytes(self.handle);
+    }
+
+    fn destroy(self: Buffer) -> Int {
+        return checked(Int(rawBufferDestroy(self.handle)), "macos.buffer.destroy");
+    }
+
+    fn writeVertex2D(self: Buffer, index: Int, vertex: Vertex2D) -> Int {
+        return checked(Int(rawBufferVertex(self.handle, index, vertex)), "macos.buffer.vertex2D");
+    }
+
+    fn writeQuad2D(self: Buffer, index: Int, quad: Quad2D) -> Int {
+        let data = QuadData2D(
+            x: quad.destination.x,
+            y: quad.destination.y,
+            width: quad.destination.width,
+            height: quad.destination.height,
+            u: quad.uv.x,
+            v: quad.uv.y,
+            uvWidth: quad.uv.width,
+            uvHeight: quad.uv.height,
+            red: quad.tint.red,
+            green: quad.tint.green,
+            blue: quad.tint.blue,
+            alpha: quad.tint.alpha,
+            a: quad.transform.a,
+            b: quad.transform.b,
+            c: quad.transform.c,
+            d: quad.transform.d,
+            tx: quad.transform.tx,
+            ty: quad.transform.ty
+        );
+        return checked(Int(rawBufferQuad(self.handle, index, data)), "macos.buffer.quad2D");
+    }
+}
+
+class Command {
+    const handle: CommandHandle
+
+    fn beginCompute(self: Command, pipeline: ComputePipeline) -> Int {
+        return checked(Int(rawBeginCompute(self.handle, pipeline.handle)), "macos.command.beginCompute");
+    }
+
+    fn beginRender(self: Command, view: View, clear: Color) -> Int {
+        return checked(Int(rawBeginRender(self.handle, view.handle, clear)), "macos.command.beginRender");
+    }
+
+    fn setRenderPipeline(self: Command, pipeline: RenderPipeline) -> Int {
+        return checked(Int(rawSetPipeline(self.handle, pipeline.handle)), "macos.command.renderPipeline");
+    }
+
+    fn setComputeBuffer(self: Command, index: Int, buffer: Buffer, offset: Int) -> Int {
+        return checked(
+            Int(rawSetBuffer(self.handle, buffer.handle, offset, index, CInt(0))),
+            "macos.command.computeBuffer"
+        );
+    }
+
+    fn setVertexBuffer(self: Command, index: Int, buffer: Buffer, offset: Int) -> Int {
+        return checked(
+            Int(rawSetBuffer(self.handle, buffer.handle, offset, index, CInt(1))),
+            "macos.command.vertexBuffer"
+        );
+    }
+
+    fn setFragmentBuffer(self: Command, index: Int, buffer: Buffer, offset: Int) -> Int {
+        return checked(
+            Int(rawSetBuffer(self.handle, buffer.handle, offset, index, CInt(2))),
+            "macos.command.fragmentBuffer"
+        );
+    }
+
+    fn dispatch(self: Command, x: Int, y: Int, z: Int, tx: Int, ty: Int, tz: Int) -> Int {
+        return checked(Int(rawDispatch(self.handle, x, y, z, tx, ty, tz)), "macos.command.dispatch");
+    }
+
+    fn drawTriangles(self: Command, start: Int, count: Int) -> Int {
+        return checked(Int(rawDraw(self.handle, start, count)), "macos.command.drawTriangles");
+    }
+
+    fn commit(self: Command) -> Int {
+        return checked(Int(rawCommit(self.handle)), "macos.command.commit");
+    }
+
+    fn abandon(self: Command) -> Int {
+        return checked(Int(rawAbandon(self.handle)), "macos.command.abandon");
+    }
+
+    async fn wait(self: Command) -> Int {
+        return await wait(self);
+    }
+
+    fn destroy(self: Command) -> Int {
+        return checked(Int(rawCommandDestroy(self.handle)), "macos.command.destroy");
+    }
+
+    fn beginRenderTexture(self: Command, texture: Texture, clear: Color) -> Int {
+        return checked(Int(rawRenderTexture(self.handle, texture.handle, clear)), "macos.command.beginRenderTexture");
+    }
+
+    /// Render state uses pixels with top-left origin, independently of AppKit points.
+    fn setViewport(self: Command, viewport: Rect) -> Int {
+        return checked(Int(rawViewport(self.handle, viewport)), "macos.command.viewport");
+    }
+
+    fn setScissor(self: Command, scissor: Scissor) -> Int {
+        return checked(Int(rawScissor(self.handle, scissor)), "macos.command.scissor");
+    }
+
+    fn setComputeTexture(self: Command, index: Int, texture: Texture) -> Int {
+        return checked(Int(rawSetTexture(self.handle, texture.handle, index, CInt(0))), "macos.command.computeTexture");
+    }
+
+    fn setVertexTexture(self: Command, index: Int, texture: Texture) -> Int {
+        return checked(Int(rawSetTexture(self.handle, texture.handle, index, CInt(1))), "macos.command.vertexTexture");
+    }
+
+    fn setFragmentTexture(self: Command, index: Int, texture: Texture) -> Int {
+        return
+            checked(Int(rawSetTexture(self.handle, texture.handle, index, CInt(2))), "macos.command.fragmentTexture");
+    }
+
+    fn setComputeSampler(self: Command, index: Int, sampler: Sampler) -> Int {
+        return checked(Int(rawSetSampler(self.handle, sampler.handle, index, CInt(0))), "macos.command.computeSampler");
+    }
+
+    fn setVertexSampler(self: Command, index: Int, sampler: Sampler) -> Int {
+        return checked(Int(rawSetSampler(self.handle, sampler.handle, index, CInt(1))), "macos.command.vertexSampler");
+    }
+
+    fn setFragmentSampler(self: Command, index: Int, sampler: Sampler) -> Int {
+        return
+            checked(Int(rawSetSampler(self.handle, sampler.handle, index, CInt(2))), "macos.command.fragmentSampler");
+    }
+}
+
+class ComputePipeline {
+    const handle: ComputePipelineHandle
+
+    fn destroy(self: ComputePipeline) -> Int {
+        return checked(Int(rawComputeDestroy(self.handle)), "macos.computePipeline.destroy");
+    }
+}
+
+class Device {
+    const handle: DeviceHandle
+
+    fn buffer(self: Device, bytes: ByteArray) -> Buffer {
+        return Buffer(
+            handle: rawBuffer(checked(rawBufferCreate(self.handle, bytes, byteLength(bytes)), "macos.buffer"))
+        );
+    }
+
+    fn allocateBuffer(self: Device, length: Int) -> Buffer {
+        return Buffer(handle: rawBuffer(checked(rawBufferAllocate(self.handle, length), "macos.buffer.allocate")));
+    }
+
+    fn library(self: Device, source: String) -> Library {
+        let bytes = utf8Encode(source);
+        return Library(
+            handle: rawLibrary(checked(rawLibraryCreate(self.handle, bytes, byteLength(bytes), false), "macos.library"))
+        );
+    }
+
+    fn loadLibrary(self: Device, path: String) -> Library {
+        let bytes = utf8Encode(path);
+        return Library(
+            handle: rawLibrary(
+                checked(rawLibraryCreate(self.handle, bytes, byteLength(bytes), true), "macos.library.load")
+            )
+        );
+    }
+
+    fn surface(self: Device, rect: Rect) -> View {
+        return View(handle: rawView(checked(rawSurfaceCreate(self.handle, rect), "macos.surface")));
+    }
+
+    /// Allocate a reusable command handle, normally once per in-flight frame slot.
+    fn command(self: Device) -> Command {
+        return Command(handle: rawCommand(checked(rawCommandCreate(self.handle), "macos.command")));
+    }
+
+    fn destroy(self: Device) -> Int {
+        return checked(Int(rawDeviceDestroy(self.handle)), "macos.device.destroy");
+    }
+
+    /// Single-level RGBA8 / BGRA8 unorm texture. Usage is a sum of distinct flags.
+    fn texture2D(self: Device, width: Int, height: Int, format: Int, usage: Int) -> Texture {
+        return Texture(
+            handle: rawTexture(checked(rawTextureCreate(self.handle, width, height, format, usage), "macos.texture2D"))
+        );
+    }
+
+    /// Decode frame zero, normalize EXIF orientation and premultiplied sRGB RGBA8.
+/// Encoded input <=64 MiB, dimensions <=8192, decoded pixels <=256 MiB.
+    fn imageTexture(self: Device, encoded: ByteArray) -> Texture {
+        return Texture(
+            handle: rawTexture(
+                checked(rawTextureImage(self.handle, encoded, byteLength(encoded)), "macos.imageTexture")
+            )
+        );
+    }
+
+    fn sampler(self: Device, filter: Int, address: Int) -> Sampler {
+        return Sampler(handle: rawSampler(checked(rawSamplerCreate(self.handle, filter, address), "macos.sampler")));
+    }
+
+    /// Allocate packed float32 x,y,u,v,r,g,b,a vertices (32 bytes each).
+    fn vertexBuffer2D(self: Device, capacity: Int) -> Buffer {
+        if capacity <= 0 || capacity > 8388608 {
+            throw error(-7804, "macos.vertexBuffer2D.capacity");
+        }
+        return self.allocateBuffer(capacity * 32);
+    }
+
+    fn batch2D(self: Device, capacity: Int) -> Batch2D {
+        if capacity <= 0 || capacity > 65536 {
+            throw error(-7804, "macos.batch2D.capacity");
+        }
+        let shader = r#"
+#include <metal_stdlib>
+using namespace metal;
+struct Vertex { float2 position; float2 uv; float4 color; };
+struct Raster { float4 position [[position]]; float2 uv; float4 color; };
+vertex Raster vertex2d(uint i [[vertex_id]], const device Vertex *vertices [[buffer(0)]]) {
+    Vertex v = vertices[i];
+    return {float4(v.position, 0, 1), v.uv, v.color};
+}
+fragment float4 fragment2d(Raster v [[stage_in]], texture2d<float> image [[texture(0)]], sampler filter [[sampler(0)]]) {
+    return image.sample(filter, v.uv) * float4(v.color.rgb * v.color.a, v.color.a);
+}
+"#;
+        let library = self.library(shader);
+        try {
+            let rgba = library.renderPipelineWithOptions("vertex2d", "fragment2d", pixelRGBA8, blendPremultiplied);
+            let bgra = library.renderPipelineWithOptions("vertex2d", "fragment2d", pixelBGRA8, blendPremultiplied);
+            let white = self.texture2D(1, 1, pixelRGBA8, textureSampled);
+            let uploaded = white.write(Scissor(x: 0, y: 0, width: 1, height: 1), 4, byteArray(b"\xff\xff\xff\xff"));
+            return Batch2D(
+                vertices: self.vertexBuffer2D(capacity * 6),
+                rgba: rgba,
+                bgra: bgra,
+                nearest: self.sampler(filterNearest, addressClamp),
+                linear: self.sampler(filterLinear, addressClamp),
+                white: white,
+                command: self.command(),
+                capacity: capacity,
+                width: 0,
+                height: 0,
+                count: 0,
+                draws: [],
+                transform: identity2D(),
+                clip: Scissor(x: 0, y: 0, width: 1, height: 1),
+                filter: filterLinear,
+                closed: false,
+                rendering: false
+            );
+        }
+        finally {
+            let closed = library.destroy();
+        }
+    }
+
+    /// Stream the encoded file with a 64 MiB limit, then decode on Main.
+/// Decode/upload is synchronous; cooperative async decode is a later extension.
+    async fn loadImageTexture(self: Device, path: String) -> Texture {
+        let bytes = await imageFiles.readImageBytes(path);
+        return self.imageTexture(bytes);
+    }
+
+    fn rasterText(self: Device, layout: TextLayout, scale: Float) -> Texture {
+        return Texture(
+            handle: rawTexture(checked(rawTextTexture(self.handle, layout.handle, scale), "macos.text.raster"))
+        );
+    }
+
+    fn text2D(self: Device, font: Font, text: String, width: Float, alignment: Int, scale: Float) -> Text2D {
+        let layout = font.layout(text, width, alignment);
+        var retained = false;
+        try {
+            let texture = self.rasterText(layout, scale);
+            let info = texture.info();
+            let result = Text2D(
+                layout: layout,
+                texture: texture,
+                metrics: layout.metrics(),
+                scale: scale,
+                width: info.width,
+                height: info.height
+            );
+            retained = true;
+            return result;
+        }
+        finally {
+            if !retained {
+                let released = layout.destroy();
+            }
+        }
+    }
+}
+
+class Font {
+    const handle: FontHandle
+
+    /// UTF8 <=64 KiB. Width zero is natural; positive width wraps. Alignment 0/1/2.
+    fn layout(self: Font, text: String, width: Float, alignment: Int) -> TextLayout {
+        let bytes = utf8Encode(text);
+        return TextLayout(
+            handle: rawText(
+                checked(rawTextCreate(self.handle, bytes, byteLength(bytes), width, alignment), "macos.text.layout")
+            )
+        );
+    }
+
+    fn destroy(self: Font) -> Int {
+        return checked(Int(rawFontDestroy(self.handle)), "macos.font.destroy");
+    }
+}
+
+class FrameClock {
+    const handle: FrameClockHandle
+
+    fn invalidate(self: FrameClock) -> Int {
+        return checked(Int(rawFrameRequest(self.handle)), "macos.frame.invalidate");
+    }
+
+    fn setAnimating(self: FrameClock, enabled: Bool) -> Int {
+        return checked(Int(rawFrameAnimating(self.handle, enabled)), "macos.frame.animating");
+    }
+
+    fn retry(self: FrameClock) -> Int {
+        return checked(Int(rawFrameRetry(self.handle)), "macos.frame.retry");
+    }
+
+    fn presented(self: FrameClock) -> Int {
+        return checked(Int(rawFramePresented(self.handle)), "macos.frame.presented");
+    }
+
+    fn stop(self: FrameClock) -> Int {
+        return checked(Int(rawFrameStop(self.handle)), "macos.frame.stop");
+    }
+
+    fn destroy(self: FrameClock) -> Int {
+        return checked(Int(rawFrameDestroy(self.handle)), "macos.frame.destroy");
+    }
+
+    fn statistics(self: FrameClock) -> FrameStatistics {
+        let output = FrameStatistics(
+            requests: 0,
+            coalesced: 0,
+            ticks: 0,
+            retries: 0,
+            pending: false,
+            visible: false,
+            animating: false,
+            stopped: false
+        );
+        let status = checked(Int(rawFrameStatistics(self.handle, output)), "macos.frame.statistics");
+        return output;
+    }
+
+    /// One reader. Cancellation disarms this wait and acknowledges physical publication.
+    async fn next(self: FrameClock) -> Option<FrameInfo> {
+        var startup = checked(Int(rawFrameState(self.handle)), "macos.frame.startup");
+        while startup == 0 {
+            await rinzu.timer.sleep(1);
+            startup = checked(Int(rawFrameState(self.handle)), "macos.frame.startup");
+        }
+        if startup == 2 {
+            return Option<FrameInfo>.None();
+        }
+        let token = checked(rawWaitToken(), "macos.frame.token");
+        try {
+            let admitted = checked(Int(rawFrameBegin(self.handle, token)), "macos.frame.wait");
+            await nativeCompleted(rawFrameCompletion(self.handle, token));
+            let output = FrameInfo(sequence: 0, width: 0, height: 0, scale: 1.0, time: 0.0, delta: 0.0);
+            let available = checked(Int(rawFrameTake(self.handle, token, output)), "macos.frame.take");
+            if available == 0 {
+                return Option<FrameInfo>.None();
+            }
+            return Option<FrameInfo>.Some(value: output);
+        }
+        finally {
+            if rawFrameOwned(self.handle, token) {
+                let cancelled = checked(Int(rawFrameCancel(self.handle, token)), "macos.frame.cancel");
+                await nativeCompleted(rawFrameCompletion(self.handle, token));
+                let finished = checked(Int(rawFrameFinish(self.handle, token)), "macos.frame.finish");
+            }
+        }
+    }
+}
+
+class Library {
+    const handle: LibraryHandle
+
+    fn computePipeline(self: Library, name: String) -> ComputePipeline {
+        let bytes = utf8Encode(name);
+        return ComputePipeline(
+            handle: rawCompute(
+                checked(rawComputeCreate(self.handle, bytes, byteLength(bytes)), "macos.computePipeline")
+            )
+        );
+    }
+
+    fn renderPipeline(self: Library, vertex: String, fragment: String) -> RenderPipeline {
+        let vertexBytes = utf8Encode(vertex);
+        let fragmentBytes = utf8Encode(fragment);
+        return RenderPipeline(
+            handle: rawRender(
+                checked(
+                    rawRenderCreate(
+                        self.handle,
+                        vertexBytes,
+                        byteLength(vertexBytes),
+                        fragmentBytes,
+                        byteLength(fragmentBytes)
+                    ),
+                    "macos.renderPipeline"
+                )
+            )
+        );
+    }
+
+    fn destroy(self: Library) -> Int {
+        return checked(Int(rawLibraryDestroy(self.handle)), "macos.library.destroy");
+    }
+
+    fn renderPipelineWithOptions(self: Library, vertex: String, fragment: String, format: Int, blend: Int)
+        -> RenderPipeline {
+        let v = utf8Encode(vertex);
+        let f = utf8Encode(fragment);
+        return RenderPipeline(
+            handle: rawRender(
+                checked(
+                    rawRenderOptions(self.handle, v, byteLength(v), f, byteLength(f), format, blend),
+                    "macos.renderPipeline.options"
+                )
+            )
+        );
+    }
+}
+
+class Menu {
+    const handle: MenuHandle
+
+    fn addAction(self: Menu, title: String, action: Int, key: String, modifiers: Int) -> Int {
+        let bytes = utf8Encode(title);
+        let shortcut = utf8Encode(key);
+        return checked(
+            Int(
+                rawMenuItem(self.handle, bytes, byteLength(bytes), shortcut, byteLength(shortcut), modifiers, action, 0)
+            ),
+            "macos.menu.action"
+        );
+    }
+
+    fn addStandard(self: Menu, title: String, command: Int, key: String, modifiers: Int) -> Int {
+        let bytes = utf8Encode(title);
+        let shortcut = utf8Encode(key);
+        return checked(
+            Int(
+                rawMenuItem(
+                    self.handle,
+                    bytes,
+                    byteLength(bytes),
+                    shortcut,
+                    byteLength(shortcut),
+                    modifiers,
+                    0,
+                    CInt(command)
+                )
+            ),
+            "macos.menu.standard"
+        );
+    }
+
+    fn addSubmenu(self: Menu, child: Menu) -> Int {
+        return checked(Int(rawMenuSubmenu(self.handle, child.handle)), "macos.menu.submenu");
+    }
+
+    fn addSeparator(self: Menu) -> Int {
+        return checked(Int(rawMenuSeparator(self.handle)), "macos.menu.separator");
+    }
+
+    fn setState(self: Menu, action: Int, enabled: Bool, isChecked: Bool) -> Int {
+        return checked(Int(rawMenuState(self.handle, action, enabled, isChecked)), "macos.menu.state");
+    }
+
+    fn destroy(self: Menu) -> Int {
+        return checked(Int(rawMenuDestroy(self.handle)), "macos.menu.destroy");
+    }
+}
+
+class RenderPipeline {
+    const handle: RenderPipelineHandle
+
+    fn destroy(self: RenderPipeline) -> Int {
+        return checked(Int(rawRenderDestroy(self.handle)), "macos.renderPipeline.destroy");
+    }
+}
+
+class Sampler {
+    const handle: SamplerHandle
+
+    fn destroy(self: Sampler) -> Int {
+        return checked(Int(rawSamplerDestroy(self.handle)), "macos.sampler.destroy");
+    }
+}
+
+class Session {
+    const handle: SessionHandle
+
+    /// Owned absolute app-resource root; None in an ordinary JIT/console host.
+    fn resourceRoot(self: Session) -> Option<String> {
+        let length = checked(rawResourceRootSize(self.handle), "macos.resourceRoot");
+        if length == 0 {
+            return Option<String>.None();
+        }
+        return Option<String>.Some(value: utf8Decode(rawResourceRootBytes(self.handle)));
+    }
+
+    /// Resolve a normalized app-relative resource name without changing cwd.
+    fn resourcePath(self: Session, relative: String) -> String {
+        let bytes = utf8Encode(relative);
+        let valid = checked(Int(rawResourceRelative(bytes, byteLength(bytes))), "macos.resourcePath");
+        switch self.resourceRoot() {
+            case Option.Some(root): {
+                return f"{root}/{relative}";
+            }
+            case Option.None: {
+                throw error(-7804, "macos.resourcePath.notBundled");
+            }
+        }
+    }
+
+    fn isRunning(self: Session) -> Bool {
+        return rawRunning(self.handle);
+    }
+
+    fn runEvents(self: Session) -> Future<Int> {
+        return runEvents(self);
+    }
+
+    async fn nextEvent(self: Session) -> UiEvent {
+        return await nextEvent(self);
+    }
+
+    fn window(self: Session, title: String, width: Float, height: Float) -> Window {
+        let bytes = utf8Encode(title);
+        return Window(
+            handle: rawWindow(
+                checked(rawWindowCreate(self.handle, bytes, byteLength(bytes), width, height), "macos.window")
+            )
+        );
+    }
+
+    fn view(self: Session, rect: Rect) -> View {
+        return View(handle: rawView(checked(rawViewCreate(self.handle, rect), "macos.view")));
+    }
+
+    fn device(self: Session) -> Device {
+        return Device(handle: rawDevice(checked(rawDeviceCreate(self.handle), "macos.device")));
+    }
+
+    async fn run(self: Session, handler: fn (RunContext, Event) -> Unit) -> Int {
+        return await run(self, handler);
+    }
+
+    fn stop(self: Session) -> Int {
+        return stop(self);
+    }
+
+    async fn close(self: Session) -> Int {
+        return await close(self);
+    }
+
+    fn label(self: Session, title: String, frame: Rect) -> Label {
+        return Label(view: newWidget(self, 1, title, frame, 0));
+    }
+
+    fn button(self: Session, title: String, frame: Rect, action: Int) -> Button {
+        return Button(view: newWidget(self, 2, title, frame, action));
+    }
+
+    fn checkbox(self: Session, title: String, frame: Rect, action: Int) -> Checkbox {
+        return Checkbox(view: newWidget(self, 3, title, frame, action));
+    }
+
+    fn textField(self: Session, title: String, frame: Rect, action: Int) -> TextField {
+        return TextField(view: newWidget(self, 4, title, frame, action));
+    }
+
+    fn textView(self: Session, title: String, frame: Rect) -> TextView {
+        return TextView(view: newWidget(self, 5, title, frame, 0));
+    }
+
+    fn scrollView(self: Session, frame: Rect) -> ScrollView {
+        return ScrollView(view: newWidget(self, 6, "", frame, 0));
+    }
+
+    fn setClipboardText(self: Session, value: String) -> Int {
+        let bytes = utf8Encode(value);
+        return checked(Int(rawClipboardWrite(self.handle, bytes, byteLength(bytes))), "macos.clipboard.write");
+    }
+
+    fn clipboardText(self: Session) -> String {
+        let token = checked(rawWaitToken(), "macos.clipboard.token");
+        try {
+            let acquired = checked(Int(rawClipboardSnapshot(self.handle, token)), "macos.clipboard.snapshot");
+            return utf8Decode(rawClipboardBytes(self.handle, token));
+        }
+        finally {
+            if rawClipboardOwned(self.handle, token) {
+                let released = checked(Int(rawClipboardFinish(self.handle, token)), "macos.clipboard.finish");
+            }
+        }
+    }
+
+    /// Sequence barrier for reconciling a native snapshot with already queued input.
+    fn eventSequence(self: Session) -> Int {
+        return checked(rawEventSequence(self.handle), "macos.event.sequence");
+    }
+
+    fn font(self: Session, name: String, size: Float, bold: Bool) -> Font {
+        let bytes = utf8Encode(name);
+        return Font(
+            handle: rawFont(checked(rawFontCreate(self.handle, bytes, byteLength(bytes), size, bold), "macos.font"))
+        );
+    }
+}
+
+class TextLayout {
+    const handle: TextLayoutHandle
+
+    fn metrics(self: TextLayout) -> TextMetrics {
+        let output = TextMetrics(
+            width: 0.0,
+            height: 0.0,
+            baseline: 0.0,
+            ascent: 0.0,
+            descent: 0.0,
+            leading: 0.0,
+            left: 0.0,
+            top: 0.0,
+            rasterWidth: 0.0,
+            rasterHeight: 0.0,
+            lines: 0
+        );
+        let status = checked(Int(rawTextMetrics(self.handle, output)), "macos.text.metrics");
+        return output;
+    }
+
+    fn destroy(self: TextLayout) -> Int {
+        return checked(Int(rawTextDestroy(self.handle)), "macos.text.destroy");
+    }
+}
+
+class Texture {
+    const handle: TextureHandle
+
+    fn info(self: Texture) -> TextureInfo {
+        let output = TextureInfo(width: 0, height: 0, format: 0, usage: 0, bytes: 0);
+        let status = checked(Int(rawTextureInfo(self.handle, output)), "macos.texture.info");
+        return output;
+    }
+
+    fn write(self: Texture, region: Scissor, rowBytes: Int, bytes: ByteArray) -> Int {
+        return checked(
+            Int(rawTextureWrite(self.handle, region, rowBytes, bytes, byteLength(bytes))),
+            "macos.texture.write"
+        );
+    }
+
+    /// Tightly packed owned bytes, in the texture's channel order; requires no GPU lease.
+    fn read(self: Texture, region: Scissor) -> ByteArray {
+        let status = checked(Int(rawTextureRead(self.handle, region)), "macos.texture.read");
+        return rawTextureBytes(self.handle);
+    }
+
+    fn destroy(self: Texture) -> Int {
+        return checked(Int(rawTextureDestroy(self.handle)), "macos.texture.destroy");
+    }
+
+    fn identity(self: Texture) -> Int {
+        return checked(rawTextureId(self.handle), "macos.texture.identity");
+    }
+}
+
+class View {
+    const handle: ViewHandle
+
+    fn setAccessibility(self: View, label: String, help: String, identifier: String) -> Int {
+        let a = utf8Encode(label);
+        let b = utf8Encode(help);
+        let c = utf8Encode(identifier);
+        return checked(
+            Int(rawAccessibility(self.handle, a, byteLength(a), b, byteLength(b), c, byteLength(c))),
+            "macos.accessibility"
+        );
+    }
+
+    fn setTooltip(self: View, text: String) -> Int {
+        let bytes = utf8Encode(text);
+        return checked(Int(rawTooltip(self.handle, bytes, byteLength(bytes))), "macos.tooltip");
+    }
+
+    fn identity(self: View) -> Int {
+        return checked(rawViewId(self.handle), "macos.view.identity");
+    }
+
+    fn frame(self: View) -> Rect {
+        let output = Rect(x: 0.0, y: 0.0, width: 0.0, height: 0.0);
+        let status = checked(Int(rawViewFrame(self.handle, output)), "macos.view.frame");
+        return output;
+    }
+
+    fn setFrame(self: View, rect: Rect) -> Int {
+        return checked(Int(rawViewSetFrame(self.handle, rect)), "macos.view.setFrame");
+    }
+
+    fn addSubview(self: View, child: View) -> Int {
+        return checked(Int(rawViewAdd(self.handle, child.handle)), "macos.view.add");
+    }
+
+    fn removeFromSuperview(self: View) -> Int {
+        return checked(Int(rawViewRemove(self.handle)), "macos.view.remove");
+    }
+
+    fn destroy(self: View) -> Int {
+        return checked(Int(rawViewDestroy(self.handle)), "macos.view.destroy");
+    }
+
+    fn requestDraw(self: View) -> Int {
+        return checked(Int(rawRequestDraw(self.handle)), "macos.view.requestDraw");
+    }
+
+    fn setEnabled(self: View, enabled: Bool) -> Int {
+        return checked(Int(rawEnabled(self.handle, enabled)), "macos.view.enabled");
+    }
+
+    fn setHidden(self: View, hidden: Bool) -> Int {
+        return checked(Int(rawHidden(self.handle, hidden)), "macos.view.hidden");
+    }
+
+    fn focus(self: View) -> Int {
+        return checked(Int(rawFocus(self.handle)), "macos.view.focus");
+    }
+
+    fn isEnabled(self: View) -> Bool {
+        let state = widgetState(self);
+        return state.enabled;
+    }
+
+    fn isHidden(self: View) -> Bool {
+        let state = widgetState(self);
+        return state.hidden;
+    }
+
+    /// AppKit bits: min-X margin 1, width 2, max-X 4, min-Y 8, height 16, max-Y 32.
+    fn setAutoresizing(self: View, mask: Int) -> Int {
+        return checked(Int(rawAutoresizing(self.handle, mask)), "macos.view.autoresizing");
+    }
+
+    /// Attach with constant insets and resize width/height with the parent.
+    fn fill(self: View, parent: View, inset: Float) -> Int {
+        let bounds = parent.frame();
+        if inset < 0.0 || bounds.width < inset * 2.0 || bounds.height < inset * 2.0 {
+            throw error(-7804, "macos.layout.invalidInset");
+        }
+        let attached = parent.addSubview(self);
+        let framed = self.setFrame(
+            Rect(x: inset, y: inset, width: bounds.width - inset * 2.0, height: bounds.height - inset * 2.0)
+        );
+        return self.setAutoresizing(18);
+    }
+
+    fn drawableSize(self: View) -> Rect {
+        let output = Rect(x: 0.0, y: 0.0, width: 0.0, height: 0.0);
+        let status = checked(Int(rawSurfaceSize(self.handle, output)), "macos.surface.drawableSize");
+        return output;
+    }
+
+    fn frameClock(self: View, fps: Int) -> FrameClock {
+        return FrameClock(handle: rawFrame(checked(rawFrameCreate(self.handle, fps), "macos.frameClock")));
+    }
+}
+
+class Window {
+    const handle: WindowHandle
+
+    fn identity(self: Window) -> Int {
+        return checked(rawWindowId(self.handle), "macos.window.identity");
+    }
+
+    fn show(self: Window) -> Int {
+        return checked(Int(rawWindowShow(self.handle)), "macos.window.show");
+    }
+
+    fn setTitle(self: Window, title: String) -> Int {
+        let bytes = utf8Encode(title);
+        return checked(Int(rawWindowTitle(self.handle, bytes, byteLength(bytes))), "macos.window.title");
+    }
+
+    fn setContentSize(self: Window, width: Float, height: Float) -> Int {
+        return checked(Int(rawWindowSize(self.handle, width, height)), "macos.window.size");
+    }
+
+    fn contentView(self: Window) -> View {
+        return View(handle: rawContentView(self.handle));
+    }
+
+    fn destroy(self: Window) -> Int {
+        return checked(Int(rawWindowDestroy(self.handle)), "macos.window.destroy");
+    }
+
+    fn menu(self: Window, title: String) -> Menu {
+        let bytes = utf8Encode(title);
+        return
+            Menu(handle: rawMenu(checked(rawMenuCreate(self.handle, bytes, byteLength(bytes)), "macos.menu.create")));
+    }
+
+    fn setMenu(self: Window, menu: Menu) -> Int {
+        return checked(Int(rawWindowMenu(self.handle, menu.handle)), "macos.window.menu");
+    }
+
+    fn command(self: Window, command: Int) -> Int {
+        return checked(Int(rawWindowCommand(self.handle, CInt(command))), "macos.window.command");
+    }
+
+    /// One file, as an owned absolute path. Cancel returns None. Empty directory uses AppKit's default.
+    fn openFile(self: Window, title: String, directory: String) -> Future<Option<String>> {
+        return filePanel(self, false, title, directory, "");
+    }
+
+    /// Choose a destination; writing the file remains a separate operation.
+    fn saveFile(self: Window, title: String, directory: String, name: String) -> Future<Option<String>> {
+        return filePanel(self, true, title, directory, name);
+    }
+
+    /// One to three buttons, numbered 1..3. Empty optional titles omit buttons. Dismissal returns 0.
+    async fn alert(self: Window, title: String, message: String, first: String, second: String, third: String) -> Int {
+        await sheetReady(self);
+        let token = checked(rawWaitToken(), "macos.sheet.token");
+        try {
+            let heading = utf8Encode(title);
+            let body = utf8Encode(message);
+            let one = utf8Encode(first);
+            let two = utf8Encode(second);
+            let three = utf8Encode(third);
+            let admitted = checked(
+                Int(
+                    rawAlertBegin(
+                        self.handle,
+                        token,
+                        heading,
+                        byteLength(heading),
+                        body,
+                        byteLength(body),
+                        one,
+                        byteLength(one),
+                        two,
+                        byteLength(two),
+                        three,
+                        byteLength(three)
+                    )
+                ),
+                "macos.alert.begin"
+            );
+            await nativeCompleted(rawSheetCompletion(self.handle, token));
+            return checked(Int(rawSheetResult(self.handle, token)), "macos.alert.result");
+        }
+        finally {
+            if rawSheetOwned(self.handle, token) {
+                try {
+                    let dismissed = checked(Int(rawSheetCancel(self.handle, token)), "macos.sheet.cancel");
+                }
+                finally {
+                    await nativeCompleted(rawSheetCompletion(self.handle, token));
+                    let finished = checked(Int(rawSheetFinish(self.handle, token)), "macos.sheet.finish");
+                }
+            }
+        }
+    }
+
+    /// Dismiss the current sheet without closing the Window or stopping later sheets.
+    fn dismissSheet(self: Window) -> Int {
+        return checked(Int(rawSheetDismiss(self.handle)), "macos.sheet.dismiss");
+    }
+
+    fn state(self: Window) -> Int {
+        return checked(Int(rawWindowState(self.handle)), "macos.window.state");
+    }
+
+    fn hide(self: Window) -> Int {
+        return checked(Int(rawWindowVisibility(self.handle, CInt(1))), "macos.window.hide");
+    }
+
+    fn minimize(self: Window) -> Int {
+        return checked(Int(rawWindowVisibility(self.handle, CInt(2))), "macos.window.minimize");
+    }
+
+    fn restore(self: Window) -> Int {
+        return checked(Int(rawWindowVisibility(self.handle, CInt(3))), "macos.window.restore");
+    }
+
+    fn setMinimumContentSize(self: Window, width: Float, height: Float) -> Int {
+        return checked(Int(rawWindowMinimumSize(self.handle, width, height)), "macos.window.minimumSize");
+    }
+
+    fn setTheme(self: Window, theme: Int) -> Int {
+        return checked(Int(rawWindowTheme(self.handle, theme)), "macos.window.theme");
+    }
+
+    fn effectiveTheme(self: Window) -> Int {
+        return checked(Int(rawEffectiveTheme(self.handle)), "macos.window.effectiveTheme");
+    }
+}
+
+type RunContext = {
+    session: Session
+};
+
+native {
+    opaque SessionHandle;
+
+    opaque WindowHandle;
+
+    opaque ViewHandle;
+
+    opaque DeviceHandle;
+
+    opaque BufferHandle;
+
+    opaque TextureHandle;
+
+    opaque SamplerHandle;
+
+    opaque FontHandle;
+
+    opaque TextLayoutHandle;
+
+    opaque FrameClockHandle;
+
+    opaque LibraryHandle;
+
+    opaque ComputePipelineHandle;
+
+    opaque RenderPipelineHandle;
+
+    opaque CommandHandle;
+
+    opaque MenuHandle;
+
+    opaque Completion;
+
+    record Rect {
+        x: Float,
+        y: Float,
+        width: Float,
+        height: Float
+    }
+
+    record Color {
+        red: Float,
+        green: Float,
+        blue: Float,
+        alpha: Float
+    }
+
+    record TextureInfo {
+        width: Int,
+        height: Int,
+        format: Int,
+        usage: Int,
+        bytes: Int
+    }
+
+    record FrameInfo {
+        sequence: Int,
+        width: Int,
+        height: Int,
+        scale: Float,
+        time: Float,
+        delta: Float
+    }
+
+    record FrameStatistics {
+        requests: Int,
+        coalesced: Int,
+        ticks: Int,
+        retries: Int,
+        pending: CBool,
+        visible: CBool,
+        animating: CBool,
+        stopped: CBool
+    }
+
+    record TextMetrics {
+        width: Float,
+        height: Float,
+        baseline: Float,
+        ascent: Float,
+        descent: Float,
+        leading: Float,
+        left: Float,
+        top: Float,
+        rasterWidth: Float,
+        rasterHeight: Float,
+        lines: Int
+    }
+
+    record Vertex2D {
+        x: Float,
+        y: Float,
+        u: Float,
+        v: Float,
+        red: Float,
+        green: Float,
+        blue: Float,
+        alpha: Float
+    }
+
+    record Transform2D {
+        a: Float,
+        b: Float,
+        c: Float,
+        d: Float,
+        tx: Float,
+        ty: Float
+    }
+
+    record QuadData2D {
+        x: Float,
+        y: Float,
+        width: Float,
+        height: Float,
+        u: Float,
+        v: Float,
+        uvWidth: Float,
+        uvHeight: Float,
+        red: Float,
+        green: Float,
+        blue: Float,
+        alpha: Float,
+        a: Float,
+        b: Float,
+        c: Float,
+        d: Float,
+        tx: Float,
+        ty: Float
+    }
+
+    record Scissor {
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int
+    }
+
+    record Event {
+        kind: Int,
+        windowId: Int,
+        viewId: Int,
+        sequence: Int,
+        x: Float,
+        y: Float,
+        width: Float,
+        height: Float,
+        scale: Float,
+        keyCode: Int,
+        modifiers: Int,
+        action: Int,
+        selectionStart: Int,
+        selectionEnd: Int,
+        flags: Int,
+        value: Float,
+        deltaX: Float,
+        deltaY: Float
+    }
+
+    record Statistics {
+        sessions: Int,
+        windows: Int,
+        views: Int,
+        devices: Int,
+        buffers: Int,
+        libraries: Int,
+        pipelines: Int,
+        commands: Int,
+        bufferBytes: Int,
+        retainedControls: Int,
+        queuedEvents: Int,
+        eventPayloadBytes: Int,
+        snapshotBytes: Int,
+        sheets: Int,
+        sheetBytes: Int,
+        textures: Int,
+        samplers: Int,
+        textureBytes: Int,
+        fonts: Int,
+        textLayouts: Int,
+        textBytes: Int,
+        frameClocks: Int,
+        frameTimers: Int,
+        frameWaiters: Int,
+        dataRows: Int,
+        dataBytes: Int,
+        dataUpdates: Int
+    }
+
+    record Selection {
+        start: Int,
+        end: Int
+    }
+
+    record WidgetState {
+        value: Float,
+        enabled: CBool,
+        hidden: CBool
+    }
+
+    fn rawWidgetCreate(session: SessionHandle, kind: CInt, text: ByteArray, length: CSize, frame: Rect, action: Int)
+        -> Int
+        symbol "rinzu_macos_widget_create";
+
+    fn rawWidgetScoped(window: WindowHandle, kind: CInt, text: ByteArray, length: CSize, frame: Rect, action: Int)
+        -> Int
+        symbol "rinzu_macos_widget_scoped";
+
+    fn rawWidgetSetText(view: ViewHandle, text: ByteArray, length: CSize) -> CInt symbol "rinzu_macos_widget_set_text";
+
+    fn rawWidgetSnapshot(view: ViewHandle, token: Int) -> CInt symbol "rinzu_macos_widget_snapshot";
+
+    fn rawWidgetSnapshotOwned(view: ViewHandle, token: Int) -> CBool symbol "rinzu_macos_widget_snapshot_owned";
+
+    fn rawWidgetBytes(view: ViewHandle, token: Int) -> ByteArray symbol "rinzu_macos_widget_bytes";
+
+    fn rawWidgetSnapshotFinish(view: ViewHandle, token: Int) -> CInt symbol "rinzu_macos_widget_snapshot_finish";
+
+    fn rawWidgetState(view: ViewHandle, output: WidgetState) -> CInt symbol "rinzu_macos_widget_state";
+
+    fn rawWidgetValue(view: ViewHandle, value: Float) -> CInt symbol "rinzu_macos_widget_value";
+
+    fn rawEnabled(view: ViewHandle, enabled: CBool) -> CInt symbol "rinzu_macos_view_enabled";
+
+    fn rawHidden(view: ViewHandle, hidden: CBool) -> CInt symbol "rinzu_macos_view_hidden";
+
+    fn rawFocus(view: ViewHandle) -> CInt symbol "rinzu_macos_view_focus";
+
+    fn rawSelection(view: ViewHandle, output: Selection) -> CInt symbol "rinzu_macos_text_selection";
+
+    fn rawSelect(view: ViewHandle, start: Int, end: Int) -> CInt symbol "rinzu_macos_text_select";
+
+    fn rawScrollContent(scroll: ViewHandle, content: ViewHandle) -> CInt symbol "rinzu_macos_scroll_content";
+
+    fn rawAutoresizing(view: ViewHandle, mask: Int) -> CInt symbol "rinzu_macos_view_autoresizing";
+
+    fn rawMenuCreate(window: WindowHandle, title: ByteArray, length: CSize) -> Int symbol "rinzu_macos_menu_create";
+
+    fn rawMenu(id: Int) -> MenuHandle symbol "rinzu_macos_menu";
+
+    fn rawMenuItem(
+        menu: MenuHandle,
+        title: ByteArray,
+        length: CSize,
+        key: ByteArray,
+        keyLength: CSize,
+        modifiers: Int,
+        action: Int,
+        standard: CInt
+    ) -> CInt symbol "rinzu_macos_menu_item";
+
+    fn rawMenuSubmenu(menu: MenuHandle, child: MenuHandle) -> CInt symbol "rinzu_macos_menu_submenu";
+
+    fn rawMenuSeparator(menu: MenuHandle) -> CInt symbol "rinzu_macos_menu_separator";
+
+    fn rawMenuState(menu: MenuHandle, action: Int, enabled: CBool, checked: CBool)
+        -> CInt
+        symbol "rinzu_macos_menu_state";
+
+    fn rawMenuDestroy(menu: MenuHandle) -> CInt symbol "rinzu_macos_menu_destroy";
+
+    fn rawWindowMenu(window: WindowHandle, menu: MenuHandle) -> CInt symbol "rinzu_macos_window_menu";
+
+    fn rawWindowCommand(window: WindowHandle, command: CInt) -> CInt symbol "rinzu_macos_window_command";
+
+    fn rawClipboardWrite(session: SessionHandle, text: ByteArray, length: CSize)
+        -> CInt
+        symbol "rinzu_macos_clipboard_write";
+
+    fn rawClipboardSnapshot(session: SessionHandle, token: Int) -> CInt symbol "rinzu_macos_clipboard_snapshot";
+
+    fn rawClipboardOwned(session: SessionHandle, token: Int) -> CBool symbol "rinzu_macos_clipboard_owned";
+
+    fn rawClipboardBytes(session: SessionHandle, token: Int) -> ByteArray symbol "rinzu_macos_clipboard_bytes";
+
+    fn rawClipboardFinish(session: SessionHandle, token: Int) -> CInt symbol "rinzu_macos_clipboard_finish";
+
+    fn rawOpen() -> Int symbol "rinzu_macos_open";
+
+    fn rawSession(id: Int) -> SessionHandle symbol "rinzu_macos_session";
+
+    fn rawClose(session: SessionHandle) -> CInt symbol "rinzu_macos_close";
+
+    fn rawPrepareClose(session: SessionHandle) -> CInt symbol "rinzu_macos_prepare_close";
+
+    fn rawOwnerSession() -> SessionHandle symbol "rinzu_macos_owner_session";
+
+    fn rawHasOwnerSession() -> CBool symbol "rinzu_macos_has_owner_session";
+
+    fn rawDiagnostic() -> ByteArray symbol "rinzu_macos_diagnostic";
+
+    fn rawResourceRootSize(session: SessionHandle) -> Int symbol "rinzu_macos_resource_root_size";
+
+    fn rawResourceRootBytes(session: SessionHandle) -> ByteArray symbol "rinzu_macos_resource_root_bytes";
+
+    fn rawResourceRelative(path: ByteArray, length: CSize) -> CInt symbol "rinzu_macos_resource_relative";
+
+    fn rawStatistics(output: Statistics) -> CInt symbol "rinzu_macos_statistics";
+
+    supplant fn rawRun(session: SessionHandle, context: RunContext, handler: fn (RunContext, Event) -> Unit)
+        -> CInt
+        symbol "rinzu_macos_run";
+
+    supplant fn rawRunEvents(session: SessionHandle) -> CInt symbol "rinzu_macos_run_events";
+
+    fn rawPrepareEvents(session: SessionHandle) -> CInt symbol "rinzu_macos_prepare_events";
+
+    fn rawRequestStop(session: SessionHandle) -> CInt symbol "rinzu_macos_request_stop";
+
+    fn rawHasRun(session: SessionHandle) -> CBool symbol "rinzu_macos_has_run";
+
+    fn rawStreamState(session: SessionHandle) -> CInt symbol "rinzu_macos_stream_state";
+
+    fn rawRunning(session: SessionHandle) -> CBool symbol "rinzu_macos_running";
+
+    fn rawRunWaitBegin(session: SessionHandle, token: Int) -> CInt symbol "rinzu_macos_run_wait_begin";
+
+    fn rawRunWaitOwned(session: SessionHandle, token: Int) -> CBool symbol "rinzu_macos_run_wait_owned";
+
+    fn rawRunCompletion(session: SessionHandle, token: Int) -> Completion symbol "rinzu_macos_run_completion";
+
+    fn rawRunWaitFinish(session: SessionHandle, token: Int) -> CInt symbol "rinzu_macos_run_wait_finish";
+
+    fn rawEventBegin(session: SessionHandle, token: Int) -> CInt symbol "rinzu_macos_event_wait_begin";
+
+    fn rawEventOwned(session: SessionHandle, token: Int) -> CBool symbol "rinzu_macos_event_wait_owned";
+
+    fn rawEventCompletion(session: SessionHandle, token: Int) -> Completion symbol "rinzu_macos_event_completion";
+
+    fn rawEventTake(session: SessionHandle, token: Int, output: Event) -> CInt symbol "rinzu_macos_event_take";
+
+    fn rawEventBytes(session: SessionHandle, token: Int) -> ByteArray symbol "rinzu_macos_event_bytes";
+
+    fn rawEventCancel(session: SessionHandle, token: Int) -> CInt symbol "rinzu_macos_event_cancel";
+
+    fn rawEventFinish(session: SessionHandle, token: Int) -> CInt symbol "rinzu_macos_event_finish";
+
+    fn rawScopeNotify(session: SessionHandle, windowId: Int) -> CInt symbol "rinzu_macos_scope_notify";
+
+    fn rawEventSequence(session: SessionHandle) -> Int symbol "rinzu_macos_event_sequence";
+
+    fn rawWindowScoped(session: SessionHandle, token: Int, title: ByteArray, length: CSize, width: Float, height: Float)
+        -> Int
+        symbol "rinzu_macos_window_scoped";
+
+    fn rawWindowScopeClose(session: SessionHandle, token: Int) -> CInt symbol "rinzu_macos_window_scope_close";
+
+    fn rawWindowScopePrepare(session: SessionHandle, token: Int) -> CInt symbol "rinzu_macos_window_scope_prepare";
+
+    fn rawWindowScopeHasCommand(session: SessionHandle, token: Int)
+        -> CBool
+        symbol "rinzu_macos_window_scope_has_command";
+
+    fn rawWindowScopeCommand(session: SessionHandle, token: Int)
+        -> CommandHandle
+        symbol "rinzu_macos_window_scope_command";
+
+    fn rawStop(session: SessionHandle) -> CInt symbol "rinzu_macos_stop";
+
+    fn rawWindowCreate(session: SessionHandle, title: ByteArray, length: CSize, width: Float, height: Float)
+        -> Int
+        symbol "rinzu_macos_window_create";
+
+    fn rawWindow(id: Int) -> WindowHandle symbol "rinzu_macos_window";
+
+    fn rawWindowId(window: WindowHandle) -> Int symbol "rinzu_macos_window_id";
+
+    fn rawWindowShow(window: WindowHandle) -> CInt symbol "rinzu_macos_window_show";
+
+    fn rawWindowTitle(window: WindowHandle, title: ByteArray, length: CSize) -> CInt symbol "rinzu_macos_window_title";
+
+    fn rawWindowSize(window: WindowHandle, width: Float, height: Float) -> CInt symbol "rinzu_macos_window_size";
+
+    fn rawWindowState(window: WindowHandle) -> CInt symbol "rinzu_macos_window_state";
+
+    fn rawWindowVisibility(window: WindowHandle, operation: CInt) -> CInt symbol "rinzu_macos_window_visibility";
+
+    fn rawSheetReady(window: WindowHandle) -> CInt symbol "rinzu_macos_sheet_ready";
+
+    fn rawPanelBegin(
+        window: WindowHandle,
+        token: Int,
+        save: CInt,
+        title: ByteArray,
+        titleLength: CSize,
+        directory: ByteArray,
+        directoryLength: CSize,
+        name: ByteArray,
+        nameLength: CSize
+    ) -> CInt symbol "rinzu_macos_panel_begin";
+
+    fn rawAlertBegin(
+        window: WindowHandle,
+        token: Int,
+        title: ByteArray,
+        titleLength: CSize,
+        message: ByteArray,
+        messageLength: CSize,
+        first: ByteArray,
+        firstLength: CSize,
+        second: ByteArray,
+        secondLength: CSize,
+        third: ByteArray,
+        thirdLength: CSize
+    ) -> CInt symbol "rinzu_macos_alert_begin";
+
+    fn rawSheetOwned(window: WindowHandle, token: Int) -> CBool symbol "rinzu_macos_sheet_owned";
+
+    fn rawSheetCompletion(window: WindowHandle, token: Int) -> Completion symbol "rinzu_macos_sheet_completion";
+
+    fn rawSheetResult(window: WindowHandle, token: Int) -> CInt symbol "rinzu_macos_sheet_result";
+
+    fn rawSheetBytes(window: WindowHandle, token: Int) -> ByteArray symbol "rinzu_macos_sheet_bytes";
+
+    fn rawSheetCancel(window: WindowHandle, token: Int) -> CInt symbol "rinzu_macos_sheet_cancel";
+
+    fn rawSheetFinish(window: WindowHandle, token: Int) -> CInt symbol "rinzu_macos_sheet_finish";
+
+    fn rawSheetDismiss(window: WindowHandle) -> CInt symbol "rinzu_macos_sheet_dismiss";
+
+    fn rawSheetStop(window: WindowHandle) -> CInt symbol "rinzu_macos_sheet_stop";
+
+    fn rawTextComposing(view: ViewHandle) -> CInt symbol "rinzu_macos_text_composing";
+
+    fn rawScrollTo(scroll: ViewHandle, x: Float, y: Float) -> CInt symbol "rinzu_macos_scroll_to";
+
+    fn rawScrollRect(scroll: ViewHandle, output: Rect) -> CInt symbol "rinzu_macos_scroll_rect";
+
+    fn rawWindowDestroy(window: WindowHandle) -> CInt symbol "rinzu_macos_window_destroy";
+
+    fn rawContentView(window: WindowHandle) -> ViewHandle symbol "rinzu_macos_window_content";
+
+    fn rawViewCreate(session: SessionHandle, rect: Rect) -> Int symbol "rinzu_macos_view_create";
+
+    fn rawView(id: Int) -> ViewHandle symbol "rinzu_macos_view";
+
+    fn rawViewId(view: ViewHandle) -> Int symbol "rinzu_macos_view_id";
+
+    fn rawViewFrame(view: ViewHandle, rect: Rect) -> CInt symbol "rinzu_macos_view_frame";
+
+    fn rawViewSetFrame(view: ViewHandle, rect: Rect) -> CInt symbol "rinzu_macos_view_set_frame";
+
+    fn rawViewAdd(parent: ViewHandle, child: ViewHandle) -> CInt symbol "rinzu_macos_view_add";
+
+    fn rawViewRemove(view: ViewHandle) -> CInt symbol "rinzu_macos_view_remove";
+
+    fn rawViewDestroy(view: ViewHandle) -> CInt symbol "rinzu_macos_view_destroy";
+
+    fn rawRequestDraw(view: ViewHandle) -> CInt symbol "rinzu_macos_view_request_draw";
+
+    fn metalAvailable() -> CBool symbol "rinzu_macos_metal_available";
+
+    fn rawDeviceCreate(session: SessionHandle) -> Int symbol "rinzu_macos_device_create";
+
+    fn rawDevice(id: Int) -> DeviceHandle symbol "rinzu_macos_device";
+
+    fn rawDeviceDestroy(device: DeviceHandle) -> CInt symbol "rinzu_macos_device_destroy";
+
+    fn rawBufferCreate(device: DeviceHandle, bytes: ByteArray, length: CSize) -> Int symbol "rinzu_macos_buffer_create";
+
+    fn rawBufferAllocate(device: DeviceHandle, length: Int) -> Int symbol "rinzu_macos_buffer_allocate";
+
+    fn rawBuffer(id: Int) -> BufferHandle symbol "rinzu_macos_buffer";
+
+    fn rawBufferWrite(buffer: BufferHandle, offset: Int, bytes: ByteArray, length: CSize)
+        -> CInt
+        symbol "rinzu_macos_buffer_write";
+
+    fn rawBufferRead(buffer: BufferHandle, offset: Int, length: Int) -> CInt symbol "rinzu_macos_buffer_read";
+
+    fn rawBufferBytes(buffer: BufferHandle) -> ByteArray symbol "rinzu_macos_buffer_bytes";
+
+    fn rawBufferDestroy(buffer: BufferHandle) -> CInt symbol "rinzu_macos_buffer_destroy";
+
+    fn rawSurfaceScoped(device: DeviceHandle, window: WindowHandle, rect: Rect)
+        -> Int
+        symbol "rinzu_macos_surface_scoped";
+
+    fn rawFrameCreate(view: ViewHandle, fps: Int) -> Int symbol "rinzu_macos_frame_create";
+
+    fn rawFrame(id: Int) -> FrameClockHandle symbol "rinzu_macos_frame";
+
+    fn rawWindowMinimumSize(window: WindowHandle, width: Float, height: Float)
+        -> CInt
+        symbol "rinzu_macos_window_minimum_size";
+
+    fn rawFrameState(clock: FrameClockHandle) -> CInt symbol "rinzu_macos_frame_state";
+
+    fn rawFrameRequest(clock: FrameClockHandle) -> CInt symbol "rinzu_macos_frame_request";
+
+    fn rawFrameAnimating(clock: FrameClockHandle, enabled: CBool) -> CInt symbol "rinzu_macos_frame_animating";
+
+    fn rawFrameRetry(clock: FrameClockHandle) -> CInt symbol "rinzu_macos_frame_retry";
+
+    fn rawFramePresented(clock: FrameClockHandle) -> CInt symbol "rinzu_macos_frame_presented";
+
+    fn rawFrameStatistics(clock: FrameClockHandle, output: FrameStatistics)
+        -> CInt
+        symbol "rinzu_macos_frame_statistics";
+
+    fn rawFrameBegin(clock: FrameClockHandle, token: Int) -> CInt symbol "rinzu_macos_frame_wait_begin";
+
+    fn rawFrameOwned(clock: FrameClockHandle, token: Int) -> CBool symbol "rinzu_macos_frame_wait_owned";
+
+    fn rawFrameCompletion(clock: FrameClockHandle, token: Int) -> Completion symbol "rinzu_macos_frame_completion";
+
+    fn rawFrameTake(clock: FrameClockHandle, token: Int, output: FrameInfo) -> CInt symbol "rinzu_macos_frame_take";
+
+    fn rawFrameCancel(clock: FrameClockHandle, token: Int) -> CInt symbol "rinzu_macos_frame_cancel";
+
+    fn rawFrameFinish(clock: FrameClockHandle, token: Int) -> CInt symbol "rinzu_macos_frame_finish";
+
+    fn rawFrameStop(clock: FrameClockHandle) -> CInt symbol "rinzu_macos_frame_stop";
+
+    fn rawFrameDestroy(clock: FrameClockHandle) -> CInt symbol "rinzu_macos_frame_destroy";
+
+    fn rawFrameStopWindow(window: WindowHandle) -> CInt symbol "rinzu_macos_frame_stop_window";
+
+    fn rawFontCreate(session: SessionHandle, name: ByteArray, length: CSize, size: Float, bold: CBool)
+        -> Int
+        symbol "rinzu_macos_font_create";
+
+    fn rawFont(id: Int) -> FontHandle symbol "rinzu_macos_font";
+
+    fn rawFontDestroy(font: FontHandle) -> CInt symbol "rinzu_macos_font_destroy";
+
+    fn rawTextCreate(font: FontHandle, text: ByteArray, length: CSize, width: Float, alignment: Int)
+        -> Int
+        symbol "rinzu_macos_text_layout";
+
+    fn rawText(id: Int) -> TextLayoutHandle symbol "rinzu_macos_text";
+
+    fn rawTextMetrics(text: TextLayoutHandle, output: TextMetrics) -> CInt symbol "rinzu_macos_text_metrics";
+
+    fn rawTextTexture(device: DeviceHandle, text: TextLayoutHandle, scale: Float)
+        -> Int
+        symbol "rinzu_macos_text_texture";
+
+    fn rawTextDestroy(text: TextLayoutHandle) -> CInt symbol "rinzu_macos_text_destroy";
+
+    fn rawTextureCreate(device: DeviceHandle, width: Int, height: Int, format: Int, usage: Int)
+        -> Int
+        symbol "rinzu_macos_texture_create";
+
+    fn rawTextureImage(device: DeviceHandle, bytes: ByteArray, length: CSize) -> Int symbol "rinzu_macos_texture_image";
+
+    fn rawTexture(id: Int) -> TextureHandle symbol "rinzu_macos_texture";
+
+    fn rawTextureId(texture: TextureHandle) -> Int symbol "rinzu_macos_texture_id";
+
+    fn rawTextureInfo(texture: TextureHandle, output: TextureInfo) -> CInt symbol "rinzu_macos_texture_info";
+
+    fn rawTextureWrite(texture: TextureHandle, region: Scissor, rowBytes: Int, bytes: ByteArray, length: CSize)
+        -> CInt
+        symbol "rinzu_macos_texture_write";
+
+    fn rawTextureRead(texture: TextureHandle, region: Scissor) -> CInt symbol "rinzu_macos_texture_read";
+
+    fn rawTextureBytes(texture: TextureHandle) -> ByteArray symbol "rinzu_macos_texture_bytes";
+
+    fn rawTextureDestroy(texture: TextureHandle) -> CInt symbol "rinzu_macos_texture_destroy";
+
+    fn rawSamplerCreate(device: DeviceHandle, filter: Int, address: Int) -> Int symbol "rinzu_macos_sampler_create";
+
+    fn rawSampler(id: Int) -> SamplerHandle symbol "rinzu_macos_sampler";
+
+    fn rawSamplerDestroy(sampler: SamplerHandle) -> CInt symbol "rinzu_macos_sampler_destroy";
+
+    fn rawRotation2D(radians: Float, output: Transform2D) -> CInt symbol "rinzu_macos_rotation2d";
+
+    fn rawSurfaceSize(view: ViewHandle, output: Rect) -> CInt symbol "rinzu_macos_surface_size";
+
+    fn rawBufferVertex(buffer: BufferHandle, index: Int, vertex: Vertex2D) -> CInt symbol "rinzu_macos_buffer_vertex2d";
+
+    fn rawBufferQuad(buffer: BufferHandle, index: Int, quad: QuadData2D) -> CInt symbol "rinzu_macos_buffer_quad2d";
+
+    fn rawBufferWritable(buffer: BufferHandle) -> CInt symbol "rinzu_macos_buffer_writable";
+
+    fn rawRenderOptions(
+        library: LibraryHandle,
+        vertex: ByteArray,
+        vertexLength: CSize,
+        fragment: ByteArray,
+        fragmentLength: CSize,
+        format: Int,
+        blend: Int
+    ) -> Int symbol "rinzu_macos_render_pipeline_options";
+
+    fn rawRenderTexture(command: CommandHandle, texture: TextureHandle, clear: Color)
+        -> CInt
+        symbol "rinzu_macos_command_render_texture";
+
+    fn rawViewport(command: CommandHandle, viewport: Rect) -> CInt symbol "rinzu_macos_command_viewport";
+
+    fn rawScissor(command: CommandHandle, scissor: Scissor) -> CInt symbol "rinzu_macos_command_scissor";
+
+    fn rawSetTexture(command: CommandHandle, texture: TextureHandle, index: Int, stage: CInt)
+        -> CInt
+        symbol "rinzu_macos_command_texture";
+
+    fn rawSetSampler(command: CommandHandle, sampler: SamplerHandle, index: Int, stage: CInt)
+        -> CInt
+        symbol "rinzu_macos_command_sampler";
+
+    fn rawLibraryCreate(device: DeviceHandle, source: ByteArray, length: CSize, file: CBool)
+        -> Int
+        symbol "rinzu_macos_library_create";
+
+    fn rawLibrary(id: Int) -> LibraryHandle symbol "rinzu_macos_library";
+
+    fn rawLibraryDestroy(library: LibraryHandle) -> CInt symbol "rinzu_macos_library_destroy";
+
+    fn rawComputeCreate(library: LibraryHandle, name: ByteArray, length: CSize)
+        -> Int
+        symbol "rinzu_macos_compute_pipeline";
+
+    fn rawCompute(id: Int) -> ComputePipelineHandle symbol "rinzu_macos_compute";
+
+    fn rawComputeDestroy(pipeline: ComputePipelineHandle) -> CInt symbol "rinzu_macos_compute_destroy";
+
+    fn rawRenderCreate(
+        library: LibraryHandle,
+        vertex: ByteArray,
+        vertexLength: CSize,
+        fragment: ByteArray,
+        fragmentLength: CSize
+    ) -> Int symbol "rinzu_macos_render_pipeline";
+
+    fn rawRender(id: Int) -> RenderPipelineHandle symbol "rinzu_macos_render";
+
+    fn rawRenderDestroy(pipeline: RenderPipelineHandle) -> CInt symbol "rinzu_macos_render_destroy";
+
+    fn rawSurfaceCreate(device: DeviceHandle, rect: Rect) -> Int symbol "rinzu_macos_surface_create";
+
+    fn rawCommandCreate(device: DeviceHandle) -> Int symbol "rinzu_macos_command_create";
+
+    fn rawCommand(id: Int) -> CommandHandle symbol "rinzu_macos_command";
+
+    fn rawCommandDestroy(command: CommandHandle) -> CInt symbol "rinzu_macos_command_destroy";
+
+    fn rawBeginCompute(command: CommandHandle, pipeline: ComputePipelineHandle)
+        -> CInt
+        symbol "rinzu_macos_command_compute";
+
+    fn rawBeginRender(command: CommandHandle, view: ViewHandle, clear: Color)
+        -> CInt
+        symbol "rinzu_macos_command_render";
+
+    fn rawSetPipeline(command: CommandHandle, pipeline: RenderPipelineHandle)
+        -> CInt
+        symbol "rinzu_macos_command_pipeline";
+
+    fn rawSetBuffer(command: CommandHandle, buffer: BufferHandle, offset: Int, index: Int, stage: CInt)
+        -> CInt
+        symbol "rinzu_macos_command_buffer";
+
+    fn rawDispatch(command: CommandHandle, x: Int, y: Int, z: Int, tx: Int, ty: Int, tz: Int)
+        -> CInt
+        symbol "rinzu_macos_command_dispatch";
+
+    fn rawDraw(command: CommandHandle, start: Int, count: Int) -> CInt symbol "rinzu_macos_command_draw";
+
+    fn rawCommit(command: CommandHandle) -> CInt symbol "rinzu_macos_command_commit";
+
+    fn rawAbandon(command: CommandHandle) -> CInt symbol "rinzu_macos_command_abandon";
+
+    fn rawWaitToken() -> Int symbol "rinzu_macos_wait_token";
+
+    fn rawWaitBegin(command: CommandHandle, token: Int) -> CInt symbol "rinzu_macos_command_wait_begin";
+
+    fn rawWaitOwned(command: CommandHandle, token: Int) -> CBool symbol "rinzu_macos_command_wait_owned";
+
+    fn rawCommandState(command: CommandHandle) -> CInt symbol "rinzu_macos_command_state";
+
+    fn rawCompletion(command: CommandHandle, token: Int) -> Completion symbol "rinzu_macos_command_completion";
+
+    fn rawCommandStatus(command: CommandHandle) -> CInt symbol "rinzu_macos_command_status";
+
+    fn rawFinish(command: CommandHandle, token: Int) -> CInt symbol "rinzu_macos_command_finish";
+
+    fn rawPendingCommand(session: SessionHandle) -> CommandHandle symbol "rinzu_macos_pending_command";
+
+    fn rawHasPendingCommand(session: SessionHandle) -> CBool symbol "rinzu_macos_has_pending_command";
+}
+
+let eventStarted = 1;
+
+let eventCloseRequested = 2;
+
+let eventResized = 3;
+
+let eventDraw = 4;
+
+let eventQuitRequested = 5;
+
+let eventKeyDown = 6;
+
+let eventKeyUp = 7;
+
+let eventMouseDown = 8;
+
+let eventMouseUp = 9;
+
+let eventMouseMoved = 10;
+
+let eventStopped = 11;
+
+let eventAction = 12;
+
+let eventTextChanged = 13;
+
+let eventSelectionChanged = 14;
+
+let eventScroll = 15;
+
+let eventFocus = 16;
+
+let eventWindowState = 17;
+
+let eventTaskFinished = 18;
+
+/// An owned event. Text remains valid after the native queue is acknowledged.
+class UiEvent {
+    const kind: Int,
+    const windowId: Int,
+    const viewId: Int,
+    const sequence: Int,
+    const x: Float,
+    const y: Float,
+    const width: Float,
+    const height: Float,
+    const scale: Float,
+    const keyCode: Int,
+    const modifiers: Int,
+    const action: Int,
+    const selectionStart: Int,
+    const selectionEnd: Int,
+    const flags: Int,
+    const value: Float,
+    const deltaX: Float,
+    const deltaY: Float,
+    const text: String
+}
+
+/// Copy the latest Main-thread native diagnostic. Errors include this text.
+fn diagnostic() -> String {
+    return utf8Decode(rawDiagnostic());
+}
+
+fn checked(status: Int, operation: String) -> Int {
+    if status < 0 {
+        return nativeStatus(status, f"{operation}: {diagnostic()}");
+    }
+    return status;
+}
+
+/// Open one Main-owned application resource scope. Close explicitly.
+fn open() -> Session {
+    return Session(handle: rawSession(checked(rawOpen(), "macos.open")));
+}
+
+/// Measured live payloads and separately retained alias-check controls.
+fn statistics() -> Statistics {
+    let output = Statistics(
+        sessions: 0,
+        windows: 0,
+        views: 0,
+        devices: 0,
+        buffers: 0,
+        libraries: 0,
+        pipelines: 0,
+        commands: 0,
+        bufferBytes: 0,
+        retainedControls: 0,
+        queuedEvents: 0,
+        eventPayloadBytes: 0,
+        snapshotBytes: 0,
+        sheets: 0,
+        sheetBytes: 0,
+        textures: 0,
+        samplers: 0,
+        textureBytes: 0,
+        fonts: 0,
+        textLayouts: 0,
+        textBytes: 0,
+        frameClocks: 0,
+        frameTimers: 0,
+        frameWaiters: 0,
+        dataRows: 0,
+        dataBytes: 0,
+        dataUpdates: 0
+    );
+    let status = checked(Int(rawStatistics(output)), "macos.statistics");
+    return output;
+}
+
+/// Run NSApplication on Main. The handler is synchronous and valid only during run.
+async fn run(session: Session, handler: fn (RunContext, Event) -> Unit) -> Int {
+    let status = await rawRun(
+        session.handle,
+        {
+            session = session
+        },
+        handler
+    );
+    return checked(Int(status), "macos.run");
+}
+
+/// Run the OS loop without a managed native callback. Read with nextEvent.
+async fn driveRunEvents(session: Session) -> Int {
+    return checked(Int(await rawRunEvents(session.handle)), "macos.runEvents");
+}
+
+fn runEvents(session: Session) -> Future<Int> {
+    let prepared = checked(Int(rawPrepareEvents(session.handle)), "macos.runEvents.prepare");
+    return driveRunEvents(session);
+}
+
+/// Wait for one owned event. A single reader may be active per Session.
+async fn nextEvent(session: Session) -> UiEvent {
+    // A nested Source async wrapper may schedule the reader before the OS call.
+    // Startup waits use the existing cancellable timer, never an unowned carrier.
+    var startup = checked(Int(rawStreamState(session.handle)), "macos.event.startup");
+    while startup == 0 {
+        await rinzu.timer.sleep(1);
+        startup = checked(Int(rawStreamState(session.handle)), "macos.event.startup");
+    }
+    while true {
+        let token = checked(rawWaitToken(), "macos.event.token");
+        try {
+            let admitted = checked(Int(rawEventBegin(session.handle, token)), "macos.event.wait");
+            await nativeCompleted(rawEventCompletion(session.handle, token));
+            let output = Event(
+                kind: 0,
+                windowId: 0,
+                viewId: 0,
+                sequence: 0,
+                x: 0.0,
+                y: 0.0,
+                width: 0.0,
+                height: 0.0,
+                scale: 0.0,
+                keyCode: 0,
+                modifiers: 0,
+                action: 0,
+                selectionStart: 0,
+                selectionEnd: 0,
+                flags: 0,
+                value: 0.0,
+                deltaX: 0.0,
+                deltaY: 0.0
+            );
+            let taken = checked(Int(rawEventTake(session.handle, token, output)), "macos.event.take");
+            if taken != 0 {
+                let event = output;
+                let text = utf8Decode(rawEventBytes(session.handle, token));
+                return UiEvent(
+                    kind: event.kind,
+                    windowId: event.windowId,
+                    viewId: event.viewId,
+                    sequence: event.sequence,
+                    x: event.x,
+                    y: event.y,
+                    width: event.width,
+                    height: event.height,
+                    scale: event.scale,
+                    keyCode: event.keyCode,
+                    modifiers: event.modifiers,
+                    action: event.action,
+                    selectionStart: event.selectionStart,
+                    selectionEnd: event.selectionEnd,
+                    flags: event.flags,
+                    value: event.value,
+                    deltaX: event.deltaX,
+                    deltaY: event.deltaY,
+                    text: text
+                );
+            }
+        }
+        finally {
+            if rawEventOwned(session.handle, token) {
+                let cancelled = checked(Int(rawEventCancel(session.handle, token)), "macos.event.cancel");
+                await nativeCompleted(rawEventCompletion(session.handle, token));
+                let finished = checked(Int(rawEventFinish(session.handle, token)), "macos.event.finish");
+            }
+        }
+    }
+    throw error(-7804, "unreachable event loop exit");
+}
+
+fn stop(session: Session) -> Int {
+    return checked(Int(rawStop(session.handle)), "macos.stop");
+}
+
+async fn waitStatus(command: Command) -> Int {
+    // Reserving an identity does not acquire a resource. Install finally before
+    // native admission, including cancellation before Source receives its result.
+    let token = checked(rawWaitToken(), "macos.command.waitToken");
+    try {
+        let acquired = checked(Int(rawWaitBegin(command.handle, token)), "macos.command.wait");
+        await nativeCompleted(rawCompletion(command.handle, token));
+        return Int(rawCommandStatus(command.handle));
+    }
+    finally {
+        // Cancellation still awaits the actual GPU publication before releasing leases.
+        if rawWaitOwned(command.handle, token) {
+            await nativeCompleted(rawCompletion(command.handle, token));
+            let finished = checked(Int(rawFinish(command.handle, token)), "macos.command.finish");
+        }
+    }
+}
+
+/// Await and physically settle a submitted command. The handle becomes reusable.
+async fn wait(command: Command) -> Int {
+    return checked(await waitStatus(command), "macos.command.wait");
+}
+
+/// Stop and await run, then join Source children before close. Drain GPU work first.
+async fn close(session: Session) -> Int {
+    var gpuStatus = 0;
+    try {}
+    finally {
+        let prepared = checked(Int(rawPrepareClose(session.handle)), "macos.close");
+        while rawHasPendingCommand(session.handle) {
+            let command = Command(handle: rawPendingCommand(session.handle));
+            if rawCommandState(command.handle) == 1 {
+                let abandoned = checked(Int(rawAbandon(command.handle)), "macos.command.abandon");
+            }
+            else {
+                let status = await waitStatus(command);
+                if status < 0 {
+                    gpuStatus = status;
+                }
+            }
+        }
+        let closed = checked(Int(rawClose(session.handle)), "macos.close");
+    }
+    return checked(gpuStatus, "macos.close.gpu");
+}
+
+/// Owner-scope recovery also closes native acquisitions not yet received by Source.
+async fn closeOwnerSessions() -> Int {
+    while rawHasOwnerSession() {
+        let closed = await close(Session(handle: rawOwnerSession()));
+    }
+    return 0;
+}
+
+export Session;
+export Window;
+export View;
+export Device;
+export Buffer;
+export Library;
+export ComputePipeline;
+export RenderPipeline;
+export Command;
+export Rect;
+export Color;
+export Event;
+export Statistics;
+export eventStarted;
+export eventCloseRequested;
+export eventResized;
+export eventDraw;
+export eventQuitRequested;
+export eventKeyDown;
+export eventKeyUp;
+export eventMouseDown;
+export eventMouseUp;
+export eventMouseMoved;
+export open;
+export run;
+export stop;
+export wait;
+export close;
+export closeOwnerSessions;
+export diagnostic;
+export statistics;
+export metalAvailable;
+export UiEvent;
+export runEvents;
+export nextEvent;
+export eventStopped;
+export eventAction;
+export eventTextChanged;
+export eventSelectionChanged;
+export eventScroll;
+export eventFocus;
+export eventWindowState;
+
+/// A cooperative job registered with a UI scope. Prefer UiScope.start.
+class UiTask {
+    pending: Option<Future<Unit>>,
+    done: Bool,
+    started: Bool
+}
+
+/// Shared stop state contains no task handles.
+class UiControl {
+    stopping: Bool,
+    closed: Bool
+}
+
+/// A job receives native UI capabilities and stop state, without the job registry.
+class UiJob {
+    const session: Session,
+    const window: Window,
+    const windowId: Int,
+    const control: UiControl
+
+    fn isStopping(self: UiJob) -> Bool {
+        return self.control.stopping;
+    }
+
+    fn requestStop(self: UiJob) {
+        self.control.stopping = true;
+        uiStopWindow(self.window);
+    }
+
+    fn wake(self: UiJob) -> Int {
+        if self.control.closed {
+            throw error(-7803, "UI scope is closed");
+        }
+        return checked(Int(rawScopeNotify(self.session.handle, self.windowId)), "macos.job.wake");
+    }
+}
+
+/// Main-owned Window resources and Source jobs. Jobs receive a UiJob context.
+class UiScope {
+    const session: Session,
+    const window: Window,
+    const windowId: Int,
+    tasks: List<UiTask>,
+    canvases: List<Canvas2D>,
+    errors: List<Error>,
+    reportedErrors: Int,
+    const control: UiControl
+
+    fn start(self: UiScope, work: fn (UiJob) -> Future<Unit>) -> Int {
+        {
+            if self.control.closed || self.control.stopping {
+                throw error(-7803, "UI scope is stopping");
+            }
+            var active: List<UiTask> = [];
+            var index = 0;
+            while index < listLength(self.tasks) {
+                switch listGet(self.tasks, index) {
+                    case Option.Some(job): {
+                        if !job.done {
+                            active = listAppend(active, job);
+                        }
+                    }
+                    case Option.None: {}
+                }
+                index = index + 1;
+            }
+            self.tasks = active;
+            if listLength(self.tasks) >= 256 {
+                throw error(-7803, "UI scope job limit");
+            }
+            let job = UiTask(pending: Option<Future<Unit>>.None(), done: false, started: false);
+            self.tasks = listAppend(self.tasks, job);
+            job.pending = Option<Future<Unit>>.Some(value: uiRunJob(self, job, work));
+        }
+        return 0;
+    }
+
+    fn isStopping(self: UiScope) -> Bool {
+        return self.control.stopping;
+    }
+
+    fn requestStop(self: UiScope) {
+        self.control.stopping = true;
+        uiStopWindow(self.window);
+    }
+
+    /// Wake the single dispatcher after Source state changes outside an input handler.
+    fn wake(self: UiScope) -> Int {
+        if self.control.closed {
+            throw error(-7803, "UI scope is closed");
+        }
+        return checked(Int(rawScopeNotify(self.session.handle, self.windowId)), "macos.scope.wake");
+    }
+
+    /// Join the current jobs without closing the Window; callers stop job admission first.
+    async fn join(self: UiScope) -> Int {
+        await uiJoinJobs(self.tasks, 0);
+        return uiReportErrors(self);
+    }
+
+    /// The Application has one reader. Close/quit policy stays in the Source handler.
+    async fn dispatch(self: UiScope, handler: fn (UiScope, UiEvent) -> Future<Unit>) {
+        while !self.control.stopping {
+            let event = await self.session.nextEvent();
+            if event.kind == eventStopped {
+                self.control.stopping = true;
+            }
+            else {
+                await handler(self, event);
+            }
+        }
+    }
+
+    async fn close(self: UiScope) -> Int {
+        self.control.stopping = true;
+        try {
+            try {
+                uiStopWindow(self.window);
+            }
+            finally {
+                try {
+                    await uiJoinJobs(self.tasks, 0);
+                }
+                finally {
+                    uiCloseCanvases(self);
+                }
+            }
+        }
+        finally {
+            self.control.closed = true;
+        }
+        return uiReportErrors(self);
+    }
+
+    fn surface(self: UiScope, device: Device, frame: Rect) -> View {
+        return View(
+            handle: rawView(checked(rawSurfaceScoped(device.handle, self.window.handle, frame), "macos.scope.surface"))
+        );
+    }
+
+    fn listView(self: UiScope, frame: Rect, action: Int) -> DataView {
+        return createDataView(self, 1, [DataColumn(title: "", width: 160.0, sortable: false)], frame, action);
+    }
+
+    fn tableView(self: UiScope, columns: List<DataColumn>, frame: Rect, action: Int) -> DataView {
+        return createDataView(self, 2, columns, frame, action);
+    }
+
+    fn treeView(self: UiScope, columns: List<DataColumn>, frame: Rect, action: Int) -> DataView {
+        return createDataView(self, 3, columns, frame, action);
+    }
+
+    /// A scope-owned drawing job. Draw callbacks stay in Source, never in AppKit.
+    fn canvas2D(
+        self: UiScope,
+        device: Device,
+        frame: Rect,
+        capacity: Int,
+        fps: Int,
+        clear: Color,
+        draw: fn (Frame2D) -> Future<Unit>
+    ) -> Canvas2D {
+        if self.control.stopping || listLength(self.canvases) >= 256 {
+            throw error(-7803, "macos.canvas.limitOrStopping");
+        }
+        var result: Option<Canvas2D> = Option<Canvas2D>.None();
+        // Native-only acquisition is masked. The scope owns the canvas before
+        // the ordinary job-admission call, including an unreceived return.
+        try {}
+        finally {
+            let surface = self.surface(device, frame);
+            var clock: Option<FrameClock> = Option<FrameClock>.None();
+            var batch: Option<Batch2D> = Option<Batch2D>.None();
+            var retained = false;
+            try {
+                let acquiredClock = surface.frameClock(fps);
+                clock = Option<FrameClock>.Some(value: acquiredClock);
+                let acquiredBatch = device.batch2D(capacity);
+                batch = Option<Batch2D>.Some(value: acquiredBatch);
+                let canvas = Canvas2D(
+                    view: surface,
+                    clock: acquiredClock,
+                    batch: acquiredBatch,
+                    clear: clear,
+                    frames: 0,
+                    drawing: false,
+                    stopped: false,
+                    disposed: false
+                );
+                let root = self.window.contentView();
+                let attached = root.addSubview(surface);
+                self.canvases = listAppend(self.canvases, canvas);
+                result = Option<Canvas2D>.Some(value: canvas);
+                retained = true;
+            }
+            finally {
+                if !retained {
+                    try {
+                        switch batch {
+                            case Option.None: {}
+                            case Option.Some(batchValue): {
+                                batchValue.destroy();
+                            }
+                        }
+                    }
+                    finally {
+                        try {
+                            switch clock {
+                                case Option.None: {}
+                                case Option.Some(clockValue): {
+                                    let closed = clockValue.destroy();
+                                }
+                            }
+                        }
+                        finally {
+                            let removed = surface.destroy();
+                        }
+                    }
+                }
+            }
+        }
+        switch result {
+            case Option.Some(created): {
+                try {
+                    let started = self.start(
+                        async fn (job: UiJob) {
+                            await canvasLoop(job, created, draw);
+                        }
+                    );
+                }
+                catch errors {
+                    uiDisposeCanvas(created);
+                    switch listGet(errors, 0) {
+                        case Option.Some(problem): {
+                            throw problem;
+                        }
+                        case Option.None: {
+                            throw error(-7803, "macos.canvas.jobAdmission");
+                        }
+                    }
+                }
+                return created;
+            }
+            case Option.None: {
+                throw error(-7804, "macos.canvas.creation");
+            }
+        }
+    }
+
+    async fn dispatchActions(self: UiScope, actions: UiActions) {
+        await self.dispatch(
+            async fn (scope: UiScope, event: UiEvent) {
+                actions.handle(scope, event);
+            }
+        );
+    }
+
+    fn label(self: UiScope, title: String, frame: Rect) -> Label {
+        return Label(view: scopedWidget(self, 1, title, frame, 0));
+    }
+
+    fn button(self: UiScope, title: String, frame: Rect, action: Int) -> Button {
+        return Button(view: scopedWidget(self, 2, title, frame, action));
+    }
+
+    fn checkbox(self: UiScope, title: String, frame: Rect, action: Int) -> Checkbox {
+        return Checkbox(view: scopedWidget(self, 3, title, frame, action));
+    }
+
+    fn textField(self: UiScope, title: String, frame: Rect, action: Int) -> TextField {
+        return TextField(view: scopedWidget(self, 4, title, frame, action));
+    }
+
+    fn textView(self: UiScope, title: String, frame: Rect) -> TextView {
+        return TextView(view: scopedWidget(self, 5, title, frame, 0));
+    }
+
+    fn scrollView(self: UiScope, frame: Rect) -> ScrollView {
+        return ScrollView(view: scopedWidget(self, 6, "", frame, 0));
+    }
+
+    fn menu(self: UiScope, title: String) -> Menu {
+        if self.control.closed || self.control.stopping {
+            throw error(-7803, "UI scope is stopping");
+        }
+        return self.window.menu(title);
+    }
+}
+
+async fn uiRunJob(scope: UiScope, job: UiTask, work: fn (UiJob) -> Future<Unit>) {
+    var settledNormally = false;
+    try {
+        job.started = true;
+        if !scope.control.stopping {
+            await work(
+                UiJob(session: scope.session, window: scope.window, windowId: scope.windowId, control: scope.control)
+            );
+        }
+        settledNormally = true;
+    }
+    catch errors {
+        var errorIndex = 0;
+        while errorIndex < listLength(errors) {
+            switch listGet(errors, errorIndex) {
+                case Option.Some(problem): {
+                    scope.errors = listAppend(scope.errors, problem);
+                }
+                case Option.None: {}
+            }
+            errorIndex = errorIndex + 1;
+        }
+        scope.control.stopping = true;
+        try {
+            if scope.session.isRunning() {
+                let stopped = scope.session.stop();
+            }
+        }
+        catch stopErrors {}
+        settledNormally = true;
+    }
+    finally {
+        if !settledNormally {
+            scope.control.stopping = true;
+            try {
+                let stopped = checked(Int(rawRequestStop(scope.session.handle)), "macos.job.control.stop");
+            }
+            catch stopErrors {}
+        }
+        try {
+            let notified = Int(rawScopeNotify(scope.session.handle, scope.windowId));
+        }
+        catch notificationErrors {}
+        job.done = true;
+    }
+}
+
+/// Register before spawning. A NoFail watcher and started/done handshake cover
+/// cancellation before the caller receives its Future. No native callback owns work.
+async fn uiJoinJobs(tasks: List<UiTask>, index: Int) {
+    switch listGet(tasks, index) {
+        case Option.Some(job): {
+            try {
+                switch job.pending {
+                    case Option.Some(pending): {
+                        await pending;
+                    }
+                    case Option.None: {
+                        while job.started && !job.done {
+                            await rinzu.timer.sleep(1);
+                        }
+                    }
+                }
+            }
+            finally {
+                await uiJoinJobs(tasks, index + 1);
+            }
+        }
+        case Option.None: {}
+    }
+}
+
+/// Request cooperative stop, join every admitted job, then report the first Error.
+fn uiScope(session: Session, window: Window) -> UiScope {
+    return UiScope(
+        session: session,
+        window: window,
+        windowId: window.identity(),
+        tasks: [],
+        canvases: [],
+        errors: [],
+        reportedErrors: 0,
+        control: UiControl(stopping: false, closed: false)
+    );
+}
+
+fn uiReportErrors(scope: UiScope) -> Int {
+    let first = scope.reportedErrors;
+    scope.reportedErrors = listLength(scope.errors);
+    switch listGet(scope.errors, first) {
+        case Option.Some(problem): {
+            throw problem;
+        }
+        case Option.None: {
+            return 0;
+        }
+    }
+}
+
+async fn closeWindowScope(session: Session, token: Int) -> Int {
+    var gpuStatus = 0;
+    try {}
+    finally {
+        let prepared = checked(Int(rawWindowScopePrepare(session.handle, token)), "macos.window.scope.prepare");
+        while rawWindowScopeHasCommand(session.handle, token) {
+            let command = Command(handle: rawWindowScopeCommand(session.handle, token));
+            if rawCommandState(command.handle) == 1 {
+                let abandoned = checked(Int(rawAbandon(command.handle)), "macos.window.scope.abandon");
+            }
+            else {
+                let status = await waitStatus(command);
+                if status < 0 {
+                    gpuStatus = status;
+                }
+            }
+        }
+        let closed = checked(Int(rawWindowScopeClose(session.handle, token)), "macos.window.scope.close");
+    }
+    return checked(gpuStatus, "macos.window.scope.gpu");
+}
+
+/// A Window scope within the running Application. The application has one event reader.
+async fn withWindow(session: Session, title: String, width: Float, height: Float, body: fn (UiScope) -> Future<Unit>)
+    -> Int {
+    let token = checked(rawWaitToken(), "macos.window.scopeToken");
+    try {
+        let bytes = utf8Encode(title);
+        let window = Window(
+            handle: rawWindow(
+                checked(
+                    rawWindowScoped(session.handle, token, bytes, byteLength(bytes), width, height),
+                    "macos.window.scope"
+                )
+            )
+        );
+        let scope = uiScope(session, window);
+        let shown = window.show();
+        try {
+            await body(scope);
+        }
+        finally {
+            let settled = await scope.close();
+        }
+    }
+    finally {
+        let closed = await closeWindowScope(session, token);
+    }
+    return 0;
+}
+
+async fn uiSignals(scope: UiJob) {
+    while !scope.control.stopping {
+        if rinzu.shutdown.signalRequested() != 0 {
+            scope.control.stopping = true;
+            if scope.session.isRunning() {
+                let stopped = scope.session.stop();
+            }
+            return;
+        }
+        await rinzu.timer.sleep(16);
+    }
+}
+
+async fn uiObserveOsLoop(scope: UiScope) {
+    try {
+        let result = await scope.session.runEvents();
+    }
+    catch errors {
+        var index = 0;
+        while index < listLength(errors) {
+            switch listGet(errors, index) {
+                case Option.Some(problem): {
+                    scope.errors = listAppend(scope.errors, problem);
+                }
+                case Option.None: {}
+            }
+            index = index + 1;
+        }
+        scope.control.stopping = true;
+        try {
+            let stopped = checked(Int(rawRequestStop(scope.session.handle)), "macos.run.failure.stop");
+        }
+        catch stopErrors {}
+    }
+}
+
+async fn stopAndDrain(session: Session) {
+    let token = checked(rawWaitToken(), "macos.run.waitToken");
+    try {
+        let admitted = checked(Int(rawRunWaitBegin(session.handle, token)), "macos.run.wait");
+    }
+    finally {
+        if rawRunWaitOwned(session.handle, token) {
+            try {
+                let stopped = checked(Int(rawRequestStop(session.handle)), "macos.run.stop");
+            }
+            finally {
+                await nativeCompleted(rawRunCompletion(session.handle, token));
+                let finished = checked(Int(rawRunWaitFinish(session.handle, token)), "macos.run.finish");
+            }
+        }
+    }
+}
+
+/// Application body context. Each Window keeps its own UiScope.
+class UiApplication {
+    const session: Session,
+    const primary: UiScope
+}
+
+async fn uiApplication(
+    title: String,
+    width: Float,
+    height: Float,
+    body: fn (UiApplication) -> Future<Unit>,
+    signals: Bool
+) -> Int {
+    try {
+        let session = open();
+        let token = checked(rawWaitToken(), "macos.application.scopeToken");
+        try {
+            let bytes = utf8Encode(title);
+            let window = Window(
+                handle: rawWindow(
+                    checked(
+                        rawWindowScoped(session.handle, token, bytes, byteLength(bytes), width, height),
+                        "macos.application.window"
+                    )
+                )
+            );
+            let scope = uiScope(session, window);
+            let shown = window.show();
+            let running = uiObserveOsLoop(scope);
+            try {
+                if signals {
+                    let watcher = scope.start(uiSignals);
+                }
+                await body(UiApplication(session: session, primary: scope));
+            }
+            finally {
+                try {
+                    let settled = await scope.close();
+                }
+                finally {
+                    try {
+                        await stopAndDrain(session);
+                    }
+                    finally {
+                        let finished = await running;
+                        let observed = uiReportErrors(scope);
+                    }
+                }
+            }
+        }
+        finally {
+            let closed = await closeWindowScope(session, token);
+        }
+    }
+    finally {
+        try {
+            if rawHasOwnerSession() {
+                await stopAndDrain(Session(handle: rawOwnerSession()));
+            }
+        }
+        finally {
+            let ownerClosed = await closeOwnerSessions();
+        }
+    }
+    return 0;
+}
+
+/// Own the OS loop, Window, jobs and GPU resources; body runs entirely in Rinzu.
+async fn application(title: String, width: Float, height: Float, body: fn (UiApplication) -> Future<Unit>) -> Int {
+    return await uiApplication(title, width, height, body, false);
+}
+
+/// Opt into cooperative process signals, including rinzu dev cooperative restart.
+async fn applicationWithSignals(title: String, width: Float, height: Float, body: fn (UiApplication) -> Future<Unit>)
+    -> Int {
+    try {
+        let enabled = rinzu.shutdown.enableSignals();
+        return await uiApplication(title, width, height, body, true);
+    }
+    finally {
+        let disabled = rinzu.shutdown.disableSignals();
+    }
+}
+
+export UiTask;
+export UiScope;
+export withWindow;
+export application;
+export applicationWithSignals;
+export eventTaskFinished;
+
+let eventInputLimit = 19;
+
+fn newWidget(session: Session, kind: Int, title: String, frame: Rect, action: Int) -> View {
+    let text = utf8Encode(title);
+    return View(
+        handle: rawView(
+            checked(rawWidgetCreate(session.handle, CInt(kind), text, byteLength(text), frame, action), "macos.widget")
+        )
+    );
+}
+
+fn scopedWidget(scope: UiScope, kind: Int, title: String, frame: Rect, action: Int) -> View {
+    if scope.control.closed || scope.control.stopping {
+        throw error(-7803, "UI scope is stopping");
+    }
+    let text = utf8Encode(title);
+    return View(
+        handle: rawView(
+            checked(
+                rawWidgetScoped(scope.window.handle, CInt(kind), text, byteLength(text), frame, action),
+                "macos.widget.scoped"
+            )
+        )
+    );
+}
+
+fn widgetSetText(view: View, value: String) -> Int {
+    let text = utf8Encode(value);
+    return checked(Int(rawWidgetSetText(view.handle, text, byteLength(text))), "macos.widget.setText");
+}
+
+fn widgetText(view: View) -> String {
+    let token = checked(rawWaitToken(), "macos.widget.snapshotToken");
+    try {
+        let prepared = checked(Int(rawWidgetSnapshot(view.handle, token)), "macos.widget.text");
+        return utf8Decode(rawWidgetBytes(view.handle, token));
+    }
+    finally {
+        if rawWidgetSnapshotOwned(view.handle, token) {
+            let finished = checked(Int(rawWidgetSnapshotFinish(view.handle, token)), "macos.widget.text.finish");
+        }
+    }
+}
+
+fn widgetState(view: View) -> WidgetState {
+    let output = WidgetState(value: 0.0, enabled: false, hidden: false);
+    let status = checked(Int(rawWidgetState(view.handle, output)), "macos.widget.state");
+    return output;
+}
+
+fn textSelection(view: View) -> Selection {
+    let output = Selection(start: 0, end: 0);
+    let status = checked(Int(rawSelection(view.handle, output)), "macos.text.selection");
+    return output;
+}
+
+export Selection;
+export eventInputLimit;
+
+class Label {
+    const view: View
+
+    fn identity(self: Label) -> Int {
+        return self.view.identity();
+    }
+
+    fn destroy(self: Label) -> Int {
+        return self.view.destroy();
+    }
+
+    fn setEnabled(self: Label, enabled: Bool) -> Int {
+        return self.view.setEnabled(enabled);
+    }
+
+    fn text(self: Label) -> String {
+        return widgetText(self.view);
+    }
+
+    fn setText(self: Label, value: String) -> Int {
+        return widgetSetText(self.view, value);
+    }
+}
+
+export Label;
+
+class Button {
+    const view: View
+
+    fn identity(self: Button) -> Int {
+        return self.view.identity();
+    }
+
+    fn destroy(self: Button) -> Int {
+        return self.view.destroy();
+    }
+
+    fn setEnabled(self: Button, enabled: Bool) -> Int {
+        return self.view.setEnabled(enabled);
+    }
+
+    fn text(self: Button) -> String {
+        return widgetText(self.view);
+    }
+
+    fn setText(self: Button, value: String) -> Int {
+        return widgetSetText(self.view, value);
+    }
+}
+
+export Button;
+
+class Checkbox {
+    const view: View
+
+    fn identity(self: Checkbox) -> Int {
+        return self.view.identity();
+    }
+
+    fn destroy(self: Checkbox) -> Int {
+        return self.view.destroy();
+    }
+
+    fn setEnabled(self: Checkbox, enabled: Bool) -> Int {
+        return self.view.setEnabled(enabled);
+    }
+
+    fn text(self: Checkbox) -> String {
+        return widgetText(self.view);
+    }
+
+    fn setText(self: Checkbox, value: String) -> Int {
+        return widgetSetText(self.view, value);
+    }
+
+    fn checked(self: Checkbox) -> Bool {
+        let state = widgetState(self.view);
+        return state.value != 0.0;
+    }
+
+    fn setChecked(self: Checkbox, value: Bool) -> Int {
+        var number = 0.0;
+        if value {
+            number = 1.0;
+        }
+        return checked(Int(rawWidgetValue(self.view.handle, number)), "macos.checkbox.value");
+    }
+}
+
+export Checkbox;
+
+class TextField {
+    const view: View
+
+    fn identity(self: TextField) -> Int {
+        return self.view.identity();
+    }
+
+    fn destroy(self: TextField) -> Int {
+        return self.view.destroy();
+    }
+
+    fn setEnabled(self: TextField, enabled: Bool) -> Int {
+        return self.view.setEnabled(enabled);
+    }
+
+    fn text(self: TextField) -> String {
+        return widgetText(self.view);
+    }
+
+    fn setText(self: TextField, value: String) -> Int {
+        return widgetSetText(self.view, value);
+    }
+
+    fn selection(self: TextField) -> Selection {
+        return textSelection(self.view);
+    }
+
+    fn select(self: TextField, start: Int, end: Int) -> Int {
+        return checked(Int(rawSelect(self.view.handle, start, end)), "macos.text.select");
+    }
+
+    fn isComposing(self: TextField) -> Bool {
+        return checked(Int(rawTextComposing(self.view.handle)), "macos.text.composing") != 0;
+    }
+}
+
+export TextField;
+
+class TextView {
+    const view: View
+
+    fn identity(self: TextView) -> Int {
+        return self.view.identity();
+    }
+
+    fn destroy(self: TextView) -> Int {
+        return self.view.destroy();
+    }
+
+    fn setEnabled(self: TextView, enabled: Bool) -> Int {
+        return self.view.setEnabled(enabled);
+    }
+
+    fn text(self: TextView) -> String {
+        return widgetText(self.view);
+    }
+
+    fn setText(self: TextView, value: String) -> Int {
+        return widgetSetText(self.view, value);
+    }
+
+    fn selection(self: TextView) -> Selection {
+        return textSelection(self.view);
+    }
+
+    fn select(self: TextView, start: Int, end: Int) -> Int {
+        return checked(Int(rawSelect(self.view.handle, start, end)), "macos.text.select");
+    }
+
+    fn isComposing(self: TextView) -> Bool {
+        return checked(Int(rawTextComposing(self.view.handle)), "macos.text.composing") != 0;
+    }
+}
+
+export TextView;
+
+class ScrollView {
+    const view: View
+
+    fn identity(self: ScrollView) -> Int {
+        return self.view.identity();
+    }
+
+    fn destroy(self: ScrollView) -> Int {
+        return self.view.destroy();
+    }
+
+    fn setEnabled(self: ScrollView, enabled: Bool) -> Int {
+        return self.view.setEnabled(enabled);
+    }
+
+    fn setContent(self: ScrollView, content: View) -> Int {
+        return checked(Int(rawScrollContent(self.view.handle, content.handle)), "macos.scroll.content");
+    }
+
+    fn scrollTo(self: ScrollView, x: Float, y: Float) -> Int {
+        return checked(Int(rawScrollTo(self.view.handle, x, y)), "macos.scroll.to");
+    }
+
+    fn visibleRect(self: ScrollView) -> Rect {
+        let output = Rect(x: 0.0, y: 0.0, width: 0.0, height: 0.0);
+        let read = checked(Int(rawScrollRect(self.view.handle, output)), "macos.scroll.rect");
+        return output;
+    }
+}
+
+export ScrollView;
+
+let modifierShift = 131072;
+
+let modifierControl = 262144;
+
+let modifierOption = 524288;
+
+let modifierCommand = 1048576;
+
+let commandCut = 1;
+
+let commandCopy = 2;
+
+let commandPaste = 3;
+
+let commandSelectAll = 4;
+
+let commandUndo = 5;
+
+let commandRedo = 6;
+
+let commandQuit = 7;
+
+let actionUndo = -1;
+
+let actionRedo = -2;
+
+/// Equal cells. Call again on eventResized; coordinates remain AppKit points.
+fn layoutStack(parent: View, children: List<View>, padding: Float, gap: Float, vertical: Bool) -> Int {
+    let bounds = parent.frame();
+    let count = listLength(children);
+    if padding < 0.0 || gap < 0.0 || bounds.width < padding * 2.0 || bounds.height < padding * 2.0 {
+        throw error(-7804, "macos.layout.invalidSpacing");
+    }
+    if count == 0 {
+        return 0;
+    }
+    var extent = bounds.width - padding * 2.0;
+    if vertical {
+        extent = bounds.height - padding * 2.0;
+    }
+    let available = extent - gap * Float(count - 1);
+    if available < 0.0 {
+        throw error(-7804, "macos.layout.insufficientSpace");
+    }
+    let cell = available / Float(count);
+    var index = 0;
+    while index < count {
+        switch listGet(children, index) {
+            case Option.Some(child): {
+                var frame = Rect(
+                    x: padding + Float(index) * (cell + gap),
+                    y: padding,
+                    width: cell,
+                    height: bounds.height - padding * 2.0
+                );
+                if vertical {
+                    frame = Rect(
+                        x: padding,
+                        y: bounds.height - padding - cell - Float(index) * (cell + gap),
+                        width: bounds.width - padding * 2.0,
+                        height: cell
+                    );
+                }
+                let added = parent.addSubview(child);
+                let resized = child.setFrame(frame);
+            }
+            case Option.None: {}
+        }
+        index = index + 1;
+    }
+    return 0;
+}
+
+fn column(parent: View, children: List<View>, padding: Float, gap: Float) -> Int {
+    return layoutStack(parent, children, padding, gap, true);
+}
+
+fn row(parent: View, children: List<View>, padding: Float, gap: Float) -> Int {
+    return layoutStack(parent, children, padding, gap, false);
+}
+
+export Menu;
+export modifierShift;
+export modifierControl;
+export modifierOption;
+export modifierCommand;
+export commandCut;
+export commandCopy;
+export commandPaste;
+export commandSelectAll;
+export commandUndo;
+export commandRedo;
+export commandQuit;
+export actionUndo;
+export actionRedo;
+export column;
+export row;
+export documents.DocumentSnapshot;
+export documents.DocumentHistory;
+export documents.Document;
+export documentFiles.readDocument;
+export documentFiles.saveDocument;
+
+/// A Source document bound to an existing TextView. The Window owns the native View.
+class DocumentBinding {
+    const session: Session,
+    const input: TextView,
+    const document: documents.Document,
+    barrier: Int
+
+    fn create(session: Session, input: TextView, document: documents.Document) -> DocumentBinding {
+        let result = DocumentBinding(session: session, input: input, document: document, barrier: 0);
+        try {}
+        finally {
+            let written = input.setText(document.text);
+            let selected = input.select(document.start, document.end);
+            result.barrier = session.eventSequence();
+        }
+        return result;
+    }
+
+    fn capture(self: DocumentBinding) -> Bool {
+        if self.input.isComposing() {
+            throw error(-7803, "finish text composition before capturing a document");
+        }
+        let text = self.input.text();
+        let selection = self.input.selection();
+        let changed = self.document.edit(text, selection.start, selection.end);
+        self.barrier = self.session.eventSequence();
+        return changed;
+    }
+
+    /// Replace the document after a successful load, with fresh history and version.
+    fn load(self: DocumentBinding, text: String) -> Bool {
+        if utf8ByteLength(text) > 1048576 {
+            throw error(-7820, "document.textLimit");
+        }
+        if !self.document.accepting {
+            return false;
+        }
+        if self.input.isComposing() {
+            throw error(-7803, "finish text composition before loading a document");
+        }
+        var changed = false;
+        try {}
+        finally {
+            try {
+                let written = self.input.setText(text);
+                let selected = self.input.select(0, 0);
+                changed = self.document.reset(text, true);
+                self.barrier = self.session.eventSequence();
+            }
+            finally {
+                let reconciled = self.capture();
+            }
+        }
+        return changed;
+    }
+
+    fn receive(self: DocumentBinding, event: UiEvent) -> Bool {
+        if event.viewId != self.input.identity() || event.sequence <= self.barrier || !self.document.accepting {
+            return false;
+        }
+        if event.kind == eventTextChanged || event.kind == eventSelectionChanged {
+            if event.flags == textComposing {
+                return false;
+            }
+            // The event owns its text; never replace the view in response to native input.
+            var changed = false;
+            try {}
+            finally {
+                changed = self.document.edit(event.text, event.selectionStart, event.selectionEnd);
+                self.barrier = event.sequence;
+            }
+            return changed;
+        }
+        return false;
+    }
+
+    fn replace(self: DocumentBinding, text: String, start: Int, end: Int) -> Bool {
+        if utf8ByteLength(text) > 1048576 || start < 0 || end < start || end > stringLength(text) {
+            throw error(-7820, "document.invalidReplacement");
+        }
+        if !self.document.accepting {
+            return false;
+        }
+        var changed = false;
+        // No asynchronous work is started in this synchronous transaction.
+        // Cancellation cannot separate native text from the Source save model.
+        try {}
+        finally {
+            let captured = self.capture();
+            try {
+                let written = self.input.setText(text);
+                let selected = self.input.select(start, end);
+                changed = self.document.edit(text, start, end);
+            }
+            finally {
+                // Also reconcile a native setter/selection Error before it escapes.
+                let reconciled = self.capture();
+            }
+        }
+        return changed;
+    }
+
+    fn undoEdit(self: DocumentBinding) -> Bool {
+        if !self.document.accepting {
+            return false;
+        }
+        var changed = false;
+        try {}
+        finally {
+            let captured = self.capture();
+            switch self.document.undo.peek() {
+                case Option.Some(snapshot): {
+                    try {
+                        let written = self.input.setText(snapshot.text);
+                        let selected = self.input.select(snapshot.start, snapshot.end);
+                        changed = self.document.undoEdit();
+                    }
+                    finally {
+                        let reconciled = self.capture();
+                    }
+                }
+                case Option.None: {}
+            }
+        }
+        return changed;
+    }
+
+    fn redoEdit(self: DocumentBinding) -> Bool {
+        if !self.document.accepting {
+            return false;
+        }
+        var changed = false;
+        try {}
+        finally {
+            let captured = self.capture();
+            switch self.document.redo.peek() {
+                case Option.Some(snapshot): {
+                    try {
+                        let written = self.input.setText(snapshot.text);
+                        let selected = self.input.select(snapshot.start, snapshot.end);
+                        changed = self.document.redoEdit();
+                    }
+                    finally {
+                        let reconciled = self.capture();
+                    }
+                }
+                case Option.None: {}
+            }
+        }
+        return changed;
+    }
+
+    fn setAccepting(self: DocumentBinding, accepting: Bool) -> Int {
+        if !accepting && self.input.isComposing() {
+            throw error(-7803, "finish text composition before closing a document");
+        }
+        try {}
+        finally {
+            let enabled = self.input.setEnabled(accepting);
+            let captured = self.capture();
+            self.document.accepting = accepting;
+            self.barrier = self.session.eventSequence();
+        }
+        return 0;
+    }
+}
+
+export DocumentBinding;
+export UiJob;
+export UiControl;
+export UiApplication;
+
+/// Text snapshots with this flag are provisional IME input, outside document history.
+let textComposing = 1;
+
+let windowVisible = 1;
+
+let windowKey = 2;
+
+let windowMain = 4;
+
+let windowMinimized = 8;
+
+let windowZoomed = 16;
+
+let windowFullScreen = 32;
+
+let scrollPrecise = 1;
+
+let scrollViewport = 2;
+
+export textComposing;
+export windowVisible;
+export windowKey;
+export windowMain;
+export windowMinimized;
+export windowZoomed;
+export windowFullScreen;
+export scrollPrecise;
+export scrollViewport;
+
+async fn sheetReady(window: Window) {
+    while checked(Int(rawSheetReady(window.handle)), "macos.sheet.ready") == 0 {
+        await rinzu.timer.sleep(1);
+    }
+}
+
+async fn filePanel(window: Window, save: Bool, title: String, directory: String, name: String) -> Option<String> {
+    await sheetReady(window);
+    let token = checked(rawWaitToken(), "macos.sheet.token");
+    try {
+        let heading = utf8Encode(title);
+        let folder = utf8Encode(directory);
+        let filename = utf8Encode(name);
+        var kind = 0;
+        if save {
+            kind = 1;
+        }
+        let admitted = checked(
+            Int(
+                rawPanelBegin(
+                    window.handle,
+                    token,
+                    CInt(kind),
+                    heading,
+                    byteLength(heading),
+                    folder,
+                    byteLength(folder),
+                    filename,
+                    byteLength(filename)
+                )
+            ),
+            "macos.panel.begin"
+        );
+        await nativeCompleted(rawSheetCompletion(window.handle, token));
+        let result = checked(Int(rawSheetResult(window.handle, token)), "macos.panel.result");
+        if result == 1 {
+            return Option<String>.Some(value: utf8Decode(rawSheetBytes(window.handle, token)));
+        }
+        return Option<String>.None();
+    }
+    finally {
+        if rawSheetOwned(window.handle, token) {
+            try {
+                let dismissed = checked(Int(rawSheetCancel(window.handle, token)), "macos.sheet.cancel");
+            }
+            finally {
+                await nativeCompleted(rawSheetCompletion(window.handle, token));
+                let finished = checked(Int(rawSheetFinish(window.handle, token)), "macos.sheet.finish");
+            }
+        }
+    }
+}
+
+/// Six vertices per quad; quad index (not a byte or vertex offset).
+class Quad2D {
+    const destination: Rect,
+    const uv: Rect,
+    const tint: Color,
+    const transform: Transform2D
+}
+
+let pixelRGBA8 = 1;
+
+let pixelBGRA8 = 2;
+
+let textureSampled = 1;
+
+let textureRenderTarget = 2;
+
+let textureStorage = 4;
+
+let filterNearest = 0;
+
+let filterLinear = 1;
+
+let addressClamp = 0;
+
+let addressRepeat = 1;
+
+let addressMirror = 2;
+
+let blendOpaque = 0;
+
+let blendPremultiplied = 1;
+
+let blendStraight = 2;
+
+export Texture;
+export Sampler;
+export TextureInfo;
+export Vertex2D;
+export Quad2D;
+export Transform2D;
+export Scissor;
+export pixelRGBA8;
+export pixelBGRA8;
+export textureSampled;
+export textureRenderTarget;
+export textureStorage;
+export filterNearest;
+export filterLinear;
+export addressClamp;
+export addressRepeat;
+export addressMirror;
+export blendOpaque;
+export blendPremultiplied;
+export blendStraight;
+
+fn identity2D() -> Transform2D {
+    return Transform2D(a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0);
+}
+
+fn translation2D(x: Float, y: Float) -> Transform2D {
+    return Transform2D(a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: x, ty: y);
+}
+
+fn scale2D(x: Float, y: Float) -> Transform2D {
+    return Transform2D(a: x, b: 0.0, c: 0.0, d: y, tx: 0.0, ty: 0.0);
+}
+
+/// Positive rotation is clockwise in the batch's top-left coordinate system.
+fn rotation2D(radians: Float) -> Transform2D {
+    let output = identity2D();
+    let status = checked(Int(rawRotation2D(radians, output)), "macos.rotation2D");
+    return output;
+}
+
+/// Apply first, then next: next * first.
+fn compose2D(first: Transform2D, next: Transform2D) -> Transform2D {
+    return Transform2D(
+        a: next.a * first.a + next.c * first.b,
+        b: next.b * first.a + next.d * first.b,
+        c: next.a * first.c + next.c * first.d,
+        d: next.b * first.c + next.d * first.d,
+        tx: next.a * first.tx + next.c * first.ty + next.tx,
+        ty: next.b * first.tx + next.d * first.ty + next.ty
+    );
+}
+
+/// A contiguous draw span. Constructed by Batch2D; do not mutate batch storage.
+class BatchDraw2D {
+    const texture: Texture,
+    const textureId: Int,
+    const sampler: Sampler,
+    const filter: Int,
+    const clip: Scissor,
+    const first: Int,
+    count: Int
+}
+
+/// Bounded, reusable quad batch. Coordinates and clip use target pixels, top-left.
+/// Reset only after the command using its vertex buffer has physically settled.
+class Batch2D {
+    const vertices: Buffer,
+    const rgba: RenderPipeline,
+    const bgra: RenderPipeline,
+    const nearest: Sampler,
+    const linear: Sampler,
+    const white: Texture,
+    const command: Command,
+    const capacity: Int,
+    width: Int,
+    height: Int,
+    count: Int,
+    draws: List<BatchDraw2D>,
+    transform: Transform2D,
+    clip: Scissor,
+    filter: Int,
+    closed: Bool,
+    rendering: Bool
+
+    fn reset(self: Batch2D, width: Int, height: Int) {
+        try {}
+        finally {
+            let ready = checked(Int(rawBufferWritable(self.vertices.handle)), "macos.batch2D.reset");
+            if self.rendering {
+                throw error(-7803, "macos.batch2D.rendering");
+            }
+            if self.closed || width <= 0 || height <= 0 || width > 32768 || height > 32768 {
+                throw error(-7804, "macos.batch2D.size");
+            }
+            self.width = width;
+            self.height = height;
+            self.count = 0;
+            self.draws = [];
+            self.transform = identity2D();
+            self.clip = Scissor(x: 0, y: 0, width: width, height: height);
+            self.filter = filterLinear;
+        }
+    }
+
+    fn setTransform(self: Batch2D, transform: Transform2D) {
+        let ready = checked(Int(rawBufferWritable(self.vertices.handle)), "macos.batch2D.transform");
+        if self.rendering {
+            throw error(-7803, "macos.batch2D.rendering");
+        }
+        self.transform = transform;
+    }
+
+    fn setClip(self: Batch2D, clip: Scissor) {
+        let ready = checked(Int(rawBufferWritable(self.vertices.handle)), "macos.batch2D.clip");
+        if self.rendering {
+            throw error(-7803, "macos.batch2D.rendering");
+        }
+        if clip.x < 0
+            || clip.y < 0
+            || clip.width <= 0
+            || clip.height <= 0
+            || clip.x > self.width
+            || clip.y > self.height
+            || clip.width > self.width - clip.x
+            || clip.height > self.height - clip.y {
+            throw error(-7804, "macos.batch2D.clip");
+        }
+        self.clip = clip;
+    }
+
+    fn setFilter(self: Batch2D, filter: Int) {
+        let ready = checked(Int(rawBufferWritable(self.vertices.handle)), "macos.batch2D.filter");
+        if self.rendering {
+            throw error(-7803, "macos.batch2D.rendering");
+        }
+        if filter != filterNearest && filter != filterLinear {
+            throw error(-7804, "macos.batch2D.filter");
+        }
+        self.filter = filter;
+    }
+
+    fn fillRect(self: Batch2D, destination: Rect, color: Color) {
+        self.image(self.white, destination, color);
+    }
+
+    /// Coordinates use the current batch transform. TextMetrics uses font points.
+    fn text(self: Batch2D, text: Text2D, x: Float, y: Float, tint: Color) {
+        self.image(
+            text.texture,
+            Rect(
+                x: x + text.metrics.left,
+                y: y + text.metrics.top,
+                width: Float(text.width) / text.scale,
+                height: Float(text.height) / text.scale
+            ),
+            tint
+        );
+    }
+
+    fn image(self: Batch2D, texture: Texture, destination: Rect, tint: Color) {
+        self.imageRegion(texture, destination, Rect(x: 0.0, y: 0.0, width: 1.0, height: 1.0), tint);
+    }
+
+    /// Normalized UVs, with row zero at the top. Texture pixels must be premultiplied.
+    fn imageRegion(self: Batch2D, texture: Texture, destination: Rect, uv: Rect, tint: Color) {
+        try {}
+        finally {
+            let ready = checked(Int(rawBufferWritable(self.vertices.handle)), "macos.batch2D.image");
+            if self.rendering {
+                throw error(-7803, "macos.batch2D.rendering");
+            }
+            if self.closed || self.width <= 0 || self.count >= self.capacity {
+                throw error(-7804, "macos.batch2D.capacityOrState");
+            }
+            let id = texture.identity();
+            let projection = Transform2D(
+                a: 2.0 / Float(self.width),
+                b: 0.0,
+                c: 0.0,
+                d: -2.0 / Float(self.height),
+                tx: -1.0,
+                ty: 1.0
+            );
+            let written = self.vertices.writeQuad2D(
+                self.count,
+                Quad2D(destination: destination, uv: uv, tint: tint, transform: compose2D(self.transform, projection))
+            );
+            var grouped = false;
+            switch listGet(self.draws, listLength(self.draws) - 1) {
+                case Option.None: {}
+                case Option.Some(last): {
+                    if last.textureId == id
+                        && last.filter == self.filter
+                        && last.clip.x == self.clip.x
+                        && last.clip.y == self.clip.y
+                        && last.clip.width == self.clip.width
+                        && last.clip.height == self.clip.height {
+                        last.count = last.count + 6;
+                        grouped = true;
+                    }
+                }
+            }
+            if !grouped {
+                var sampler = self.linear;
+                if self.filter == filterNearest {
+                    sampler = self.nearest;
+                }
+                self.draws = listAppend(
+                    self.draws,
+                    BatchDraw2D(
+                        texture: texture,
+                        textureId: id,
+                        sampler: sampler,
+                        filter: self.filter,
+                        clip: self.clip,
+                        first: self.count * 6,
+                        count: 6
+                    )
+                );
+            }
+            self.count = self.count + 1;
+        }
+    }
+
+    fn drawCallCount(self: Batch2D) -> Int {
+        return listLength(self.draws);
+    }
+
+    /// Encode into an already begun pass. On Error the caller must abandon it.
+    fn encode(self: Batch2D, command: Command, format: Int) -> Int {
+        if self.rendering {
+            throw error(-7803, "macos.batch2D.rendering");
+        }
+        return self.encodeNow(command, format);
+    }
+
+    private fn encodeNow(self: Batch2D, command: Command, format: Int) -> Int {
+        if self.closed || self.width <= 0 || (format != pixelRGBA8 && format != pixelBGRA8) {
+            throw error(-7804, "macos.batch2D.encode");
+        }
+        // Binding first makes subsequent writes/reset fail until finish/abandon.
+        let bound = command.setVertexBuffer(0, self.vertices, 0);
+        var pipeline = self.bgra;
+        if format == pixelRGBA8 {
+            pipeline = self.rgba;
+        }
+        let installed = command.setRenderPipeline(pipeline);
+        var index = 0;
+        while index < listLength(self.draws) {
+            switch listGet(self.draws, index) {
+                case Option.None: {
+                    throw error(-7804, "macos.batch2D.span");
+                }
+                case Option.Some(draw): {
+                    let clipped = command.setScissor(draw.clip);
+                    let sampled = command.setFragmentTexture(0, draw.texture);
+                    let filtered = command.setFragmentSampler(0, draw.sampler);
+                    let issued = command.drawTriangles(draw.first, draw.count);
+                }
+            }
+            index = index + 1;
+        }
+        return index;
+    }
+
+    /// Own a complete frame, including abandon / physical drain on Error or cancel.
+    async fn render(self: Batch2D, surface: View, clear: Color) -> Int {
+        var admitted = false;
+        try {
+            try {}
+            finally {
+                if self.rendering || rawCommandState(self.command.handle) != 0 {
+                    throw error(-7803, "macos.batch2D.rendering");
+                }
+                self.rendering = true;
+                admitted = true;
+            }
+            let begun = self.command.beginRender(surface, clear);
+            let encoded = self.encodeNow(self.command, pixelBGRA8);
+            let submitted = self.command.commit();
+            return await self.command.wait();
+        }
+        finally {
+            if admitted {
+                try {
+                    if rawCommandState(self.command.handle) == 1 {
+                        let abandoned = self.command.abandon();
+                    }
+                    else if rawCommandState(self.command.handle) == 2 {
+                        let drained = await self.command.wait();
+                    }
+                }
+                finally {
+                    self.rendering = false;
+                }
+            }
+        }
+    }
+
+    async fn renderTexture(self: Batch2D, texture: Texture, clear: Color) -> Int {
+        var admitted = false;
+        try {
+            try {}
+            finally {
+                if self.rendering || rawCommandState(self.command.handle) != 0 {
+                    throw error(-7803, "macos.batch2D.rendering");
+                }
+                self.rendering = true;
+                admitted = true;
+            }
+            let info = texture.info();
+            let begun = self.command.beginRenderTexture(texture, clear);
+            let encoded = self.encodeNow(self.command, info.format);
+            let submitted = self.command.commit();
+            return await self.command.wait();
+        }
+        finally {
+            if admitted {
+                try {
+                    if rawCommandState(self.command.handle) == 1 {
+                        let abandoned = self.command.abandon();
+                    }
+                    else if rawCommandState(self.command.handle) == 2 {
+                        let drained = await self.command.wait();
+                    }
+                }
+                finally {
+                    self.rendering = false;
+                }
+            }
+        }
+    }
+
+    fn destroy(self: Batch2D) {
+        if self.rendering || rawCommandState(self.command.handle) != 0 {
+            throw error(-7803, "macos.batch2D.commandBusy");
+        }
+        let ready = checked(Int(rawBufferWritable(self.vertices.handle)), "macos.batch2D.destroy");
+        let command = self.command.destroy();
+        let vertices = self.vertices.destroy();
+        let rgba = self.rgba.destroy();
+        let bgra = self.bgra.destroy();
+        let nearest = self.nearest.destroy();
+        let linear = self.linear.destroy();
+        let white = self.white.destroy();
+        self.draws = [];
+        self.closed = true;
+    }
+}
+
+export BatchDraw2D;
+export Batch2D;
+export identity2D;
+export translation2D;
+export scale2D;
+export rotation2D;
+
+/// Reusable text snapshot. Keep it across frames; reraster only after text/style changes.
+class Text2D {
+    const layout: TextLayout,
+    const texture: Texture,
+    const metrics: TextMetrics,
+    const scale: Float,
+    const width: Int,
+    const height: Int
+
+    fn destroy(self: Text2D) {
+        let texture = self.texture.destroy();
+        let layout = self.layout.destroy();
+    }
+}
+
+let textLeft = 0;
+
+let textCenter = 1;
+
+let textRight = 2;
+
+export Font;
+export TextLayout;
+export TextMetrics;
+export Text2D;
+export textLeft;
+export textCenter;
+export textRight;
+
+fn uiStopWindow(window: Window) {
+    try {
+        let sheets = checked(Int(rawSheetStop(window.handle)), "macos.scope.stopSheets");
+    }
+    finally {
+        let frames = checked(Int(rawFrameStopWindow(window.handle)), "macos.scope.stopFrames");
+    }
+}
+
+export FrameClock;
+export FrameInfo;
+export FrameStatistics;
+
+/// A frame begins in AppKit points / top-left; usePixels restores Batch2D pixel units.
+class Frame2D {
+    const info: FrameInfo,
+    const batch: Batch2D,
+    const width: Float,
+    const height: Float
+
+    fn usePixels(self: Frame2D) {
+        self.batch.setTransform(identity2D());
+    }
+
+    fn usePoints(self: Frame2D) {
+        self.batch.setTransform(scale2D(self.info.scale, self.info.scale));
+    }
+}
+
+class Canvas2D {
+    const view: View,
+    const clock: FrameClock,
+    const batch: Batch2D,
+    clear: Color,
+    frames: Int,
+    drawing: Bool,
+    stopped: Bool,
+    disposed: Bool
+
+    fn invalidate(self: Canvas2D) -> Int {
+        if self.stopped {
+            return 0;
+        }
+        return self.clock.invalidate();
+    }
+
+    fn setAnimating(self: Canvas2D, enabled: Bool) -> Int {
+        if self.stopped {
+            return 0;
+        }
+        return self.clock.setAnimating(enabled);
+    }
+
+    fn setClear(self: Canvas2D, color: Color) {
+        self.clear = color;
+        let requested = self.invalidate();
+    }
+
+    fn stop(self: Canvas2D) {
+        if !self.stopped {
+            self.stopped = true;
+            let stopped = self.clock.stop();
+        }
+    }
+}
+
+async fn canvasLoop(job: UiJob, canvas: Canvas2D, draw: fn (Frame2D) -> Future<Unit>) {
+    try {
+        while !job.isStopping() && !canvas.stopped {
+            switch await canvas.clock.next() {
+                case Option.None: {
+                    return;
+                }
+                case Option.Some(info): {
+                    if job.isStopping() || canvas.stopped {
+                        return;
+                    }
+                    canvas.drawing = true;
+                    try {
+                        canvas.batch.reset(info.width, info.height);
+                        canvas.batch.setTransform(scale2D(info.scale, info.scale));
+                        await draw(
+                            Frame2D(
+                                info: info,
+                                batch: canvas.batch,
+                                width: Float(info.width) / info.scale,
+                                height: Float(info.height) / info.scale
+                            )
+                        );
+                        if !job.isStopping() && !canvas.stopped {
+                            let rendered = await canvas.batch.render(canvas.view, canvas.clear);
+                            let completed = canvas.clock.presented();
+                            canvas.frames = canvas.frames + 1;
+                        }
+                    }
+                    catch errors {
+                        var index = 0;
+                        while index < listLength(errors) {
+                            switch listGet(errors, index) {
+                                case Option.None: {}
+                                case Option.Some(problem): {
+                                    if errorCode(problem) != -7810 {
+                                        throw problem;
+                                    }
+                                }
+                            }
+                            index = index + 1;
+                        }
+                        if !job.isStopping() && !canvas.stopped {
+                            let retry = canvas.clock.retry();
+                        }
+                    }
+                    finally {
+                        canvas.drawing = false;
+                    }
+                }
+            }
+        }
+    }
+    finally {
+        canvas.stopped = true;
+        try {
+            let stopped = canvas.clock.stop();
+        }
+        finally {
+            // Also recover a command left by a failing custom draw callback.
+            if rawCommandState(canvas.batch.command.handle) == 1 {
+                let abandoned = canvas.batch.command.abandon();
+            }
+            else if rawCommandState(canvas.batch.command.handle) == 2 {
+                let settled = await canvas.batch.command.wait();
+            }
+        }
+    }
+}
+
+/// Source-only handler storage. A binding admits one active job at a time.
+class UiAction {
+    const action: Int,
+    const handler: fn (UiJob, UiEvent) -> Future<Unit>,
+    busy: Bool
+}
+
+class UiActions {
+    bindings: List<UiAction>
+
+    fn on(self: UiActions, action: Int, handler: fn (UiJob, UiEvent) -> Future<Unit>) {
+        if listLength(self.bindings) >= 256 {
+            throw error(-7803, "macos.actions.limit");
+        }
+        var index = 0;
+        while index < listLength(self.bindings) {
+            switch listGet(self.bindings, index) {
+                case Option.None: {}
+                case Option.Some(binding): {
+                    if binding.action == action {
+                        throw error(-7804, "macos.actions.duplicate");
+                    }
+                }
+            }
+            index = index + 1;
+        }
+        self.bindings = listAppend(self.bindings, UiAction(action: action, handler: handler, busy: false));
+    }
+
+    fn handle(self: UiActions, scope: UiScope, event: UiEvent) {
+        if event.kind == eventQuitRequested {
+            scope.requestStop();
+            return;
+        }
+        if event.windowId != scope.windowId {
+            return;
+        }
+        if event.kind == eventCloseRequested {
+            scope.requestStop();
+            return;
+        }
+        if (event.kind != eventAction && event.kind != eventData) || scope.control.stopping {
+            return;
+        }
+        var index = 0;
+        while index < listLength(self.bindings) {
+            switch listGet(self.bindings, index) {
+                case Option.None: {}
+                case Option.Some(binding): {
+                    if binding.action == event.action && !binding.busy {
+                        binding.busy = true;
+                        var handed = false;
+                        try {
+                            let registered = scope.start(
+                                async fn (job: UiJob) {
+                                    try {
+                                        await binding.handler(job, event);
+                                    }
+                                    finally {
+                                        binding.busy = false;
+                                    }
+                                }
+                            );
+                            handed = true;
+                        }
+                        finally {
+                            if !handed {
+                                binding.busy = false;
+                            }
+                        }
+                        return;
+                    }
+                }
+            }
+            index = index + 1;
+        }
+    }
+}
+
+fn actions() -> UiActions {
+    return UiActions(bindings: []);
+}
+
+/// Fixed extent plus a nonnegative proportional share of remaining space.
+class LayoutItem {
+    const view: View,
+    const fixed: Float,
+    const grow: Float
+}
+
+fn weightedStack(parent: View, children: List<LayoutItem>, padding: Float, gap: Float, vertical: Bool) -> Int {
+    if !(padding >= 0.0 && padding <= 32768.0 && gap >= 0.0 && gap <= 32768.0) || listLength(children) > 256 {
+        throw error(-7804, "macos.layout.spacing");
+    }
+    let bounds = parent.frame();
+    var extent = bounds.width - padding * 2.0;
+    var cross = bounds.height - padding * 2.0;
+    if vertical {
+        extent = bounds.height - padding * 2.0;
+        cross = bounds.width - padding * 2.0;
+    }
+    let count = listLength(children);
+    if count == 0 {
+        return 0;
+    }
+    var remaining = extent - Float(count - 1) * gap;
+    var weights = 0.0;
+    var index = 0;
+    while index < count {
+        switch listGet(children, index) {
+            case Option.None: {}
+            case Option.Some(item): {
+                if !(item.fixed >= 0.0 && item.fixed <= 32768.0 && item.grow >= 0.0 && item.grow <= 32768.0) {
+                    throw error(-7804, "macos.layout.item");
+                }
+                let valid = item.view.identity();
+                remaining = remaining - item.fixed;
+                weights = weights + item.grow;
+            }
+        }
+        index = index + 1;
+    }
+    if remaining < 0.0 || cross < 0.0 {
+        throw error(-7804, "macos.layout.insufficientSpace");
+    }
+    var offset = padding;
+    index = 0;
+    while index < count {
+        switch listGet(children, index) {
+            case Option.None: {}
+            case Option.Some(item): {
+                var size = item.fixed;
+                if weights > 0.0 {
+                    size = size + remaining * item.grow / weights;
+                }
+                var frame = Rect(x: offset, y: padding, width: size, height: cross);
+                if vertical {
+                    frame = Rect(x: padding, y: bounds.height - offset - size, width: cross, height: size);
+                }
+                let attached = parent.addSubview(item.view);
+                let laid = item.view.setFrame(frame);
+                offset = offset + size + gap;
+            }
+        }
+        index = index + 1;
+    }
+    return count;
+}
+
+fn weightedRow(parent: View, items: List<LayoutItem>, padding: Float, gap: Float) -> Int {
+    return weightedStack(parent, items, padding, gap, false);
+}
+
+fn weightedColumn(parent: View, items: List<LayoutItem>, padding: Float, gap: Float) -> Int {
+    return weightedStack(parent, items, padding, gap, true);
+}
+
+export Frame2D;
+export Canvas2D;
+export UiAction;
+export UiActions;
+export actions;
+export LayoutItem;
+export weightedRow;
+export weightedColumn;
+
+fn uiDisposeCanvas(canvas: Canvas2D) {
+    if canvas.disposed {
+        return;
+    }
+    canvas.stop();
+    try {
+        canvas.batch.destroy();
+    }
+    finally {
+        let closed = canvas.clock.destroy();
+        canvas.disposed = true;
+    }
+}
+
+fn uiCloseCanvases(scope: UiScope) {
+    var index = 0;
+    while index < listLength(scope.canvases) {
+        switch listGet(scope.canvases, index) {
+            case Option.None: {}
+            case Option.Some(canvas): {
+                uiDisposeCanvas(canvas);
+            }
+        }
+        index = index + 1;
+    }
+    scope.canvases = [];
+}
+
+native {
+    record DataState {
+        rows: Int,
+        visibleRows: Int,
+        cellViews: Int,
+        bytes: Int,
+        revision: Int,
+        selectedId: Int,
+        selectedRow: Int,
+        firstVisible: Int,
+        lastVisible: Int,
+        pendingRows: Int
+    }
+
+    fn rawDataCreate(window: WindowHandle, kind: Int, columns: Int, frame: Rect, action: Int)
+        -> Int
+        symbol "rinzu_macos_data_create";
+
+    fn rawDataColumn(view: ViewHandle, column: Int, title: ByteArray, length: CSize, width: Float, sortable: CBool)
+        -> CInt
+        symbol "rinzu_macos_data_column";
+
+    fn rawDataBegin(view: ViewHandle, token: Int) -> CInt symbol "rinzu_macos_data_begin";
+
+    fn rawDataOwned(view: ViewHandle, token: Int) -> CBool symbol "rinzu_macos_data_owned";
+
+    fn rawDataAppend(view: ViewHandle, token: Int, id: Int, parent: Int, cells: ByteArray, length: CSize)
+        -> CInt
+        symbol "rinzu_macos_data_append";
+
+    fn rawDataCommit(view: ViewHandle, token: Int) -> CInt symbol "rinzu_macos_data_commit";
+
+    fn rawDataCancel(view: ViewHandle, token: Int) -> CInt symbol "rinzu_macos_data_cancel";
+
+    fn rawDataState(view: ViewHandle, output: DataState) -> CInt symbol "rinzu_macos_data_state";
+
+    fn rawDataSelect(view: ViewHandle, id: Int, reveal: CBool) -> CInt symbol "rinzu_macos_data_select";
+
+    fn rawDataScroll(view: ViewHandle, id: Int) -> CInt symbol "rinzu_macos_data_scroll";
+
+    fn rawDataExpand(view: ViewHandle, id: Int, expanded: CBool) -> CInt symbol "rinzu_macos_data_expand";
+
+    fn rawDataExpanded(view: ViewHandle, id: Int) -> CInt symbol "rinzu_macos_data_expanded";
+
+    fn rawDataSort(view: ViewHandle, column: Int, ascending: CBool) -> CInt symbol "rinzu_macos_data_sort";
+
+    fn rawDataCell(view: ViewHandle, token: Int, id: Int, column: Int) -> CInt symbol "rinzu_macos_data_cell";
+
+    fn rawAccessibility(
+        view: ViewHandle,
+        label: ByteArray,
+        labelLength: CSize,
+        help: ByteArray,
+        helpLength: CSize,
+        identifier: ByteArray,
+        identifierLength: CSize
+    ) -> CInt symbol "rinzu_macos_view_accessibility";
+
+    fn rawTooltip(view: ViewHandle, text: ByteArray, length: CSize) -> CInt symbol "rinzu_macos_view_tooltip";
+
+    fn rawWindowTheme(window: WindowHandle, theme: Int) -> CInt symbol "rinzu_macos_window_theme";
+
+    fn rawEffectiveTheme(window: WindowHandle) -> CInt symbol "rinzu_macos_window_effective_theme";
+}
+
+class DataColumn {
+    const title: String,
+    const width: Float,
+    const sortable: Bool
+}
+
+/// IDs are positive and unique. A tree parent must precede its children; zero is a root.
+class DataRow {
+    const id: Int,
+    const parent: Int,
+    const cells: List<String>
+}
+
+/// Shared List/Table/Tree interface. Model and AppKit datasource contain native copies only.
+class DataView {
+    const view: View,
+    const columns: Int,
+    const control: UiControl
+
+    fn identity(self: DataView) -> Int {
+        return self.view.identity();
+    }
+
+    fn destroy(self: DataView) -> Int {
+        return self.view.destroy();
+    }
+
+    fn state(self: DataView) -> DataState {
+        let result = DataState(
+            rows: 0,
+            visibleRows: 0,
+            cellViews: 0,
+            bytes: 0,
+            revision: 0,
+            selectedId: 0,
+            selectedRow: -1,
+            firstVisible: -1,
+            lastVisible: -1,
+            pendingRows: 0
+        );
+        let read = checked(Int(rawDataState(self.view.handle, result)), "macos.data.state");
+        return result;
+    }
+
+    fn accepts(self: DataView, event: UiEvent) -> Bool {
+        if event.kind != eventData || event.viewId != self.identity() {
+            return false;
+        }
+        let state = self.state();
+        return event.value == Float(state.revision);
+    }
+
+    fn select(self: DataView, id: Int, reveal: Bool) -> Int {
+        return checked(Int(rawDataSelect(self.view.handle, id, reveal)), "macos.data.select");
+    }
+
+    fn scrollTo(self: DataView, id: Int) -> Int {
+        return checked(Int(rawDataScroll(self.view.handle, id)), "macos.data.scrollTo");
+    }
+
+    fn setExpanded(self: DataView, id: Int, expanded: Bool) -> Int {
+        return checked(Int(rawDataExpand(self.view.handle, id, expanded)), "macos.data.expand");
+    }
+
+    fn isExpanded(self: DataView, id: Int) -> Bool {
+        return checked(Int(rawDataExpanded(self.view.handle, id)), "macos.data.expanded") != 0;
+    }
+
+    fn sort(self: DataView, column: Int, ascending: Bool) -> Int {
+        return checked(Int(rawDataSort(self.view.handle, column, ascending)), "macos.data.sort");
+    }
+
+    fn cell(self: DataView, id: Int, column: Int) -> String {
+        let token = checked(rawWaitToken(), "macos.data.cellToken");
+        try {
+            let ready = checked(Int(rawDataCell(self.view.handle, token, id, column)), "macos.data.cell");
+            return utf8Decode(rawWidgetBytes(self.view.handle, token));
+        }
+        finally {
+            if rawWidgetSnapshotOwned(self.view.handle, token) {
+                let finished = checked(Int(rawWidgetSnapshotFinish(self.view.handle, token)), "macos.data.cell.finish");
+            }
+        }
+    }
+
+    /// Build offscreen, yield every 256 rows, and publish one complete model.
+    async fn generateRows(self: DataView, count: Int, make: fn (Int) -> DataRow) {
+        if self.control.closed || self.control.stopping || count < 0 || count > 100000 {
+            throw error(-7804, "macos.data.countOrStopping");
+        }
+        let token = checked(rawWaitToken(), "macos.data.updateToken");
+        try {
+            let admitted = checked(Int(rawDataBegin(self.view.handle, token)), "macos.data.begin");
+            var index = 0;
+            while index < count && !self.control.stopping {
+                let row = make(index);
+                let bytes = dataCells(row.cells, self.columns);
+                let added = checked(
+                    Int(rawDataAppend(self.view.handle, token, row.id, row.parent, bytes, byteLength(bytes))),
+                    "macos.data.row"
+                );
+                index = index + 1;
+                if index % 256 == 0 {
+                    await rinzu.timer.sleep(1);
+                }
+            }
+            if !self.control.stopping {
+                let committed = checked(Int(rawDataCommit(self.view.handle, token)), "macos.data.commit");
+            }
+        }
+        finally {
+            if rawDataOwned(self.view.handle, token) {
+                let cancelled = checked(Int(rawDataCancel(self.view.handle, token)), "macos.data.cancel");
+            }
+        }
+    }
+
+    async fn setRows(self: DataView, rows: List<DataRow>) {
+        await self.generateRows(
+            listLength(rows),
+            fn (index: Int) -> DataRow {
+                switch listGet(rows, index) {
+                    case Option.Some(row): {
+                        return row;
+                    }
+                    case Option.None: {
+                        throw error(-7804, "macos.data.rowIndex");
+                    }
+                }
+            }
+        );
+    }
+}
+
+fn dataCells(cells: List<String>, columns: Int) -> ByteArray {
+    if listLength(cells) != columns {
+        throw error(-7804, "macos.data.columnCount");
+    }
+    var result = "";
+    var index = 0;
+    while index < columns {
+        switch listGet(cells, index) {
+            case Option.Some(cell): {
+                let bytes = utf8Encode(cell);
+                if byteLength(bytes) > 65536 {
+                    throw error(-7804, "macos.data.cellLimit");
+                }
+                result = f"{result}{byteLength(bytes)}:{cell}";
+            }
+            case Option.None: {}
+        }
+        index = index + 1;
+    }
+    let bytes = utf8Encode(result);
+    if byteLength(bytes) > 1048576 {
+        throw error(-7804, "macos.data.rowLimit");
+    }
+    return bytes;
+}
+
+fn createDataView(scope: UiScope, kind: Int, columns: List<DataColumn>, frame: Rect, action: Int) -> DataView {
+    if scope.control.closed || scope.control.stopping || listLength(columns) < 1 || listLength(columns) > 32 {
+        throw error(-7804, "macos.data.columnsOrStopping");
+    }
+    var index = 0;
+    while index < listLength(columns) {
+        switch listGet(columns, index) {
+            case Option.Some(column): {
+                if !(column.width >= 16.0 && column.width <= 4096.0) || byteLength(utf8Encode(column.title)) > 4096 {
+                    throw error(-7804, "macos.data.column");
+                }
+            }
+            case Option.None: {}
+        }
+        index = index + 1;
+    }
+    let view = View(
+        handle: rawView(
+            checked(rawDataCreate(scope.window.handle, kind, listLength(columns), frame, action), "macos.data.create")
+        )
+    );
+    var retained = false;
+    try {
+        index = 0;
+        while index < listLength(columns) {
+            switch listGet(columns, index) {
+                case Option.Some(column): {
+                    let bytes = utf8Encode(column.title);
+                    let configured = checked(
+                        Int(rawDataColumn(view.handle, index, bytes, byteLength(bytes), column.width, column.sortable)),
+                        "macos.data.column"
+                    );
+                }
+                case Option.None: {}
+            }
+            index = index + 1;
+        }
+        let data = DataView(view: view, columns: listLength(columns), control: scope.control);
+        retained = true;
+        return data;
+    }
+    finally {
+        if !retained {
+            let removed = view.destroy();
+        }
+    }
+}
+
+let eventData = 20;
+
+let dataSelected = 1;
+
+let dataActivated = 2;
+
+let dataExpanded = 3;
+
+let dataCollapsed = 4;
+
+let dataSorted = 5;
+
+let themeSystem = 0;
+
+let themeLight = 1;
+
+let themeDark = 2;
+
+export DataState;
+export DataColumn;
+export DataRow;
+export DataView;
+export eventData;
+export dataSelected;
+export dataActivated;
+export dataExpanded;
+export dataCollapsed;
+export dataSorted;
+export themeSystem;
+export themeLight;
+export themeDark;
+export BufferHandle;
+export CommandHandle;
+export ComputePipelineHandle;
+export DeviceHandle;
+export FontHandle;
+export FrameClockHandle;
+export LibraryHandle;
+export MenuHandle;
+export RenderPipelineHandle;
+export SamplerHandle;
+export SessionHandle;
+export TextLayoutHandle;
+export TextureHandle;
+export ViewHandle;
+export WindowHandle;
+export RunContext;
+export compose2D;

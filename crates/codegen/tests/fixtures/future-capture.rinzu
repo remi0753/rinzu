@@ -1,0 +1,76 @@
+import rinzu.stdio;
+
+error Failed {
+    payload: Int
+}
+
+async fn fail(value: Int) -> Int {
+    throw Failed(message: "failure", payload: value);
+}
+
+async fn receive(value: Future<Int>) -> Int {
+    try {
+        return await value;
+    }
+    catch [error: Failed] {
+        return error.payload;
+    }
+    catch errors {
+        return -1;
+    }
+}
+
+fn make(value: Int) -> fn () -> Future<Int> {
+    let pending = fail(value);
+    return fn () -> Future<Int> {
+        return pending;
+    };
+}
+
+error Generator {
+    payload: fn () -> Future<Int>
+}
+
+fn wrap(value: fn () -> Future<Int>) -> Generator {
+    return Generator(message: "generator", payload: value);
+}
+
+async fn main() {
+    try {
+        let factory = make(277);
+        let observed = receive(factory());
+        rinzu.stdio.writeLine(await observed);
+        let pending = fail(281);
+        let receiver = async fn () -> Int {
+            try {
+                return await pending;
+            }
+            catch [error: Failed] {
+                return error.payload;
+            }
+            catch errors {
+                return -1;
+            }
+        };
+        let result = receiver();
+        rinzu.stdio.writeLine(await result);
+        let next = fail(283);
+        let holder = {
+            get = fn () -> Future<Int> {
+                return next;
+            }
+        };
+        let recordResult = receive(holder.get());
+        rinzu.stdio.writeLine(await recordResult);
+        let error = wrap(
+            async fn () -> Int {
+                return 293;
+            }
+        );
+        let value = await error.payload();
+        rinzu.stdio.writeLine(value);
+        let repeated = receive(factory());
+        rinzu.stdio.writeLine(await repeated);
+    }
+    catch errors {}
+}

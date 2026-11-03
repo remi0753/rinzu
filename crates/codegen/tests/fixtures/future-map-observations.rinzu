@@ -1,0 +1,85 @@
+import rinzu.stdio;
+
+error Failed {
+    payload: Int
+}
+
+async fn fail(number: Int) -> Int {
+    throw Failed(message: "failed", payload: number);
+}
+
+async fn observeMap(values: Map<String, Future<Int>>) -> Int {
+    let keys = mapKeys(values);
+    let count = listLength(keys);
+    var index = 0;
+    var caught = 0;
+    while index < count {
+        switch listGet(keys, index) {
+            case Option.Some(key): {
+                switch mapGet(values, key) {
+                    case Option.Some(value): {
+                        try {
+                            let result = await value;
+                        }
+                        catch errors {
+                            caught = caught + listLength(errors);
+                        }
+                    }
+                    case Option.None: {}
+                }
+            }
+            case Option.None: {}
+        }
+        index = index + 1;
+    }
+    return caught;
+}
+
+async fn main() {
+    try all {
+        let first = fail(107);
+        let second = fail(109);
+        let count = await observeMap(
+            {
+                "a": first, "b": second, "alias": first
+            }
+        );
+        rinzu.stdio.writeLine(count);
+        let empty = await observeMap({});
+        rinzu.stdio.writeLine(empty);
+        let old = fail(113);
+        let replacement = fail(127);
+        let keys = mapKeys(
+            {
+                "key": old
+            }
+        );
+        let changed = mapInsert(
+            {
+                "key": old
+            },
+            "key",
+            replacement
+        );
+        try {
+            let oldResult = await old;
+        }
+        catch [problem: Failed] {
+            rinzu.stdio.writeLine(problem.payload);
+        }
+        let changedCount = await observeMap(changed);
+        rinzu.stdio.writeLine(changedCount);
+        switch mapGet(changed, "key") {
+            case Option.Some(value): {
+                try {
+                    let replacementResult = await value;
+                }
+                catch [problem: Failed] {
+                    rinzu.stdio.writeLine(problem.payload);
+                }
+            }
+            case Option.None: {}
+        }
+    }
+    catch errors {}
+}

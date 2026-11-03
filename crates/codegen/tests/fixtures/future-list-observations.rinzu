@@ -1,0 +1,58 @@
+import rinzu.stdio;
+
+error Failed {}
+
+async fn fail() {
+    throw Failed(message: "task failed");
+}
+
+async fn observeList<T>(values: List<Future<T>>) -> Int {
+    let length = listLength(values);
+    var index = 0;
+    var caught = 0;
+    while index < length {
+        switch listGet(values, index) {
+            case Option.Some(value): {
+                try {
+                    let result = await value;
+                }
+                catch errors {
+                    caught = caught + listLength(errors);
+                }
+            }
+            case Option.None: {}
+        }
+        index = index + 1;
+    }
+    return caught;
+}
+
+async fn main() {
+    try {
+        let first = fail();
+        let second = fail();
+        let count = await observeList<Unit>([first, second, first]);
+        rinzu.stdio.writeLine(count);
+        let empty = await observeList<Unit>([]);
+        rinzu.stdio.writeLine(empty);
+        let a = fail();
+        let b = fail();
+        let values = [a, b, a];
+        var index = 0;
+        try all {
+            while index < listLength(values) {
+                switch listGet(values, index) {
+                    case Option.Some(value): {
+                        await value;
+                    }
+                    case Option.None: {}
+                }
+                index = index + 1;
+            }
+        }
+        catch errors {
+            rinzu.stdio.writeLine(listLength(errors));
+        }
+    }
+    catch errors {}
+}

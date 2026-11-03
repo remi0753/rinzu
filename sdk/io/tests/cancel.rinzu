@@ -1,0 +1,39 @@
+import rinzu.io;
+import rinzu.stdio;
+
+fn file(result: rinzu.io.File) -> rinzu.io.File {
+    return result;
+}
+
+fn count(result: Int) -> Int {
+    return result;
+}
+
+fn okay(result: Int) {
+    let value = count(result);
+}
+
+fn chunk(result: rinzu.io.ReadChunk) -> rinzu.io.ReadChunk {
+    return result;
+}
+
+async fn main() {
+    try {
+        let input = file(await rinzu.io.openRead("data/input.txt"));
+        try all {
+            let reading = rinzu.io.read(input, 1);
+            let cancelled = cancelFuture(reading);
+            let result = await reading;
+        }
+        finally {
+            okay(await rinzu.io.close(input));
+            if rinzu.io.liveFiles() != 0 || rinzu.io.liveBuffers() != 0 {
+                panic("failure11");
+            }
+            rinzu.stdio.writeLine("io-cancel-settled");
+        }
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}

@@ -1,0 +1,65 @@
+import rinzu.macos;
+import rinzu.stdio;
+import rinzu.testing;
+
+fn historyInvariant(history: rinzu.macos.DocumentHistory) {
+    var bytes = 0;
+    var index = 0;
+    while index < history.length() {
+        switch listGet(history.entries, index) {
+            case Option.Some(snapshot): {
+                bytes = bytes + Int(utf8ByteLength(snapshot.text));
+                rinzu.testing.assertTrue(
+                    snapshot.start >= 0
+                        && snapshot.end >= snapshot.start
+                        && snapshot.end <= stringLength(snapshot.text),
+                    "history scalar bounds"
+                );
+            }
+            case Option.None: {
+                panic("missing history entry");
+            }
+        }
+        index = index + 1;
+    }
+    rinzu.testing.assertTrue(
+        bytes == history.bytes && bytes <= history.maximumBytes && history.length() <= history.maximumEntries,
+        "history byte/count invariants after cancellation"
+    );
+}
+
+fn exercise(doc: rinzu.macos.Document) {
+    var index = 0;
+    while index < 64 {
+        if index % 4 == 0 {
+            let reset = doc.reset(f"loaded:{index}:日本🙂", true);
+        }
+        let edited = doc.edit(f"{index}:日本🙂", 1, 3);
+        let undone = doc.undoEdit();
+        let redone = doc.redoEdit();
+        doc.select(0, 2);
+        index = index + 1;
+    }
+}
+
+fn main() {
+    try {
+        let doc = rinzu.macos.Document.withHistory("initial🙂", true, 7, 128);
+        try {
+            rinzu.stdio.writeLine("DOCUMENT:mutating");
+            exercise(doc);
+        }
+        finally {
+            historyInvariant(doc.undo);
+            historyInvariant(doc.redo);
+            rinzu.testing.assertTrue(
+                doc.start >= 0 && doc.end >= doc.start && doc.end <= stringLength(doc.text) && doc.version >= doc.edits,
+                "document invariants after cancellation"
+            );
+            rinzu.stdio.writeLine("DOCUMENT:invariants-ok");
+        }
+    }
+    catch errors {
+        panic(f"document cancellation invariant: {errors}");
+    }
+}

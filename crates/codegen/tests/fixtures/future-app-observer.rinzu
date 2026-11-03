@@ -1,0 +1,60 @@
+import rinzu.stdio;
+
+error Failed {
+    payload: String
+}
+
+class State {
+    done: Bool,
+    errors: List<List<Error>>
+}
+
+async fn failing() {
+    throw Failed(message: "failure", payload: "retained payload");
+}
+
+async fn observe(state: State, pending: Future<Unit>) {
+    try {
+        await pending;
+    }
+    catch errors {
+        state.errors = listAppend(state.errors, errors);
+        state.done = true;
+    }
+}
+
+async fn turn() {}
+
+async fn main() {
+    try {
+        let state = State(done: false, errors: []);
+        let settled = observe(state, failing());
+        while !state.done {
+            await turn();
+        }
+        await settled;
+        switch listGet(state.errors, 0) {
+            case Option.Some(group): {
+                switch listGet(group, 0) {
+                    case Option.Some(problem): {
+                        if problem is Failed {
+                            rinzu.stdio.writeLine(problem.payload);
+                        }
+                        else {
+                            panic("failed");
+                        }
+                    }
+                    case Option.None: {
+                        panic("failed");
+                    }
+                }
+            }
+            case Option.None: {
+                panic("failed");
+            }
+        }
+    }
+    catch errors {
+        panic("failed");
+    }
+}

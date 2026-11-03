@@ -1,0 +1,11 @@
+// Comments, native bindings, UTF-8 and formatted/raw/byte strings.
+native {
+    fn empty() -> CInt symbol "empty";
+}
+
+fn main() {
+    let raw = r"line
+日本語🙂";
+    let data = b"\x00\xff";
+    let text = f"{raw}:🙂";
+}

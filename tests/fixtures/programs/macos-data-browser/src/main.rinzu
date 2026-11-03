@@ -1,0 +1,318 @@
+import rinzu.macos;
+import rinzu.timer;
+import rinzu.process;
+import rinzu.stdio;
+
+class Browser {
+    const records: rinzu.macos.DataView,
+    const groups: rinzu.macos.DataView,
+    const details: rinzu.macos.DataView,
+    const status: rinzu.macos.Label,
+    group: Int,
+    count: Int,
+    busy: Bool,
+    dark: Bool,
+    detailsBusy: Bool,
+    detailsVersion: Int
+
+    async fn reload(self: Browser, job: rinzu.macos.UiJob) {
+        if self.busy || job.isStopping() {
+            return;
+        }
+        self.busy = true;
+        try {
+            let loading = self.status.setText("Loading rows…");
+            var count = 10000;
+            var step = 1;
+            var offset = 1;
+            if self.group == 2 {
+                count = 5000;
+                step = 2;
+                offset = 2;
+            }
+            else if self.group == 3 {
+                count = 5000;
+                step = 2;
+            }
+            else if self.group == 4 {
+                count = 100;
+            }
+            self.count = count;
+            await self.records.generateRows(
+                count,
+                fn (index: Int) -> rinzu.macos.DataRow {
+                    let id = index * step + offset;
+                    return rinzu.macos.DataRow(
+                        id: id,
+                        parent: 0,
+                        cells: [f"{id}", f"Item {id} / 日本語", f"Group {id % 8}"]
+                    );
+                }
+            );
+            if !job.isStopping() {
+                await self.showDetails(job);
+                let ready = self.status.setText(
+                    f"{count} rows · Arrow keys select · Return opens details · Click a column to sort"
+                );
+            }
+        }
+        finally {
+            if !job.isStopping() {
+                let selected = self.groups.select(self.group, true);
+            }
+            self.busy = false;
+        }
+    }
+
+    async fn showDetails(self: Browser, job: rinzu.macos.UiJob) {
+        self.detailsVersion = self.detailsVersion + 1;
+        if self.detailsBusy || job.isStopping() {
+            return;
+        }
+        self.detailsBusy = true;
+        try {
+            var observed = -1;
+            while !job.isStopping() && observed != self.detailsVersion {
+                observed = self.detailsVersion;
+                let selection = self.records.state();
+                let id = selection.selectedId;
+                if id == 0 {
+                    await self.details.setRows([]);
+                }
+                else {
+                    let name = self.records.cell(id, 1);
+                    let group = self.records.cell(id, 2);
+                    await self.details.setRows(
+                        [
+                            rinzu.macos.DataRow(id: 1, parent: 0, cells: [f"ID: {id}"]),
+                            rinzu.macos.DataRow(id: 2, parent: 0, cells: [f"Name: {name}"]),
+                            rinzu.macos.DataRow(id: 3, parent: 0, cells: [f"Category: {group}"])
+                        ]
+                    );
+                }
+            }
+        }
+        finally {
+            self.detailsBusy = false;
+        }
+    }
+
+    async fn exercise(self: Browser, job: rinzu.macos.UiJob) {
+        await self.reload(job);
+        let last = self.records.select(10000, true);
+        await self.showDetails(job);
+        let sorted = self.records.sort(0, false);
+        await rinzu.timer.sleep(40);
+        let initial = self.records.state();
+        if initial.rows != 10000
+            || initial.selectedId != 10000
+            || initial.selectedRow != 0
+            || initial.cellViews >= 1000 {
+            panic("browser initial data or virtualization mismatch");
+        }
+        self.group = 2;
+        await self.reload(job);
+        let even = self.records.state();
+        let details = self.details.state();
+        if even.rows != 5000 || even.selectedId != 10000 || details.rows != 3 {
+            panic("browser group mismatch");
+        }
+        self.group = 4;
+        await self.reload(job);
+        let filtered = self.records.state();
+        let cleared = self.details.state();
+        if filtered.selectedId != 0 || cleared.rows != 0 {
+            panic("browser stale details remained");
+        }
+        let themed = job.window.setTheme(rinzu.macos.themeDark);
+        let resized = job.window.setContentSize(1000.0, 680.0);
+        await rinzu.timer.sleep(30);
+        let frame = self.records.view.frame();
+        if frame.width != 764.0 || frame.height != 424.0 {
+            panic("browser resize mismatch");
+        }
+        rinzu.stdio.writeLine("BROWSER:10000:virtual:group:sort:theme:details:resize");
+        job.requestStop();
+    }
+}
+
+async fn screen(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    let minimum = scope.window.setMinimumContentSize(700.0, 420.0);
+    let root = scope.window.contentView();
+    let toolbar = scope.session.view(rinzu.macos.Rect(x: 12.0, y: 576.0, width: 936.0, height: 32.0));
+    let addedToolbar = root.addSubview(toolbar);
+    let flexibleToolbar = toolbar.setAutoresizing(10);
+    let buttonRect = rinzu.macos.Rect(x: 0.0, y: 0.0, width: 100.0, height: 28.0);
+    let reload = scope.button("Reload", buttonRect, 10);
+    let tail = scope.button("Last row", buttonRect, 11);
+    let theme = scope.button("Light / Dark", buttonRect, 12);
+    let summary = scope.label("Native List · Table · Tree", buttonRect);
+    let items = [
+        rinzu.macos.LayoutItem(view: reload.view, fixed: 100.0, grow: 0.0),
+        rinzu.macos.LayoutItem(view: tail.view, fixed: 100.0, grow: 0.0),
+        rinzu.macos.LayoutItem(view: theme.view, fixed: 120.0, grow: 0.0),
+        rinzu.macos.LayoutItem(view: summary.view, fixed: 0.0, grow: 1.0)
+    ];
+    let layout = rinzu.macos.weightedRow(toolbar, items, 0.0, 8.0);
+    let groups = scope.treeView(
+        [rinzu.macos.DataColumn(title: "Groups", width: 190.0, sortable: false)],
+        rinzu.macos.Rect(x: 12.0, y: 52.0, width: 200.0, height: 512.0),
+        101
+    );
+    let addedGroups = root.addSubview(groups.view);
+    let flexibleGroups = groups.view.setAutoresizing(16);
+    await groups.setRows(
+        [
+            rinzu.macos.DataRow(id: 1, parent: 0, cells: ["All records"]),
+            rinzu.macos.DataRow(id: 2, parent: 1, cells: ["Even IDs"]),
+            rinzu.macos.DataRow(id: 3, parent: 1, cells: ["Odd IDs"]),
+            rinzu.macos.DataRow(id: 4, parent: 1, cells: ["First 100"])
+        ]
+    );
+    let expanded = groups.setExpanded(1, true);
+    let records = scope.tableView(
+        [
+            rinzu.macos.DataColumn(title: "ID", width: 90.0, sortable: true),
+            rinzu.macos.DataColumn(title: "Name", width: 390.0, sortable: true),
+            rinzu.macos.DataColumn(title: "Category", width: 180.0, sortable: true)
+        ],
+        rinzu.macos.Rect(x: 224.0, y: 200.0, width: 724.0, height: 364.0),
+        100
+    );
+    let addedRecords = root.addSubview(records.view);
+    let flexibleRecords = records.view.setAutoresizing(18);
+    let details = scope.listView(rinzu.macos.Rect(x: 224.0, y: 52.0, width: 724.0, height: 136.0), 102);
+    let addedDetails = root.addSubview(details.view);
+    let flexibleDetails = details.view.setAutoresizing(2);
+    let status = scope.label("Loading records…", rinzu.macos.Rect(x: 12.0, y: 12.0, width: 936.0, height: 24.0));
+    let addedStatus = root.addSubview(status.view);
+    let flexibleStatus = status.view.setAutoresizing(2);
+    let recordsAX = records.view.setAccessibility(
+        "Records",
+        "Select with arrow keys; Return shows details",
+        "browser-records"
+    );
+    let groupsAX =
+        groups
+        .view
+        .setAccessibility("Record groups", "Expand groups with the right arrow", "browser-groups");
+    let detailsAX =
+        details
+        .view
+        .setAccessibility("Record details", "Details of the selected record", "browser-details");
+    let reloadHelp =
+        reload
+        .view
+        .setTooltip("Rebuild the selected group without replacing the current rows until ready");
+    let state = Browser(
+        records: records,
+        groups: groups,
+        details: details,
+        status: status,
+        group: 1,
+        count: 0,
+        busy: false,
+        dark: false,
+        detailsBusy: false,
+        detailsVersion: 0
+    );
+    let actions = rinzu.macos.actions();
+    actions.on(
+        10,
+        async fn (job: rinzu.macos.UiJob, event: rinzu.macos.UiEvent) {
+            await state.reload(job);
+        }
+    );
+    actions.on(
+        11,
+        async fn (job: rinzu.macos.UiJob, event: rinzu.macos.UiEvent) {
+            if state.busy || state.count == 0 || job.isStopping() {
+                return;
+            }
+            var id = state.count;
+            if state.group == 2 {
+                id = state.count * 2;
+            }
+            else if state.group == 3 {
+                id = state.count * 2 - 1;
+            }
+            let selected = records.select(id, true);
+            await state.showDetails(job);
+        }
+    );
+    actions.on(
+        12,
+        async fn (job: rinzu.macos.UiJob, event: rinzu.macos.UiEvent) {
+            state.dark = !state.dark;
+            var mode = rinzu.macos.themeLight;
+            if state.dark {
+                mode = rinzu.macos.themeDark;
+            }
+            let changed = job.window.setTheme(mode);
+        }
+    );
+    actions.on(
+        100,
+        async fn (job: rinzu.macos.UiJob, event: rinzu.macos.UiEvent) {
+            if records.accepts(event)
+                && (event.flags == rinzu.macos.dataSelected || event.flags == rinzu.macos.dataActivated) {
+                await state.showDetails(job);
+            }
+        }
+    );
+    actions.on(
+        101,
+        async fn (job: rinzu.macos.UiJob, event: rinzu.macos.UiEvent) {
+            if groups.accepts(event)
+                && event.flags == rinzu.macos.dataSelected
+                && !state.busy
+                && event.selectionStart > 0 {
+                state.group = event.selectionStart;
+                await state.reload(job);
+            }
+        }
+    );
+    let main = scope.menu("Main");
+    let application = scope.menu("Rinzu Data Browser");
+    let quit = application.addStandard("Quit", rinzu.macos.commandQuit, "q", rinzu.macos.modifierCommand);
+    let submenu = main.addSubmenu(application);
+    let installed = scope.window.setMenu(main);
+    let started = scope.start(
+        async fn (job: rinzu.macos.UiJob) {
+            if rinzu.process.setting("RINZU_DATA_BROWSER_TEST", "0") == "1" {
+                await state.exercise(job);
+            }
+            else {
+                await state.reload(job);
+            }
+        }
+    );
+    await scope.dispatch(
+        async fn (owner: rinzu.macos.UiScope, event: rinzu.macos.UiEvent) {
+            if event.kind == rinzu.macos.eventResized {
+                let resized = rinzu.macos.weightedRow(toolbar, items, 0.0, 8.0);
+            }
+            actions.handle(owner, event);
+        }
+    );
+}
+
+async fn main() {
+    try {
+        if rinzu.process.setting("RINZU_DATA_BROWSER_TEST", "0") == "1" {
+            let tested = await rinzu.macos.application("Rinzu Data Browser", 960.0, 620.0, screen);
+        }
+        else {
+            let running = await rinzu.macos.applicationWithSignals("Rinzu Data Browser", 960.0, 620.0, screen);
+        }
+        let stats = rinzu.macos.statistics();
+        if stats.retainedControls + stats.dataRows + stats.dataBytes + stats.dataUpdates != 0 {
+            panic("browser leaked resources");
+        }
+        rinzu.stdio.writeLine("BROWSER:closed");
+    }
+    catch errors {
+        panic(f"browser failed: {errors}");
+    }
+}

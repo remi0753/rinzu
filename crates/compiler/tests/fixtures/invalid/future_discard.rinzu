@@ -1,0 +1,9 @@
+error Failed {}
+
+async fn work() {
+    throw Failed(message: "failure");
+}
+
+fn main() {
+    work();
+}

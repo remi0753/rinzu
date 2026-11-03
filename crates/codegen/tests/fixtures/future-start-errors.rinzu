@@ -1,0 +1,76 @@
+import rinzu.stdio;
+import rinzu.timer;
+
+fn readSize(path: String) -> Future<Int> {
+    return readResourceSize(path);
+}
+
+error A {}
+
+fn argument() -> Int {
+    throw A(message: "argument");
+}
+
+async fn echo(value: Int) -> Int {
+    return value;
+}
+
+async fn body() -> Int {
+    throw A(message: "body");
+}
+
+async fn main() {
+    try {
+        var order = 0;
+        try {
+            let timerFuture = rinzu.timer.sleep(-1);
+            order = 1;
+            await timerFuture;
+            order = 2;
+        }
+        catch errors {
+            rinzu.stdio.writeLine(f"timer:{order}");
+        }
+        order = 0;
+        try {
+            let pathFuture = readSize("../outside");
+            order = 1;
+            let fileValue = await pathFuture;
+            order = 2;
+        }
+        catch errors {
+            rinzu.stdio.writeLine(f"path:{order}");
+        }
+        order = 0;
+        try {
+            let argumentFuture = echo(argument());
+            order = 1;
+            let argumentValue = await argumentFuture;
+            order = 2;
+        }
+        catch errors {
+            rinzu.stdio.writeLine(f"argument:{order}");
+        }
+        order = 0;
+        try {
+            let bodyFuture = body();
+            order = 1;
+            let bodyValue = await bodyFuture;
+            order = 2;
+        }
+        catch errors {
+            rinzu.stdio.writeLine(f"body:{order}");
+        }
+        var continued = 0;
+        try all {
+            let invalidFuture = rinzu.timer.sleep(-1);
+            continued = continued + 1;
+            await invalidFuture;
+        }
+        catch errors {
+            rinzu.stdio.writeLine(continued);
+            rinzu.stdio.writeLine(listLength(errors));
+        }
+    }
+    catch errors {}
+}

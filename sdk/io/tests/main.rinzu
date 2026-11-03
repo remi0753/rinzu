@@ -1,0 +1,34 @@
+import rinzu.timer;
+import rinzu.io;
+
+async fn main() {
+    try {
+        let retained = ["source io SDK 日本語", "timer continuation"];
+        await rinzu.timer.sleep(0);
+        let size = await rinzu.io.readSize("data/input.txt");
+        if size != 5 {
+            panic("invalidSize");
+        }
+        var caught = 0;
+        try {
+            await rinzu.timer.sleep(-1);
+        }
+        catch error {
+            caught = caught + 1;
+        }
+        finally {
+            caught = caught + 10;
+        }
+        var index = 0;
+        while index < 256 {
+            let temporary = ["moving GC", "io roots"];
+            index = index + 1;
+        }
+        if caught != 11 || retained != ["source io SDK 日本語", "timer continuation"] {
+            panic("invalidRoots");
+        }
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+    }
+}

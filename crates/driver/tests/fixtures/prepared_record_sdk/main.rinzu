@@ -1,0 +1,30 @@
+import prepared;
+
+async fn main() {
+    try {
+        let first = prepared.exercise();
+        let one = spawn prepared.exercise();
+        let two = spawn prepared.exercise();
+        let three = spawn prepared.exercise();
+        let four = spawn prepared.exercise();
+        let five = spawn prepared.exercise();
+        let six = spawn prepared.exercise();
+        let seven = spawn prepared.exercise();
+        let eight = spawn prepared.exercise();
+        if first != 42
+            || await eight != 42
+            || await seven != 42
+            || await six != 42
+            || await five != 42
+            || await four != 42
+            || await three != 42
+            || await two != 42
+            || await one != 42
+            || await one != 42 {
+            panic("wrong");
+        }
+    }
+    catch unexpected {
+        panic("failed");
+    }
+}

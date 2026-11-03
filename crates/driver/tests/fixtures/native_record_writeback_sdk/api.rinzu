@@ -1,0 +1,84 @@
+import rinzu.stdio;
+
+type Context = {
+    id: Int
+};
+
+native {
+    record Packet {
+        x: Int,
+        valid: Bool
+    }
+
+    fn change(value: Packet, amount: Int) -> Int symbol "record_change";
+
+    fn aliases(first: Packet, second: Packet) -> Bool symbol "record_aliases";
+
+    fn echo(value: Packet) -> Packet symbol "record_echo";
+
+    fn fresh() -> Packet symbol "record_fresh";
+
+    opaque Handle;
+
+    fn invoke(value: Packet, handler: fn () -> Int) -> Int symbol "record_invoke";
+
+    fn visit(value: Packet, handler: fn (Packet) -> Int) -> Int symbol "record_visit";
+
+    fn probe(value: Packet, context: Context, handler: fn () -> Int) -> Handle symbol "record_probe";
+
+    fn probeEntries() -> Int symbol "record_probe_entries";
+
+    supplant fn run(value: Packet, handler: fn () -> Int) -> Int symbol "record_run";
+
+    fn runEntries() -> Int symbol "record_run_entries";
+
+    fn resetRunEntries() symbol "record_run_reset";
+}
+
+class Cursor {
+    point: Packet
+}
+
+fn replace(cursor: Cursor, next: Packet) -> Int {
+    cursor.point = next;
+    return change(next, 4);
+}
+
+fn exercise() {
+    let point = Packet(x: 1, valid: false);
+    let box = {
+        point = point
+    };
+    rinzu.stdio.writeLine(change(point, 10));
+    rinzu.stdio.writeLine(point.x);
+    rinzu.stdio.writeLine(aliases(point, box.point));
+    rinzu.stdio.writeLine(point.x);
+    let restored = echo(point);
+    let status = change(restored, 5);
+    rinzu.stdio.writeLine(point.x);
+    let nested = change(point, change(point, 3));
+    rinzu.stdio.writeLine(point.x);
+    let other = Packet(x: 14, valid: true);
+    if aliases(point, other) {
+        panic("equal contents are different targets");
+    }
+    let cursor = Cursor(point: point);
+    let replaced = change(cursor.point, replace(cursor, other));
+    rinzu.stdio.writeLine(point.x);
+    rinzu.stdio.writeLine(cursor.point.x);
+    let separate = fresh();
+    rinzu.stdio.writeLine(separate.x);
+}
+
+export Packet;
+export exercise;
+export Context;
+export Handle;
+export change;
+export invoke;
+export visit;
+export probe;
+export probeEntries;
+export run;
+export runEntries;
+export resetRunEntries;

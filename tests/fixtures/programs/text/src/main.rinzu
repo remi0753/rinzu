@@ -1,0 +1,54 @@
+import rinzu.stdio;
+
+fn echo<T: Transferable>(value: T) -> T {
+    return value;
+}
+
+async fn main() {
+    try {
+        try {
+            let text = "日é\u{0}tail";
+            rinzu.stdio.writeLine(stringLength(text));
+            rinzu.stdio.writeLine(utf8ByteLength(text));
+            rinzu.stdio.writeLine(stringGet(text, 0));
+            rinzu.stdio.writeLine(stringSlice(text, 1, 3));
+            rinzu.stdio.writeLine(stringFind(text, "tail", 0));
+            rinzu.stdio.writeLine(stringSplit("a,,日本語,", ","));
+            rinzu.stdio.writeLine(formatInt(-9223372036854775808));
+            try {
+                let resultValue4 = parseInt("+42");
+                rinzu.stdio.writeLine(resultValue4);
+            }
+            catch [resultError4: Error, ...resultRest4] {
+                rinzu.stdio.writeLine(errorCode(resultError4));
+            }
+            try {
+                let resultValue3 = parseInt("9223372036854775808");
+                rinzu.stdio.writeLine(resultValue3);
+            }
+            catch [resultError3: Error, ...resultRest3] {
+                rinzu.stdio.writeLine(errorCode(resultError3));
+            }
+            try {
+                let resultValue2 = utf8Decode(utf8Encode(text));
+                let pending = spawn echo<String>(resultValue2);
+                rinzu.stdio.writeLine((await pending) == text);
+            }
+            catch [resultError2: Error, ...resultRest2] {
+                rinzu.stdio.writeLine(errorCode(resultError2));
+            }
+            let invalid: List<CUInt8> = [255];
+            try {
+                let resultValue1 = utf8Decode(byteArray(invalid));
+                rinzu.stdio.writeLine(resultValue1);
+            }
+            catch [resultError1: Error, ...resultRest1] {
+                rinzu.stdio.writeLine(errorCode(resultError1));
+            }
+        }
+        catch errors {}
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}

@@ -1,0 +1,22 @@
+native {
+    fn rawEnable() -> CInt symbol "rinzu_shutdown_enable";
+
+    fn rawDisable() -> CInt symbol "rinzu_shutdown_disable";
+
+    fn signalRequested() -> CInt symbol "rinzu_shutdown_signal";
+
+    fn clockMillis() -> Int symbol "rinzu_shutdown_clock";
+}
+
+fn enableSignals() -> Int {
+    return nativeStatus(Int(rawEnable()), "shutdown.enableSignals");
+}
+
+fn disableSignals() -> Int {
+    return nativeStatus(Int(rawDisable()), "shutdown.disableSignals");
+}
+
+export enableSignals;
+export disableSignals;
+export signalRequested;
+export clockMillis;

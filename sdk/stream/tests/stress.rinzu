@@ -1,0 +1,170 @@
+import rinzu.timer;
+import rinzu.stream;
+import rinzu.io;
+import rinzu.stdio;
+
+async fn ready() -> ByteArray {
+    return byteArray(b"ready");
+}
+
+async fn main() {
+    try {
+        var index = 0;
+        while index < 2000 {
+            if bytesLength(await ready()) != 5 {
+                panic("badReady");
+            }
+            index = index + 1;
+        }
+        try {
+            let resultValue12 = await rinzu.stream.openFileWithLimit("missing.bin", 1024);
+            panic("badMissing");
+        }
+        catch [resultError12: Error, ...resultRest12] {}
+        try {
+            let resultValue11 = await rinzu.stream.openFileWithLimit("input.bin", 0);
+            panic("badLimit");
+        }
+        catch [resultError11: Error, ...resultRest11] {
+            if errorCode(resultError11) != -7204 {
+                panic("badLimitCode");
+            }
+        }
+        // A stopped consumer starts no producer/read allocation.
+        try {
+            let resultValue10 = await rinzu.stream.openFile("input.bin");
+            if rinzu.io.liveBuffers() != 0 {
+                panic("badPrefetch1");
+            }
+            await rinzu.timer.sleep(2);
+            if rinzu.io.liveBuffers() != 0 {
+                panic("badPrefetch2");
+            }
+            try {
+                let resultValue9 = await rinzu.stream.close(resultValue10);
+            }
+            catch [resultError9: Error, ...resultRest9] {
+                panic("badIdleClose");
+            }
+        }
+        catch [resultError10: Error, ...resultRest10] {
+            panic("badIdleOpen");
+        }
+        // Fault fixture only: invalidate the native owner through its alias and
+    // check that stream caches the original I/O Error rather than resume.
+        try {
+            let resultValue8 = await rinzu.stream.openFile("input.bin");
+            try {
+                let resultValue7 = await rinzu.io.close(resultValue8.file);
+            }
+            catch [resultError7: Error, ...resultRest7] {
+                panic("badFaultClose");
+            }
+            var attempt = 0;
+            while attempt < 2 {
+                try {
+                    let resultValue6 = await rinzu.stream.next(resultValue8);
+                    panic("badFaultResult");
+                }
+                catch [resultError6: Error, ...resultRest6] {
+                    switch errorNativeStatus(resultError6) {
+                        case Option.None: {
+                            panic("badFaultMissingStatus");
+                        }
+                        case Option.Some(status): {
+                            if status != -7102 {
+                                panic("badFaultCode");
+                            }
+                        }
+                    }
+                }
+                attempt = attempt + 1;
+            }
+            try {
+                let resultValue5 = await rinzu.stream.close(resultValue8);
+                panic("badFaultCloseResult");
+            }
+            catch [resultError5: Error, ...resultRest5] {
+                switch errorNativeStatus(resultError5) {
+                    case Option.None: {
+                        panic("badFaultCloseMissing");
+                    }
+                    case Option.Some(status): {
+                        if status != -7102 {
+                            panic("badFaultCloseCode");
+                        }
+                    }
+                }
+            }
+        }
+        catch [resultError8: Error, ...resultRest8] {
+            panic("badFaultOpen");
+        }
+        try {
+            let resultValue4 = await rinzu.stream.openFileWithLimit("input.bin", 1024);
+            try all {
+                try all {
+                    let first = rinzu.stream.next(resultValue4);
+                    let settled = cancelledRead(first);
+                    try {
+                        let resultValue3 = await rinzu.stream.next(resultValue4);
+                        panic("badOverlap");
+                    }
+                    catch [resultError3: Error, ...resultRest3] {
+                        if errorCode(resultError3) != -7203 {
+                            panic("badOverlapCode");
+                        }
+                    }
+                    try {
+                        let resultValue2 = await rinzu.stream.close(resultValue4);
+                        panic("badBusyClose");
+                    }
+                    catch [resultError2: Error, ...resultRest2] {
+                        if errorCode(resultError2) != -7203 {
+                            panic("badBusyCode");
+                        }
+                    }
+                    let requested = cancelFuture(first);
+                    if !requested {
+                        panic("badCancel");
+                    }
+                    while !futureReady(settled) {
+                        await rinzu.timer.sleep(1);
+                    }
+                }
+                finally {}
+                if resultValue4.busy {
+                    panic("badDrain");
+                }
+            }
+            finally {
+                try {
+                    let resultValue1 = await rinzu.stream.close(resultValue4);
+                }
+                catch [resultError1: Error, ...resultRest1] {
+                    panic("badClose");
+                }
+            }
+        }
+        catch [resultError4: Error, ...resultRest4] {
+            panic("badOpen");
+        }
+        if rinzu.io.liveFiles() != 0 || rinzu.io.liveBuffers() != 0 {
+            panic("badResource");
+        }
+        rinzu.stdio.writeLine("stream-stress-ok");
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}
+
+// A cancelled operation may have no value; normal I/O errors still fail the test.
+async fn cancelledRead(value: Future<Option<ByteArray>>) {
+    try {
+        let chunk = await value;
+    }
+    catch errors {
+        panic("unexpectedReadFailure");
+    }
+}

@@ -1,0 +1,41 @@
+import loops;
+
+fn blockedWorker(input: String, bytes: Bytes(4)) -> CInt {
+    let workerRetained = ["Worker native roots", "actual return before cleanup"];
+    var workerIndex = 0;
+    while workerIndex < 512 {
+        let workerMoved = ["managed GC", "still retained"];
+        workerIndex = workerIndex + 1;
+    }
+    try {
+        return loops.workerBlock(input, bytes);
+    }
+    finally {
+        if workerRetained != ["Worker native roots", "actual return before cleanup"] {
+            panic("lostWorkerRoot");
+        }
+        loops.workerFinally(input, bytes);
+    }
+}
+
+async fn main() {
+    loops.checkReset(0);
+    let originRetained = ["Origin child scope", "physical packet before disposal"];
+    try {
+        let worker = spawn blockedWorker("worker argument 日本語", b"\x00\xAA\x00\x7F");
+        loops.waitWorkerEntry();
+        var originIndex = 0;
+        while originIndex < 1024 {
+            let originMoved = ["Origin GC", "retain child scope"];
+            originIndex = originIndex + 1;
+        }
+        let unexpected = await worker;
+        panic("shutdownWasLost");
+    }
+    finally {
+        if originRetained != ["Origin child scope", "physical packet before disposal"] {
+            panic("lostOriginRoot");
+        }
+        loops.checkOuter(0);
+    }
+}

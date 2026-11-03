@@ -1,0 +1,9 @@
+import catalog;
+import math.surcharge;
+
+fn total(item: catalog.Item) -> Int {
+    let subtotal = item.unitPrice * item.quantity;
+    return math.surcharge.add(subtotal);
+}
+
+export total;

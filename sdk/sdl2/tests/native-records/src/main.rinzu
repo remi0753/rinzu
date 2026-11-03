@@ -1,0 +1,81 @@
+import rinzu.sdl2;
+import rinzu.stdio;
+
+class Retained {
+    first: Option<rinzu.sdl2.Event>,
+    last: Option<rinzu.sdl2.Event>,
+    firstSequence: Int,
+    lastSequence: Int,
+    count: Int
+}
+
+fn verify(retained: Retained) {
+    switch retained.first {
+        case Option.Some(first): {
+            switch retained.last {
+                case Option.Some(last): {
+                    if first.sequence != retained.firstSequence
+                        || last.sequence != retained.lastSequence
+                        || last.sequence <= first.sequence {
+                        panic("retained event was overwritten by a later poll");
+                    }
+                }
+                case Option.None: {
+                    panic("last event missing");
+                }
+            }
+        }
+        case Option.None: {
+            panic("first event missing");
+        }
+    }
+}
+
+async fn main() {
+    try {
+        try {
+            let retained = Retained(
+                first: Option<rinzu.sdl2.Event>.None(),
+                last: Option<rinzu.sdl2.Event>.None(),
+                firstSequence: 0,
+                lastSequence: 0,
+                count: 0
+            );
+            let frames = await rinzu.sdl2.run(
+                "SDL native record lifetime",
+                fn (window: rinzu.sdl2.WindowHandle, event: rinzu.sdl2.Event) {
+                    if retained.count == 0 {
+                        retained.first = Option<rinzu.sdl2.Event>.Some(value: event);
+                        retained.firstSequence = event.sequence;
+                    }
+                    retained.last = Option<rinzu.sdl2.Event>.Some(value: event);
+                    retained.lastSequence = event.sequence;
+                    retained.count = retained.count + 1;
+                },
+                fn (window: rinzu.sdl2.WindowHandle, frame: Int) {
+                    if retained.count >= 2 {
+                        let stopped = rinzu.sdl2.stop(window);
+                        if stopped != 0 {
+                            panic("stop failed");
+                        }
+                    }
+                    if frame > 100 {
+                        panic("multiple window events were not delivered");
+                    }
+                },
+                1
+            );
+            verify(retained);
+            rinzu.stdio.writeLine("SDL:retained-native-records:ok");
+        }
+        finally {
+            let closed = rinzu.sdl2.destroyOwnerWindows();
+            if closed != 0 || rinzu.sdl2.liveWindows() != 0 {
+                panic("window survived cleanup");
+            }
+        }
+    }
+    catch errors {
+        panic(f"SDL native record test failed: {errors}");
+    }
+}

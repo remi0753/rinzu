@@ -1,0 +1,90 @@
+import rinzu.sqlite;
+import rinzu.stdio;
+
+fn expectedStatus(problem: Error, status: Int) -> Int {
+    switch errorNativeStatus(problem) {
+        case Option.Some(value): {
+            if value == status {
+                return 1;
+            }
+        }
+        case Option.None: {}
+    }
+    panic("unexpected SQLite status");
+    return 0;
+}
+
+fn execute() -> Int {
+    let connection = rinzu.sqlite.Connection.openMemory();
+    var result = 0;
+    try {
+        result = connection.queryInt("SELECT 40");
+        let statement = connection.prepare("SELECT 7,'text'");
+        try {
+            if !statement.step() {
+                panic("missing row");
+            }
+            result = result + statement.columnInt(0);
+            try {
+                let invalid = connection.queryInt("SELECT 'text'");
+                panic("expected type Error");
+            }
+            catch [problem: Error, ...rest] {
+                result = result + expectedStatus(problem, -7008);
+            }
+            try {
+                let missing = connection.queryInt("SELECT 1 WHERE 0");
+                panic("expected row Error");
+            }
+            catch [problem: Error, ...rest] {
+                result = result + expectedStatus(problem, -7006);
+            }
+            try {
+                let text = statement.columnInt(1);
+                panic("expected column type Error");
+            }
+            catch [problem: Error, ...rest] {
+                result = result + expectedStatus(problem, -7008);
+            }
+            try {
+                let outside = statement.columnInt(2);
+                panic("expected column Error");
+            }
+            catch [problem: Error, ...rest] {
+                result = result + expectedStatus(problem, -7007);
+            }
+            result = result + connection.queryInt("SELECT 2");
+        }
+        finally {
+            let finalized = statement.finalize();
+        }
+    }
+    finally {
+        let closed = connection.close();
+    }
+    if rinzu.sqlite.liveConnections() != 0 || rinzu.sqlite.liveStatements() != 0 || rinzu.sqlite.ownedLive() != 0 {
+        panic("SQLite resources remained live");
+    }
+    return result;
+}
+
+fn worker() -> Int {
+    try {
+        return execute();
+    }
+    catch errors {
+        panic("unexpected Worker Error");
+        return -1;
+    }
+}
+
+async fn main() {
+    try {
+        rinzu.stdio.writeLine(execute());
+        let value = await spawn worker();
+        rinzu.stdio.writeLine(value);
+    }
+    catch errors {
+        panic("unexpected SQLite Error");
+    }
+}

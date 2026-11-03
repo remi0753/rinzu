@@ -1,0 +1,108 @@
+import rinzu.process;
+import rinzu.stdio;
+
+fn require(value: Bool) {
+    if !value {
+        panic("failed");
+    }
+}
+
+fn invalid<T>(operation: fn () -> T, code: Int) {
+    try {
+        let unexpected = operation();
+        require(false);
+    }
+    catch [problem: Error, ...rest] {
+        require(errorCode(problem) == code);
+        require(listLength(rest) == 0);
+    }
+}
+
+fn main() {
+    try {
+        var first = "";
+        try {
+            let resultValue5 = rinzu.process.environment("RINZU_PROCESS_TEST_VALUE");
+            switch resultValue5 {
+                case Option.None: {
+                    require(false);
+                }
+                case Option.Some(text): {
+                    first = text;
+                }
+            }
+        }
+        catch [resultError5: Error, ...resultRest5] {
+            require(false);
+        }
+        try {
+            let resultValue4 = rinzu.process.environment("RINZU_PROCESS_TEST_EMPTY");
+            switch resultValue4 {
+                case Option.None: {
+                    require(false);
+                }
+                case Option.Some(text): {
+                    require(text == "");
+                }
+            }
+        }
+        catch [resultError4: Error, ...resultRest4] {
+            require(false);
+        }
+        require(first == "日本 e\u{301} 😀");
+        try {
+            let resultValue3 = rinzu.process.environment("RINZU_PROCESS_TEST_ABSENT");
+            switch resultValue3 {
+                case Option.None: {}
+                case Option.Some(text): {
+                    require(false);
+                }
+            }
+        }
+        catch [resultError3: Error, ...resultRest3] {
+            require(false);
+        }
+        try {
+            let resultValue2 = rinzu.process.setting("RINZU_PROCESS_TEST_ABSENT", "default");
+            require(resultValue2 == "default");
+        }
+        catch [resultError2: Error, ...resultRest2] {
+            require(false);
+        }
+        try {
+            let resultValue1 = rinzu.process.integer("RINZU_PROCESS_TEST_INTEGER", 1, 0, 255);
+            require(resultValue1 == 255);
+        }
+        catch [resultError1: Error, ...resultRest1] {
+            require(false);
+        }
+        invalid<Option<String>>(
+            fn () -> Option<String> {
+                return rinzu.process.environment("bad\u{0}name");
+            },
+            610
+        );
+        invalid<Option<String>>(
+            fn () -> Option<String> {
+                return rinzu.process.environment("RINZU_PROCESS_TEST_TOO_LONG");
+            },
+            610
+        );
+        invalid<Option<String>>(
+            fn () -> Option<String> {
+                return rinzu.process.environment("RINZU_PROCESS_TEST_INVALID_UTF8");
+            },
+            200
+        );
+        invalid<Int>(
+            fn () -> Int {
+                return rinzu.process.integer("RINZU_PROCESS_TEST_INTEGER", 1, 0, 254);
+            },
+            610
+        );
+        rinzu.stdio.writeLine("process-owned-snapshot-ok");
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}

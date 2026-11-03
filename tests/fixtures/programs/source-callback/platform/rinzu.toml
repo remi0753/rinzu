@@ -1,0 +1,10 @@
+[package]
+name="sample.platform"
+language="0.5"
+kind="sdk"
+entry="src/api.rinzu"
+[native]
+sources=["native/api.c"]
+headers=["native/api.h"]
+include-dirs=["native"]
+frameworks=["CoreFoundation"]

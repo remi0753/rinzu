@@ -1,0 +1,127 @@
+import rinzu.core;
+
+native {
+    opaque Object;
+
+    fn create(value: Int) -> Object symbol "object_create";
+
+    fn absent() -> Object symbol "object_absent";
+
+    fn lookup(value: Object, callback: fn (Bytes(4)) -> CSize) -> Object symbol "object_lookup";
+
+    fn lookupMissing(value: Object, callback: fn (Bytes(4)) -> CSize) -> Object symbol "object_lookup_missing";
+
+    fn read(value: Object) -> Int symbol "object_read";
+
+    fn retain(value: Object) -> Unit symbol "object_retain";
+
+    fn release(value: Object) -> Unit symbol "object_release";
+
+    fn aliasObserved(value: Object) -> Int symbol "object_alias_observed";
+
+    fn stats(kind: CInt) -> CSize symbol "object_stats";
+
+    fn cleanup() -> Unit symbol "object_fixture_cleanup";
+}
+
+class Holder {
+    const value: Object
+}
+
+fn identity(value: Object) -> Object {
+    return value;
+}
+
+fn measure(seed: Int) -> Int {
+    try {
+        let object = create(seed);
+        let alias = identity(object);
+        let holder = Holder(value: alias);
+        let projected = holder.value;
+        let length: fn (Bytes(4)) -> CSize = byteLength;
+        let found = lookup(projected, length);
+        retain(found);
+        var round = 0;
+        while round < 16 {
+            let temporary = "opaque moving GC";
+            if read(alias) != seed || read(found) != seed {
+                panic("lostWrapper");
+            }
+            round = round + 1;
+        }
+        release(projected);
+        // The fixture keeps released native storage until test teardown, so probing
+        // the address without dereferencing it safely observes an unchanged alias.
+        if aliasObserved(alias) != 1 || aliasObserved(found) != 1 {
+            panic("invalidatedAlias");
+        }
+        return seed;
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+        return 0;
+    }
+}
+
+fn failure() -> Object {
+    return absent();
+}
+
+fn nullableLookup(seed: Int) -> Int {
+    try {
+        let object = create(seed);
+        let length: fn (Bytes(4)) -> CSize = byteLength;
+        var caught = 0;
+        try {
+            let missing = lookupMissing(object, length);
+        }
+        catch lookupError {
+            caught = 1;
+        }
+        if caught != 1 || read(object) != seed {
+            panic("lostInputRoot");
+        }
+        release(object);
+        return caught;
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+        return 0;
+    }
+}
+
+fn failWorker() -> Int {
+    try {
+        let missing = failure();
+    }
+    catch errors {
+        return 1;
+    }
+    return 999;
+}
+
+fn leaks(seed: Int) -> Int {
+    try {
+        let object = create(seed);
+        var round = 0;
+        while round < 100 {
+            if read(object) != seed {
+                panic("wrong");
+            }
+            round = round + 1;
+        }
+        return round;
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+        return 0;
+    }
+}
+
+export Object;
+export measure;
+export failure;
+export nullableLookup;
+export failWorker;
+export leaks;
+export stats;

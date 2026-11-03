@@ -1,0 +1,6 @@
+{
+  "schema": "rinzu.macos-app-v1",
+  "identifier": "dev.rinzu.samples.tasks",
+  "name": "Rinzu Tasks",
+  "icon": "assets/AppIcon.png"
+}

@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rinzu.dev/schema/binding-metadata-v1.schema.json",
+  "title": "Rinzu binding metadata v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "version", "library", "header", "functions"],
+  "properties": {
+    "schema": { "const": "rinzu.binding-metadata" },
+    "version": { "const": 1 },
+    "library": { "$ref": "#/$defs/identifier" },
+    "header": { "type": "string", "minLength": 1 },
+    "functions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/function" }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "function": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name", "symbol", "parameters", "resultCType", "thread", "blocking",
+        "synchronousReentry", "exceptionBoundary", "callbacks"
+      ],
+      "properties": {
+        "name": { "$ref": "#/$defs/identifier" },
+        "symbol": { "$ref": "#/$defs/identifier" },
+        "parameters": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/parameter" }
+        },
+        "resultCType": { "type": "string", "minLength": 1 },
+        "thread": { "enum": ["process-main", "any"] },
+        "blocking": { "enum": ["non-blocking", "offload-blocking", "owner-loop-entry"] },
+        "synchronousReentry": { "enum": ["never", "may-callback"] },
+        "exceptionBoundary": { "type": "boolean" },
+        "callbacks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/callback" }
+        }
+      }
+    },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "cType"],
+      "properties": {
+        "name": { "$ref": "#/$defs/identifier" },
+        "cType": { "type": "string", "minLength": 1 }
+      }
+    },
+    "callbackArgument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "cType", "lifetime"],
+      "properties": {
+        "name": { "$ref": "#/$defs/identifier" },
+        "cType": { "type": "string", "minLength": 1 },
+        "lifetime": { "enum": ["value-copy", "retained", "owned-transfer", "call-only"] },
+        "retainReleaseThreadSafe": { "type": "boolean" }
+      }
+    },
+    "unregister": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "not-required" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "symbol", "asynchronous"],
+          "properties": {
+            "kind": { "const": "function" },
+            "symbol": { "$ref": "#/$defs/identifier" },
+            "asynchronous": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "shutdown": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "unregister" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "symbol"],
+          "properties": {
+            "kind": { "const": "native-only-release" },
+            "symbol": { "$ref": "#/$defs/identifier" }
+          }
+        }
+      ]
+    },
+    "callback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parameter", "contextParameter", "resultCType", "class", "arguments", "delivery", "nestedDelivery",
+        "unregister", "shutdown", "failureReturn"
+      ],
+      "properties": {
+        "parameter": { "$ref": "#/$defs/identifier" },
+        "contextParameter": { "$ref": "#/$defs/identifier" },
+        "resultCType": { "type": "string", "minLength": 1 },
+        "class": { "enum": ["owner-sync", "owner-async", "foreign-one-way", "foreign-sync"] },
+        "arguments": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/callbackArgument" }
+        },
+        "delivery": { "enum": ["inline", "one-shot", "serial-bounded"] },
+        "nestedDelivery": { "enum": ["guaranteed", "deferred", "forbidden"] },
+        "unregister": { "$ref": "#/$defs/unregister" },
+        "shutdown": { "$ref": "#/$defs/shutdown" },
+        "failureReturn": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

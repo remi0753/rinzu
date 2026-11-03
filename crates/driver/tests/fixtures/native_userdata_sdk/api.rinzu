@@ -1,0 +1,290 @@
+import rinzu.core;
+
+type State = {
+    id: Int, text: String, bytes: Bytes(4), numbers: List<Int>
+};
+
+type Other = {
+    id: Int
+};
+
+enum EventValue {
+    state(value: State),
+    empty
+}
+
+type Event = {
+    value: EventValue
+};
+
+native {
+    fn probe(
+        first: State,
+        same: State,
+        second: State,
+        event: Event,
+        other: Other,
+        callback: fn (Bytes(4)) -> CSize,
+        mode: CInt
+    ) -> CInt symbol "userdata_probe";
+
+    fn entries() -> CSize symbol "userdata_entries";
+}
+
+fn original() -> State {
+    return {
+        id = 41, text = "日本語\u{0}tail", bytes = b"\x00\xff\x07\x00", numbers = [1, 2, 3]
+    };
+}
+
+fn exercise() -> State {
+    let first = original();
+    let second: State = {
+        id = 42, text = "second", bytes = b"\x00\xff\x07\x00", numbers = [4, 5]
+    };
+    let event = {
+        value = EventValue.state(value: first)
+    };
+    let other: Other = {
+        id = 7
+    };
+    let status = probe(first, first, second, event, other, byteLength, 0);
+    let swapped = probe(
+        second,
+        second,
+        first,
+        {
+            value = EventValue.empty()
+        },
+        other,
+        byteLength,
+        1
+    );
+    if status != 0 || swapped != 17 {
+        panic("wrongTokens");
+    }
+    var index = 0;
+    while index < 10 {
+        let repeated = probe(first, first, second, event, other, byteLength, 0);
+        if repeated != 0 {
+            panic("reusedToken");
+        }
+        index = index + 1;
+    }
+    if first != original() || second.id != 42 || event != {
+        value = EventValue.state(value: first)
+    }
+    || other.id != 7 {
+        panic("lostData");
+    }
+    return first;
+}
+
+fn returning() -> State {
+    let value = original();
+    try {
+        return value;
+    }
+    finally {
+        let finalStatus = probe(
+            value,
+            value,
+            value,
+            {
+                value = EventValue.state(value: value)
+            },
+            {
+                id = 7
+            },
+            byteLength,
+            0
+        );
+        if finalStatus != 0 {
+            panic("earlyRelease");
+        }
+    }
+}
+
+fn preEntryError() -> Int {
+    let value = original();
+    let before = entries();
+    var caught = 0;
+    try {
+        let skipped = probe(
+            value,
+            value,
+            value,
+            {
+                value = EventValue.empty()
+            },
+            {
+                id = 7
+            },
+            byteLength,
+            CInt(2147483648)
+        );
+    }
+    catch conversion {
+        caught = caught + 1;
+    }
+    let after = entries();
+    if before != after || value != original() {
+        panic("unexpectedEntry");
+    }
+    return caught;
+}
+
+fn failed() -> Int {
+    let value = original();
+    try {
+        let status = probe(
+            value,
+            value,
+            value,
+            {
+                value = EventValue.empty()
+            },
+            {
+                id = 7
+            },
+            byteLength,
+            0
+        );
+        let invalid = CInt8(300);
+        return 0;
+    }
+    finally {
+        let cleanupStatus = probe(
+            value,
+            value,
+            value,
+            {
+                value = EventValue.state(value: value)
+            },
+            {
+                id = 7
+            },
+            byteLength,
+            1
+        );
+        if cleanupStatus != 17 {
+            panic("failedCleanup");
+        }
+    }
+}
+
+fn handledFailure() -> Int {
+    try {
+        return failed();
+    }
+    catch errors {
+        return 1;
+    }
+}
+
+fn work() -> Int {
+    var index = 0;
+    while index < 1000 {
+        let moved = "userdata after parked activation";
+        index = index + 1;
+    }
+    return index;
+}
+
+async fn pending() -> State {
+    let value = original();
+    let initial = probe(
+        value,
+        value,
+        value,
+        {
+            value = EventValue.empty()
+        },
+        {
+            id = 7
+        },
+        byteLength,
+        0
+    );
+    try {
+        let count = await spawn work();
+        let next = probe(
+            value,
+            value,
+            value,
+            {
+                value = EventValue.state(value: value)
+            },
+            {
+                id = 7
+            },
+            byteLength,
+            0
+        );
+        if count != 1000 || initial != 0 || next != 0 {
+            panic("lostAwait");
+        }
+        return value;
+    }
+    finally {
+        let finalStatus = probe(
+            value,
+            value,
+            value,
+            {
+                value = EventValue.empty()
+            },
+            {
+                id = 7
+            },
+            byteLength,
+            0
+        );
+        if finalStatus != 0 {
+            panic("lostCleanup");
+        }
+    }
+}
+
+fn leaks() -> Int {
+    let value = original();
+    var index = 0;
+    try {
+        while index < 100 {
+            let moved = "userdata cancelled after finally";
+            index = index + 1;
+        }
+        return index;
+    }
+    finally {
+        let finalStatus = probe(
+            value,
+            value,
+            value,
+            {
+                value = EventValue.state(value: value)
+            },
+            {
+                id = 7
+            },
+            byteLength,
+            0
+        );
+        if finalStatus != 0 {
+            panic("lostCancelCleanup");
+        }
+    }
+}
+
+export State;
+export Event;
+export EventValue;
+export Other;
+export original;
+export exercise;
+export returning;
+export preEntryError;
+export failed;
+export handledFailure;
+export pending;
+export leaks;

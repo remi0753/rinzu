@@ -1,0 +1,6 @@
+[package]
+name = "jit_macos_startup"
+language = "0.5"
+
+[dependencies]
+"rinzu.macos" = { path = "../../../../../sdk/macos" }

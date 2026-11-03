@@ -1,0 +1,10 @@
+async fn work() {}
+
+fn main() {
+    try {
+        let value = 1;
+    }
+    finally {
+        await work();
+    }
+}

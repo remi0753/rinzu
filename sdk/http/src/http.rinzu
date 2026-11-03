@@ -1,0 +1,182 @@
+native {
+    opaque Client;
+
+    opaque Completion;
+
+    fn newClient() -> Client symbol "rinzu_http_new";
+
+    fn rawOwnerHasClient() -> CBool symbol "rinzu_http_owner_has_client";
+
+    fn rawOwnerClient() -> Client symbol "rinzu_http_owner_client";
+
+    fn rawBusy(client: Client) -> CBool symbol "rinzu_http_busy";
+
+    fn rawReady(client: Client) -> CInt symbol "rinzu_http_ready";
+
+    fn rawRequest(client: Client, url: String, body: ByteArray, length: CSize, post: CBool, timeout: Int)
+        -> CInt
+        symbol "rinzu_http_request";
+
+    fn rawClose(client: Client) -> CInt symbol "rinzu_http_close";
+
+    fn rawCompletion(client: Client) -> Completion symbol "rinzu_http_completion";
+
+    fn rawStatus(client: Client) -> CInt symbol "rinzu_http_status";
+
+    fn rawResponseStatus(client: Client) -> Int symbol "rinzu_http_response_status";
+
+    fn rawLength(client: Client) -> Int symbol "rinzu_http_length";
+
+    fn rawSent(client: Client) -> Int symbol "rinzu_http_sent";
+
+    fn rawBytes(client: Client) -> Bytes(65536) symbol "rinzu_http_bytes";
+
+    fn rawCancel(client: Client) -> Unit symbol "rinzu_http_cancel";
+
+    fn rawFinish(client: Client) -> Unit symbol "rinzu_http_finish";
+
+    fn liveClients() -> Int symbol "rinzu_http_live_clients";
+
+    fn liveBuffers() -> Int symbol "rinzu_http_live_buffers";
+
+    fn retainedControlBytes() -> Int symbol "rinzu_http_retained_controls";
+}
+
+class Response {
+    const status: Int,
+    const body: ByteArray
+}
+
+error HttpFailure {
+    payload: HttpFailureData
+}
+
+class HttpFailureData {
+    const cause: Error,
+    const status: Int,
+    const partial: ByteArray,
+    const sent: Int
+}
+
+fn problem(status: Int) -> Error {
+    try {
+        let resultValue2 = nativeStatus(status, "http.request");
+        return error(-7304, "http.request");
+    }
+    catch [resultError2: Error, ...resultRest2] {
+        return resultError2;
+    }
+}
+
+fn failed(status: Int) -> Response {
+    throw requestFailure(problem(status), 0, byteArray(b""), 0);
+}
+
+async fn wait(client: Client) {
+    await nativeCompleted(rawCompletion(client));
+}
+
+async fn settle(client: Client) {
+    rawCancel(client);
+    await wait(client);
+    rawFinish(client);
+}
+
+async fn request(client: Client, url: String, body: ByteArray, post: Bool, timeoutMillis: Int) -> Response {
+    switch stringFind(url, "\u{0}", 0) {
+        case Option.Some(index): {
+            return failed(-7304);
+        }
+        case Option.None: {}
+    }
+    let ready = Int(rawReady(client));
+    if ready != 0 {
+        return failed(ready);
+    }
+    try {
+        let started = Int(rawRequest(client, url, body, byteLength(body), post, timeoutMillis));
+        if started != 0 {
+            return failed(started);
+        }
+        await wait(client);
+        let all = byteArray(rawBytes(client));
+        switch bytesSlice(all, 0, rawLength(client)) {
+            case Option.None: {
+                return failed(-7304);
+            }
+            case Option.Some(data): {
+                let status = Int(rawStatus(client));
+                let responseStatus = rawResponseStatus(client);
+                if status != 0 {
+                    throw requestFailure(problem(status), responseStatus, data, rawSent(client));
+                }
+                return (Response(status: responseStatus, body: data));
+            }
+        }
+    }
+    finally {
+        if rawBusy(client) {
+            await settle(client);
+        }
+    }
+    return failed(-7304);
+}
+
+async fn close(client: Client) -> Int {
+    let ready = Int(rawReady(client));
+    if ready != 0 {
+        throw problem(ready);
+    }
+    try {
+        let started = Int(rawClose(client));
+        if started != 0 {
+            throw problem(started);
+        }
+        await wait(client);
+        return nativeStatus(Int(rawStatus(client)), "http.close");
+    }
+    finally {
+        if rawBusy(client) {
+            await settle(client);
+        }
+    }
+    throw problem(-7304);
+}
+
+async fn closeOwnerClients() -> Int {
+    // Explicit whole-Owner scope drain, including unpublished acquisitions.
+    // The caller first joins its Source children; pending native work is then settled.
+    try {
+        while rawOwnerHasClient() {
+            let client = rawOwnerClient();
+            if rawBusy(client) {
+                await settle(client);
+            }
+            else {
+                let resultValue1 = await close(client);
+            }
+        }
+    }
+    finally {}
+    return (0);
+}
+
+export closeOwnerClients;
+export Client;
+export newClient;
+export Response;
+export HttpFailure;
+export HttpFailureData;
+export request;
+export close;
+export liveClients;
+export liveBuffers;
+export retainedControlBytes;
+
+fn requestFailure(cause: Error, status: Int, partial: ByteArray, sent: Int) -> HttpFailure {
+    return HttpFailure(
+        message: "HTTP request failed",
+        cause: cause,
+        payload: HttpFailureData(cause: cause, status: status, partial: partial, sent: sent)
+    );
+}

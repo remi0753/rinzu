@@ -1,0 +1,5 @@
+{
+  "schema": "rinzu.macos-app-v1",
+  "identifier": "dev.rinzu.samples.image-viewer",
+  "name": "Rinzu Image Viewer"
+}

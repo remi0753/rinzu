@@ -1,0 +1,23 @@
+/artifacts/
+/target/
+/sdk/*/build/
+**/build/
+**/*.profraw
+**/*.profdata
+.DS_Store
+__pycache__/
+
+**/.rinzu/
+
+# Local work records and historical experiments are not publication inputs.
+/docs/progress/
+/docs/validation/
+/docs/research/
+/docs/design/
+/docs/decisions/
+/prototype/
+/.local/
+/.agents/
+/.codex/
+.env
+.env.*

@@ -1,0 +1,606 @@
+import rinzu.stdio;
+
+fn require(condition: Bool) {
+    if !condition {
+        panic("failed");
+    }
+}
+
+fn code<T>(operation: fn () -> T) -> Int {
+    try {
+        let value = operation();
+        return 0;
+    }
+    catch [problem: Error, ...rest] {
+        require(listLength(rest) == 0);
+        return errorCode(problem);
+    }
+}
+
+fn echo(value: String) -> String {
+    return value;
+}
+
+fn emptyList() -> List<String> {
+    return [];
+}
+
+fn cases0() {
+    require(stringLength("") == 0);
+    require(utf8ByteLength("") == CSize(0));
+    require(stringGet("", -1) == Option<String>.None());
+    require(stringFind("", "", -1) == Option<Int>.None());
+    require(stringSlice("", -1, -1) == Option<String>.None());
+    require(stringSlice("", -1, 0) == Option<String>.None());
+    require(stringSlice("", -1, 1) == Option<String>.None());
+    require(stringGet("", 0) == Option<String>.None());
+    require(stringFind("", "", 0) == Option<Int>.Some(value: 0));
+    require(stringSlice("", 0, -1) == Option<String>.None());
+    require(stringSlice("", 0, 0) == Option<String>.Some(value: ""));
+    require(stringSlice("", 0, 1) == Option<String>.None());
+    require(stringGet("", 1) == Option<String>.None());
+    require(stringFind("", "", 1) == Option<Int>.None());
+    require(stringSlice("", 1, -1) == Option<String>.None());
+    require(stringSlice("", 1, 0) == Option<String>.None());
+    require(stringSlice("", 1, 1) == Option<String>.None());
+    require(
+        code<String>(
+            fn () -> String {
+                return utf8Decode(utf8Encode(""));
+            }
+        ) == 0
+    );
+    require(stringLength("\u{0}") == 1);
+    require(utf8ByteLength("\u{0}") == CSize(1));
+}
+
+fn cases1() {
+    require(stringGet("\u{0}", -1) == Option<String>.None());
+    require(stringFind("\u{0}", "", -1) == Option<Int>.None());
+    require(stringSlice("\u{0}", -1, -1) == Option<String>.None());
+    require(stringSlice("\u{0}", -1, 0) == Option<String>.None());
+    require(stringSlice("\u{0}", -1, 1) == Option<String>.None());
+    require(stringSlice("\u{0}", -1, 2) == Option<String>.None());
+    require(stringGet("\u{0}", 0) == Option<String>.Some(value: "\u{0}"));
+    require(stringFind("\u{0}", "", 0) == Option<Int>.Some(value: 0));
+    require(stringSlice("\u{0}", 0, -1) == Option<String>.None());
+    require(stringSlice("\u{0}", 0, 0) == Option<String>.Some(value: ""));
+    require(stringSlice("\u{0}", 0, 1) == Option<String>.Some(value: "\u{0}"));
+    require(stringSlice("\u{0}", 0, 2) == Option<String>.None());
+    require(stringGet("\u{0}", 1) == Option<String>.None());
+    require(stringFind("\u{0}", "", 1) == Option<Int>.Some(value: 1));
+    require(stringSlice("\u{0}", 1, -1) == Option<String>.None());
+    require(stringSlice("\u{0}", 1, 0) == Option<String>.None());
+    require(stringSlice("\u{0}", 1, 1) == Option<String>.Some(value: ""));
+    require(stringSlice("\u{0}", 1, 2) == Option<String>.None());
+    require(stringGet("\u{0}", 2) == Option<String>.None());
+    require(stringFind("\u{0}", "", 2) == Option<Int>.None());
+}
+
+fn cases2() {
+    require(stringSlice("\u{0}", 2, -1) == Option<String>.None());
+    require(stringSlice("\u{0}", 2, 0) == Option<String>.None());
+    require(stringSlice("\u{0}", 2, 1) == Option<String>.None());
+    require(stringSlice("\u{0}", 2, 2) == Option<String>.None());
+    require(
+        code<String>(
+            fn () -> String {
+                return utf8Decode(utf8Encode("\u{0}"));
+            }
+        ) == 0
+    );
+    require(stringLength("日é😀\u{0}tail") == 9);
+    require(utf8ByteLength("日é😀\u{0}tail") == CSize(15));
+    require(stringGet("日é😀\u{0}tail", -1) == Option<String>.None());
+    require(stringFind("日é😀\u{0}tail", "", -1) == Option<Int>.None());
+    require(stringSlice("日é😀\u{0}tail", -1, -1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", -1, 0) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", -1, 1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", -1, 2) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", -1, 3) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", -1, 4) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", -1, 5) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", -1, 6) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", -1, 7) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", -1, 8) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", -1, 9) == Option<String>.None());
+}
+
+fn cases3() {
+    require(stringSlice("日é😀\u{0}tail", -1, 10) == Option<String>.None());
+    require(stringGet("日é😀\u{0}tail", 0) == Option<String>.Some(value: "日"));
+    require(stringFind("日é😀\u{0}tail", "", 0) == Option<Int>.Some(value: 0));
+    require(stringSlice("日é😀\u{0}tail", 0, -1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 0, 0) == Option<String>.Some(value: ""));
+    require(stringSlice("日é😀\u{0}tail", 0, 1) == Option<String>.Some(value: "日"));
+    require(stringSlice("日é😀\u{0}tail", 0, 2) == Option<String>.Some(value: "日e"));
+    require(stringSlice("日é😀\u{0}tail", 0, 3) == Option<String>.Some(value: "日é"));
+    require(stringSlice("日é😀\u{0}tail", 0, 4) == Option<String>.Some(value: "日é😀"));
+    require(stringSlice("日é😀\u{0}tail", 0, 5) == Option<String>.Some(value: "日é😀\u{0}"));
+    require(stringSlice("日é😀\u{0}tail", 0, 6) == Option<String>.Some(value: "日é😀\u{0}t"));
+    require(stringSlice("日é😀\u{0}tail", 0, 7) == Option<String>.Some(value: "日é😀\u{0}ta"));
+    require(stringSlice("日é😀\u{0}tail", 0, 8) == Option<String>.Some(value: "日é😀\u{0}tai"));
+    require(stringSlice("日é😀\u{0}tail", 0, 9) == Option<String>.Some(value: "日é😀\u{0}tail"));
+    require(stringSlice("日é😀\u{0}tail", 0, 10) == Option<String>.None());
+    require(stringGet("日é😀\u{0}tail", 1) == Option<String>.Some(value: "e"));
+    require(stringFind("日é😀\u{0}tail", "", 1) == Option<Int>.Some(value: 1));
+    require(stringSlice("日é😀\u{0}tail", 1, -1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 1, 0) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 1, 1) == Option<String>.Some(value: ""));
+}
+
+fn cases4() {
+    require(stringSlice("日é😀\u{0}tail", 1, 2) == Option<String>.Some(value: "e"));
+    require(stringSlice("日é😀\u{0}tail", 1, 3) == Option<String>.Some(value: "é"));
+    require(stringSlice("日é😀\u{0}tail", 1, 4) == Option<String>.Some(value: "é😀"));
+    require(stringSlice("日é😀\u{0}tail", 1, 5) == Option<String>.Some(value: "é😀\u{0}"));
+    require(stringSlice("日é😀\u{0}tail", 1, 6) == Option<String>.Some(value: "é😀\u{0}t"));
+    require(stringSlice("日é😀\u{0}tail", 1, 7) == Option<String>.Some(value: "é😀\u{0}ta"));
+    require(stringSlice("日é😀\u{0}tail", 1, 8) == Option<String>.Some(value: "é😀\u{0}tai"));
+    require(stringSlice("日é😀\u{0}tail", 1, 9) == Option<String>.Some(value: "é😀\u{0}tail"));
+    require(stringSlice("日é😀\u{0}tail", 1, 10) == Option<String>.None());
+    require(stringGet("日é😀\u{0}tail", 2) == Option<String>.Some(value: "́"));
+    require(stringFind("日é😀\u{0}tail", "", 2) == Option<Int>.Some(value: 2));
+    require(stringSlice("日é😀\u{0}tail", 2, -1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 2, 0) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 2, 1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 2, 2) == Option<String>.Some(value: ""));
+    require(stringSlice("日é😀\u{0}tail", 2, 3) == Option<String>.Some(value: "́"));
+    require(stringSlice("日é😀\u{0}tail", 2, 4) == Option<String>.Some(value: "́😀"));
+    require(stringSlice("日é😀\u{0}tail", 2, 5) == Option<String>.Some(value: "́😀\u{0}"));
+    require(stringSlice("日é😀\u{0}tail", 2, 6) == Option<String>.Some(value: "́😀\u{0}t"));
+    require(stringSlice("日é😀\u{0}tail", 2, 7) == Option<String>.Some(value: "́😀\u{0}ta"));
+}
+
+fn cases5() {
+    require(stringSlice("日é😀\u{0}tail", 2, 8) == Option<String>.Some(value: "́😀\u{0}tai"));
+    require(stringSlice("日é😀\u{0}tail", 2, 9) == Option<String>.Some(value: "́😀\u{0}tail"));
+    require(stringSlice("日é😀\u{0}tail", 2, 10) == Option<String>.None());
+    require(stringGet("日é😀\u{0}tail", 3) == Option<String>.Some(value: "😀"));
+    require(stringFind("日é😀\u{0}tail", "", 3) == Option<Int>.Some(value: 3));
+    require(stringSlice("日é😀\u{0}tail", 3, -1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 3, 0) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 3, 1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 3, 2) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 3, 3) == Option<String>.Some(value: ""));
+    require(stringSlice("日é😀\u{0}tail", 3, 4) == Option<String>.Some(value: "😀"));
+    require(stringSlice("日é😀\u{0}tail", 3, 5) == Option<String>.Some(value: "😀\u{0}"));
+    require(stringSlice("日é😀\u{0}tail", 3, 6) == Option<String>.Some(value: "😀\u{0}t"));
+    require(stringSlice("日é😀\u{0}tail", 3, 7) == Option<String>.Some(value: "😀\u{0}ta"));
+    require(stringSlice("日é😀\u{0}tail", 3, 8) == Option<String>.Some(value: "😀\u{0}tai"));
+    require(stringSlice("日é😀\u{0}tail", 3, 9) == Option<String>.Some(value: "😀\u{0}tail"));
+    require(stringSlice("日é😀\u{0}tail", 3, 10) == Option<String>.None());
+    require(stringGet("日é😀\u{0}tail", 4) == Option<String>.Some(value: "\u{0}"));
+    require(stringFind("日é😀\u{0}tail", "", 4) == Option<Int>.Some(value: 4));
+    require(stringSlice("日é😀\u{0}tail", 4, -1) == Option<String>.None());
+}
+
+fn cases6() {
+    require(stringSlice("日é😀\u{0}tail", 4, 0) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 4, 1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 4, 2) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 4, 3) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 4, 4) == Option<String>.Some(value: ""));
+    require(stringSlice("日é😀\u{0}tail", 4, 5) == Option<String>.Some(value: "\u{0}"));
+    require(stringSlice("日é😀\u{0}tail", 4, 6) == Option<String>.Some(value: "\u{0}t"));
+    require(stringSlice("日é😀\u{0}tail", 4, 7) == Option<String>.Some(value: "\u{0}ta"));
+    require(stringSlice("日é😀\u{0}tail", 4, 8) == Option<String>.Some(value: "\u{0}tai"));
+    require(stringSlice("日é😀\u{0}tail", 4, 9) == Option<String>.Some(value: "\u{0}tail"));
+    require(stringSlice("日é😀\u{0}tail", 4, 10) == Option<String>.None());
+    require(stringGet("日é😀\u{0}tail", 5) == Option<String>.Some(value: "t"));
+    require(stringFind("日é😀\u{0}tail", "", 5) == Option<Int>.Some(value: 5));
+    require(stringSlice("日é😀\u{0}tail", 5, -1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 5, 0) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 5, 1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 5, 2) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 5, 3) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 5, 4) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 5, 5) == Option<String>.Some(value: ""));
+}
+
+fn cases7() {
+    require(stringSlice("日é😀\u{0}tail", 5, 6) == Option<String>.Some(value: "t"));
+    require(stringSlice("日é😀\u{0}tail", 5, 7) == Option<String>.Some(value: "ta"));
+    require(stringSlice("日é😀\u{0}tail", 5, 8) == Option<String>.Some(value: "tai"));
+    require(stringSlice("日é😀\u{0}tail", 5, 9) == Option<String>.Some(value: "tail"));
+    require(stringSlice("日é😀\u{0}tail", 5, 10) == Option<String>.None());
+    require(stringGet("日é😀\u{0}tail", 6) == Option<String>.Some(value: "a"));
+    require(stringFind("日é😀\u{0}tail", "", 6) == Option<Int>.Some(value: 6));
+    require(stringSlice("日é😀\u{0}tail", 6, -1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 6, 0) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 6, 1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 6, 2) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 6, 3) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 6, 4) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 6, 5) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 6, 6) == Option<String>.Some(value: ""));
+    require(stringSlice("日é😀\u{0}tail", 6, 7) == Option<String>.Some(value: "a"));
+    require(stringSlice("日é😀\u{0}tail", 6, 8) == Option<String>.Some(value: "ai"));
+    require(stringSlice("日é😀\u{0}tail", 6, 9) == Option<String>.Some(value: "ail"));
+    require(stringSlice("日é😀\u{0}tail", 6, 10) == Option<String>.None());
+    require(stringGet("日é😀\u{0}tail", 7) == Option<String>.Some(value: "i"));
+}
+
+fn cases8() {
+    require(stringFind("日é😀\u{0}tail", "", 7) == Option<Int>.Some(value: 7));
+    require(stringSlice("日é😀\u{0}tail", 7, -1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 7, 0) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 7, 1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 7, 2) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 7, 3) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 7, 4) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 7, 5) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 7, 6) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 7, 7) == Option<String>.Some(value: ""));
+    require(stringSlice("日é😀\u{0}tail", 7, 8) == Option<String>.Some(value: "i"));
+    require(stringSlice("日é😀\u{0}tail", 7, 9) == Option<String>.Some(value: "il"));
+    require(stringSlice("日é😀\u{0}tail", 7, 10) == Option<String>.None());
+    require(stringGet("日é😀\u{0}tail", 8) == Option<String>.Some(value: "l"));
+    require(stringFind("日é😀\u{0}tail", "", 8) == Option<Int>.Some(value: 8));
+    require(stringSlice("日é😀\u{0}tail", 8, -1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 8, 0) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 8, 1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 8, 2) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 8, 3) == Option<String>.None());
+}
+
+fn cases9() {
+    require(stringSlice("日é😀\u{0}tail", 8, 4) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 8, 5) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 8, 6) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 8, 7) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 8, 8) == Option<String>.Some(value: ""));
+    require(stringSlice("日é😀\u{0}tail", 8, 9) == Option<String>.Some(value: "l"));
+    require(stringSlice("日é😀\u{0}tail", 8, 10) == Option<String>.None());
+    require(stringGet("日é😀\u{0}tail", 9) == Option<String>.None());
+    require(stringFind("日é😀\u{0}tail", "", 9) == Option<Int>.Some(value: 9));
+    require(stringSlice("日é😀\u{0}tail", 9, -1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 9, 0) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 9, 1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 9, 2) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 9, 3) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 9, 4) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 9, 5) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 9, 6) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 9, 7) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 9, 8) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 9, 9) == Option<String>.Some(value: ""));
+}
+
+fn cases10() {
+    require(stringSlice("日é😀\u{0}tail", 9, 10) == Option<String>.None());
+    require(stringGet("日é😀\u{0}tail", 10) == Option<String>.None());
+    require(stringFind("日é😀\u{0}tail", "", 10) == Option<Int>.None());
+    require(stringSlice("日é😀\u{0}tail", 10, -1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 10, 0) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 10, 1) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 10, 2) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 10, 3) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 10, 4) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 10, 5) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 10, 6) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 10, 7) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 10, 8) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 10, 9) == Option<String>.None());
+    require(stringSlice("日é😀\u{0}tail", 10, 10) == Option<String>.None());
+    require(
+        code<String>(
+            fn () -> String {
+                return utf8Decode(utf8Encode("日é😀\u{0}tail"));
+            }
+        ) == 0
+    );
+    require(stringFind("日日日", "日日", 1) == Option<Int>.Some(value: 1));
+    require(stringFind("é", "é", 0) == Option<Int>.None());
+    require(stringFind("a\u{0}b", "\u{0}", 0) == Option<Int>.Some(value: 1));
+    require(stringFind("日a日", "日", 1) == Option<Int>.Some(value: 2));
+}
+
+fn cases11() {
+    require(stringFind("日a", "a", 9223372036854775807) == Option<Int>.None());
+    require(stringSplit("", "x") == [""]);
+    require(stringSplit("", "") == emptyList());
+    require(stringSplit("日é\u{0}", "") == ["日", "e", "́", "\u{0}"]);
+    require(stringSplit("a,,b,", ",") == ["a", "", "b", ""]);
+    require(stringSplit(",a", ",") == ["", "a"]);
+    require(stringSplit("aaaaa", "aa") == ["", "", "a"]);
+    require(stringSplit("a\u{0}b\u{0}", "\u{0}") == ["a", "b", ""]);
+    try {
+        let resultValue6 = parseInt("-9223372036854775808");
+        require(resultValue6 == -9223372036854775808);
+        require(
+            code<Int>(
+                fn () -> Int {
+                    return parseInt(formatInt(resultValue6));
+                }
+            ) == 0
+        );
+    }
+    catch [resultError6: Error, ...resultRest6] {
+        require(false);
+    }
+    try {
+        let resultValue5 = parseInt("9223372036854775807");
+        require(resultValue5 == 9223372036854775807);
+        require(
+            code<Int>(
+                fn () -> Int {
+                    return parseInt(formatInt(resultValue5));
+                }
+            ) == 0
+        );
+    }
+    catch [resultError5: Error, ...resultRest5] {
+        require(false);
+    }
+    try {
+        let resultValue4 = parseInt("+0");
+        require(resultValue4 == 0);
+        require(
+            code<Int>(
+                fn () -> Int {
+                    return parseInt(formatInt(resultValue4));
+                }
+            ) == 0
+        );
+    }
+    catch [resultError4: Error, ...resultRest4] {
+        require(false);
+    }
+    try {
+        let resultValue3 = parseInt("-0");
+        require(resultValue3 == 0);
+        require(
+            code<Int>(
+                fn () -> Int {
+                    return parseInt(formatInt(resultValue3));
+                }
+            ) == 0
+        );
+    }
+    catch [resultError3: Error, ...resultRest3] {
+        require(false);
+    }
+    try {
+        let resultValue2 = parseInt("00042");
+        require(resultValue2 == 42);
+        require(
+            code<Int>(
+                fn () -> Int {
+                    return parseInt(formatInt(resultValue2));
+                }
+            ) == 0
+        );
+    }
+    catch [resultError2: Error, ...resultRest2] {
+        require(false);
+    }
+    require(
+        code<Int>(
+            fn () -> Int {
+                return parseInt("");
+            }
+        ) == 201
+    );
+    require(
+        code<Int>(
+            fn () -> Int {
+                return parseInt("+");
+            }
+        ) == 201
+    );
+    require(
+        code<Int>(
+            fn () -> Int {
+                return parseInt("-");
+            }
+        ) == 201
+    );
+    require(
+        code<Int>(
+            fn () -> Int {
+                return parseInt(" 1");
+            }
+        ) == 201
+    );
+    require(
+        code<Int>(
+            fn () -> Int {
+                return parseInt("1 ");
+            }
+        ) == 201
+    );
+    require(
+        code<Int>(
+            fn () -> Int {
+                return parseInt("1\u{0}");
+            }
+        ) == 201
+    );
+    require(
+        code<Int>(
+            fn () -> Int {
+                return parseInt("１");
+            }
+        ) == 201
+    );
+}
+
+fn cases12() {
+    require(
+        code<Int>(
+            fn () -> Int {
+                return parseInt("1.0");
+            }
+        ) == 201
+    );
+    require(
+        code<Int>(
+            fn () -> Int {
+                return parseInt("++1");
+            }
+        ) == 201
+    );
+    require(
+        code<Int>(
+            fn () -> Int {
+                return parseInt("-9223372036854775809");
+            }
+        ) == 202
+    );
+    require(
+        code<Int>(
+            fn () -> Int {
+                return parseInt("9223372036854775808");
+            }
+        ) == 202
+    );
+    require(
+        code<Int>(
+            fn () -> Int {
+                return parseInt("999999999999999999999999");
+            }
+        ) == 202
+    );
+    require(
+        code<Int>(
+            fn () -> Int {
+                return parseInt("999999999999999999999999x");
+            }
+        ) == 201
+    );
+    if true {
+        let input0: List<CUInt8> = [192, 128];
+        require(
+            code<String>(
+                fn () -> String {
+                    return utf8Decode(byteArray(input0));
+                }
+            ) == 200
+        );
+    }
+    if true {
+        let input1: List<CUInt8> = [224, 128, 128];
+        require(
+            code<String>(
+                fn () -> String {
+                    return utf8Decode(byteArray(input1));
+                }
+            ) == 200
+        );
+    }
+    if true {
+        let input2: List<CUInt8> = [237, 160, 128];
+        require(
+            code<String>(
+                fn () -> String {
+                    return utf8Decode(byteArray(input2));
+                }
+            ) == 200
+        );
+    }
+    if true {
+        let input3: List<CUInt8> = [244, 144, 128, 128];
+        require(
+            code<String>(
+                fn () -> String {
+                    return utf8Decode(byteArray(input3));
+                }
+            ) == 200
+        );
+    }
+    if true {
+        let input4: List<CUInt8> = [245, 128, 128, 128];
+        require(
+            code<String>(
+                fn () -> String {
+                    return utf8Decode(byteArray(input4));
+                }
+            ) == 200
+        );
+    }
+    if true {
+        let input5: List<CUInt8> = [227, 129];
+        require(
+            code<String>(
+                fn () -> String {
+                    return utf8Decode(byteArray(input5));
+                }
+            ) == 200
+        );
+    }
+    if true {
+        let input6: List<CUInt8> = [128];
+        require(
+            code<String>(
+                fn () -> String {
+                    return utf8Decode(byteArray(input6));
+                }
+            ) == 200
+        );
+    }
+    if true {
+        let input7: List<CUInt8> = [227, 40, 130];
+        require(
+            code<String>(
+                fn () -> String {
+                    return utf8Decode(byteArray(input7));
+                }
+            ) == 200
+        );
+    }
+    if true {
+        let input8: List<CUInt8> = [255];
+        require(
+            code<String>(
+                fn () -> String {
+                    return utf8Decode(byteArray(input8));
+                }
+            ) == 200
+        );
+    }
+    var index = 0;
+    while index < 256 {
+        let input9: List<CUInt8> = [CUInt8(index)];
+        require(
+            (
+                code<String>(
+                    fn () -> String {
+                        return utf8Decode(byteArray(input9));
+                    }
+                ) == 0
+            ) == (index < 128)
+        );
+        index = index + 1;
+    }
+}
+
+async fn main() {
+    try {
+        cases0();
+        cases1();
+        cases2();
+        cases3();
+        cases4();
+        cases5();
+        cases6();
+        cases7();
+        cases8();
+        cases9();
+        cases10();
+        cases11();
+        cases12();
+        try {
+            let resultValue1 = utf8Decode(utf8Encode("日é\u{0}"));
+            let pending = spawn echo(resultValue1);
+            require((await pending) == "日é\u{0}");
+        }
+        catch [resultError1: Error, ...resultRest1] {
+            require(false);
+        }
+        rinzu.stdio.writeLine("text vectors ok");
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}

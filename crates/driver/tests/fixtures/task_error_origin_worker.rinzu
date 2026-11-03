@@ -1,0 +1,25 @@
+error WorkerProblem {
+    payload: Int
+}
+
+fn work() -> Int {
+    try {
+        throw WorkerProblem(message: "worker", payload: 7);
+    }
+    catch [problem: WorkerProblem] {
+        return problem.payload;
+    }
+}
+
+async fn main() {
+    try {
+        let task = spawn work();
+        let alias = task;
+        if await task != 7 || await alias != 7 {
+            panic("wrongWorker");
+        }
+    }
+    catch unexpected {
+        panic("failedWorker");
+    }
+}

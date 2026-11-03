@@ -1,0 +1,62 @@
+import perf;
+
+fn echo(value: Int) -> Int {
+    return value + 1;
+}
+
+fn allocated(value: Int) -> Int {
+    let root = ["callback allocation", "moving GC"];
+    if root != ["callback allocation", "moving GC"] {
+        panic("lost");
+    }
+    return value + 1;
+}
+
+fn work() -> CUInt64 {
+    return perf.workerStamp();
+}
+
+async fn wakeProbe() {
+    try {
+        let returned = await spawn work();
+        let resumed = perf.clock();
+        perf.report(6, resumed - returned, 1);
+        perf.stop();
+    }
+    catch unexpectedErrors {
+        panic("failed");
+    }
+}
+
+fn afterForeign() {
+    let wake = wakeProbe();
+}
+
+fn foreignBody(index: CSize, posted: CUInt64) -> CUInt64 {
+    let entered = perf.clock();
+    return entered;
+}
+
+async fn main() {
+    try {
+        let started = perf.clock();
+        var index = 0;
+        while index < 1024 {
+            if perf.ping(index) != index + 1 {
+                panic("wrong");
+            }
+            index = index + 1;
+        }
+        let ended = perf.clock();
+        perf.report(1, ended - started, 1024);
+        perf.same(echo, 1024, 2);
+        perf.same(allocated, 1024, 3);
+        let result = await perf.run(foreignBody, afterForeign);
+        if result != 512 {
+            panic("wrongResult");
+        }
+    }
+    catch unexpectedErrors {
+        panic("failed");
+    }
+}

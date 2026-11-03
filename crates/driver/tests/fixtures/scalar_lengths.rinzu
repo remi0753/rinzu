@@ -1,0 +1,65 @@
+import rinzu.stdio;
+
+class Box {
+    value: Int
+}
+
+fn check(value: Bool) {
+    if !value {
+        panic("lengthFailure");
+    }
+}
+
+fn checks() {
+    let empty = byteArray(b"");
+    let binary = byteArray(b"\x00\xff\x80z");
+    let text = "A日本😀é\u{0}";
+    check(bytesLength(empty) == 0 && bytesLength(binary) == 4);
+    check(stringLength("") == 0 && stringLength("ASCII\u{0}") == 6);
+    check(stringLength(text) == 7 && bytesLength(utf8Encode(text)) == 15);
+    let noInts: List<Int> = [];
+    let noStrings: List<String> = [];
+    let noMap: Map<String, Int> = {};
+    check(listLength(noInts) == 0 && listLength(noStrings) == 0 && mapLength(noMap) == 0);
+    let words = ["日本語", "second"];
+    let nested = [[1, 2], []];
+    let box = Box(value: 7);
+    let boxes = [box, box];
+    let values = {
+        "left": binary, "right": empty
+    };
+    check(listLength(words) == 2 && listLength(nested) == 2 && listLength(boxes) == 2);
+    check(mapLength(values) == 2 && mapLength(mapInsert(values, "left", empty)) == 2);
+    var bytes = binary;
+    var ints = noInts;
+    var map = noMap;
+    var index = 0;
+    while index < 96 {
+        bytes = bytesConcat(bytes, binary);
+        ints = listAppend(ints, index);
+        map = mapInsert(map, f"key-{index}", index);
+        check(bytesLength(bytes) == (index + 2) * 4);
+        check(listLength(ints) == index + 1 && mapLength(map) == index + 1);
+        check(stringLength(text) == 7 && listLength(boxes) == 2);
+        index = index + 1;
+    }
+    box.value = 9;
+    check(listLength(boxes) == 2);
+}
+
+fn worker() -> Int {
+    checks();
+    return 42;
+}
+
+async fn main() {
+    try {
+        checks();
+        let result = await spawn worker();
+        check(result == 42);
+        rinzu.stdio.writeLine("scalar-lengths-ok");
+    }
+    catch errors {
+        panic("unexpectedLengthError");
+    }
+}

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rinzu.dev/schema/package-exports-v1.schema.json",
+  "title": "Rinzu package exports v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "version", "package", "language", "exports"],
+  "properties": {
+    "schema": { "const": "rinzu.package-exports" },
+    "version": { "const": 1 },
+    "package": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$" },
+    "language": { "const": "0.2" },
+    "bindingMetadataDigest": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "hostAdapterDigest": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "exports": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/export" }
+    }
+  },
+  "$defs": {
+    "export": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "signature", "effects"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["managed-function", "safe-native-function", "external-type"] },
+        "signature": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["parameters", "result"],
+          "properties": {
+            "parameters": { "type": "array", "items": { "$ref": "#/$defs/type" } },
+            "result": { "$ref": "#/$defs/type" }
+          }
+        },
+        "effects": {
+          "type": "array",
+          "items": { "enum": ["async", "spawn", "native", "owner-sync", "cleanup-safe"] },
+          "uniqueItems": true
+        },
+        "nativeImport": { "$ref": "#/$defs/nativeImport" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "safe-native-function" } } },
+          "then": { "required": ["nativeImport"] },
+          "else": { "not": { "required": ["nativeImport"] } }
+        }
+      ]
+    },
+    "type": {
+      "oneOf": [
+        { "enum": ["Unit", "Bool", "Int", "Float", "String", "Bytes"] },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["staticHandler"],
+          "properties": {
+            "staticHandler": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["parameters", "result", "isAsync", "ownerSync"],
+              "properties": {
+                "parameters": { "type": "array", "items": { "enum": ["Unit", "Bool", "Int", "Float", "String", "Bytes"] } },
+                "result": { "enum": ["Unit", "Bool", "Int", "Float", "String", "Bytes"] },
+                "isAsync": { "type": "boolean" },
+                "ownerSync": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nativeImport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonicalKey", "abiSignature", "symbol"],
+      "properties": {
+        "key": { "type": ["string", "null"], "pattern": "^0x[0-9a-f]{16}$" },
+        "canonicalKey": { "type": "string", "minLength": 1 },
+        "abiSignature": { "type": "string", "minLength": 1 },
+        "symbol": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+        "runtimeService": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

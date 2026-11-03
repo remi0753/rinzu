@@ -1,0 +1,97 @@
+import rinzu.core;
+
+native {
+    record Wide {
+        left: Int,
+        right: CUInt64
+    }
+
+    record Single {
+        value: Int
+    }
+
+    record Mixed {
+        flag: CBool,
+        count: Int
+    }
+
+    fn wide(seed: Int, callback: fn (Int) -> Int) -> Wide symbol "prepared_wide";
+
+    fn single(value: Int) -> Single symbol "prepared_single";
+
+    fn mixed(kind: Int) -> Mixed symbol "prepared_mixed";
+
+    fn mutate() -> Unit symbol "prepared_mutate";
+}
+
+fn callback(value: Int) -> Int {
+    try {
+        let text = utf8Decode(byteArray(b"callback"));
+        if stringLength(text) != 8 {
+            return -100;
+        }
+        return value + 2;
+    }
+    catch unexpected {
+        return -99;
+    }
+}
+
+fn exercise() -> Int {
+    try {
+        let high: CUInt64 = 18446744073709551615;
+        let received = wide(7, callback);
+        let one = single(23);
+        let mixture = mixed(0);
+        mutate();
+        if received.left != 9 || received.right != high || one.value != 23 || !mixture.flag || mixture.count != 7 {
+            panic("unexpected failure");
+            return 0;
+        }
+        var caught = 0;
+        try {
+            let missing = wide(-1, callback);
+        }
+        catch [problem: Error, ...rest] {
+            if problem.message != "native value is NULL" || listLength(rest) != 0 {
+                panic("unexpected failure");
+                return 0;
+            }
+            caught = caught + 1;
+        }
+        try {
+            let invalid = mixed(2);
+        }
+        catch [problem: Error, ...rest] {
+            if problem.message != "numeric conversion is out of range or loses required integer precision"
+                || listLength(rest) != 0 {
+                panic("unexpected failure");
+                return 0;
+            }
+            caught = caught + 1;
+        }
+        var index = 0;
+        while index < 8 {
+            let temporary = utf8Decode(byteArray(b"gc"));
+            if stringLength(temporary) != 2 || received.left != 9 || received.right != high {
+                panic("unexpected failure");
+                return 0;
+            }
+            index = index + 1;
+        }
+        if caught != 2 {
+            panic("unexpected failure");
+            return 0;
+        }
+        return 42;
+    }
+    catch unexpected {
+        panic("unexpected failure");
+        return 0;
+    }
+}
+
+export Wide;
+export Single;
+export Mixed;
+export exercise;

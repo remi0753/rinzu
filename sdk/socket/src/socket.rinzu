@@ -1,0 +1,487 @@
+import rinzu.timer;
+
+native {
+    opaque Listener;
+
+    opaque TcpStream;
+
+    opaque Operation;
+
+    opaque Completion;
+
+    fn rawAddress(host: String, port: CInt) -> CInt symbol "rinzu_socket_address_status";
+
+    fn rawListen(host: String, port: CInt, backlog: CInt) -> Int symbol "rinzu_socket_listen";
+
+    fn rawConnect(host: String, port: CInt, milliseconds: Int) -> Int symbol "rinzu_socket_connect";
+
+    fn rawAccept(listener: Listener, milliseconds: Int) -> Int symbol "rinzu_socket_accept";
+
+    fn rawRead(stream: TcpStream, maximum: Int, milliseconds: Int) -> Int symbol "rinzu_socket_read";
+
+    fn rawWrite(stream: TcpStream, data: ByteArray, length: CSize, all: CBool, milliseconds: Int)
+        -> Int
+        symbol "rinzu_socket_write";
+
+    fn rawShutdown(stream: TcpStream) -> Int symbol "rinzu_socket_shutdown";
+
+    fn rawCloseStream(stream: TcpStream) -> Int symbol "rinzu_socket_close_stream";
+
+    fn rawCloseListener(listener: Listener) -> Int symbol "rinzu_socket_close_listener";
+
+    fn rawOperation(id: Int) -> Operation symbol "rinzu_socket_operation";
+
+    fn rawCompletion(operation: Operation) -> Completion symbol "rinzu_socket_completion";
+
+    fn rawTransferCompletion(id: Int) -> Completion symbol "rinzu_socket_transfer_completion";
+
+    fn rawBytesViewId(id: Int) -> ByteArray symbol "rinzu_socket_bytes_view_id";
+
+    fn rawAckId(id: Int) -> Unit symbol "rinzu_socket_ack_id";
+
+    fn rawCancelId(id: Int) -> Unit symbol "rinzu_socket_cancel_id";
+
+    fn rawFinishId(id: Int) -> Unit symbol "rinzu_socket_finish_id";
+
+    fn rawListenerValue(operation: Operation) -> Listener symbol "rinzu_socket_listener_value";
+
+    fn rawStreamValue(operation: Operation) -> TcpStream symbol "rinzu_socket_stream_value";
+
+    fn rawStatus(operation: Operation) -> CInt symbol "rinzu_socket_status";
+
+    fn rawLength(operation: Operation) -> Int symbol "rinzu_socket_length";
+
+    fn rawTransferResult(operation: Operation) -> Int symbol "rinzu_socket_transfer_result";
+
+    fn rawBytesView(operation: Operation) -> ByteArray symbol "rinzu_socket_bytes_view";
+
+    fn rawAck(operation: Operation) -> Unit symbol "rinzu_socket_ack";
+
+    fn rawCancel(operation: Operation) -> Unit symbol "rinzu_socket_cancel";
+
+    fn rawFinish(operation: Operation) -> Unit symbol "rinzu_socket_finish";
+
+    fn rawJoinIdle() -> CBool symbol "rinzu_socket_join_idle";
+
+    fn rawLocalPort(listener: Listener) -> Int symbol "rinzu_socket_port";
+
+    fn rawOwnerHasListener() -> CBool symbol "rinzu_socket_owner_has_listener";
+
+    fn rawOwnerHasStream() -> CBool symbol "rinzu_socket_owner_has_stream";
+
+    fn rawOwnerListener() -> Listener symbol "rinzu_socket_owner_listener";
+
+    fn rawOwnerStream() -> TcpStream symbol "rinzu_socket_owner_stream";
+
+    fn rawStatistic(key: CInt) -> Int symbol "rinzu_socket_stat";
+}
+
+class Address {
+    const host: String,
+    const port: Int
+}
+
+class ReadChunk {
+    const data: ByteArray,
+    const eof: Bool
+}
+
+error WriteFailure {
+    payload: WriteFailureData
+}
+
+class WriteFailureData {
+    const cause: Error,
+    const transferred: Int
+}
+
+fn problem(status: Int, label: String) -> Error {
+    try {
+        let resultValue8 = nativeStatus(status, label);
+        return error(-7504, label);
+    }
+    catch [resultError8: Error, ...resultRest8] {
+        return resultError8;
+    }
+}
+
+fn validPort(port: Int, connecting: Bool) -> Bool {
+    return port >= 0 && port <= 65535 && (!connecting || port > 0);
+}
+
+fn invalidHost(host: String) -> Bool {
+    if stringLength(host) == 0 {
+        return true;
+    }
+    switch stringFind(host, "\u{0}", 0) {
+        case Option.Some(index): {
+            return true;
+        }
+        case Option.None: {
+            return false;
+        }
+    }
+}
+
+fn address(host: String, port: Int) -> Address {
+    if !validPort(port, false) || invalidHost(host) {
+        throw problem(-7504, "socket.address");
+    }
+    let resultValue7 = nativeStatus(Int(rawAddress(host, CInt(port))), "socket.address");
+    return (Address(host: host, port: port));
+}
+
+fn addressStatus(value: Address, connecting: Bool) -> Int {
+    if !validPort(value.port, connecting) || invalidHost(value.host) {
+        return -7504;
+    }
+    return Int(rawAddress(value.host, CInt(value.port)));
+}
+
+fn validTimeout(milliseconds: Int) -> Bool {
+    return milliseconds >= 1 && milliseconds <= 30000;
+}
+
+fn settle(operation: Operation) -> Future<Unit> {
+    rawCancel(operation);
+    return nativeCompleted(rawCompletion(operation));
+}
+
+fn settleTransfer(id: Int) -> Future<Unit> {
+    rawCancelId(id);
+    return nativeCompleted(rawTransferCompletion(id));
+}
+
+async fn listenerResult(id: Int, label: String) -> Listener {
+    if id < 0 {
+        throw problem(id, label);
+    }
+    let operation = rawOperation(id);
+    try {
+        await nativeCompleted(rawCompletion(operation));
+        try {
+            let resultValue6 = nativeStatus(Int(rawStatus(operation)), label);
+            let value = rawListenerValue(operation);
+            rawAck(operation);
+            return (value);
+        }
+        catch [resultError6: Error, ...resultRest6] {
+            rawAck(operation);
+            throw resultError6;
+        }
+    }
+    finally {
+        await settle(operation);
+        rawFinish(operation);
+    }
+    throw problem(-7504, label);
+}
+
+async fn streamResult(id: Int, label: String) -> TcpStream {
+    if id < 0 {
+        throw problem(id, label);
+    }
+    let operation = rawOperation(id);
+    try {
+        await nativeCompleted(rawCompletion(operation));
+        try {
+            let resultValue5 = nativeStatus(Int(rawStatus(operation)), label);
+            let value = rawStreamValue(operation);
+            rawAck(operation);
+            return (value);
+        }
+        catch [resultError5: Error, ...resultRest5] {
+            rawAck(operation);
+            throw resultError5;
+        }
+    }
+    finally {
+        await settle(operation);
+        rawFinish(operation);
+    }
+    throw problem(-7504, label);
+}
+
+async fn listen(value: Address, backlog: Int) -> Listener {
+    let status = addressStatus(value, false);
+    if status != 0 {
+        throw problem(status, "socket.listen");
+    }
+    if backlog < 1 || backlog > 128 {
+        throw problem(-7504, "socket.listen");
+    }
+    return await listenerResult(rawListen(value.host, CInt(value.port), CInt(backlog)), "socket.listen");
+}
+
+fn localPort(listener: Listener) -> Int {
+    let port = rawLocalPort(listener);
+    if port < 0 {
+        throw problem(port, "socket.localPort");
+    }
+    return (port);
+}
+
+async fn connecting(value: Address, milliseconds: Int) -> TcpStream {
+    let status = addressStatus(value, true);
+    if status != 0 {
+        throw problem(status, "socket.connect");
+    }
+    return await streamResult(rawConnect(value.host, CInt(value.port), milliseconds), "socket.connect");
+}
+
+async fn connect(value: Address) -> TcpStream {
+    return await connecting(value, 0);
+}
+
+async fn connectWithTimeout(value: Address, milliseconds: Int) -> TcpStream {
+    if !validTimeout(milliseconds) {
+        throw problem(-7504, "socket.deadline");
+    }
+    return await connecting(value, milliseconds);
+}
+
+async fn accept(listener: Listener) -> TcpStream {
+    return await streamResult(rawAccept(listener, 0), "socket.accept");
+}
+
+async fn acceptWithTimeout(listener: Listener, milliseconds: Int) -> TcpStream {
+    if !validTimeout(milliseconds) {
+        throw problem(-7504, "socket.deadline");
+    }
+    return await streamResult(rawAccept(listener, milliseconds), "socket.accept");
+}
+
+async fn receiving(stream: TcpStream, maximum: Int, milliseconds: Int) -> ReadChunk {
+    let id = rawRead(stream, maximum, milliseconds);
+    if id < 0 {
+        throw problem(id, "socket.read");
+    }
+    var acknowledged = false;
+    try {
+        let result = await nativeTransferred(rawTransferCompletion(id));
+        try {
+            // The low 17 bits are length; subtract before signed division so
+            // negative SDK statuses preserve the same CInt value.
+            let length = bitAnd(result, 131071);
+            let resultValue4 = nativeStatus((result - length) / 131072, "socket.read");
+            let data = rawBytesViewId(id);
+            rawAckId(id);
+            acknowledged = true;
+            return (ReadChunk(data: data, eof: length == 0));
+        }
+        catch [resultError4: Error, ...resultRest4] {
+            rawAckId(id);
+            acknowledged = true;
+            throw resultError4;
+        }
+    }
+    finally {
+        // Ack follows the physical completion await. Only an interrupted or
+        // otherwise unacknowledged operation still needs cancel and drain.
+        if !acknowledged {
+            await settleTransfer(id);
+        }
+        rawFinishId(id);
+    }
+    throw problem(-7504, "socket.read");
+}
+
+async fn read(stream: TcpStream, maximum: Int) -> ReadChunk {
+    return await receiving(stream, maximum, 0);
+}
+
+async fn readWithTimeout(stream: TcpStream, maximum: Int, milliseconds: Int) -> ReadChunk {
+    if !validTimeout(milliseconds) {
+        throw problem(-7504, "socket.deadline");
+    }
+    return await receiving(stream, maximum, milliseconds);
+}
+
+async fn send(stream: TcpStream, data: ByteArray, all: Bool, milliseconds: Int) -> Int {
+    let id = rawWrite(stream, data, byteLength(data), all, milliseconds);
+    if id < 0 {
+        throw writeFailure(problem(id, "socket.write"), 0);
+    }
+    var acknowledged = false;
+    try {
+        let result = await nativeTransferred(rawTransferCompletion(id));
+        let length = bitAnd(result, 131071);
+        try {
+            let resultValue3 = nativeStatus((result - length) / 131072, "socket.write");
+            rawAckId(id);
+            acknowledged = true;
+            return (length);
+        }
+        catch [resultError3: Error, ...resultRest3] {
+            rawAckId(id);
+            acknowledged = true;
+            throw writeFailure(resultError3, length);
+        }
+    }
+    finally {
+        if !acknowledged {
+            await settleTransfer(id);
+        }
+        rawFinishId(id);
+    }
+    throw writeFailure(problem(-7504, "socket.write"), 0);
+}
+
+async fn write(stream: TcpStream, data: ByteArray) -> Int {
+    return await send(stream, data, false, 0);
+}
+
+async fn writeWithTimeout(stream: TcpStream, data: ByteArray, milliseconds: Int) -> Int {
+    if !validTimeout(milliseconds) {
+        throw writeFailure(problem(-7504, "socket.deadline"), 0);
+    }
+    return await send(stream, data, false, milliseconds);
+}
+
+async fn writeAll(stream: TcpStream, data: ByteArray) -> Int {
+    return await send(stream, data, true, 0);
+}
+
+async fn writeAllWithTimeout(stream: TcpStream, data: ByteArray, milliseconds: Int) -> Int {
+    if !validTimeout(milliseconds) {
+        throw writeFailure(problem(-7504, "socket.deadline"), 0);
+    }
+    return await send(stream, data, true, milliseconds);
+}
+
+async fn statusResult(id: Int, label: String) -> Int {
+    if id < 0 {
+        throw problem(id, label);
+    }
+    let operation = rawOperation(id);
+    try {
+        await nativeCompleted(rawCompletion(operation));
+        let result = nativeStatus(Int(rawStatus(operation)), label);
+        rawAck(operation);
+        return result;
+    }
+    finally {
+        await settle(operation);
+        rawFinish(operation);
+    }
+    throw problem(-7504, label);
+}
+
+async fn shutdownWrite(stream: TcpStream) -> Int {
+    return await statusResult(rawShutdown(stream), "socket.shutdownWrite");
+}
+
+async fn close(stream: TcpStream) -> Int {
+    return await statusResult(rawCloseStream(stream), "socket.close");
+}
+
+async fn closeListener(listener: Listener) -> Int {
+    return await statusResult(rawCloseListener(listener), "socket.closeListener");
+}
+
+async fn closeOwnerSockets() -> Int {
+    while rawOwnerHasListener() {
+        let resultValue2 = await closeListener(rawOwnerListener());
+    }
+    while rawOwnerHasStream() {
+        let resultValue1 = await close(rawOwnerStream());
+    }
+    while !rawJoinIdle() {
+        await rinzu.timer.sleep(1);
+    }
+    return (0);
+}
+
+class Statistics {
+    const listeners: Int,
+    const streams: Int,
+    const handleSlots: Int,
+    const operations: Int,
+    const dataOperations: Int,
+    const controlOperations: Int,
+    const buffers: Int,
+    const bufferBytes: Int,
+    const peakBufferBytes: Int,
+    const controlBytes: Int,
+    const retainedControlBytes: Int,
+    const eventThreads: Int,
+    const keventCalls: Int,
+    const readinessEvents: Int,
+    const userWakes: Int,
+    const pollTimeouts: Int,
+    const staleEvents: Int,
+    const readCalls: Int,
+    const writeCalls: Int,
+    const partialWrites: Int,
+    const copyBytes: Int,
+    const allocations: Int,
+    const receivedBytes: Int,
+    const sentBytes: Int,
+    const pendingOperations: Int,
+    const finishWaitOperations: Int
+}
+
+fn statistics() -> Statistics {
+    return Statistics(
+        listeners: rawStatistic(CInt(0)),
+        streams: rawStatistic(CInt(1)),
+        handleSlots: rawStatistic(CInt(2)),
+        operations: rawStatistic(CInt(3)),
+        dataOperations: rawStatistic(CInt(4)),
+        controlOperations: rawStatistic(CInt(5)),
+        buffers: rawStatistic(CInt(6)),
+        bufferBytes: rawStatistic(CInt(7)),
+        peakBufferBytes: rawStatistic(CInt(8)),
+        controlBytes: rawStatistic(CInt(9)),
+        retainedControlBytes: rawStatistic(CInt(10)),
+        eventThreads: rawStatistic(CInt(11)),
+        keventCalls: rawStatistic(CInt(12)),
+        readinessEvents: rawStatistic(CInt(13)),
+        userWakes: rawStatistic(CInt(14)),
+        pollTimeouts: rawStatistic(CInt(15)),
+        staleEvents: rawStatistic(CInt(16)),
+        readCalls: rawStatistic(CInt(17)),
+        writeCalls: rawStatistic(CInt(18)),
+        partialWrites: rawStatistic(CInt(19)),
+        copyBytes: rawStatistic(CInt(20)),
+        allocations: rawStatistic(CInt(21)),
+        receivedBytes: rawStatistic(CInt(22)),
+        sentBytes: rawStatistic(CInt(23)),
+        pendingOperations: rawStatistic(CInt(24)),
+        finishWaitOperations: rawStatistic(CInt(25))
+    );
+}
+
+export Address;
+export Listener;
+export TcpStream;
+export ReadChunk;
+export WriteFailure;
+export WriteFailureData;
+export Statistics;
+export address;
+export listen;
+export localPort;
+export connect;
+export connectWithTimeout;
+export accept;
+export acceptWithTimeout;
+export read;
+export readWithTimeout;
+export write;
+export writeWithTimeout;
+export writeAll;
+export writeAllWithTimeout;
+export shutdownWrite;
+export close;
+export closeListener;
+export closeOwnerSockets;
+export statistics;
+
+fn writeFailure(cause: Error, transferred: Int) -> WriteFailure {
+    return WriteFailure(
+        message: "socket write failed",
+        cause: cause,
+        payload: WriteFailureData(cause: cause, transferred: transferred)
+    );
+}

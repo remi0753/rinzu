@@ -1,0 +1,1572 @@
+import rinzu.stdio;
+
+fn require(condition: Bool) {
+    if !condition {
+        panic("failed");
+    }
+}
+
+fn ok<T: Equality>(value: T, expected: T) {
+    require(value == expected);
+}
+
+fn width0() {
+    let low: CInt8 = -128;
+    let high: CInt8 = 127;
+    let zero: CInt8 = 0;
+    let one: CInt8 = 1;
+    let two: CInt8 = 2;
+    require(wrappingAdd(high, one) == low);
+    require(wrappingSub(low, one) == high);
+    require(wrappingMul(high, two) == CInt8(-2));
+    require(bitNot(zero) == wrappingSub(zero, one));
+    require(bitXor(high, high) == zero);
+    require(bitAnd(high, zero) == zero);
+    require(bitOr(high, zero) == high);
+    ok<CInt8>(checkedAdd(low, zero), low);
+    ok<CInt8>(checkedMul(low, zero), zero);
+    try {
+        let unexpected1 = checkedAdd(high, one);
+        require(false);
+    }
+    catch [problem1: Error, ...rest1] {
+        require(errorCode(problem1) == 300);
+        require(listLength(rest1) == 0);
+    }
+    try {
+        let unexpected2 = checkedSub(low, one);
+        require(false);
+    }
+    catch [problem2: Error, ...rest2] {
+        require(errorCode(problem2) == 300);
+        require(listLength(rest2) == 0);
+    }
+    try {
+        let unexpected3 = checkedMul(high, two);
+        require(false);
+    }
+    catch [problem3: Error, ...rest3] {
+        require(errorCode(problem3) == 300);
+        require(listLength(rest3) == 0);
+    }
+    ok<CInt8>(shiftLeft(one, 0), one);
+    ok<CInt8>(shiftRight(high, 0), high);
+    ok<CInt8>(shiftLeft(one, 7), CInt8(-128));
+    ok<CInt8>(shiftRight(low, 7), CInt8(-1));
+    try {
+        let unexpected4 = shiftLeft(one, -1);
+        require(false);
+    }
+    catch [problem4: Error, ...rest4] {
+        require(errorCode(problem4) == 301);
+        require(listLength(rest4) == 0);
+    }
+    try {
+        let unexpected5 = shiftRight(one, -1);
+        require(false);
+    }
+    catch [problem5: Error, ...rest5] {
+        require(errorCode(problem5) == 301);
+        require(listLength(rest5) == 0);
+    }
+    try {
+        let unexpected6 = shiftLeft(one, 8);
+        require(false);
+    }
+    catch [problem6: Error, ...rest6] {
+        require(errorCode(problem6) == 301);
+        require(listLength(rest6) == 0);
+    }
+    try {
+        let unexpected7 = shiftRight(one, 8);
+        require(false);
+    }
+    catch [problem7: Error, ...rest7] {
+        require(errorCode(problem7) == 301);
+        require(listLength(rest7) == 0);
+    }
+    try {
+        let unexpected8 = shiftLeft(one, 9);
+        require(false);
+    }
+    catch [problem8: Error, ...rest8] {
+        require(errorCode(problem8) == 301);
+        require(listLength(rest8) == 0);
+    }
+    try {
+        let unexpected9 = shiftRight(one, 9);
+        require(false);
+    }
+    catch [problem9: Error, ...rest9] {
+        require(errorCode(problem9) == 301);
+        require(listLength(rest9) == 0);
+    }
+    try {
+        let unexpected10 = shiftLeft(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem10: Error, ...rest10] {
+        require(errorCode(problem10) == 301);
+        require(listLength(rest10) == 0);
+    }
+    try {
+        let unexpected11 = shiftRight(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem11: Error, ...rest11] {
+        require(errorCode(problem11) == 301);
+        require(listLength(rest11) == 0);
+    }
+    try {
+        let unexpected12 = shiftLeft(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem12: Error, ...rest12] {
+        require(errorCode(problem12) == 301);
+        require(listLength(rest12) == 0);
+    }
+    try {
+        let unexpected13 = shiftRight(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem13: Error, ...rest13] {
+        require(errorCode(problem13) == 301);
+        require(listLength(rest13) == 0);
+    }
+    let bits: CInt8 = 0x7F;
+    require(bits == CInt8(127));
+}
+
+fn width1() {
+    let low: CInt16 = -32768;
+    let high: CInt16 = 32767;
+    let zero: CInt16 = 0;
+    let one: CInt16 = 1;
+    let two: CInt16 = 2;
+    require(wrappingAdd(high, one) == low);
+    require(wrappingSub(low, one) == high);
+    require(wrappingMul(high, two) == CInt16(-2));
+    require(bitNot(zero) == wrappingSub(zero, one));
+    require(bitXor(high, high) == zero);
+    require(bitAnd(high, zero) == zero);
+    require(bitOr(high, zero) == high);
+    ok<CInt16>(checkedAdd(low, zero), low);
+    ok<CInt16>(checkedMul(low, zero), zero);
+    try {
+        let unexpected14 = checkedAdd(high, one);
+        require(false);
+    }
+    catch [problem14: Error, ...rest14] {
+        require(errorCode(problem14) == 300);
+        require(listLength(rest14) == 0);
+    }
+    try {
+        let unexpected15 = checkedSub(low, one);
+        require(false);
+    }
+    catch [problem15: Error, ...rest15] {
+        require(errorCode(problem15) == 300);
+        require(listLength(rest15) == 0);
+    }
+    try {
+        let unexpected16 = checkedMul(high, two);
+        require(false);
+    }
+    catch [problem16: Error, ...rest16] {
+        require(errorCode(problem16) == 300);
+        require(listLength(rest16) == 0);
+    }
+    ok<CInt16>(shiftLeft(one, 0), one);
+    ok<CInt16>(shiftRight(high, 0), high);
+    ok<CInt16>(shiftLeft(one, 15), CInt16(-32768));
+    ok<CInt16>(shiftRight(low, 15), CInt16(-1));
+    try {
+        let unexpected17 = shiftLeft(one, -1);
+        require(false);
+    }
+    catch [problem17: Error, ...rest17] {
+        require(errorCode(problem17) == 301);
+        require(listLength(rest17) == 0);
+    }
+    try {
+        let unexpected18 = shiftRight(one, -1);
+        require(false);
+    }
+    catch [problem18: Error, ...rest18] {
+        require(errorCode(problem18) == 301);
+        require(listLength(rest18) == 0);
+    }
+    try {
+        let unexpected19 = shiftLeft(one, 16);
+        require(false);
+    }
+    catch [problem19: Error, ...rest19] {
+        require(errorCode(problem19) == 301);
+        require(listLength(rest19) == 0);
+    }
+    try {
+        let unexpected20 = shiftRight(one, 16);
+        require(false);
+    }
+    catch [problem20: Error, ...rest20] {
+        require(errorCode(problem20) == 301);
+        require(listLength(rest20) == 0);
+    }
+    try {
+        let unexpected21 = shiftLeft(one, 17);
+        require(false);
+    }
+    catch [problem21: Error, ...rest21] {
+        require(errorCode(problem21) == 301);
+        require(listLength(rest21) == 0);
+    }
+    try {
+        let unexpected22 = shiftRight(one, 17);
+        require(false);
+    }
+    catch [problem22: Error, ...rest22] {
+        require(errorCode(problem22) == 301);
+        require(listLength(rest22) == 0);
+    }
+    try {
+        let unexpected23 = shiftLeft(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem23: Error, ...rest23] {
+        require(errorCode(problem23) == 301);
+        require(listLength(rest23) == 0);
+    }
+    try {
+        let unexpected24 = shiftRight(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem24: Error, ...rest24] {
+        require(errorCode(problem24) == 301);
+        require(listLength(rest24) == 0);
+    }
+    try {
+        let unexpected25 = shiftLeft(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem25: Error, ...rest25] {
+        require(errorCode(problem25) == 301);
+        require(listLength(rest25) == 0);
+    }
+    try {
+        let unexpected26 = shiftRight(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem26: Error, ...rest26] {
+        require(errorCode(problem26) == 301);
+        require(listLength(rest26) == 0);
+    }
+    let bits: CInt16 = 0b0111_1111;
+    require(bits == CInt16(127));
+}
+
+fn width2() {
+    let low: CInt32 = -2147483648;
+    let high: CInt32 = 2147483647;
+    let zero: CInt32 = 0;
+    let one: CInt32 = 1;
+    let two: CInt32 = 2;
+    require(wrappingAdd(high, one) == low);
+    require(wrappingSub(low, one) == high);
+    require(wrappingMul(high, two) == CInt32(-2));
+    require(bitNot(zero) == wrappingSub(zero, one));
+    require(bitXor(high, high) == zero);
+    require(bitAnd(high, zero) == zero);
+    require(bitOr(high, zero) == high);
+    ok<CInt32>(checkedAdd(low, zero), low);
+    ok<CInt32>(checkedMul(low, zero), zero);
+    try {
+        let unexpected27 = checkedAdd(high, one);
+        require(false);
+    }
+    catch [problem27: Error, ...rest27] {
+        require(errorCode(problem27) == 300);
+        require(listLength(rest27) == 0);
+    }
+    try {
+        let unexpected28 = checkedSub(low, one);
+        require(false);
+    }
+    catch [problem28: Error, ...rest28] {
+        require(errorCode(problem28) == 300);
+        require(listLength(rest28) == 0);
+    }
+    try {
+        let unexpected29 = checkedMul(high, two);
+        require(false);
+    }
+    catch [problem29: Error, ...rest29] {
+        require(errorCode(problem29) == 300);
+        require(listLength(rest29) == 0);
+    }
+    ok<CInt32>(shiftLeft(one, 0), one);
+    ok<CInt32>(shiftRight(high, 0), high);
+    ok<CInt32>(shiftLeft(one, 31), CInt32(-2147483648));
+    ok<CInt32>(shiftRight(low, 31), CInt32(-1));
+    try {
+        let unexpected30 = shiftLeft(one, -1);
+        require(false);
+    }
+    catch [problem30: Error, ...rest30] {
+        require(errorCode(problem30) == 301);
+        require(listLength(rest30) == 0);
+    }
+    try {
+        let unexpected31 = shiftRight(one, -1);
+        require(false);
+    }
+    catch [problem31: Error, ...rest31] {
+        require(errorCode(problem31) == 301);
+        require(listLength(rest31) == 0);
+    }
+    try {
+        let unexpected32 = shiftLeft(one, 32);
+        require(false);
+    }
+    catch [problem32: Error, ...rest32] {
+        require(errorCode(problem32) == 301);
+        require(listLength(rest32) == 0);
+    }
+    try {
+        let unexpected33 = shiftRight(one, 32);
+        require(false);
+    }
+    catch [problem33: Error, ...rest33] {
+        require(errorCode(problem33) == 301);
+        require(listLength(rest33) == 0);
+    }
+    try {
+        let unexpected34 = shiftLeft(one, 33);
+        require(false);
+    }
+    catch [problem34: Error, ...rest34] {
+        require(errorCode(problem34) == 301);
+        require(listLength(rest34) == 0);
+    }
+    try {
+        let unexpected35 = shiftRight(one, 33);
+        require(false);
+    }
+    catch [problem35: Error, ...rest35] {
+        require(errorCode(problem35) == 301);
+        require(listLength(rest35) == 0);
+    }
+    try {
+        let unexpected36 = shiftLeft(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem36: Error, ...rest36] {
+        require(errorCode(problem36) == 301);
+        require(listLength(rest36) == 0);
+    }
+    try {
+        let unexpected37 = shiftRight(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem37: Error, ...rest37] {
+        require(errorCode(problem37) == 301);
+        require(listLength(rest37) == 0);
+    }
+    try {
+        let unexpected38 = shiftLeft(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem38: Error, ...rest38] {
+        require(errorCode(problem38) == 301);
+        require(listLength(rest38) == 0);
+    }
+    try {
+        let unexpected39 = shiftRight(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem39: Error, ...rest39] {
+        require(errorCode(problem39) == 301);
+        require(listLength(rest39) == 0);
+    }
+    let bits: CInt32 = 0b0111_1111;
+    require(bits == CInt32(127));
+}
+
+fn width3() {
+    let low: CInt64 = -9223372036854775808;
+    let high: CInt64 = 9223372036854775807;
+    let zero: CInt64 = 0;
+    let one: CInt64 = 1;
+    let two: CInt64 = 2;
+    require(wrappingAdd(high, one) == low);
+    require(wrappingSub(low, one) == high);
+    require(wrappingMul(high, two) == CInt64(-2));
+    require(bitNot(zero) == wrappingSub(zero, one));
+    require(bitXor(high, high) == zero);
+    require(bitAnd(high, zero) == zero);
+    require(bitOr(high, zero) == high);
+    ok<CInt64>(checkedAdd(low, zero), low);
+    ok<CInt64>(checkedMul(low, zero), zero);
+    try {
+        let unexpected40 = checkedAdd(high, one);
+        require(false);
+    }
+    catch [problem40: Error, ...rest40] {
+        require(errorCode(problem40) == 300);
+        require(listLength(rest40) == 0);
+    }
+    try {
+        let unexpected41 = checkedSub(low, one);
+        require(false);
+    }
+    catch [problem41: Error, ...rest41] {
+        require(errorCode(problem41) == 300);
+        require(listLength(rest41) == 0);
+    }
+    try {
+        let unexpected42 = checkedMul(high, two);
+        require(false);
+    }
+    catch [problem42: Error, ...rest42] {
+        require(errorCode(problem42) == 300);
+        require(listLength(rest42) == 0);
+    }
+    ok<CInt64>(shiftLeft(one, 0), one);
+    ok<CInt64>(shiftRight(high, 0), high);
+    ok<CInt64>(shiftLeft(one, 63), CInt64(-9223372036854775808));
+    ok<CInt64>(shiftRight(low, 63), CInt64(-1));
+    try {
+        let unexpected43 = shiftLeft(one, -1);
+        require(false);
+    }
+    catch [problem43: Error, ...rest43] {
+        require(errorCode(problem43) == 301);
+        require(listLength(rest43) == 0);
+    }
+    try {
+        let unexpected44 = shiftRight(one, -1);
+        require(false);
+    }
+    catch [problem44: Error, ...rest44] {
+        require(errorCode(problem44) == 301);
+        require(listLength(rest44) == 0);
+    }
+    try {
+        let unexpected45 = shiftLeft(one, 64);
+        require(false);
+    }
+    catch [problem45: Error, ...rest45] {
+        require(errorCode(problem45) == 301);
+        require(listLength(rest45) == 0);
+    }
+    try {
+        let unexpected46 = shiftRight(one, 64);
+        require(false);
+    }
+    catch [problem46: Error, ...rest46] {
+        require(errorCode(problem46) == 301);
+        require(listLength(rest46) == 0);
+    }
+    try {
+        let unexpected47 = shiftLeft(one, 65);
+        require(false);
+    }
+    catch [problem47: Error, ...rest47] {
+        require(errorCode(problem47) == 301);
+        require(listLength(rest47) == 0);
+    }
+    try {
+        let unexpected48 = shiftRight(one, 65);
+        require(false);
+    }
+    catch [problem48: Error, ...rest48] {
+        require(errorCode(problem48) == 301);
+        require(listLength(rest48) == 0);
+    }
+    try {
+        let unexpected49 = shiftLeft(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem49: Error, ...rest49] {
+        require(errorCode(problem49) == 301);
+        require(listLength(rest49) == 0);
+    }
+    try {
+        let unexpected50 = shiftRight(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem50: Error, ...rest50] {
+        require(errorCode(problem50) == 301);
+        require(listLength(rest50) == 0);
+    }
+    try {
+        let unexpected51 = shiftLeft(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem51: Error, ...rest51] {
+        require(errorCode(problem51) == 301);
+        require(listLength(rest51) == 0);
+    }
+    try {
+        let unexpected52 = shiftRight(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem52: Error, ...rest52] {
+        require(errorCode(problem52) == 301);
+        require(listLength(rest52) == 0);
+    }
+    let bits: CInt64 = 0b0111_1111;
+    require(bits == CInt64(127));
+}
+
+fn width4() {
+    let low: CUInt8 = 0;
+    let high: CUInt8 = 255;
+    let zero: CUInt8 = 0;
+    let one: CUInt8 = 1;
+    let two: CUInt8 = 2;
+    require(wrappingAdd(high, one) == low);
+    require(wrappingSub(low, one) == high);
+    require(wrappingMul(high, two) == CUInt8(254));
+    require(bitNot(zero) == wrappingSub(zero, one));
+    require(bitXor(high, high) == zero);
+    require(bitAnd(high, zero) == zero);
+    require(bitOr(high, zero) == high);
+    ok<CUInt8>(checkedAdd(low, zero), low);
+    ok<CUInt8>(checkedMul(low, zero), zero);
+    try {
+        let unexpected53 = checkedAdd(high, one);
+        require(false);
+    }
+    catch [problem53: Error, ...rest53] {
+        require(errorCode(problem53) == 300);
+        require(listLength(rest53) == 0);
+    }
+    try {
+        let unexpected54 = checkedSub(low, one);
+        require(false);
+    }
+    catch [problem54: Error, ...rest54] {
+        require(errorCode(problem54) == 300);
+        require(listLength(rest54) == 0);
+    }
+    try {
+        let unexpected55 = checkedMul(high, two);
+        require(false);
+    }
+    catch [problem55: Error, ...rest55] {
+        require(errorCode(problem55) == 300);
+        require(listLength(rest55) == 0);
+    }
+    ok<CUInt8>(shiftLeft(one, 0), one);
+    ok<CUInt8>(shiftRight(high, 0), high);
+    ok<CUInt8>(shiftLeft(one, 7), CUInt8(128));
+    ok<CUInt8>(shiftRight(high, 7), CUInt8(1));
+    try {
+        let unexpected56 = shiftLeft(one, -1);
+        require(false);
+    }
+    catch [problem56: Error, ...rest56] {
+        require(errorCode(problem56) == 301);
+        require(listLength(rest56) == 0);
+    }
+    try {
+        let unexpected57 = shiftRight(one, -1);
+        require(false);
+    }
+    catch [problem57: Error, ...rest57] {
+        require(errorCode(problem57) == 301);
+        require(listLength(rest57) == 0);
+    }
+    try {
+        let unexpected58 = shiftLeft(one, 8);
+        require(false);
+    }
+    catch [problem58: Error, ...rest58] {
+        require(errorCode(problem58) == 301);
+        require(listLength(rest58) == 0);
+    }
+    try {
+        let unexpected59 = shiftRight(one, 8);
+        require(false);
+    }
+    catch [problem59: Error, ...rest59] {
+        require(errorCode(problem59) == 301);
+        require(listLength(rest59) == 0);
+    }
+    try {
+        let unexpected60 = shiftLeft(one, 9);
+        require(false);
+    }
+    catch [problem60: Error, ...rest60] {
+        require(errorCode(problem60) == 301);
+        require(listLength(rest60) == 0);
+    }
+    try {
+        let unexpected61 = shiftRight(one, 9);
+        require(false);
+    }
+    catch [problem61: Error, ...rest61] {
+        require(errorCode(problem61) == 301);
+        require(listLength(rest61) == 0);
+    }
+    try {
+        let unexpected62 = shiftLeft(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem62: Error, ...rest62] {
+        require(errorCode(problem62) == 301);
+        require(listLength(rest62) == 0);
+    }
+    try {
+        let unexpected63 = shiftRight(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem63: Error, ...rest63] {
+        require(errorCode(problem63) == 301);
+        require(listLength(rest63) == 0);
+    }
+    try {
+        let unexpected64 = shiftLeft(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem64: Error, ...rest64] {
+        require(errorCode(problem64) == 301);
+        require(listLength(rest64) == 0);
+    }
+    try {
+        let unexpected65 = shiftRight(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem65: Error, ...rest65] {
+        require(errorCode(problem65) == 301);
+        require(listLength(rest65) == 0);
+    }
+    let bits: CUInt8 = 0b0111_1111;
+    require(bits == CUInt8(127));
+}
+
+fn width5() {
+    let low: CUInt16 = 0;
+    let high: CUInt16 = 65535;
+    let zero: CUInt16 = 0;
+    let one: CUInt16 = 1;
+    let two: CUInt16 = 2;
+    require(wrappingAdd(high, one) == low);
+    require(wrappingSub(low, one) == high);
+    require(wrappingMul(high, two) == CUInt16(65534));
+    require(bitNot(zero) == wrappingSub(zero, one));
+    require(bitXor(high, high) == zero);
+    require(bitAnd(high, zero) == zero);
+    require(bitOr(high, zero) == high);
+    ok<CUInt16>(checkedAdd(low, zero), low);
+    ok<CUInt16>(checkedMul(low, zero), zero);
+    try {
+        let unexpected66 = checkedAdd(high, one);
+        require(false);
+    }
+    catch [problem66: Error, ...rest66] {
+        require(errorCode(problem66) == 300);
+        require(listLength(rest66) == 0);
+    }
+    try {
+        let unexpected67 = checkedSub(low, one);
+        require(false);
+    }
+    catch [problem67: Error, ...rest67] {
+        require(errorCode(problem67) == 300);
+        require(listLength(rest67) == 0);
+    }
+    try {
+        let unexpected68 = checkedMul(high, two);
+        require(false);
+    }
+    catch [problem68: Error, ...rest68] {
+        require(errorCode(problem68) == 300);
+        require(listLength(rest68) == 0);
+    }
+    ok<CUInt16>(shiftLeft(one, 0), one);
+    ok<CUInt16>(shiftRight(high, 0), high);
+    ok<CUInt16>(shiftLeft(one, 15), CUInt16(32768));
+    ok<CUInt16>(shiftRight(high, 15), CUInt16(1));
+    try {
+        let unexpected69 = shiftLeft(one, -1);
+        require(false);
+    }
+    catch [problem69: Error, ...rest69] {
+        require(errorCode(problem69) == 301);
+        require(listLength(rest69) == 0);
+    }
+    try {
+        let unexpected70 = shiftRight(one, -1);
+        require(false);
+    }
+    catch [problem70: Error, ...rest70] {
+        require(errorCode(problem70) == 301);
+        require(listLength(rest70) == 0);
+    }
+    try {
+        let unexpected71 = shiftLeft(one, 16);
+        require(false);
+    }
+    catch [problem71: Error, ...rest71] {
+        require(errorCode(problem71) == 301);
+        require(listLength(rest71) == 0);
+    }
+    try {
+        let unexpected72 = shiftRight(one, 16);
+        require(false);
+    }
+    catch [problem72: Error, ...rest72] {
+        require(errorCode(problem72) == 301);
+        require(listLength(rest72) == 0);
+    }
+    try {
+        let unexpected73 = shiftLeft(one, 17);
+        require(false);
+    }
+    catch [problem73: Error, ...rest73] {
+        require(errorCode(problem73) == 301);
+        require(listLength(rest73) == 0);
+    }
+    try {
+        let unexpected74 = shiftRight(one, 17);
+        require(false);
+    }
+    catch [problem74: Error, ...rest74] {
+        require(errorCode(problem74) == 301);
+        require(listLength(rest74) == 0);
+    }
+    try {
+        let unexpected75 = shiftLeft(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem75: Error, ...rest75] {
+        require(errorCode(problem75) == 301);
+        require(listLength(rest75) == 0);
+    }
+    try {
+        let unexpected76 = shiftRight(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem76: Error, ...rest76] {
+        require(errorCode(problem76) == 301);
+        require(listLength(rest76) == 0);
+    }
+    try {
+        let unexpected77 = shiftLeft(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem77: Error, ...rest77] {
+        require(errorCode(problem77) == 301);
+        require(listLength(rest77) == 0);
+    }
+    try {
+        let unexpected78 = shiftRight(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem78: Error, ...rest78] {
+        require(errorCode(problem78) == 301);
+        require(listLength(rest78) == 0);
+    }
+    let bits: CUInt16 = 0b0111_1111;
+    require(bits == CUInt16(127));
+}
+
+fn width6() {
+    let low: CUInt32 = 0;
+    let high: CUInt32 = 4294967295;
+    let zero: CUInt32 = 0;
+    let one: CUInt32 = 1;
+    let two: CUInt32 = 2;
+    require(wrappingAdd(high, one) == low);
+    require(wrappingSub(low, one) == high);
+    require(wrappingMul(high, two) == CUInt32(4294967294));
+    require(bitNot(zero) == wrappingSub(zero, one));
+    require(bitXor(high, high) == zero);
+    require(bitAnd(high, zero) == zero);
+    require(bitOr(high, zero) == high);
+    ok<CUInt32>(checkedAdd(low, zero), low);
+    ok<CUInt32>(checkedMul(low, zero), zero);
+    try {
+        let unexpected79 = checkedAdd(high, one);
+        require(false);
+    }
+    catch [problem79: Error, ...rest79] {
+        require(errorCode(problem79) == 300);
+        require(listLength(rest79) == 0);
+    }
+    try {
+        let unexpected80 = checkedSub(low, one);
+        require(false);
+    }
+    catch [problem80: Error, ...rest80] {
+        require(errorCode(problem80) == 300);
+        require(listLength(rest80) == 0);
+    }
+    try {
+        let unexpected81 = checkedMul(high, two);
+        require(false);
+    }
+    catch [problem81: Error, ...rest81] {
+        require(errorCode(problem81) == 300);
+        require(listLength(rest81) == 0);
+    }
+    ok<CUInt32>(shiftLeft(one, 0), one);
+    ok<CUInt32>(shiftRight(high, 0), high);
+    ok<CUInt32>(shiftLeft(one, 31), CUInt32(2147483648));
+    ok<CUInt32>(shiftRight(high, 31), CUInt32(1));
+    try {
+        let unexpected82 = shiftLeft(one, -1);
+        require(false);
+    }
+    catch [problem82: Error, ...rest82] {
+        require(errorCode(problem82) == 301);
+        require(listLength(rest82) == 0);
+    }
+    try {
+        let unexpected83 = shiftRight(one, -1);
+        require(false);
+    }
+    catch [problem83: Error, ...rest83] {
+        require(errorCode(problem83) == 301);
+        require(listLength(rest83) == 0);
+    }
+    try {
+        let unexpected84 = shiftLeft(one, 32);
+        require(false);
+    }
+    catch [problem84: Error, ...rest84] {
+        require(errorCode(problem84) == 301);
+        require(listLength(rest84) == 0);
+    }
+    try {
+        let unexpected85 = shiftRight(one, 32);
+        require(false);
+    }
+    catch [problem85: Error, ...rest85] {
+        require(errorCode(problem85) == 301);
+        require(listLength(rest85) == 0);
+    }
+    try {
+        let unexpected86 = shiftLeft(one, 33);
+        require(false);
+    }
+    catch [problem86: Error, ...rest86] {
+        require(errorCode(problem86) == 301);
+        require(listLength(rest86) == 0);
+    }
+    try {
+        let unexpected87 = shiftRight(one, 33);
+        require(false);
+    }
+    catch [problem87: Error, ...rest87] {
+        require(errorCode(problem87) == 301);
+        require(listLength(rest87) == 0);
+    }
+    try {
+        let unexpected88 = shiftLeft(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem88: Error, ...rest88] {
+        require(errorCode(problem88) == 301);
+        require(listLength(rest88) == 0);
+    }
+    try {
+        let unexpected89 = shiftRight(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem89: Error, ...rest89] {
+        require(errorCode(problem89) == 301);
+        require(listLength(rest89) == 0);
+    }
+    try {
+        let unexpected90 = shiftLeft(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem90: Error, ...rest90] {
+        require(errorCode(problem90) == 301);
+        require(listLength(rest90) == 0);
+    }
+    try {
+        let unexpected91 = shiftRight(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem91: Error, ...rest91] {
+        require(errorCode(problem91) == 301);
+        require(listLength(rest91) == 0);
+    }
+    let bits: CUInt32 = 0b0111_1111;
+    require(bits == CUInt32(127));
+}
+
+fn width7() {
+    let low: CUInt64 = 0;
+    let high: CUInt64 = 18446744073709551615;
+    let zero: CUInt64 = 0;
+    let one: CUInt64 = 1;
+    let two: CUInt64 = 2;
+    require(wrappingAdd(high, one) == low);
+    require(wrappingSub(low, one) == high);
+    require(wrappingMul(high, two) == 18446744073709551614);
+    require(bitNot(zero) == wrappingSub(zero, one));
+    require(bitXor(high, high) == zero);
+    require(bitAnd(high, zero) == zero);
+    require(bitOr(high, zero) == high);
+    ok<CUInt64>(checkedAdd(low, zero), low);
+    ok<CUInt64>(checkedMul(low, zero), zero);
+    try {
+        let unexpected92 = checkedAdd(high, one);
+        require(false);
+    }
+    catch [problem92: Error, ...rest92] {
+        require(errorCode(problem92) == 300);
+        require(listLength(rest92) == 0);
+    }
+    try {
+        let unexpected93 = checkedSub(low, one);
+        require(false);
+    }
+    catch [problem93: Error, ...rest93] {
+        require(errorCode(problem93) == 300);
+        require(listLength(rest93) == 0);
+    }
+    try {
+        let unexpected94 = checkedMul(high, two);
+        require(false);
+    }
+    catch [problem94: Error, ...rest94] {
+        require(errorCode(problem94) == 300);
+        require(listLength(rest94) == 0);
+    }
+    ok<CUInt64>(shiftLeft(one, 0), one);
+    ok<CUInt64>(shiftRight(high, 0), high);
+    ok<CUInt64>(shiftLeft(one, 63), 9223372036854775808);
+    ok<CUInt64>(shiftRight(high, 63), CUInt64(1));
+    try {
+        let unexpected95 = shiftLeft(one, -1);
+        require(false);
+    }
+    catch [problem95: Error, ...rest95] {
+        require(errorCode(problem95) == 301);
+        require(listLength(rest95) == 0);
+    }
+    try {
+        let unexpected96 = shiftRight(one, -1);
+        require(false);
+    }
+    catch [problem96: Error, ...rest96] {
+        require(errorCode(problem96) == 301);
+        require(listLength(rest96) == 0);
+    }
+    try {
+        let unexpected97 = shiftLeft(one, 64);
+        require(false);
+    }
+    catch [problem97: Error, ...rest97] {
+        require(errorCode(problem97) == 301);
+        require(listLength(rest97) == 0);
+    }
+    try {
+        let unexpected98 = shiftRight(one, 64);
+        require(false);
+    }
+    catch [problem98: Error, ...rest98] {
+        require(errorCode(problem98) == 301);
+        require(listLength(rest98) == 0);
+    }
+    try {
+        let unexpected99 = shiftLeft(one, 65);
+        require(false);
+    }
+    catch [problem99: Error, ...rest99] {
+        require(errorCode(problem99) == 301);
+        require(listLength(rest99) == 0);
+    }
+    try {
+        let unexpected100 = shiftRight(one, 65);
+        require(false);
+    }
+    catch [problem100: Error, ...rest100] {
+        require(errorCode(problem100) == 301);
+        require(listLength(rest100) == 0);
+    }
+    try {
+        let unexpected101 = shiftLeft(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem101: Error, ...rest101] {
+        require(errorCode(problem101) == 301);
+        require(listLength(rest101) == 0);
+    }
+    try {
+        let unexpected102 = shiftRight(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem102: Error, ...rest102] {
+        require(errorCode(problem102) == 301);
+        require(listLength(rest102) == 0);
+    }
+    try {
+        let unexpected103 = shiftLeft(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem103: Error, ...rest103] {
+        require(errorCode(problem103) == 301);
+        require(listLength(rest103) == 0);
+    }
+    try {
+        let unexpected104 = shiftRight(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem104: Error, ...rest104] {
+        require(errorCode(problem104) == 301);
+        require(listLength(rest104) == 0);
+    }
+    let bits: CUInt64 = 0b0111_1111;
+    require(bits == CUInt64(127));
+}
+
+fn width8() {
+    let low: Int = -9223372036854775808;
+    let high: Int = 9223372036854775807;
+    let zero: Int = 0;
+    let one: Int = 1;
+    let two: Int = 2;
+    require(wrappingAdd(high, one) == low);
+    require(wrappingSub(low, one) == high);
+    require(wrappingMul(high, two) == Int(-2));
+    require(bitNot(zero) == wrappingSub(zero, one));
+    require(bitXor(high, high) == zero);
+    require(bitAnd(high, zero) == zero);
+    require(bitOr(high, zero) == high);
+    ok<Int>(checkedAdd(low, zero), low);
+    ok<Int>(checkedMul(low, zero), zero);
+    try {
+        let unexpected105 = checkedAdd(high, one);
+        require(false);
+    }
+    catch [problem105: Error, ...rest105] {
+        require(errorCode(problem105) == 300);
+        require(listLength(rest105) == 0);
+    }
+    try {
+        let unexpected106 = checkedSub(low, one);
+        require(false);
+    }
+    catch [problem106: Error, ...rest106] {
+        require(errorCode(problem106) == 300);
+        require(listLength(rest106) == 0);
+    }
+    try {
+        let unexpected107 = checkedMul(high, two);
+        require(false);
+    }
+    catch [problem107: Error, ...rest107] {
+        require(errorCode(problem107) == 300);
+        require(listLength(rest107) == 0);
+    }
+    ok<Int>(shiftLeft(one, 0), one);
+    ok<Int>(shiftRight(high, 0), high);
+    ok<Int>(shiftLeft(one, 63), Int(-9223372036854775808));
+    ok<Int>(shiftRight(low, 63), Int(-1));
+    try {
+        let unexpected108 = shiftLeft(one, -1);
+        require(false);
+    }
+    catch [problem108: Error, ...rest108] {
+        require(errorCode(problem108) == 301);
+        require(listLength(rest108) == 0);
+    }
+    try {
+        let unexpected109 = shiftRight(one, -1);
+        require(false);
+    }
+    catch [problem109: Error, ...rest109] {
+        require(errorCode(problem109) == 301);
+        require(listLength(rest109) == 0);
+    }
+    try {
+        let unexpected110 = shiftLeft(one, 64);
+        require(false);
+    }
+    catch [problem110: Error, ...rest110] {
+        require(errorCode(problem110) == 301);
+        require(listLength(rest110) == 0);
+    }
+    try {
+        let unexpected111 = shiftRight(one, 64);
+        require(false);
+    }
+    catch [problem111: Error, ...rest111] {
+        require(errorCode(problem111) == 301);
+        require(listLength(rest111) == 0);
+    }
+    try {
+        let unexpected112 = shiftLeft(one, 65);
+        require(false);
+    }
+    catch [problem112: Error, ...rest112] {
+        require(errorCode(problem112) == 301);
+        require(listLength(rest112) == 0);
+    }
+    try {
+        let unexpected113 = shiftRight(one, 65);
+        require(false);
+    }
+    catch [problem113: Error, ...rest113] {
+        require(errorCode(problem113) == 301);
+        require(listLength(rest113) == 0);
+    }
+    try {
+        let unexpected114 = shiftLeft(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem114: Error, ...rest114] {
+        require(errorCode(problem114) == 301);
+        require(listLength(rest114) == 0);
+    }
+    try {
+        let unexpected115 = shiftRight(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem115: Error, ...rest115] {
+        require(errorCode(problem115) == 301);
+        require(listLength(rest115) == 0);
+    }
+    try {
+        let unexpected116 = shiftLeft(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem116: Error, ...rest116] {
+        require(errorCode(problem116) == 301);
+        require(listLength(rest116) == 0);
+    }
+    try {
+        let unexpected117 = shiftRight(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem117: Error, ...rest117] {
+        require(errorCode(problem117) == 301);
+        require(listLength(rest117) == 0);
+    }
+    let bits: Int = 0b0111_1111;
+    require(bits == Int(127));
+}
+
+fn width9() {
+    let low: CInt = -2147483648;
+    let high: CInt = 2147483647;
+    let zero: CInt = 0;
+    let one: CInt = 1;
+    let two: CInt = 2;
+    require(wrappingAdd(high, one) == low);
+    require(wrappingSub(low, one) == high);
+    require(wrappingMul(high, two) == CInt(-2));
+    require(bitNot(zero) == wrappingSub(zero, one));
+    require(bitXor(high, high) == zero);
+    require(bitAnd(high, zero) == zero);
+    require(bitOr(high, zero) == high);
+    ok<CInt>(checkedAdd(low, zero), low);
+    ok<CInt>(checkedMul(low, zero), zero);
+    try {
+        let unexpected118 = checkedAdd(high, one);
+        require(false);
+    }
+    catch [problem118: Error, ...rest118] {
+        require(errorCode(problem118) == 300);
+        require(listLength(rest118) == 0);
+    }
+    try {
+        let unexpected119 = checkedSub(low, one);
+        require(false);
+    }
+    catch [problem119: Error, ...rest119] {
+        require(errorCode(problem119) == 300);
+        require(listLength(rest119) == 0);
+    }
+    try {
+        let unexpected120 = checkedMul(high, two);
+        require(false);
+    }
+    catch [problem120: Error, ...rest120] {
+        require(errorCode(problem120) == 300);
+        require(listLength(rest120) == 0);
+    }
+    ok<CInt>(shiftLeft(one, 0), one);
+    ok<CInt>(shiftRight(high, 0), high);
+    ok<CInt>(shiftLeft(one, 31), CInt(-2147483648));
+    ok<CInt>(shiftRight(low, 31), CInt(-1));
+    try {
+        let unexpected121 = shiftLeft(one, -1);
+        require(false);
+    }
+    catch [problem121: Error, ...rest121] {
+        require(errorCode(problem121) == 301);
+        require(listLength(rest121) == 0);
+    }
+    try {
+        let unexpected122 = shiftRight(one, -1);
+        require(false);
+    }
+    catch [problem122: Error, ...rest122] {
+        require(errorCode(problem122) == 301);
+        require(listLength(rest122) == 0);
+    }
+    try {
+        let unexpected123 = shiftLeft(one, 32);
+        require(false);
+    }
+    catch [problem123: Error, ...rest123] {
+        require(errorCode(problem123) == 301);
+        require(listLength(rest123) == 0);
+    }
+    try {
+        let unexpected124 = shiftRight(one, 32);
+        require(false);
+    }
+    catch [problem124: Error, ...rest124] {
+        require(errorCode(problem124) == 301);
+        require(listLength(rest124) == 0);
+    }
+    try {
+        let unexpected125 = shiftLeft(one, 33);
+        require(false);
+    }
+    catch [problem125: Error, ...rest125] {
+        require(errorCode(problem125) == 301);
+        require(listLength(rest125) == 0);
+    }
+    try {
+        let unexpected126 = shiftRight(one, 33);
+        require(false);
+    }
+    catch [problem126: Error, ...rest126] {
+        require(errorCode(problem126) == 301);
+        require(listLength(rest126) == 0);
+    }
+    try {
+        let unexpected127 = shiftLeft(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem127: Error, ...rest127] {
+        require(errorCode(problem127) == 301);
+        require(listLength(rest127) == 0);
+    }
+    try {
+        let unexpected128 = shiftRight(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem128: Error, ...rest128] {
+        require(errorCode(problem128) == 301);
+        require(listLength(rest128) == 0);
+    }
+    try {
+        let unexpected129 = shiftLeft(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem129: Error, ...rest129] {
+        require(errorCode(problem129) == 301);
+        require(listLength(rest129) == 0);
+    }
+    try {
+        let unexpected130 = shiftRight(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem130: Error, ...rest130] {
+        require(errorCode(problem130) == 301);
+        require(listLength(rest130) == 0);
+    }
+    let bits: CInt = 0b0111_1111;
+    require(bits == CInt(127));
+}
+
+fn width10() {
+    let low: CUInt = 0;
+    let high: CUInt = 4294967295;
+    let zero: CUInt = 0;
+    let one: CUInt = 1;
+    let two: CUInt = 2;
+    require(wrappingAdd(high, one) == low);
+    require(wrappingSub(low, one) == high);
+    require(wrappingMul(high, two) == CUInt(4294967294));
+    require(bitNot(zero) == wrappingSub(zero, one));
+    require(bitXor(high, high) == zero);
+    require(bitAnd(high, zero) == zero);
+    require(bitOr(high, zero) == high);
+    ok<CUInt>(checkedAdd(low, zero), low);
+    ok<CUInt>(checkedMul(low, zero), zero);
+    try {
+        let unexpected131 = checkedAdd(high, one);
+        require(false);
+    }
+    catch [problem131: Error, ...rest131] {
+        require(errorCode(problem131) == 300);
+        require(listLength(rest131) == 0);
+    }
+    try {
+        let unexpected132 = checkedSub(low, one);
+        require(false);
+    }
+    catch [problem132: Error, ...rest132] {
+        require(errorCode(problem132) == 300);
+        require(listLength(rest132) == 0);
+    }
+    try {
+        let unexpected133 = checkedMul(high, two);
+        require(false);
+    }
+    catch [problem133: Error, ...rest133] {
+        require(errorCode(problem133) == 300);
+        require(listLength(rest133) == 0);
+    }
+    ok<CUInt>(shiftLeft(one, 0), one);
+    ok<CUInt>(shiftRight(high, 0), high);
+    ok<CUInt>(shiftLeft(one, 31), CUInt(2147483648));
+    ok<CUInt>(shiftRight(high, 31), CUInt(1));
+    try {
+        let unexpected134 = shiftLeft(one, -1);
+        require(false);
+    }
+    catch [problem134: Error, ...rest134] {
+        require(errorCode(problem134) == 301);
+        require(listLength(rest134) == 0);
+    }
+    try {
+        let unexpected135 = shiftRight(one, -1);
+        require(false);
+    }
+    catch [problem135: Error, ...rest135] {
+        require(errorCode(problem135) == 301);
+        require(listLength(rest135) == 0);
+    }
+    try {
+        let unexpected136 = shiftLeft(one, 32);
+        require(false);
+    }
+    catch [problem136: Error, ...rest136] {
+        require(errorCode(problem136) == 301);
+        require(listLength(rest136) == 0);
+    }
+    try {
+        let unexpected137 = shiftRight(one, 32);
+        require(false);
+    }
+    catch [problem137: Error, ...rest137] {
+        require(errorCode(problem137) == 301);
+        require(listLength(rest137) == 0);
+    }
+    try {
+        let unexpected138 = shiftLeft(one, 33);
+        require(false);
+    }
+    catch [problem138: Error, ...rest138] {
+        require(errorCode(problem138) == 301);
+        require(listLength(rest138) == 0);
+    }
+    try {
+        let unexpected139 = shiftRight(one, 33);
+        require(false);
+    }
+    catch [problem139: Error, ...rest139] {
+        require(errorCode(problem139) == 301);
+        require(listLength(rest139) == 0);
+    }
+    try {
+        let unexpected140 = shiftLeft(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem140: Error, ...rest140] {
+        require(errorCode(problem140) == 301);
+        require(listLength(rest140) == 0);
+    }
+    try {
+        let unexpected141 = shiftRight(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem141: Error, ...rest141] {
+        require(errorCode(problem141) == 301);
+        require(listLength(rest141) == 0);
+    }
+    try {
+        let unexpected142 = shiftLeft(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem142: Error, ...rest142] {
+        require(errorCode(problem142) == 301);
+        require(listLength(rest142) == 0);
+    }
+    try {
+        let unexpected143 = shiftRight(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem143: Error, ...rest143] {
+        require(errorCode(problem143) == 301);
+        require(listLength(rest143) == 0);
+    }
+    let bits: CUInt = 0b0111_1111;
+    require(bits == CUInt(127));
+}
+
+fn width11() {
+    let low: CSize = 0;
+    let high: CSize = 18446744073709551615;
+    let zero: CSize = 0;
+    let one: CSize = 1;
+    let two: CSize = 2;
+    require(wrappingAdd(high, one) == low);
+    require(wrappingSub(low, one) == high);
+    require(wrappingMul(high, two) == 18446744073709551614);
+    require(bitNot(zero) == wrappingSub(zero, one));
+    require(bitXor(high, high) == zero);
+    require(bitAnd(high, zero) == zero);
+    require(bitOr(high, zero) == high);
+    ok<CSize>(checkedAdd(low, zero), low);
+    ok<CSize>(checkedMul(low, zero), zero);
+    try {
+        let unexpected144 = checkedAdd(high, one);
+        require(false);
+    }
+    catch [problem144: Error, ...rest144] {
+        require(errorCode(problem144) == 300);
+        require(listLength(rest144) == 0);
+    }
+    try {
+        let unexpected145 = checkedSub(low, one);
+        require(false);
+    }
+    catch [problem145: Error, ...rest145] {
+        require(errorCode(problem145) == 300);
+        require(listLength(rest145) == 0);
+    }
+    try {
+        let unexpected146 = checkedMul(high, two);
+        require(false);
+    }
+    catch [problem146: Error, ...rest146] {
+        require(errorCode(problem146) == 300);
+        require(listLength(rest146) == 0);
+    }
+    ok<CSize>(shiftLeft(one, 0), one);
+    ok<CSize>(shiftRight(high, 0), high);
+    ok<CSize>(shiftLeft(one, 63), 9223372036854775808);
+    ok<CSize>(shiftRight(high, 63), CSize(1));
+    try {
+        let unexpected147 = shiftLeft(one, -1);
+        require(false);
+    }
+    catch [problem147: Error, ...rest147] {
+        require(errorCode(problem147) == 301);
+        require(listLength(rest147) == 0);
+    }
+    try {
+        let unexpected148 = shiftRight(one, -1);
+        require(false);
+    }
+    catch [problem148: Error, ...rest148] {
+        require(errorCode(problem148) == 301);
+        require(listLength(rest148) == 0);
+    }
+    try {
+        let unexpected149 = shiftLeft(one, 64);
+        require(false);
+    }
+    catch [problem149: Error, ...rest149] {
+        require(errorCode(problem149) == 301);
+        require(listLength(rest149) == 0);
+    }
+    try {
+        let unexpected150 = shiftRight(one, 64);
+        require(false);
+    }
+    catch [problem150: Error, ...rest150] {
+        require(errorCode(problem150) == 301);
+        require(listLength(rest150) == 0);
+    }
+    try {
+        let unexpected151 = shiftLeft(one, 65);
+        require(false);
+    }
+    catch [problem151: Error, ...rest151] {
+        require(errorCode(problem151) == 301);
+        require(listLength(rest151) == 0);
+    }
+    try {
+        let unexpected152 = shiftRight(one, 65);
+        require(false);
+    }
+    catch [problem152: Error, ...rest152] {
+        require(errorCode(problem152) == 301);
+        require(listLength(rest152) == 0);
+    }
+    try {
+        let unexpected153 = shiftLeft(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem153: Error, ...rest153] {
+        require(errorCode(problem153) == 301);
+        require(listLength(rest153) == 0);
+    }
+    try {
+        let unexpected154 = shiftRight(one, 9223372036854775807);
+        require(false);
+    }
+    catch [problem154: Error, ...rest154] {
+        require(errorCode(problem154) == 301);
+        require(listLength(rest154) == 0);
+    }
+    try {
+        let unexpected155 = shiftLeft(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem155: Error, ...rest155] {
+        require(errorCode(problem155) == 301);
+        require(listLength(rest155) == 0);
+    }
+    try {
+        let unexpected156 = shiftRight(one, -9223372036854775808);
+        require(false);
+    }
+    catch [problem156: Error, ...rest156] {
+        require(errorCode(problem156) == 301);
+        require(listLength(rest156) == 0);
+    }
+    let bits: CSize = 0b0111_1111;
+    require(bits == CSize(127));
+}
+
+fn floats() {
+    require(mathSqrt(CFloat(2.0)) == CFloat(1.4142135381698608));
+    require(mathSqrt(2.0) == 1.4142135623730951);
+    require(mathAbs(CFloat(-16777217.0)) == CFloat(16777216.0));
+    require(floatIsNan(mathSqrt(CFloat(-1.0))));
+    require(floatIsNan(mathAbs(mathSqrt(-1.0))));
+    require(!floatIsNan(mathSqrt(CDouble(4.0))));
+    require(1.0 / mathAbs(-0.0) > 0.0);
+    require(CFloat(1.0) / mathAbs(CFloat(-0.0)) > CFloat(0.0));
+    let infinity = 1.0 / 0.0;
+    require(mathSqrt(infinity) == infinity);
+    let small: CFloat = 0.0;
+    require(mathSqrt(small) == small);
+}
+
+fn main() {
+    try {
+        width0();
+        width1();
+        width2();
+        width3();
+        width4();
+        width5();
+        width6();
+        width7();
+        width8();
+        width9();
+        width10();
+        width11();
+        floats();
+        rinzu.stdio.writeLine("numeric vectors ok");
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}

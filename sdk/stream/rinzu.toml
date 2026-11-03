@@ -1,0 +1,5 @@
+[package]
+name = "rinzu.stream"
+language = "0.5"
+kind = "sdk"
+entry = "src/stream.rinzu"

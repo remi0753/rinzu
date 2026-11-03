@@ -1,0 +1,60 @@
+import rinzu.macos;
+import rinzu.process;
+import rinzu.stdio;
+
+async fn main() {
+    try {
+        try {
+            let session = rinzu.macos.open();
+            let device = session.device();
+            let mode = rinzu.process.setting("RINZU_GRAPHICS_ACQUIRE", "texture");
+            if mode == "texture" {
+                let texture = device.texture2D(1, 1, rinzu.macos.pixelRGBA8, rinzu.macos.textureSampled);
+            }
+            else if mode == "sampler" {
+                let sampler = device.sampler(rinzu.macos.filterLinear, rinzu.macos.addressClamp);
+            }
+            else if mode == "image" {
+                let image = device.imageTexture(
+                    byteArray(
+                        b"\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x02\x00\x00\x00\x02\x08\x06\x00\x00\x00\x72\xb6\x0d\x24\x00\x00\x00\x13\x49\x44\x41\x54\x78\x9c\x63\xf8\xcf\xc0\xf0\x1f\x0c\x81\x34\x08\x34\x00\x00\x49\x49\x09\x78\x28\xa0\xdb\x77\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82"
+                    )
+                );
+            }
+            else if mode == "batch" {
+                let batch = device.batch2D(4);
+            }
+            else if mode == "frame" {
+                let frameBatch = device.batch2D(4);
+                let target = device.texture2D(4, 4, rinzu.macos.pixelRGBA8, rinzu.macos.textureRenderTarget);
+                frameBatch.reset(4, 4);
+                frameBatch.fillRect(
+                    rinzu.macos.Rect(x: 0.0, y: 0.0, width: 4.0, height: 4.0),
+                    rinzu.macos.Color(red: 1.0, green: 0.0, blue: 0.0, alpha: 1.0)
+                );
+                let rendered = await frameBatch.renderTexture(
+                    target,
+                    rinzu.macos.Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0)
+                );
+            }
+            else {
+                panic("unknown acquisition test");
+            }
+            panic("acquisition cancellation did not fire");
+        }
+        finally {
+            let closed = await rinzu.macos.closeOwnerSessions();
+            let stats = rinzu.macos.statistics();
+            if stats.retainedControls != 0
+                || stats.textureBytes != 0
+                || stats.bufferBytes != 0
+                || stats.snapshotBytes != 0 {
+                panic("unreceived graphics resource survived");
+            }
+            rinzu.stdio.writeLine("GRAPHICS:acquisition:closed");
+        }
+    }
+    catch errors {
+        panic(f"graphics acquisition test failed: {errors}");
+    }
+}

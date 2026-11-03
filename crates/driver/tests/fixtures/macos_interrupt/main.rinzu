@@ -1,0 +1,30 @@
+import rinzu.macos;
+
+fn onEvent(session: rinzu.macos.Session, event: rinzu.macos.Event) fallback () {
+    if event.kind == rinzu.macos.eventStarted {
+        if !session.isRunning() {
+            panic("invalidEvent");
+        }
+        rinzu.macos.interruptMark(1);
+        rinzu.macos.interruptMark(10);
+    }
+}
+
+async fn main() {
+    try {
+        let retained = ["Main roots", "waiting inside the actual AppKit loop"];
+        let session = rinzu.macos.open();
+        let window = session.window("Rinzu macOS interrupt", 480.0, 280.0);
+        let shown = window.show();
+        try {
+            let result = await session.run(onEvent);
+            rinzu.macos.interruptMark(5);
+        }
+        finally {
+            rinzu.macos.interruptMark(4);
+        }
+    }
+    catch unexpectedErrors {
+        panic("failure");
+    }
+}

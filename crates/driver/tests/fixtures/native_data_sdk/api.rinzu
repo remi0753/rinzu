@@ -1,0 +1,143 @@
+import rinzu.core;
+
+native {
+    fn nativeText(kind: CInt) -> String symbol "buffer_text";
+
+    fn nativeBytes(kind: CInt) -> Bytes(4) symbol "buffer_bytes";
+
+    fn nativeEmpty(kind: CInt) -> Bytes(0) symbol "buffer_empty_bytes";
+
+    fn mutate() -> Unit symbol "buffer_mutate";
+
+    fn checkInput(text: String, length: CSize, bytes: Bytes(4), empty: Bytes(0)) -> CSize symbol "buffer_check_input";
+
+    fn textCallback(callback: fn (Bytes(4)) -> CSize) -> String symbol "buffer_text_callback";
+
+    fn verifyLong(text: String) -> CInt symbol "buffer_verify_long";
+
+    fn cleanup() -> Unit symbol "buffer_fixture_cleanup";
+}
+
+class Sample {
+    const text: String,
+    const bytes: Bytes(4),
+    const longText: String,
+    const caught: Int
+}
+
+fn exercise(payload: Bytes(4), input: String) -> Sample {
+    try {
+        if checkInput(input, utf8ByteLength(input), payload, b"") != 18 {
+            panic("wrongInput");
+        }
+        let text = nativeText(2);
+        let bytes = nativeBytes(1);
+        let emptyNull = nativeEmpty(0);
+        let emptyPage = nativeEmpty(1);
+        let emptyText = nativeText(1);
+        let replacement = nativeText(9);
+        let longText = nativeText(13);
+        let length: fn (Bytes(4)) -> CSize = byteLength;
+        let afterCallback = textCallback(length);
+        mutate();
+        if text != "日本語"
+            || afterCallback != text
+            || bytes != b"\x00\xff\x07\x00"
+            || emptyNull != b""
+            || emptyPage != b""
+            || emptyText != ""
+            || replacement != "\u{fffd}" {
+            panic("wrongCopy");
+        }
+        if utf8ByteLength(longText) != 65536
+            || verifyLong(longText) != 1
+            || payload != b"A\xff\x00\x00"
+            || input != "日本語\u{0}🙂" {
+            panic("changedSource");
+        }
+        var caught = 0;
+        try {
+            let missing = nativeText(0);
+        }
+        catch [nullError: Error, ...nullErrorRest] {
+            if nullError.message != "native value is NULL" {
+                panic("wrongNullError");
+            }
+            caught = caught + 1;
+        }
+        var kind = 3;
+        while kind <= 8 {
+            try {
+                let invalid = nativeText(CInt(kind));
+            }
+            catch [utf8Error: Error, ...utf8ErrorRest] {
+                if utf8Error.message != "native string is not valid UTF-8" {
+                    panic("wrongUtf8Error");
+                }
+                caught = caught + 1;
+            }
+            kind = kind + 1;
+        }
+        if caught != 7 {
+            panic("wrongCount");
+        }
+        return Sample(text: text, bytes: bytes, longText: longText, caught: caught);
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+        return Sample(text: "", bytes: b"", longText: "", caught: 0);
+    }
+}
+
+fn failure(kind: CInt) -> String {
+    return nativeText(kind);
+}
+
+fn failWorker(kind: CInt) -> Int {
+    try {
+        let invalid = failure(kind);
+    }
+    catch errors {
+        return 1;
+    }
+    return 999;
+}
+
+fn fatal(kind: CInt) -> Int {
+    if kind == 0 {
+        let nullBytes = nativeBytes(0);
+        return Int(byteLength(nullBytes));
+    }
+    if kind == 2 {
+        let text = nativeText(12);
+        return Int(utf8ByteLength(text));
+    }
+    let bytes = nativeBytes(2);
+    return Int(byteLength(bytes));
+}
+
+fn leaks() -> Int {
+    try {
+        let text = nativeText(2);
+        var index = 0;
+        while index < 100 {
+            let temporary = "result root across managed polls";
+            if text != "日本語" {
+                panic("lostRoot");
+            }
+            index = index + 1;
+        }
+        return index;
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+        return 0;
+    }
+}
+
+export Sample;
+export exercise;
+export failure;
+export failWorker;
+export fatal;
+export leaks;

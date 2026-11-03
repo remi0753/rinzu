@@ -1,0 +1,106 @@
+import rinzu.stdio;
+
+error Failed {
+    payload: Int
+}
+
+class Pending {
+    const future: Future<Int>
+}
+
+enum Choice {
+    Job(future: Future<Int>),
+    Empty
+}
+
+async fn fail(value: Int) -> Int {
+    throw Failed(message: "failed", payload: value);
+}
+
+fn identity(value: Future<Int>) -> Future<Int> {
+    return value;
+}
+
+fn pack(value: Future<Int>) -> Pending {
+    return Pending(future: value);
+}
+
+fn unpack(value: Pending) -> Future<Int> {
+    return value.future;
+}
+
+fn first(values: List<Future<Int>>) -> Option<Future<Int>> {
+    return listGet(values, 0);
+}
+
+async fn main() {
+    try {
+        try {
+            let awaited1 = await identity(fail(11));
+        }
+        catch [first: Failed] {
+            rinzu.stdio.writeLine(first.payload);
+        }
+        let job = pack(fail(13));
+        try {
+            let awaited2 = await unpack(job);
+        }
+        catch [first: Failed] {
+            rinzu.stdio.writeLine(first.payload);
+        }
+        let pending = fail(17);
+        switch first([pending]) {
+            case Option.Some(future): {
+                try {
+                    let awaited3 = await future;
+                }
+                catch [first: Failed] {
+                    rinzu.stdio.writeLine(first.payload);
+                }
+            }
+            case Option.None: {}
+        }
+        try {
+            let awaited4 = await pending;
+        }
+        catch [first: Failed] {}
+        let other = fail(23);
+        switch mapGet(
+            {
+                "key": other
+            },
+            "key"
+        ) {
+            case Option.Some(future): {
+                try {
+                    let awaited5 = await future;
+                }
+                catch [first: Failed] {
+                    rinzu.stdio.writeLine(first.payload);
+                }
+            }
+            case Option.None: {}
+        }
+        try {
+            let awaited6 = await other;
+        }
+        catch [first: Failed] {}
+        let last = fail(29);
+        switch Choice.Job(future: last) {
+            case Choice.Job(future): {
+                try {
+                    let awaited7 = await future;
+                }
+                catch [first: Failed] {
+                    rinzu.stdio.writeLine(first.payload);
+                }
+            }
+            case Choice.Empty: {}
+        }
+        try {
+            let awaited8 = await last;
+        }
+        catch [first: Failed] {}
+    }
+    catch outputErrors {}
+}

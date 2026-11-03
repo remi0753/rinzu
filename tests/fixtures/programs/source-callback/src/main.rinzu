@@ -1,0 +1,59 @@
+import sample.platform;
+import rinzu.io;
+
+fn onEvent(app: sample.platform.Handle, event: sample.platform.Event) fallback () {
+    let retained = ["typed event", "callback allocation"];
+    let preview = finishPreview(app);
+    var index = 0;
+    while index < 256 {
+        let temporary = ["event GC", "handler roots"];
+        index = index + 1;
+    }
+    if event.kind != 1 || event.sequence != 1 || retained != ["typed event", "callback allocation"] {
+        panic("invalidEvent");
+    }
+}
+
+fn calculate(size: Int) -> Int {
+    var result = 0;
+    var index = 0;
+    while index < size {
+        result = result + 2;
+        index = index + 1;
+    }
+    return result;
+}
+
+async fn finishPreview(app: sample.platform.Handle) {
+    try {
+        try {
+            let size = await rinzu.io.readSize("data/input.txt");
+            let preview = await spawn calculate(size);
+            if preview != size * 2 || !sample.platform.isRunning(app) {
+                panic("invalidPreview");
+            }
+        }
+        finally {
+            let stopped = sample.platform.stop(app);
+            if stopped != 0 {
+                panic("failedStop");
+            }
+        }
+    }
+    catch unexpectedErrors {
+        panic("failed");
+    }
+}
+
+async fn main() {
+    try {
+        let app = sample.platform.create(true);
+        let result = await sample.platform.run(app, onEvent);
+        if result != 0 || sample.platform.isRunning(app) {
+            panic("failedRun");
+        }
+    }
+    catch unexpectedErrors {
+        panic("failed");
+    }
+}

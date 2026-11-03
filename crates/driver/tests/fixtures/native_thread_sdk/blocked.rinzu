@@ -1,0 +1,41 @@
+import threads;
+
+fn blockedWorker() -> Int {
+    return threads.blocking();
+}
+
+async fn readObserved() -> Int {
+    try {
+        return await threads.readSize("data/proof.bin");
+    }
+    catch errors {
+        panic("failed");
+        return 0;
+    }
+}
+
+async fn main() {
+    try {
+        let blocked = spawn blockedWorker();
+        threads.waitBlocked();
+        try {
+            let first = readObserved();
+            let second = readObserved();
+            let firstSize = await first;
+            let secondSize = await second;
+            if firstSize != 8193 || secondSize != 8193 || threads.isBlocked() != 1 {
+                panic("noProgress");
+            }
+        }
+        finally {
+            threads.releaseBlocked();
+        }
+        let result = await blocked;
+        if result != 1 || threads.live() != 0 {
+            panic("unsettled");
+        }
+    }
+    catch errors {
+        panic("failed");
+    }
+}

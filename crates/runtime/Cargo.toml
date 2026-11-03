@@ -1,0 +1,26 @@
+[package]
+name = "rinzu-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[features]
+test-dispatcher-probe = []
+
+[lib]
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[dependencies]
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rinzu-abi = { path = "../abi" }
+
+[dev-dependencies]
+rinzu-compiler = { path = "../compiler" }
+
+[build-dependencies]
+cc.workspace = true
+
+[lints]
+workspace = true

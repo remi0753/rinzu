@@ -1,0 +1,23 @@
+native {
+    fn clock() -> CUInt64 symbol "perf_clock";
+
+    fn ping(value: Int) -> Int symbol "perf_ping";
+
+    fn same(callback: fn (Int) -> Int, count: CSize, kind: CInt) symbol "perf_same";
+
+    fn report(kind: CInt, elapsed: CUInt64, count: CSize) symbol "perf_report";
+
+    supplant fn run(callback: fn (CSize, CUInt64) -> CUInt64, ready: fn () -> Unit) -> CInt symbol "perf_foreign";
+
+    fn stop() symbol "perf_stop";
+
+    fn workerStamp() -> CUInt64 symbol "perf_worker_stamp";
+}
+
+export clock;
+export ping;
+export same;
+export report;
+export run;
+export stop;
+export workerStamp;

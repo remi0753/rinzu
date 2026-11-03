@@ -1,0 +1,11 @@
+[package]
+name = "rinzu.sqlite"
+language = "0.5"
+kind = "sdk"
+entry = "src/sqlite.rinzu"
+
+[native]
+sources = ["native/src/sqlite_source.c"]
+headers = ["native/include/rinzu_sqlite.h"]
+include-dirs = ["native/include"]
+libraries = ["sqlite3"]

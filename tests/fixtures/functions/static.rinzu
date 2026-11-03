@@ -1,0 +1,44 @@
+import rinzu.stdio;
+
+enum Code {
+    Add
+}
+
+class Function {
+    environment: Code
+}
+
+class Command {
+    const run: Function
+}
+
+fn add(value: Int) -> Int {
+    return value + 1;
+}
+
+fn invoke(function: Function, value: Int) -> Int {
+    switch function.environment {
+        case Code.Add: {
+            return add(value);
+        }
+    }
+}
+
+fn make() -> Function {
+    return Function(environment: Code.Add());
+}
+
+fn main() {
+    try {
+        let command = Command(run: make());
+        var i = 0;
+        while i < 300 {
+            let temporary = f"gc-{i}";
+            i = i + 1;
+        }
+        rinzu.stdio.writeLine(invoke(command.run, 41));
+    }
+    catch errors {
+        panic(f"unexpected Error in Main: {errors}");
+    }
+}

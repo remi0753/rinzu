@@ -1,0 +1,382 @@
+fn readSize(path: String) -> Future<Int> {
+    return readResourceSize(path);
+}
+
+native {
+    opaque File;
+
+    opaque Completion;
+
+    fn rawCompletion(file: File) -> Completion symbol "rinzu_io_completion";
+
+    fn rawOpen(path: String, writing: CInt) -> File symbol "rinzu_io_open";
+
+    fn rawTemporary(path: String) -> File symbol "rinzu_io_temporary";
+
+    fn rawInstallTemporary(file: File, destination: String) -> CInt symbol "rinzu_io_install_temporary";
+
+    fn rawStandard(stream: CInt) -> File symbol "rinzu_io_standard";
+
+    fn rawOwnerHasFile() -> CBool symbol "rinzu_io_owner_has_file";
+
+    fn rawOwnerFile() -> File symbol "rinzu_io_owner_file";
+
+    fn rawPending(file: File) -> CBool symbol "rinzu_io_pending";
+
+    fn rawReadyStatus(file: File) -> CInt symbol "rinzu_io_ready_status";
+
+    fn rawRead(file: File, maximum: Int) -> CInt symbol "rinzu_io_read";
+
+    fn rawWrite(file: File, data: ByteArray, length: CSize) -> CInt symbol "rinzu_io_write";
+
+    fn rawWriteAll(file: File, data: ByteArray, length: CSize) -> CInt symbol "rinzu_io_write_all";
+
+    fn rawFlush(file: File) -> CInt symbol "rinzu_io_flush";
+
+    fn rawClose(file: File) -> CInt symbol "rinzu_io_close";
+
+    fn rawPath(from: String, to: String, removing: CInt) -> File symbol "rinzu_io_path";
+
+    fn rawReady(file: File) -> CBool symbol "rinzu_io_ready";
+
+    fn rawStatus(file: File) -> CInt symbol "rinzu_io_status";
+
+    fn rawLength(file: File) -> Int symbol "rinzu_io_length";
+
+    fn rawBytes(file: File) -> Bytes(65536) symbol "rinzu_io_bytes";
+
+    fn rawCancel(file: File) -> Unit symbol "rinzu_io_cancel";
+
+    fn rawFinish(file: File) -> Unit symbol "rinzu_io_finish";
+
+    fn monotonicMillis() -> Int symbol "rinzu_io_monotonic";
+
+    fn unixMillis() -> Int symbol "rinzu_io_unix";
+
+    fn liveFiles() -> Int symbol "rinzu_io_live_files";
+
+    fn liveBuffers() -> Int symbol "rinzu_io_live_buffers";
+
+    fn liveOperations() -> Int symbol "rinzu_io_live_operations";
+
+    fn retainedControlBytes() -> Int symbol "rinzu_io_retained_controls";
+}
+
+export readSize;
+
+class ReadChunk {
+    const data: ByteArray,
+    const eof: Bool
+}
+
+fn invalidPath(path: String) -> Bool {
+    if stringLength(path) == 0 {
+        return true;
+    }
+    switch stringFind(path, "\u{0}", 0) {
+        case Option.Some(index): {
+            return true;
+        }
+        case Option.None: {
+            return false;
+        }
+    }
+}
+
+fn problem(status: Int, label: String) -> Error {
+    try {
+        let resultValue7 = nativeStatus(status, label);
+        return error(-7104, label);
+    }
+    catch [resultError7: Error, ...resultRest7] {
+        return resultError7;
+    }
+}
+
+async fn wait(file: File) {
+    await nativeCompleted(rawCompletion(file));
+}
+
+async fn settle(file: File) {
+    rawCancel(file);
+    await wait(file);
+    rawFinish(file);
+}
+
+async fn open(path: String, writing: CInt) -> File {
+    if invalidPath(path) {
+        throw problem(-7104, "io.open");
+    }
+    let file = rawOpen(path, writing);
+    var delivered = false;
+    try {
+        await wait(file);
+        let resultValue6 = nativeStatus(Int(rawStatus(file)), "io.open");
+        delivered = true;
+        return (file);
+    }
+    finally {
+        await settle(file);
+        if !delivered {
+            let disposed = await close(file);
+        }
+    }
+    throw problem(-7104, "io.open.unreachable");
+}
+
+async fn openRead(path: String) -> File {
+    return await open(path, CInt(0));
+}
+
+async fn openWrite(path: String) -> File {
+    return await open(path, CInt(1));
+}
+
+/// Create a unique regular file with a template ending in XXXXXX.
+/// close removes it unless installTemporary has physically completed.
+async fn openTemporary(template: String) -> File {
+    if invalidPath(template) {
+        throw problem(-7104, "io.temporary.path");
+    }
+    let file = rawTemporary(template);
+    var delivered = false;
+    try {
+        await wait(file);
+        let status = nativeStatus(Int(rawStatus(file)), "io.temporary");
+        delivered = true;
+        return file;
+    }
+    finally {
+        await settle(file);
+        if !delivered {
+            let disposed = await close(file);
+        }
+    }
+}
+
+/// Atomically rename an open temporary file, preserving it after close.
+async fn installTemporary(file: File, destination: String) -> Int {
+    if invalidPath(destination) {
+        throw problem(-7104, "io.temporary.destination");
+    }
+    try {
+        let admitted = nativeStatus(Int(rawInstallTemporary(file, destination)), "io.temporary.install");
+        await wait(file);
+        return nativeStatus(Int(rawStatus(file)), "io.temporary.install");
+    }
+    finally {
+        if rawPending(file) {
+            await settle(file);
+        }
+    }
+}
+
+async fn standard(stream: CInt) -> File {
+    let file = rawStandard(stream);
+    var delivered = false;
+    try {
+        await wait(file);
+        let resultValue5 = nativeStatus(Int(rawStatus(file)), "io.standard");
+        delivered = true;
+        return (file);
+    }
+    finally {
+        await settle(file);
+        if !delivered {
+            let disposed = await close(file);
+        }
+    }
+    throw problem(-7104, "io.standard.unreachable");
+}
+
+async fn standardInput() -> File {
+    return await standard(CInt(0));
+}
+
+async fn standardOutput() -> File {
+    return await standard(CInt(1));
+}
+
+async fn read(file: File, maximum: Int) -> ReadChunk {
+    if maximum < 1 || maximum > 65536 {
+        throw problem(-7104, "io.read");
+    }
+    let ready = Int(rawReadyStatus(file));
+    if ready != 0 {
+        throw problem(ready, "io.read");
+    }
+    try {
+        let started = Int(rawRead(file, maximum));
+        if started != 0 {
+            throw problem(started, "io.read");
+        }
+        await wait(file);
+        let resultValue4 = nativeStatus(Int(rawStatus(file)), "io.read");
+        let valid = rawLength(file);
+        let all = byteArray(rawBytes(file));
+        switch bytesSlice(all, 0, valid) {
+            case Option.Some(data): {
+                return (ReadChunk(data: data, eof: valid == 0));
+            }
+            case Option.None: {
+                throw problem(-7104, "io.read.validLength");
+            }
+        }
+    }
+    finally {
+        if rawPending(file) {
+            await settle(file);
+        }
+    }
+    throw problem(-7104, "io.read.unreachable");
+}
+
+async fn write(file: File, data: ByteArray) -> Int {
+    if bytesLength(data) > 65536 {
+        throw problem(-7104, "io.write");
+    }
+    let ready = Int(rawReadyStatus(file));
+    if ready != 0 {
+        throw problem(ready, "io.write");
+    }
+    try {
+        let started = Int(rawWrite(file, data, byteLength(data)));
+        if started != 0 {
+            throw problem(started, "io.write");
+        }
+        await wait(file);
+        let resultValue3 = nativeStatus(Int(rawStatus(file)), "io.write");
+        return (rawLength(file));
+    }
+    finally {
+        if rawPending(file) {
+            await settle(file);
+        }
+    }
+    throw problem(-7104, "io.write.unreachable");
+}
+
+async fn writeAll(file: File, data: ByteArray) -> Int {
+    let length = bytesLength(data);
+    if length > 65536 {
+        throw problem(-7104, "io.writeAll");
+    }
+    let ready = Int(rawReadyStatus(file));
+    if ready != 0 {
+        throw problem(ready, "io.writeAll");
+    }
+    try {
+        let started = Int(rawWriteAll(file, data, byteLength(data)));
+        if started != 0 {
+            throw problem(started, "io.writeAll");
+        }
+        await wait(file);
+        let resultValue2 = nativeStatus(Int(rawStatus(file)), "io.writeAll");
+        return (rawLength(file));
+    }
+    finally {
+        if rawPending(file) {
+            await settle(file);
+        }
+    }
+    throw problem(-7104, "io.writeAll.unreachable");
+}
+
+async fn control(file: File, flushing: Bool, label: String) -> Int {
+    let ready = Int(rawReadyStatus(file));
+    if ready != 0 {
+        throw problem(ready, label);
+    }
+    try {
+        var started = 0;
+        if flushing {
+            started = Int(rawFlush(file));
+        }
+        else {
+            started = Int(rawClose(file));
+        }
+        if started != 0 {
+            throw problem(started, label);
+        }
+        await wait(file);
+        return nativeStatus(Int(rawStatus(file)), label);
+    }
+    finally {
+        if rawPending(file) {
+            await settle(file);
+        }
+    }
+    throw problem(-7104, "io.finish.unreachable");
+}
+
+async fn flush(file: File) -> Int {
+    return await control(file, true, "io.flush");
+}
+
+async fn close(file: File) -> Int {
+    return await control(file, false, "io.close");
+}
+
+async fn closeOwnerFiles() -> Int {
+    // Explicit whole-Owner drain, after Source children have physically joined.
+    // Includes unpublished open/dup handles and path operations.
+    try {
+        while rawOwnerHasFile() {
+            let file = rawOwnerFile();
+            if rawPending(file) {
+                await settle(file);
+            }
+            else {
+                let resultValue1 = await close(file);
+            }
+        }
+    }
+    finally {}
+    return (0);
+}
+
+async fn pathOperation(from: String, to: String, removing: CInt) -> Int {
+    if invalidPath(from) || (removing == CInt(0) && invalidPath(to)) {
+        throw problem(-7104, "io.path");
+    }
+    let operation = rawPath(from, to, removing);
+    try {
+        await wait(operation);
+        return nativeStatus(Int(rawStatus(operation)), "io.path");
+    }
+    finally {
+        await settle(operation);
+    }
+    throw problem(-7104, "io.path.unreachable");
+}
+
+async fn rename(from: String, to: String) -> Int {
+    return await pathOperation(from, to, CInt(0));
+}
+
+async fn remove(path: String) -> Int {
+    return await pathOperation(path, "", CInt(1));
+}
+
+export File;
+export ReadChunk;
+export openRead;
+export openWrite;
+export openTemporary;
+export installTemporary;
+export read;
+export write;
+export writeAll;
+export flush;
+export close;
+export rename;
+export remove;
+export monotonicMillis;
+export unixMillis;
+export liveFiles;
+export liveBuffers;
+export retainedControlBytes;
+export standardInput;
+export standardOutput;
+export closeOwnerFiles;
+export liveOperations;

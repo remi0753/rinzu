@@ -1,0 +1,69 @@
+import rinzu.macos;
+import rinzu.process;
+import rinzu.stdio;
+
+async fn body(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    let device = scope.session.device();
+    let mode = rinzu.process.setting("RINZU_CANVAS_ACQUIRE", "canvas");
+    if mode == "canvas" {
+        let canvas = scope.canvas2D(
+            device,
+            rinzu.macos.Rect(x: 0.0, y: 0.0, width: 160.0, height: 100.0),
+            8,
+            60,
+            rinzu.macos.Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0),
+            async fn (frame: rinzu.macos.Frame2D) {}
+        );
+    }
+    else {
+        let surface = scope.surface(device, rinzu.macos.Rect(x: 0.0, y: 0.0, width: 160.0, height: 100.0));
+        let root = scope.window.contentView();
+        let attached = root.addSubview(surface);
+        let clock = surface.frameClock(60);
+        if mode == "wait" {
+            let hidden = surface.setHidden(true);
+            let never = await clock.next();
+        }
+    }
+    panic("canvas acquisition cancellation did not fire");
+}
+
+async fn main() {
+    try {
+        try {
+            let mode = rinzu.process.setting("RINZU_CANVAS_ACQUIRE", "font");
+            if mode == "canvas" || mode == "frame" || mode == "wait" {
+                let shown = await rinzu.macos.application("Acquire canvas", 160.0, 100.0, body);
+            }
+            else {
+                let session = rinzu.macos.open();
+                let device = session.device();
+                let font = session.font("", 18.0, false);
+                if mode == "layout" {
+                    let layout = font.layout("日本語 😀", 0.0, rinzu.macos.textLeft);
+                }
+                else if mode == "raster" {
+                    let text = font.layout("日本語 😀", 0.0, rinzu.macos.textLeft);
+                    let texture = device.rasterText(text, 2.0);
+                }
+                panic("font acquisition cancellation did not fire");
+            }
+        }
+        finally {
+            let closed = await rinzu.macos.closeOwnerSessions();
+            let stats = rinzu.macos.statistics();
+            if stats.retainedControls != 0
+                || stats.textBytes != 0
+                || stats.textureBytes != 0
+                || stats.frameWaiters != 0
+                || stats.frameTimers != 0 {
+                panic("unreceived canvas resource survived");
+            }
+            rinzu.stdio.writeLine("CANVAS:acquisition:closed");
+        }
+    }
+    catch errors {
+        panic(f"canvas acquisition failed: {errors}");
+    }
+}

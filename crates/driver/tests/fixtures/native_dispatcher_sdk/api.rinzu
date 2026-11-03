@@ -1,0 +1,41 @@
+import rinzu.timer;
+
+fn readSize(path: String) -> Future<Int> {
+    return readResourceSize(path);
+}
+
+fn timer(milliseconds: Int) -> Future<Unit> {
+    return rinzu.timer.sleep(milliseconds);
+}
+
+native {
+    fn delay(milliseconds: CInt) -> CInt symbol "dispatcher_delay";
+
+    fn workerDelay(milliseconds: CInt) -> CInt symbol "dispatcher_worker_delay";
+
+    fn reset(processMain: CInt) symbol "dispatcher_reset";
+
+    supplant fn run(event: fn (CInt) -> CInt) -> CInt symbol "dispatcher_run";
+
+    fn enterCallback() symbol "dispatcher_enter_callback";
+
+    fn nested() symbol "dispatcher_nested";
+
+    fn leaveCallback() symbol "dispatcher_leave_callback";
+
+    fn done(value: CInt) symbol "dispatcher_done";
+
+    fn finish() -> CInt symbol "dispatcher_finish";
+}
+
+export reset;
+export run;
+export enterCallback;
+export nested;
+export leaveCallback;
+export done;
+export finish;
+export readSize;
+export timer;
+export delay;
+export workerDelay;

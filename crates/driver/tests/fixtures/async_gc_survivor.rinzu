@@ -1,0 +1,76 @@
+import rinzu.stdio;
+
+class Kept {
+    text: String,
+    bytes: ByteArray,
+    next: Option<Kept>
+}
+
+fn check(value: Bool) {
+    if !value {
+        panic("gcFailure");
+    }
+}
+
+fn pressure() {
+    var index = 0;
+    while index < 2048 {
+        let dead = Kept(text: f"discarded {index}", bytes: byteArray(b"temporary"), next: Option<Kept>.None());
+        index = index + 1;
+    }
+}
+
+async fn produce() -> Kept {
+    let root = Kept(text: "日本語\u{0}held", bytes: byteArray(b"\x00\x80\xff"), next: Option<Kept>.None());
+    root.next = Option<Kept>.Some(value: root);
+    return root;
+}
+
+async fn main() {
+    try {
+        let pending = produce();
+        try {
+            let first = await pending;
+            let words = [first.text, "second"];
+            let kept = {
+                "binary": first.bytes
+            };
+            pressure();
+            let again = await pending;
+            check(first.text == "日本語\u{0}held" && again.text == first.text);
+            check(bytesLength(again.bytes) == 3 && bytesGet(again.bytes, 2) == bytesGet(byteArray(b"\xff"), 0));
+            switch listGet(words, 0) {
+                case Option.Some(word): {
+                    check(word == first.text);
+                }
+                case Option.None: {
+                    check(false);
+                }
+            }
+            switch mapGet(kept, "binary") {
+                case Option.Some(binary): {
+                    check(bytesLength(binary) == 3);
+                }
+                case Option.None: {
+                    check(false);
+                }
+            }
+            switch again.next {
+                case Option.Some(alias): {
+                    alias.text = "changed";
+                    check(first.text == "changed");
+                }
+                case Option.None: {
+                    check(false);
+                }
+            }
+        }
+        finally {
+            let settled = await pending;
+        }
+        rinzu.stdio.writeLine("R01:pressure:cycle:future-result:alias:bytes:list:map:OK");
+    }
+    catch errors {
+        panic("unexpectedGcFailure");
+    }
+}

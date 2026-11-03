@@ -1,0 +1,370 @@
+import rinzu.macos;
+import rinzu.io;
+import rinzu.process;
+import rinzu.stdio;
+
+let saveAction = 1;
+
+let saveAsAction = 2;
+
+let openAction = 3;
+
+let closeAction = 4;
+
+fn filename(path: String) -> String {
+    let parts = stringSplit(path, "/");
+    switch listGet(parts, listLength(parts) - 1) {
+        case Option.Some(name): {
+            if name != "" {
+                return name;
+            }
+        }
+        case Option.None: {}
+    }
+    return "Untitled.txt";
+}
+
+/// Policy lives in Source. The SDK owns widgets, receipts, history and jobs.
+class Notepad {
+    const binding: rinzu.macos.DocumentBinding,
+    const status: rinzu.macos.Label,
+    const fileMenu: rinzu.macos.Menu,
+    path: String,
+    named: Bool,
+    busy: Bool,
+    active: Int,
+    requested: Int,
+    closing: Bool,
+    saving: Bool,
+    saves: Int,
+    loads: Int,
+    failures: Int
+
+    fn create(scope: rinzu.macos.UiScope, text: String, path: String) -> Notepad {
+        let root = scope.window.contentView();
+        let scroll = scope.scrollView(rinzu.macos.Rect(x: 12.0, y: 44.0, width: 736.0, height: 464.0));
+        let addedScroll = root.addSubview(scroll.view);
+        let flexibleScroll = scroll.view.setAutoresizing(18);
+        let input = scope.textView(text, rinzu.macos.Rect(x: 0.0, y: 0.0, width: 720.0, height: 460.0));
+        let addedText = scroll.setContent(input.view);
+        let status = scope.label("Ready", rinzu.macos.Rect(x: 12.0, y: 12.0, width: 736.0, height: 24.0));
+        let addedStatus = root.addSubview(status.view);
+        let flexibleStatus = status.view.setAutoresizing(2);
+        let binding = rinzu.macos.DocumentBinding.create(scope.session, input, rinzu.macos.Document.create(text, true));
+        let bar = scope.menu("Main");
+        let appMenu = scope.menu("Rinzu Notepad");
+        let quit = appMenu.addStandard("Quit", rinzu.macos.commandQuit, "q", rinzu.macos.modifierCommand);
+        let fileMenu = scope.menu("File");
+        let open = fileMenu.addAction("Open…", openAction, "o", rinzu.macos.modifierCommand);
+        let save = fileMenu.addAction("Save", saveAction, "s", rinzu.macos.modifierCommand);
+        let saveAs = fileMenu.addAction(
+            "Save As…",
+            saveAsAction,
+            "s",
+            rinzu.macos.modifierCommand + rinzu.macos.modifierShift
+        );
+        let close = fileMenu.addAction("Close", closeAction, "w", rinzu.macos.modifierCommand);
+        let editMenu = scope.menu("Edit");
+        let undo = editMenu.addStandard("Undo", rinzu.macos.commandUndo, "z", rinzu.macos.modifierCommand);
+        let redo = editMenu.addStandard(
+            "Redo",
+            rinzu.macos.commandRedo,
+            "z",
+            rinzu.macos.modifierCommand + rinzu.macos.modifierShift
+        );
+        let separator = editMenu.addSeparator();
+        let cut = editMenu.addStandard("Cut", rinzu.macos.commandCut, "x", rinzu.macos.modifierCommand);
+        let copy = editMenu.addStandard("Copy", rinzu.macos.commandCopy, "c", rinzu.macos.modifierCommand);
+        let paste = editMenu.addStandard("Paste", rinzu.macos.commandPaste, "v", rinzu.macos.modifierCommand);
+        let selectAll = editMenu.addStandard(
+            "Select All",
+            rinzu.macos.commandSelectAll,
+            "a",
+            rinzu.macos.modifierCommand
+        );
+        let appAdded = bar.addSubmenu(appMenu);
+        let fileAdded = bar.addSubmenu(fileMenu);
+        let editAdded = bar.addSubmenu(editMenu);
+        let installed = scope.window.setMenu(bar);
+        let focused = input.view.focus();
+        return Notepad(
+            binding: binding,
+            status: status,
+            fileMenu: fileMenu,
+            path: path,
+            named: path != "",
+            busy: false,
+            active: 0,
+            requested: 0,
+            closing: false,
+            saving: false,
+            saves: 0,
+            loads: 0,
+            failures: 0
+        );
+    }
+
+    fn message(self: Notepad, text: String) {
+        let document = self.binding.document;
+        var marker = "";
+        if document.dirty() {
+            marker = " • Modified";
+        }
+        let changed = self.status.setText(
+            f"{text}{marker} | undo {document.undo.length()} redo {document.redo.length()}"
+        );
+    }
+
+    fn refresh(self: Notepad, window: rinzu.macos.Window) {
+        var title = "Untitled — Rinzu Notepad";
+        if self.named {
+            title = f"{filename(self.path)} — Rinzu Notepad";
+        }
+        if self.binding.document.dirty() {
+            title = f"{title} • Modified";
+        }
+        let renamed = window.setTitle(title);
+        let saveEnabled = self.fileMenu.setState(saveAction, !self.busy && !self.closing, false);
+        let saveAsEnabled = self.fileMenu.setState(saveAsAction, !self.busy && !self.closing, false);
+        let openEnabled = self.fileMenu.setState(openAction, !self.busy && !self.closing, false);
+    }
+
+    fn request(self: Notepad, action: Int) {
+        if self.closing || (self.busy && (action != closeAction || self.active == closeAction)) {
+            return;
+        }
+        self.requested = action;
+    }
+
+    async fn saveTo(self: Notepad, path: String) {
+        let captured = self.binding.capture();
+        let snapshot = self.binding.document.snapshot();
+        self.message("Saving…");
+        self.saving = true;
+        try {
+            let installed = await rinzu.macos.saveDocument(path, snapshot.text);
+            try {}
+            finally {
+                self.binding.document.markSaved(snapshot);
+                self.path = path;
+                self.named = true;
+                self.saves = self.saves + 1;
+            }
+        }
+        finally {
+            self.saving = false;
+        }
+        self.message("Saved");
+        rinzu.stdio.writeLine(f"NOTEPAD:SAVED:{snapshot.version}");
+    }
+
+    async fn saveCurrent(self: Notepad, window: rinzu.macos.Window, choose: Bool) -> Bool {
+        var destination = self.path;
+        if choose || !self.named {
+            switch await window.saveFile("Save document", "", filename(self.path)) {
+                case Option.None: {
+                    return false;
+                }
+                case Option.Some(path): {
+                    destination = path;
+                }
+            }
+        }
+        await self.saveTo(destination);
+        return true;
+    }
+
+    async fn confirm(self: Notepad, window: rinzu.macos.Window) -> Bool {
+        if !self.binding.document.dirty() {
+            return true;
+        }
+        let answer = await window.alert(
+            "Save changes?",
+            "Save this document before continuing?",
+            "Save",
+            "Discard",
+            "Cancel"
+        );
+        if answer == 1 {
+            return await self.saveCurrent(window, false);
+        }
+        return answer == 2;
+    }
+
+    async fn loadPath(self: Notepad, path: String) {
+        let contents = await rinzu.macos.readDocument(path);
+        // A successful read precedes replacement; input cannot arrive between
+        // enabling, loading and installing the new document's identity/barrier.
+        try {}
+        finally {
+            let enabled = self.binding.setAccepting(true);
+            let loaded = self.binding.load(contents);
+            self.path = path;
+            self.named = true;
+            self.loads = self.loads + 1;
+        }
+        self.message("Opened");
+        rinzu.stdio.writeLine("NOTEPAD:OPENED");
+    }
+
+    async fn perform(self: Notepad, job: rinzu.macos.UiJob, action: Int) {
+        var frozen = false;
+        try {
+            try {
+                if self.binding.input.isComposing() {
+                    self.message("Finish text composition before this operation");
+                    return;
+                }
+                let captured = self.binding.capture();
+                if action == openAction || action == closeAction {
+                    let disabled = self.binding.setAccepting(false);
+                    frozen = true;
+                    if !await self.confirm(job.window) {
+                        return;
+                    }
+                    if action == closeAction {
+                        self.closing = true;
+                        self.message("Closing");
+                        return;
+                    }
+                    switch await job.window.openFile("Open document", "") {
+                        case Option.None: {}
+                        case Option.Some(path): {
+                            await self.loadPath(path);
+                        }
+                    }
+                }
+                else {
+                    let saved = await self.saveCurrent(job.window, action == saveAsAction);
+                }
+            }
+            catch errors {
+                self.failures = self.failures + 1;
+                switch listGet(errors, 0) {
+                    case Option.Some(problem): {
+                        self.message(f"Operation failed: {errorMessage(problem)} — retry from File");
+                    }
+                    case Option.None: {}
+                }
+                rinzu.stdio.writeLine("NOTEPAD:FAILED");
+            }
+        }
+        finally {
+            try {
+                if frozen && !self.closing {
+                    let enabled = self.binding.setAccepting(true);
+                }
+            }
+            finally {
+                self.busy = false;
+                self.active = 0;
+                self.refresh(job.window);
+                let notified = job.wake();
+            }
+        }
+    }
+
+    fn schedule(self: Notepad, scope: rinzu.macos.UiScope) {
+        if self.busy || self.closing || scope.isStopping() || self.requested == 0 {
+            return;
+        }
+        let action = self.requested;
+        self.requested = 0;
+        self.active = action;
+        self.busy = true;
+        self.refresh(scope.window);
+        let started = scope.start(
+            async fn (job: rinzu.macos.UiJob) {
+                await self.perform(job, action);
+            }
+        );
+    }
+
+    fn receive(self: Notepad, event: rinzu.macos.UiEvent) {
+        if self.closing {
+            return;
+        }
+        if event.kind == rinzu.macos.eventCloseRequested || event.kind == rinzu.macos.eventQuitRequested {
+            self.request(closeAction);
+        }
+        else if event.kind == rinzu.macos.eventTextChanged || event.kind == rinzu.macos.eventSelectionChanged {
+            let changed = self.binding.receive(event);
+            if changed {
+                self.message("Editing");
+            }
+        }
+        else if event.kind == rinzu.macos.eventAction {
+            if event.action >= saveAction && event.action <= closeAction {
+                self.request(event.action);
+            }
+            else if event.action == rinzu.macos.actionUndo || event.action == rinzu.macos.actionRedo {
+                try {
+                    if event.action == rinzu.macos.actionUndo {
+                        let undone = self.binding.undoEdit();
+                    }
+                    else {
+                        let redone = self.binding.redoEdit();
+                    }
+                    self.message("Editing");
+                }
+                catch errors {
+                    self.message("Finish text composition before Undo/Redo");
+                }
+            }
+        }
+        else if event.kind == rinzu.macos.eventInputLimit {
+            self.message("Document limit: 1 MiB of UTF8");
+        }
+    }
+
+    async fn run(self: Notepad, scope: rinzu.macos.UiScope) {
+        self.refresh(scope.window);
+        rinzu.stdio.writeLine("NOTEPAD:READY");
+        while !self.closing && !scope.isStopping() {
+            let event = await scope.session.nextEvent();
+            if event.kind == rinzu.macos.eventStopped {
+                return;
+            }
+            self.receive(event);
+            self.schedule(scope);
+            self.refresh(scope.window);
+        }
+    }
+}
+
+async fn launch() {
+    let path = rinzu.process.setting("RINZU_NOTEPAD_PATH", "");
+    var initial = "";
+    if path != "" {
+        initial = await rinzu.macos.readDocument(path);
+    }
+    let result = await rinzu.macos.applicationWithSignals(
+        "Rinzu Notepad",
+        760.0,
+        520.0,
+        async fn (app: rinzu.macos.UiApplication) {
+            let notepad = Notepad.create(app.primary, initial, path);
+            await notepad.run(app.primary);
+        }
+    );
+}
+
+async fn main() {
+    try {
+        try {
+            await launch();
+        }
+        finally {
+            try {
+                let files = await rinzu.io.closeOwnerFiles();
+            }
+            finally {
+                let sessions = await rinzu.macos.closeOwnerSessions();
+                rinzu.stdio.writeLine("NOTEPAD:CLOSED");
+            }
+        }
+    }
+    catch errors {
+        panic(f"notepad failed: {errors}");
+    }
+}

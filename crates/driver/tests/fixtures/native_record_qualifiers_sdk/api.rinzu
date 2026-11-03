@@ -1,0 +1,43 @@
+native {
+    record Point {
+        x: Int
+    }
+
+    fn aliases(read: Point, write: Point, handler: fn (Point, Point) -> Int) -> Point symbol "qualifier_aliases";
+
+    fn change(value: Point, amount: Int) -> Int symbol "qualifier_change";
+}
+
+fn exercise() -> Int {
+    let point = Point(x: 1);
+    let returned = aliases(
+        point,
+        point,
+        fn (first: Point, second: Point) -> Int fallback -11 {
+            var index = 0;
+            while index < 64 {
+                let moved = f"qualifier-{index}";
+                index = index + 1;
+            }
+            var caught = 0;
+            try {
+                let invalid = change(second, 1);
+            }
+            catch errors {
+                caught = caught + 1;
+            }
+            if caught != 1 {
+                panic("callback alias lost Busy");
+            }
+            return first.x;
+        }
+    );
+    let status = change(returned, 3);
+    if point.x != 16 || returned.x != 16 {
+        panic("lost shared reference");
+    }
+    return point.x;
+}
+
+export Point;
+export exercise;

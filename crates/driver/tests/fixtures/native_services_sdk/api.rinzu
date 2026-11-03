@@ -1,0 +1,12 @@
+import rinzu.timer;
+
+async fn timer(milliseconds: Int) -> Unit {
+    await rinzu.timer.sleep(milliseconds);
+}
+
+async fn readSize(path: String) -> Int {
+    return await readResourceSize(path);
+}
+
+export timer;
+export readSize;

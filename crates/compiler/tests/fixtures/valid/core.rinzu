@@ -1,0 +1,62 @@
+class Point {
+    const x: Int,
+    const y: Int,
+}
+
+enum Choice {
+    first(value: Int),
+    second,
+}
+
+fn add(left: Int, right: Int) -> Int {
+    return left + right;
+}
+
+fn classify(flag: Bool) -> Int {
+    if flag {
+        return 1;
+    }
+    else {
+        return 2;
+    }
+}
+
+async fn compute() -> Int {
+    return 40;
+}
+
+fn cleanup() {}
+
+async fn main() {
+    let minimum = -9223372036854775808;
+    let point = Point(x: 1, y: 2);
+    let numbers: List<Int> = [point.x, point.y];
+    let table: Map<String, Int> = {
+        "answer": 42
+    };
+    let future = compute();
+    let answer = await future;
+    let sum = await spawn add(answer, 2);
+    let selected = Choice.first(value: sum);
+    switch selected {
+        case Choice.first(value): {
+            let copy = value;
+        }
+        case Choice.second: {
+            let empty: List<Int> = [];
+        }
+    }
+    try {
+        let retained = numbers;
+    }
+    finally {
+        cleanup();
+    }
+    let retained_table = table;
+    var counter = 0;
+    while counter < 1 {
+        counter = counter + 1;
+        continue;
+    }
+    let classification = classify(true);
+}

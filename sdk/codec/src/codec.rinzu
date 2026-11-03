@@ -1,0 +1,225 @@
+/// Text and a selection measured in Unicode scalar values, not UTF-8 bytes.
+class Document {
+    /// UTF-8 text preserves embedded NUL and all valid Unicode scalars.
+    const text: String,
+    /// Position in the inclusive range 0..stringLength(text).
+    const selection: Int
+}
+
+class Settings {
+    const fontSize: Int,
+    const tabWidth: Int,
+    const wrap: Bool
+}
+
+class Message {
+    const sequence: Int,
+    const operation: String,
+    const payload: ByteArray
+}
+
+fn failure<T>(code: Int, context: String) -> T {
+    throw error(code, context);
+}
+
+fn byteAt(data: ByteArray, index: Int) -> Int {
+    switch bytesGet(data, index) {
+        case Option.Some(value): {
+            return Int(value);
+        }
+        case Option.None(): {
+            return -1;
+        }
+    }
+}
+
+fn uint32(data: ByteArray, index: Int) -> Int {
+    return byteAt(
+        data,
+        index
+    ) + byteAt(data, index + 1) * 256 + byteAt(data, index + 2) * 65536 + byteAt(data, index + 3) * 16777216;
+}
+
+fn uint32Bytes(value: Int) -> ByteArray {
+    let data: List<
+        CUInt8
+    > = [
+        CUInt8(value % 256),
+        CUInt8((value / 256) % 256),
+        CUInt8((value / 65536) % 256),
+        CUInt8((value / 16777216) % 256)
+    ];
+    return byteArray(data);
+}
+
+fn prefix(kind: Int) -> ByteArray {
+    let data: List<CUInt8> = [82, 90, 67, 68, 1, CUInt8(kind)];
+    return byteArray(data);
+}
+
+fn frame(data: ByteArray, kind: Int, minimum: Int, maximum: Int) -> Int {
+    if bytesLength(data) > maximum {
+        return failure<Int>(502, "codec.frame.limit");
+    }
+    if bytesLength(data) < minimum {
+        return failure<Int>(500, "codec.frame.truncated");
+    }
+    if byteAt(data, 0) != 82 || byteAt(data, 1) != 90 || byteAt(data, 2) != 67 || byteAt(data, 3) != 68 {
+        return failure<Int>(500, "codec.frame.magic");
+    }
+    if byteAt(data, 4) != 1 {
+        return failure<Int>(501, "codec.frame.version");
+    }
+    if byteAt(data, 5) != kind {
+        return failure<Int>(501, "codec.frame.kind");
+    }
+    return (0);
+}
+
+fn slice(data: ByteArray, start: Int, end: Int) -> ByteArray {
+    switch bytesSlice(data, start, end) {
+        case Option.Some(value): {
+            return (value);
+        }
+        case Option.None(): {
+            return failure<ByteArray>(500, "codec.frame.length");
+        }
+    }
+}
+
+/// Encode version 1 document data, with at most 1 MiB of UTF-8 text.
+/// Invalid selections throw Error 503; oversized text throws Error 502.
+/// The result owns immutable bytes and requires no native resource cleanup.
+///
+/// ```rinzu-test
+/// import rinzu.codec;
+///
+/// fn main() {
+///     let original = rinzu.codec.Document(text: "日本語\u{0}🙂", selection: 4);
+///     try {
+///         let data = rinzu.codec.encodeDocument(original);
+///         let decoded = rinzu.codec.decodeDocument(data);
+///         if decoded.text != original.text || decoded.selection != original.selection {
+///             panic("failed");
+///         }
+///     }
+///     catch errors {
+///         panic("failed");
+///     }
+/// }
+/// ```
+fn encodeDocument(value: Document) -> ByteArray {
+    if utf8ByteLength(value.text) > 1048576 {
+        return failure<ByteArray>(502, "codec.document.limit");
+    }
+    if value.selection < 0 || value.selection > stringLength(value.text) {
+        return failure<ByteArray>(503, "codec.document.selection");
+    }
+    let text = utf8Encode(value.text);
+    let header = bytesConcat(bytesConcat(prefix(1), uint32Bytes(bytesLength(text))), uint32Bytes(value.selection));
+    return (bytesConcat(header, text));
+}
+
+fn decodeDocument(data: ByteArray) -> Document {
+    let resultValue8 = frame(data, 1, 14, 1048590);
+    let length = uint32(data, 6);
+    let selection = uint32(data, 10);
+    if length > 1048576 {
+        return failure<Document>(502, "codec.document.limit");
+    }
+    if bytesLength(data) != 14 + length {
+        return failure<Document>(500, "codec.document.length");
+    }
+    let resultValue7 = slice(data, 14, 14 + length);
+    try {
+        let resultValue6 = utf8Decode(resultValue7);
+        if selection > stringLength(resultValue6) {
+            return failure<Document>(503, "codec.document.selection");
+        }
+        return (Document(text: resultValue6, selection: selection));
+    }
+    catch [resultError6: Error, ...resultRest6] {
+        throw errorWithContext(resultError6, "codec.document.text");
+    }
+}
+
+fn encodeSettings(value: Settings) -> ByteArray {
+    if value.fontSize < 8 || value.fontSize > 96 || value.tabWidth < 1 || value.tabWidth > 16 {
+        return failure<ByteArray>(503, "codec.settings.range");
+    }
+    var wrap: CUInt8 = 0;
+    if value.wrap {
+        wrap = 1;
+    }
+    let fields: List<CUInt8> = [CUInt8(value.fontSize), CUInt8(value.tabWidth), wrap];
+    return (bytesConcat(prefix(2), byteArray(fields)));
+}
+
+fn decodeSettings(data: ByteArray) -> Settings {
+    let resultValue5 = frame(data, 2, 9, 9);
+    let font = byteAt(data, 6);
+    let tab = byteAt(data, 7);
+    let wrap = byteAt(data, 8);
+    if font < 8 || font > 96 || tab < 1 || tab > 16 || wrap > 1 {
+        return failure<Settings>(503, "codec.settings.range");
+    }
+    return (Settings(fontSize: font, tabWidth: tab, wrap: wrap == 1));
+}
+
+fn encodeMessage(value: Message) -> ByteArray {
+    if value.sequence < 0 || value.sequence > 4294967295 {
+        return failure<ByteArray>(503, "codec.message.sequence");
+    }
+    if stringLength(value.operation) == 0 {
+        return failure<ByteArray>(503, "codec.message.operation");
+    }
+    if utf8ByteLength(value.operation) > 32 || bytesLength(value.payload) > 65521 {
+        return failure<ByteArray>(502, "codec.message.limit");
+    }
+    let operation = utf8Encode(value.operation);
+    let nameLength = bytesLength(operation);
+    if 15 + nameLength + bytesLength(value.payload) > 65536 {
+        return failure<ByteArray>(502, "codec.message.limit");
+    }
+    let nameField: List<CUInt8> = [CUInt8(nameLength)];
+    let header = bytesConcat(
+        bytesConcat(bytesConcat(prefix(3), uint32Bytes(value.sequence)), byteArray(nameField)),
+        uint32Bytes(bytesLength(value.payload))
+    );
+    return (bytesConcat(bytesConcat(header, operation), value.payload));
+}
+
+fn decodeMessage(data: ByteArray) -> Message {
+    let resultValue4 = frame(data, 3, 15, 65536);
+    let sequence = uint32(data, 6);
+    let nameLength = byteAt(data, 10);
+    let length = uint32(data, 11);
+    if nameLength == 0 {
+        return failure<Message>(503, "codec.message.operation");
+    }
+    if nameLength > 32 || length > 65521 {
+        return failure<Message>(502, "codec.message.limit");
+    }
+    if bytesLength(data) != 15 + nameLength + length {
+        return failure<Message>(500, "codec.message.length");
+    }
+    let resultValue3 = slice(data, 15, 15 + nameLength);
+    try {
+        let resultValue2 = utf8Decode(resultValue3);
+        let resultValue1 = slice(data, 15 + nameLength, 15 + nameLength + length);
+        return (Message(sequence: sequence, operation: resultValue2, payload: resultValue1));
+    }
+    catch [resultError2: Error, ...resultRest2] {
+        throw errorWithContext(resultError2, "codec.message.operation");
+    }
+}
+
+export Document;
+export Settings;
+export Message;
+export encodeDocument;
+export decodeDocument;
+export encodeSettings;
+export decodeSettings;
+export encodeMessage;
+export decodeMessage;

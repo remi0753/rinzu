@@ -1,0 +1,9 @@
+[package]
+name="rinzu.httpcodec"
+language="0.5"
+kind="sdk"
+entry="src/httpcodec.rinzu"
+[native]
+sources=["native/request_line.c"]
+headers=["native/request_line.h"]
+include-dirs=["native"]

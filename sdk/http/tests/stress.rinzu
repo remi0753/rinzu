@@ -1,0 +1,189 @@
+import rinzu.timer;
+import rinzu.http;
+import rinzu.stdio;
+
+fn expected(failure: Error, status: Int) {
+    if failure is rinzu.http.HttpFailure {
+        expectedHttp(failure, status);
+    }
+    else {
+        panic("unexpectedFailureType");
+    }
+}
+
+fn expectedHttp(failure: rinzu.http.HttpFailure, status: Int) {
+    switch errorNativeStatus(failure.payload.cause) {
+        case Option.Some(value): {
+            if value != status {
+                panic("badStatus");
+            }
+        }
+        case Option.None: {
+            panic("badNative");
+        }
+    }
+}
+
+async fn main() {
+    try {
+        let client = rinzu.http.newClient();
+        let controls = rinzu.http.retainedControlBytes();
+        try all {
+            try {
+                let resultValue13 = await rinzu.http.request(client, "BASE/slow", byteArray(b""), false, 20);
+                panic("badTimeout");
+            }
+            catch [resultError13: Error, ...resultRest13] {
+                expected(resultError13, 28);
+            }
+            try {
+                let resultValue12 = await rinzu.http.request(client, "BASE/huge", byteArray(b""), false, 2000);
+                panic("badBound");
+            }
+            catch [resultError12: Error, ...resultRest12] {
+                if resultError12 is rinzu.http.HttpFailure {
+                    expected(resultError12, -7306);
+                    if bytesLength(resultError12.payload.partial) > 65536 {
+                        panic("badPartialBound");
+                    }
+                }
+                else {
+                    throw resultError12;
+                }
+            }
+            try {
+                let resultValue11 = await rinzu.http.request(client, "BASE/redirect", byteArray(b""), false, 2000);
+                if resultValue11.status != 302 || bytesLength(resultValue11.body) != 0 {
+                    panic("badFollow");
+                }
+            }
+            catch [resultError11: Error, ...resultRest11] {
+                panic("badRedirect");
+            }
+            try {
+                let resultValue10 = await rinzu.http.request(client, "BASE/status", byteArray(b""), false, 2000);
+                if resultValue10.status != 503 {
+                    panic("bad503");
+                }
+            }
+            catch [resultError10: Error, ...resultRest10] {
+                panic("badHttpStatus");
+            }
+            try {
+                let resultValue9 = await rinzu.http.request(client, "SSLBASE/binary", byteArray(b""), false, 1000);
+                panic("badTls");
+            }
+            catch [resultError9: Error, ...resultRest9] {
+                expected(resultError9, 60);
+            }
+            try {
+                let resultValue8 = await rinzu.http.request(client, "http://example.com/", byteArray(b""), false, 2000);
+                panic("badPolicy");
+            }
+            catch [resultError8: Error, ...resultRest8] {
+                expected(resultError8, -7304);
+            }
+            try {
+                let resultValue7 = await rinzu.http.request(
+                    client,
+                    "http://user@127.0.0.1/",
+                    byteArray(b""),
+                    false,
+                    2000
+                );
+                panic("badUser");
+            }
+            catch [resultError7: Error, ...resultRest7] {
+                expected(resultError7, -7304);
+            }
+            try {
+                let resultValue6 = await rinzu.http.request(client, "BASE/\u{0}hidden", byteArray(b""), false, 2000);
+                panic("badNul");
+            }
+            catch [resultError6: Error, ...resultRest6] {
+                expected(resultError6, -7304);
+            }
+            try all {
+                let pending = rinzu.http.request(client, "BASE/slow", byteArray(b""), false, 2000);
+                let settled = cancelledRequest(pending);
+                try {
+                    let resultValue5 = await rinzu.http.close(client);
+                    panic("badBusyClose");
+                }
+                catch [resultError5: Error, ...resultRest5] {
+                    switch errorNativeStatus(resultError5) {
+                        case Option.Some(status): {
+                            if status != -7303 {
+                                panic("badBusyStatus");
+                            }
+                        }
+                        case Option.None: {
+                            panic("badBusyNative");
+                        }
+                    }
+                }
+                let cancelled = cancelFuture(pending);
+                if !cancelled {
+                    panic("badCancel");
+                }
+                while !futureReady(settled) {
+                    await rinzu.timer.sleep(1);
+                }
+            }
+            finally {}
+            var i = 0;
+            while i < 32 {
+                try {
+                    let resultValue4 = await rinzu.http.request(client, "BASE/binary", byteArray(b""), false, 2000);
+                    if bytesLength(resultValue4.body) != 8192 {
+                        panic("badSize");
+                    }
+                }
+                catch [resultError4: Error, ...resultRest4] {
+                    panic("badRecovery");
+                }
+                if rinzu.http.liveBuffers() != 0 || rinzu.http.retainedControlBytes() != controls {
+                    panic("badGrowth");
+                }
+                i = i + 1;
+            }
+        }
+        finally {
+            try {
+                let resultValue3 = await rinzu.http.close(client);
+            }
+            catch [resultError3: Error, ...resultRest3] {
+                panic("badClose");
+            }
+        }
+        try {
+            let resultValue2 = await rinzu.http.close(client);
+            panic("badTwice");
+        }
+        catch [resultError2: Error, ...resultRest2] {}
+        try {
+            let resultValue1 = await rinzu.http.request(client, "BASE/binary", byteArray(b""), false, 2000);
+            panic("badClosed");
+        }
+        catch [resultError1: Error, ...resultRest1] {
+            expected(resultError1, -7302);
+        }
+        if rinzu.http.liveClients() != 0 || rinzu.http.liveBuffers() != 0 {
+            panic("badLive");
+        }
+        rinzu.stdio.writeLine("http-stress-ok");
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}
+
+// Retain an observation path while independently checking physical cancellation.
+async fn cancelledRequest(value: Future<rinzu.http.Response>) {
+    try {
+        let response = await value;
+    }
+    catch errors {
+        panic("unexpectedRequestFailure");
+    }
+}

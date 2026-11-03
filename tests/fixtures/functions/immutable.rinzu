@@ -1,0 +1,41 @@
+import rinzu.stdio;
+
+enum Environment {
+    Prefix(text: String)
+}
+
+class Function {
+    environment: Environment
+}
+
+fn apply(text: String, value: Int) -> String {
+    return f"{text}:{value}";
+}
+
+fn invoke(function: Function, value: Int) -> String {
+    switch function.environment {
+        case Environment.Prefix(text): {
+            return apply(text, value);
+        }
+    }
+}
+
+fn make() -> Function {
+    let text = "escaped";
+    return Function(environment: Environment.Prefix(text: text));
+}
+
+fn main() {
+    try {
+        let function = make();
+        var i = 0;
+        while i < 300 {
+            let temporary = f"gc-{i}";
+            i = i + 1;
+        }
+        rinzu.stdio.writeLine(invoke(function, 42));
+    }
+    catch errors {
+        panic(f"unexpected Error in Main: {errors}");
+    }
+}

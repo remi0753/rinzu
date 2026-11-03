@@ -1,0 +1,28 @@
+class Counter {
+    value: Int
+
+    fn add(self: Counter, amount: Int) -> Int {
+        self.value = self.value + amount;
+        return self.value;
+    }
+}
+
+native {
+    supplant fn invoke(handler: fn (Int) -> Int, value: Int) -> Int symbol "capture_invoke";
+}
+
+async fn exercise(value: Int) -> Int {
+    let counter = Counter(value: value);
+    let result = await invoke(
+        fn (amount: Int) -> Int fallback -1 {
+            return counter.add(amount);
+        },
+        3
+    );
+    if result != counter.value {
+        panic("lost supplant capture");
+    }
+    return result;
+}
+
+export exercise;

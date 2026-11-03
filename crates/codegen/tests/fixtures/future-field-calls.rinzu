@@ -1,0 +1,69 @@
+import rinzu.stdio;
+
+error Failed {
+    payload: Int
+}
+
+async fn fail(number: Int) -> Int {
+    throw Failed(message: "failed", payload: number);
+}
+
+async fn safe() -> Int {
+    return 0;
+}
+
+class Cell {
+    future: Future<Int>
+}
+
+fn save(cell: Cell, number: Int) {
+    cell.future = fail(number);
+}
+
+fn saveThenFail(cell: Cell) {
+    save(cell, 173);
+    let invalid = CInt8(300);
+}
+
+fn saveAndRead(first: Cell, second: Cell) -> Future<Int> {
+    first.future = fail(181);
+    return second.future;
+}
+
+async fn observe(value: Future<Int>) {
+    try {
+        let result = await value;
+    }
+    catch [problem: Failed] {
+        try {
+            rinzu.stdio.writeLine(problem.payload);
+        }
+        catch outputErrors {}
+    }
+    catch errors {}
+}
+
+async fn main() {
+    try {
+        let cell = Cell(future: safe());
+        save(cell, 163);
+        let first = observe(cell.future);
+        await first;
+        let original = fail(167);
+        cell.future = original;
+        try {
+            saveThenFail(cell);
+        }
+        catch errors {}
+        let before = observe(original);
+        await before;
+        let after = observe(cell.future);
+        await after;
+        let returned = saveAndRead(cell, cell);
+        let receiver = observe(returned);
+        await receiver;
+        let repeated = observe(cell.future);
+        await repeated;
+    }
+    catch errors {}
+}

@@ -1,0 +1,188 @@
+import "wire.rinzu" as wire;
+import "support.rinzu" as support;
+import rinzu.testing;
+import rinzu.stdio;
+
+fn ok(value: Bool) -> Bool {
+    return value;
+}
+
+fn decoded(parser: wire.Parser, body: ByteArray, rawLength: Int) {
+    support.assertEqual<Int>(parser.phase, 2, "complete phase");
+    support.assertEqual<ByteArray>(parser.body, body, "binary preserved");
+    support.assertTrue(parser.scanned <= rawLength, "delimiter scanned once");
+    support.assertTrue(parser.peakRaw <= 45056, "bounded raw input");
+}
+
+fn reject(data: ByteArray, isRequest: Bool, code: Int, status: Int) {
+    let parser = wire.fresh(isRequest);
+    try {
+        let resultValue4 = wire.feed(parser, data);
+        support.assertTrue(false, "invalid framing accepted");
+    }
+    catch [resultError4: Error, ...resultRest4] {
+        if resultError4 is wire.Failure {
+            support.assertEqual<Int>(errorCode(resultError4.payload.cause), code, "failure cause");
+            support.assertEqual<Int>(resultError4.payload.status, status, "failure status");
+        }
+        else {
+            throw resultError4;
+        }
+    }
+    try {
+        let resultValue3 = wire.end(parser);
+        support.assertTrue(false, "failed parser revived");
+    }
+    catch [resultError3: Error, ...resultRest3] {}
+}
+
+fn main() {
+    try {
+        let splitCount = checkRequests();
+        checkResponses();
+        checkRejections();
+        checkHostFields();
+        checkEncoding();
+        rinzu.stdio.writeLine(f"HTTP-PARSER:split={splitCount}:single-byte:coalesced:bounded:EOF:OK");
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}
+
+fn checkHostFields() {
+    let names = ["localhost", "example.test:8080", "127.0.0.1", "xn--bcher-kva.example"];
+    var index = 0;
+    while index < listLength(names) {
+        switch listGet(names, index) {
+            case Option.Some(host): {
+                let parser = wire.fresh(true);
+                support.assertTrue(
+                    wire.feed(parser, utf8Encode(f"GET / HTTP/1.1\r\nHost: {host}\r\n\r\n")),
+                    "virtual host syntax"
+                );
+            }
+            case Option.None: {}
+        }
+        index = index + 1;
+    }
+    reject(byteArray(b"GET / HTTP/1.1\r\nHost: user@example.test\r\n\r\n"), true, 7801, 400);
+    reject(byteArray(b"GET / HTTP/1.1\r\nHost: bad host\r\n\r\n"), true, 7801, 400);
+    reject(byteArray(b"GET / HTTP/1.1\r\nHost: host:0\r\n\r\n"), true, 7801, 400);
+    reject(byteArray(b"GET / HTTP/1.1\r\nHost: host:no\r\n\r\n"), true, 7801, 400);
+    reject(byteArray(b"GET / HTTP/1.1\r\nHost: host:80:81\r\n\r\n"), true, 7801, 400);
+}
+
+fn checkRequests() -> Int {
+    let body = byteArray(b"\x00\xff\x80A\x00B\xfeC");
+    let head = byteArray(
+        b"POST /echo?raw=%2F HTTP/1.1\r\nHost: 127.0.0.1:80\r\nContent-Length: 8\r\nX-Test: \xff\x80 \t\r\nX-Test: again\r\n\r\n"
+    );
+    let data = bytesConcat(head, body);
+    var split = 1;
+    while split < bytesLength(data) {
+        let parser = wire.fresh(true);
+        let first = ok(wire.feed(parser, wire.slice(data, 0, split)));
+        support.assertTrue(!first, "incomplete prefix");
+        support.assertTrue(
+            ok(wire.feed(parser, wire.slice(data, split, bytesLength(data)))),
+            "all two-chunk boundaries"
+        );
+        decoded(parser, body, bytesLength(head));
+        split = split + 1;
+    }
+    let single = wire.fresh(true);
+    var index = 0;
+    while index < bytesLength(data) {
+        let completeAtByte = ok(wire.feed(single, wire.slice(data, index, index + 1)));
+        support.assertEqual<Bool>(completeAtByte, index == bytesLength(data) - 1, "one-byte boundary");
+        index = index + 1;
+    }
+    decoded(single, body, bytesLength(head));
+    support.assertEqual<String>(single.target, "/echo?raw=%2F", "raw query preserved");
+    support.assertEqual<Int>(listLength(single.headers), 4, "field ordering/duplicates");
+    switch listGet(single.headers, 2) {
+        case Option.Some(header): {
+            support.assertEqual<String>(header.name, "x-test", "lowercase name");
+            support.assertEqual<ByteArray>(header.value, byteArray(b"\xff\x80"), "binary OWS trimmed");
+        }
+        case Option.None: {
+            support.assertTrue(false, "missing header");
+        }
+    }
+    let coalesced = wire.fresh(true);
+    support.assertTrue(ok(wire.feed(coalesced, bytesConcat(data, byteArray(b"GET /next")))), "coalesced body end");
+    decoded(coalesced, body, bytesLength(head));
+    support.assertEqual<ByteArray>(coalesced.residual, byteArray(b"GET /next"), "next message retained");
+    return split - 1;
+}
+
+fn checkResponses() {
+    let body = byteArray(b"\x00\xff\x80A\x00B\xfeC");
+    let reply = wire.fresh(false);
+    support.assertTrue(
+        ok(wire.feed(reply, bytesConcat(byteArray(b"HTTP/1.1 500 Error\r\nContent-Length: 8\r\n\r\n"), body))),
+        "error status is response"
+    );
+    let parsedReply = wire.response(reply);
+    support.assertEqual<Int>(parsedReply.status, 500, "HTTP status separate from transport failure");
+    let metadata = wire.fresh(false);
+    support.assertTrue(
+        ok(wire.feed(metadata, byteArray(b"HTTP/1.1 304 Cached\r\nContent-Length: 999999\r\n\r\n"))),
+        "304 length metadata"
+    );
+    support.assertEqual<Int>(bytesLength(metadata.body), 0, "304 suppressed body");
+    let partial = wire.fresh(false);
+    let incomplete = ok(wire.feed(partial, byteArray(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\n\x00\xff")));
+    try {
+        let resultValue2 = wire.end(partial);
+        support.assertTrue(false, "premature EOF accepted");
+    }
+    catch [resultError2: Error, ...resultRest2] {
+        if resultError2 is wire.Failure {
+            support.assertEqual<Int>(errorCode(resultError2.payload.cause), 7804, "EOF cause");
+            support.assertEqual<
+                ByteArray
+            >(resultError2.payload.partialBody, byteArray(b"\x00\xff"), "bounded partial body");
+        }
+        else {
+            throw resultError2;
+        }
+    }
+}
+
+fn checkRejections() {
+    reject(byteArray(b"GET / HTTP/1.1\nHost: 127.0.0.1\r\n\r\n"), true, 7801, 400);
+    reject(byteArray(b"GET / HTTP/1.1\rX\nHost: localhost\r\n\r\n"), true, 7801, 400);
+    reject(byteArray(b"GET / HTTP/1.1\r\nHost: local\rXhost\r\n\r\n"), true, 7801, 400);
+    reject(byteArray(b"GET / HTTP/1.1\r\nHost: localhost\r\nContent-Length: +0\r\n\r\n"), true, 7801, 400);
+    reject(
+        byteArray(b"POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 8\r\nContent-Length: 8\r\n\r\n"),
+        true,
+        7801,
+        400
+    );
+    reject(byteArray(b"POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 65537\r\n\r\n"), true, 7802, 413);
+    reject(byteArray(b"HTTP/1.1 204 Empty\r\nContent-Length: 0\r\n\r\n"), false, 7801, 204);
+    reject(byteArray(b"HTTP/1.1 200 OK\r\n\r\n"), false, 7803, 200);
+}
+
+fn checkEncoding() {
+    let ep = support.expect<wire.Endpoint>(wire.endpoint("http://127.0.0.1:8080?x=%2F"));
+    support.assertEqual<String>(ep.target, "/?x=%2F", "empty path with query");
+    try {
+        let resultValue1 = wire.encodeRequest(
+            "GET",
+            ep,
+            [wire.Header(name: "Content-Length", value: byteArray(b"99"))],
+            byteArray(b"")
+        );
+        support.assertTrue(false, "reserved custom field");
+    }
+    catch [resultError1: Error, ...resultRest1] {}
+    let encoded = support.expect<
+        wire.Encoded
+    >(wire.encodeResponse(wire.Response(status: 200, headers: [], body: support.payload(65536))));
+    support.assertEqual<Int>(bytesLength(encoded.body), 65536, "body separate from head");
+    support.assertTrue(bytesLength(encoded.head) < 65536, "head within socket write cap");
+}

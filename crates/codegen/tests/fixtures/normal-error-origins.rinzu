@@ -1,0 +1,65 @@
+import rinzu.stdio;
+
+error A {}
+
+error B {}
+
+fn ready(value: Int) {}
+
+fn make() -> fn (Int) -> Unit {
+    throw A(message: "initializer");
+}
+
+fn argument() -> Int {
+    throw B(message: "callee must be checked first");
+}
+
+fn checkTarget() -> Int {
+    try all {
+        let action = make();
+        action(argument());
+    }
+    catch [A, B] {
+        return -1;
+    }
+    catch [A, Error] {
+        return 73;
+    }
+    return -2;
+}
+
+class Handler {
+    const action: fn () -> Unit
+}
+
+fn empty() {}
+
+fn makeHandler() -> Handler {
+    throw A(message: "receiver initializer");
+}
+
+fn checkReceiver() -> Int {
+    try all {
+        let handler = makeHandler();
+        handler.action();
+    }
+    catch [A, Error] {
+        return 79;
+    }
+    return -3;
+}
+
+async fn main() {
+    try {
+        rinzu.stdio.writeLine(checkTarget());
+        rinzu.stdio.writeLine(checkReceiver());
+        let accepted = setProcessExitStatus(300);
+        if accepted {
+            rinzu.stdio.writeLine(-4);
+        }
+        else {
+            rinzu.stdio.writeLine(83);
+        }
+    }
+    catch outputErrors {}
+}

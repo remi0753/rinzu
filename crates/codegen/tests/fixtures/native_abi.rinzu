@@ -1,0 +1,58 @@
+native {
+    fn mixed(
+        a: CInt8,
+        b: CUInt8,
+        c: CInt16,
+        d: CUInt16,
+        e: CInt32,
+        f: CUInt32,
+        g: Int,
+        h: CSize,
+        i: CFloat,
+        j: CDouble,
+        k: Bool
+    ) -> CSize symbol "mixed";
+
+    fn floating(
+        a: CFloat,
+        b: CDouble,
+        c: CFloat,
+        d: CDouble,
+        e: CFloat,
+        f: CDouble,
+        g: CFloat,
+        h: CDouble,
+        i: CFloat,
+        j: CDouble
+    ) -> CDouble symbol "floating";
+
+    fn signed8(value: CInt8) -> CInt8 symbol "signed8";
+
+    fn signed16(value: CInt16) -> CInt16 symbol "signed16";
+
+    fn signed32(value: CInt32) -> CInt32 symbol "signed32";
+
+    fn signed64(value: Int) -> Int symbol "signed64";
+
+    fn unsigned8(value: CUInt8) -> CUInt8 symbol "unsigned8";
+
+    fn unsigned16(value: CUInt16) -> CUInt16 symbol "unsigned16";
+
+    fn unsigned32(value: CUInt32) -> CUInt32 symbol "unsigned32";
+
+    fn unsigned64(value: CSize) -> CSize symbol "unsigned64";
+
+    fn echoFloat(value: CFloat) -> CFloat symbol "echo_float";
+
+    fn echoDouble(value: CDouble) -> CDouble symbol "echo_double";
+
+    fn boolean(value: Bool) -> Bool symbol "boolean";
+
+    fn empty() -> Unit symbol "empty";
+
+    fn count() -> CUInt32 symbol "count";
+
+    fn invoke(callback: fn (Bytes(4)) -> CSize, data: Bytes(4)) -> CSize symbol "invoke";
+}
+
+fn main() {}

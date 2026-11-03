@@ -1,0 +1,11 @@
+---
+# Use LLVM 21 in both the editor and the command-line checks.
+BasedOnStyle: LLVM
+IndentWidth: 2
+ColumnLimit: 100
+# Some sources are concatenated into a translation unit; keep include order.
+SortIncludes: Never
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+...

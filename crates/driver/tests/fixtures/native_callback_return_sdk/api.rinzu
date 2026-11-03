@@ -1,0 +1,142 @@
+import rinzu.core;
+
+native {
+    fn strings(callback: fn (CInt, String) -> String, mode: CInt) -> CSize symbol "return_strings";
+
+    fn bytes(callback: fn (CInt, String) -> Bytes(4), mode: CInt) -> CSize symbol "return_bytes";
+
+    fn zero(callback: fn (CInt) -> Bytes(0)) -> CInt symbol "return_zero";
+
+    fn empty(callback: fn (CInt) -> String) -> CInt symbol "return_empty";
+
+    fn unit(callback: fn (CInt) -> Unit) -> CInt symbol "return_unit";
+
+    fn tick() -> Unit symbol "return_tick";
+
+    fn held() -> CInt symbol "return_held";
+}
+
+fn label(mode: CInt, text: String) -> String fallback "代替\u{0}tail" {
+    let moving = [text, "nested moving collection"];
+    if text != "input" || moving != ["input", "nested moving collection"] {
+        panic("lost");
+    }
+    try {
+        if mode == 1 {
+            let invalid = CInt8(300);
+        }
+        if mode == 3 {
+            let trapped = 1 / 0;
+        }
+        if mode == 4 {
+            try {
+                let caughtValue = CInt8(300);
+            }
+            catch [conversion: Error, ...conversionRest] {
+                if conversion.message == "" {
+                    panic("wrongCatch");
+                }
+            }
+        }
+        return "日本語😀\u{0}end";
+    }
+    finally {
+        tick();
+    }
+    return "";
+}
+
+fn data(mode: CInt, text: String) -> Bytes(4) fallback b"\xfe" {
+    let moving = [text, "nested bytes result"];
+    if text != "input" || moving != ["input", "nested bytes result"] {
+        panic("lost");
+    }
+    try {
+        if mode == 1 {
+            let invalid = CInt8(300);
+        }
+        if mode == 3 {
+            let trapped = 1 / 0;
+        }
+        if mode == 4 {
+            try {
+                let caughtValue = CInt8(300);
+            }
+            catch [conversion: Error, ...conversionRest] {
+                if conversion.message == "" {
+                    panic("wrongCatch");
+                }
+            }
+        }
+        return b"\xff\x00\x07";
+    }
+    finally {
+        tick();
+    }
+    return b"";
+}
+
+fn zeroBody(mode: CInt) -> Bytes(0) fallback b"" {
+    try {
+        if mode == 1 {
+            let invalid = CInt8(300);
+        }
+        return b"";
+    }
+    finally {
+        tick();
+    }
+    return b"";
+}
+
+fn emptyBody(mode: CInt) -> String fallback "" {
+    try {
+        if mode == 1 {
+            let invalid = CInt8(300);
+        }
+        return "";
+    }
+    finally {
+        tick();
+    }
+    return "";
+}
+
+fn unitBody(mode: CInt) -> Unit fallback () {
+    try {
+        if mode == 1 {
+            let invalid = CInt8(300);
+        }
+    }
+    finally {
+        tick();
+    }
+}
+
+fn invoke(callback: fn (CInt, String) -> String, mode: CInt) -> CSize {
+    return strings(callback, mode);
+}
+
+fn exercise() -> Int {
+    let alias = label;
+    var mode: CInt = 0;
+    while mode < 5 {
+        let stringValue = invoke(alias, mode);
+        let byteValue = bytes(data, mode);
+        if stringValue != 4 || byteValue != 4 {
+            panic("wrong");
+        }
+        mode = mode + 1;
+    }
+    if zero(zeroBody) != 8 || empty(emptyBody) != 8 || unit(unitBody) != 8 || held() != 1 {
+        panic("wrongEmpty");
+    }
+    return 56;
+}
+
+fn verifyHeld() -> Int {
+    return Int(held());
+}
+
+export exercise;
+export verifyHeld;

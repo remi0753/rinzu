@@ -1,0 +1,9 @@
+[package]
+name = "rinzu.shutdown"
+kind = "sdk"
+language = "0.5"
+entry = "src/shutdown.rinzu"
+[native]
+sources = ["native/control.c"]
+headers = ["native/control.h"]
+include-dirs = ["native"]

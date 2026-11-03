@@ -1,0 +1,12 @@
+class Item {
+    const name: String,
+    const unitPrice: Int,
+    const quantity: Int
+}
+
+fn total(item: Item) -> Int {
+    return item.unitPrice * item.quantity;
+}
+
+export Item;
+export total;

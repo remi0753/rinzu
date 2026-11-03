@@ -1,0 +1,49 @@
+{
+  "schema": "rinzu.standard-library-license-inventory-v1",
+  "revision": 2,
+  "toolchainVersion": "0.1.0",
+  "ownSource": {
+    "includes": [
+      "Rinzu standard source",
+      "native SDK source",
+      "runtime source",
+      "runtime headers",
+      "API documentation"
+    ],
+    "licenseStatus": "not specified in the repository",
+    "licenseTextBundled": false
+  },
+  "osDependencies": [
+    {
+      "name": "libSystem",
+      "provider": "macOS",
+      "owners": [
+        "rinzu.io",
+        "rinzu.process",
+        "rinzu.shutdown",
+        "rinzu.socket",
+        "rinzu.httpcodec"
+      ],
+      "bundled": false,
+      "licenseSource": "platform distribution"
+    },
+    {
+      "name": "CoreFoundation",
+      "provider": "macOS",
+      "use": "compiled async runtime Owner dispatcher",
+      "bundled": false,
+      "licenseSource": "platform distribution"
+    },
+    {
+      "name": "libcurl",
+      "provider": "macOS system library",
+      "owners": [
+        "rinzu.http"
+      ],
+      "bundled": false,
+      "licenseSource": "platform distribution; no third-party license text supplied by this repository"
+    }
+  ],
+  "additionalSdkPolicy": "GUI, SDL2, SQLite, typed codecs, logging, shim, and consumption SDKs are additional source packages, outside this standard resource bundle.",
+  "generatedAotDependencies": "The deployment inventory records actual selected images and their hashes/UUIDs; it is not a substitute for license texts."
+}

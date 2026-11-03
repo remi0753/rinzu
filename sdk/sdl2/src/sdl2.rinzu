@@ -1,0 +1,100 @@
+import rinzu.timer;
+
+native {
+    opaque WindowHandle;
+
+    record Event {
+        kind: CUInt32,
+        windowId: CUInt32,
+        shouldQuit: CBool,
+        sequence: Int
+    }
+
+    fn createWindow(title: String, width: CInt, height: CInt) -> WindowHandle symbol "rinzu_sdl2_source_window";
+
+    fn poll(window: WindowHandle, output: Event) -> CBool symbol "rinzu_sdl2_source_poll";
+
+    fn render(window: WindowHandle) -> CInt symbol "rinzu_sdl2_source_render";
+
+    fn setTitle(window: WindowHandle, title: String) -> CInt symbol "rinzu_sdl2_source_title";
+
+    fn isRunning(window: WindowHandle) -> CBool symbol "rinzu_sdl2_source_running";
+
+    fn stop(window: WindowHandle) -> CInt symbol "rinzu_sdl2_source_stop";
+
+    fn destroyWindow(window: WindowHandle) -> CInt symbol "rinzu_sdl2_source_destroy";
+
+    fn destroyOwnerWindows() -> CInt symbol "rinzu_sdl2_source_destroy_owner_windows";
+
+    fn liveWindows() -> Int symbol "rinzu_sdl2_source_live_windows";
+}
+
+fn nextEvent(window: WindowHandle) -> Option<Event> {
+    let output = Event(kind: CUInt32(0), windowId: CUInt32(0), shouldQuit: false, sequence: 0);
+    if poll(window, output) {
+        return Option<Event>.Some(value: output);
+    }
+    return Option<Event>.None();
+}
+
+async fn run(
+    title: String,
+    onEvent: fn (WindowHandle, Event) -> Unit,
+    onFrame: fn (WindowHandle, Int) -> Unit,
+    milliseconds: Int
+) -> Int {
+    var frame = 0;
+    let window = createWindow(title, 480, 280);
+    try {
+        while isRunning(window) {
+            var polling = true;
+            while isRunning(window) && polling {
+                switch nextEvent(window) {
+                    case Option.Some(event): {
+                        onEvent(window, event);
+                        if event.shouldQuit {
+                            let stopped = stop(window);
+                            if stopped != 0 {
+                                panic("failedQuit");
+                            }
+                        }
+                    }
+                    case Option.None: {
+                        polling = false;
+                    }
+                }
+            }
+            if isRunning(window) {
+                frame = frame + 1;
+                onFrame(window, frame);
+                let rendered = render(window);
+                if rendered != 0 {
+                    panic("failedRender");
+                }
+                if isRunning(window) {
+                    await rinzu.timer.sleep(milliseconds);
+                }
+            }
+        }
+    }
+    finally {
+        let destroyed = destroyWindow(window);
+        if destroyed != 0 {
+            panic("failedDestroy");
+        }
+    }
+    return frame;
+}
+
+export WindowHandle;
+export Event;
+export createWindow;
+export render;
+export setTitle;
+export nextEvent;
+export isRunning;
+export stop;
+export destroyWindow;
+export run;
+export destroyOwnerWindows;
+export liveWindows;

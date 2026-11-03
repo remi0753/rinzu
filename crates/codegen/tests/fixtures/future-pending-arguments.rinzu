@@ -1,0 +1,43 @@
+import rinzu.stdio;
+
+async fn choose(block: Bool) -> Int {
+    if block {
+        while true {}
+    }
+    return 101;
+}
+
+async fn relay(value: Future<Int>) -> Int {
+    return await value;
+}
+
+async fn ignore(value: Future<Int>) -> Int {
+    return 103;
+}
+
+fn forward(value: Future<Int>) -> Future<Int> {
+    return relay(value);
+}
+
+class Pending {
+    const future: Future<Int>
+}
+
+async fn fromField(value: Pending) -> Int {
+    return await value.future;
+}
+
+async fn main() {
+    try {
+        let input = choose(false);
+        let relayed = relay(input);
+        rinzu.stdio.writeLine(await relayed);
+        let independent = ignore(input);
+        rinzu.stdio.writeLine(await independent);
+        let forwarded = forward(input);
+        rinzu.stdio.writeLine(await forwarded);
+        let field = fromField(Pending(future: input));
+        rinzu.stdio.writeLine(await field);
+    }
+    catch errors {}
+}

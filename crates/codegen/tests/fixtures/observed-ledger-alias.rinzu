@@ -1,0 +1,46 @@
+import rinzu.stdio;
+
+fn check(value: Bool) {
+    if !value {
+        panic("nestedFutureFailure");
+    }
+}
+
+async fn answer() -> Int {
+    return 73;
+}
+
+fn outer() -> Future<Int> {
+    return answer();
+}
+
+async fn barrier() -> Int {
+    return 1;
+}
+
+fn pressure() -> Int {
+    var values: List<Int> = [];
+    var index = 0;
+    while index < 1024 {
+        values = listAppend(values, index);
+        index = index + 1;
+    }
+    return listLength(values);
+}
+
+async fn main() {
+    try {
+        let pending = outer();
+        check(await barrier() == 1);
+        check(await barrier() == 1);
+        check(pressure() == 1024);
+        let result = await pending;
+        check(result == 73);
+        let again = await pending;
+        check(again == 73);
+        rinzu.stdio.writeLine("returned-future-ok");
+    }
+    catch errors {
+        panic("unexpectedNestedError");
+    }
+}

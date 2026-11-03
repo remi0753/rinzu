@@ -1,0 +1,129 @@
+fn equal(actual: Int, expected: Int) {
+    if actual != expected {
+        panic("failed");
+    }
+}
+
+fn found(value: Option<Int>, expected: Int) {
+    switch value {
+        case Option.Some(index): {
+            equal(index, expected);
+        }
+        case Option.None: {
+            equal(-1, expected);
+        }
+    }
+}
+
+class Counter {
+    value: Int
+}
+
+fn argument(counter: Counter, expected: Int, data: ByteArray) -> ByteArray {
+    equal(counter.value, expected);
+    counter.value = counter.value + 1;
+    return data;
+}
+
+fn start(counter: Counter) -> Int {
+    equal(counter.value, 2);
+    counter.value = 3;
+    return 0;
+}
+
+fn checks() {
+    let data = byteArray(b"\x00AZaZ\xff\x80\r\n");
+    let original = data;
+    let lower = bytesLowerAscii(data);
+    if lower != byteArray(b"\x00azaz\xff\x80\r\n") || original != data || data == lower {
+        panic("invalidCase");
+    }
+    found(bytesFindAny(data, byteArray(b"Z"), 0), 2);
+    found(bytesFindAny(data, byteArray(b"Z"), 3), 4);
+    found(bytesFindAny(data, byteArray(b"\x00\xff"), 1), 5);
+    found(bytesFindAny(data, byteArray(b"\x80"), 6), 6);
+    found(bytesFindAny(data, byteArray(b""), 0), -1);
+    found(bytesFindAny(data, byteArray(b"\x00"), -1), -1);
+    found(bytesFindAny(data, data, 9), -1);
+    found(bytesFindAny(data, data, 9223372036854775807), -1);
+    found(bytesFindNotAny(data, byteArray(b"AZaZ\x00"), 0), 5);
+    found(bytesFindNotAny(data, data, 0), -1);
+    found(bytesFindNotAny(data, byteArray(b""), 4), 4);
+    found(bytesFindNotAny(data, byteArray(b""), 9), -1);
+    found(bytesFindNotAny(data, byteArray(b""), -1), -1);
+    var index = 0;
+    while index < 256 {
+        let one = byteArray([CUInt8(index)]);
+        if !bytesContainsAny(one, one)
+            || !bytesAllIn(one, one)
+            || bytesContainsAny(one, byteArray(b""))
+            || bytesAllIn(one, byteArray(b"")) {
+            panic("badPredicate");
+        }
+        if bytesTrim(one, one) != byteArray(b"") || bytesTrim(one, byteArray(b"")) != one {
+            panic("badTrim");
+        }
+        found(bytesFindAny(one, one, 0), 0);
+        found(bytesFindNotAny(one, one, 0), -1);
+        switch bytesGet(bytesLowerAscii(one), 0) {
+            case Option.Some(byte): {
+                if index >= 65 && index <= 90 {
+                    equal(Int(byte), index + 32);
+                }
+                else {
+                    equal(Int(byte), index);
+                }
+            }
+            case Option.None: {
+                panic("missingByte");
+            }
+        }
+        index = index + 1;
+    }
+    if bytesContainsAny(byteArray(b""), data)
+        || !bytesAllIn(byteArray(b""), data)
+        || !bytesContainsAny(data, byteArray(b"\xff"))
+        || bytesAllIn(data, byteArray(b"AZ")) {
+        panic("invalidPredicate");
+    }
+    let predicateCounter = Counter(value: 0);
+    if !bytesAllIn(argument(predicateCounter, 0, data), argument(predicateCounter, 1, data)) {
+        panic("missingPredicate");
+    }
+    equal(predicateCounter.value, 2);
+    if bytesTrim(byteArray(b" \tA\x00\xff\t "), byteArray(b" \t")) != byteArray(b"A\x00\xff")
+        || bytesTrim(data, byteArray(b"")) != data
+        || bytesTrim(byteArray(b"\x00\xff\x00"), byteArray(b"\x00\xff")) != byteArray(b"")
+        || bytesTrim(byteArray(b""), data) != byteArray(b"") {
+        panic("invalidTrim");
+    }
+    let longEdges = bytesConcat(
+        byteArray(b"                                \t"),
+        bytesConcat(data, byteArray(b"\t                                "))
+    );
+    if bytesTrim(longEdges, byteArray(b" \t")) != data {
+        panic("invalidWordTrim");
+    }
+    let trimCounter = Counter(value: 0);
+    if bytesTrim(argument(trimCounter, 0, data), argument(trimCounter, 1, data)) != byteArray(b"") {
+        panic("missingTrim");
+    }
+    equal(trimCounter.value, 2);
+    let counter = Counter(value: 0);
+    found(bytesFindAny(argument(counter, 0, data), argument(counter, 1, data), start(counter)), 0);
+    equal(counter.value, 3);
+    found(bytesFindAny(byteArray(b""), data, 0), -1);
+    found(bytesFindNotAny(byteArray(b""), data, 0), -1);
+    if bytesLowerAscii(byteArray(b"")) != byteArray(b"") {
+        panic("invalidEmpty");
+    }
+}
+
+fn main() {
+    try {
+        checks();
+    }
+    catch errors {
+        panic("unexpectedError");
+    }
+}

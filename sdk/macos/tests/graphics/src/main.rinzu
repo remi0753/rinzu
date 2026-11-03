@@ -1,0 +1,228 @@
+import rinzu.timer;
+import rinzu.macos;
+import rinzu.process;
+import rinzu.stdio;
+
+fn expect(texture: rinzu.macos.Texture, x: Int, y: Int, expected: ByteArray) {
+    let bytes = texture.read(rinzu.macos.Scissor(x: x, y: y, width: 1, height: 1));
+    if bytes != expected {
+        panic(f"pixel mismatch at {x}, {y}: {bytes}");
+    }
+}
+
+async fn pixels(device: rinzu.macos.Device) {
+    let batch = device.batch2D(8);
+    let target = device.texture2D(8, 8, rinzu.macos.pixelRGBA8, rinzu.macos.textureRenderTarget);
+    let image = device.texture2D(2, 2, rinzu.macos.pixelRGBA8, rinzu.macos.textureSampled);
+    let uploaded = image.write(
+        rinzu.macos.Scissor(x: 0, y: 0, width: 2, height: 2),
+        8,
+        byteArray(b"\xff\x00\x00\xff\x00\xff\x00\xff\x00\x00\xff\xff\xff\xff\xff\xff")
+    );
+    batch.reset(8, 8);
+    batch.fillRect(
+        rinzu.macos.Rect(x: 0.0, y: 0.0, width: 8.0, height: 8.0),
+        rinzu.macos.Color(red: 0.0, green: 0.0, blue: 1.0, alpha: 1.0)
+    );
+    batch.fillRect(
+        rinzu.macos.Rect(x: 0.0, y: 0.0, width: 4.0, height: 4.0),
+        rinzu.macos.Color(red: 1.0, green: 0.0, blue: 0.0, alpha: 0.5)
+    );
+    if batch.drawCallCount() != 1 {
+        panic("consecutive solid quads were not batched");
+    }
+    batch.setFilter(rinzu.macos.filterNearest);
+    batch.image(
+        image,
+        rinzu.macos.Rect(x: 4.0, y: 0.0, width: 4.0, height: 4.0),
+        rinzu.macos.Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)
+    );
+    batch.setClip(rinzu.macos.Scissor(x: 0, y: 4, width: 8, height: 4));
+    let rotated = rinzu.macos.rotation2D(1.5707963267948966);
+    batch.setTransform(rinzu.macos.compose2D(rotated, rinzu.macos.translation2D(6.0, 4.0)));
+    batch.fillRect(
+        rinzu.macos.Rect(x: 0.0, y: 0.0, width: 2.0, height: 2.0),
+        rinzu.macos.Color(red: 0.0, green: 1.0, blue: 0.0, alpha: 1.0)
+    );
+    if batch.drawCallCount() != 3 || batch.count != 4 {
+        panic("span or quad count mismatch");
+    }
+    let rendered = await batch.renderTexture(target, rinzu.macos.Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0));
+    expect(target, 0, 0, byteArray(b"\x80\x00\x80\xff"));
+    expect(target, 4, 0, byteArray(b"\xff\x00\x00\xff"));
+    expect(target, 7, 0, byteArray(b"\x00\xff\x00\xff"));
+    expect(target, 4, 3, byteArray(b"\x00\x00\xff\xff"));
+    expect(target, 7, 3, byteArray(b"\xff\xff\xff\xff"));
+    expect(target, 4, 4, byteArray(b"\x00\xff\x00\xff"));
+    expect(target, 6, 4, byteArray(b"\x00\x00\xff\xff"));
+    let owned = target.read(rinzu.macos.Scissor(x: 0, y: 0, width: 1, height: 1));
+    batch.reset(8, 8);
+    let cleared = await batch.renderTexture(target, rinzu.macos.Color(red: 1.0, green: 0.0, blue: 0.0, alpha: 1.0));
+    if owned != byteArray(b"\x80\x00\x80\xff") {
+        panic("readback was not an owned copy");
+    }
+    // Stale texture while building a CPU batch is diagnosed at encode. The
+    // frame helper must abandon the partially encoded pass and permit reuse.
+    batch.image(
+        image,
+        rinzu.macos.Rect(x: 0.0, y: 0.0, width: 2.0, height: 2.0),
+        rinzu.macos.Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)
+    );
+    let destroyed = image.destroy();
+    var rejected = false;
+    try {
+        let invalid = await batch.renderTexture(target, rinzu.macos.Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0));
+    }
+    catch errors {
+        rejected = true;
+    }
+    if !rejected || batch.rendering {
+        panic("failed frame did not abandon");
+    }
+    batch.reset(8, 8);
+    let recovered = await batch.renderTexture(target, rinzu.macos.Color(red: 0.0, green: 1.0, blue: 0.0, alpha: 1.0));
+    expect(target, 0, 0, byteArray(b"\x00\xff\x00\xff"));
+    batch.destroy();
+    let retired = target.destroy();
+    rinzu.stdio.writeLine("GRAPHICS:pixels:blend:transform:uv:clip:batch:owned:recover");
+}
+
+async fn cancellation(device: rinzu.macos.Device) {
+    let batch = device.batch2D(4);
+    let target = device.texture2D(4, 4, rinzu.macos.pixelRGBA8, rinzu.macos.textureRenderTarget);
+    batch.reset(4, 4);
+    batch.fillRect(
+        rinzu.macos.Rect(x: 0.0, y: 0.0, width: 4.0, height: 4.0),
+        rinzu.macos.Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)
+    );
+    try {
+        let frame = batch.renderTexture(target, rinzu.macos.Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0));
+        let cancelled = cancelFuture(frame);
+        let settled = await frame;
+        panic("frame cancellation was lost");
+    }
+    finally {
+        // A cancelled await unwinds control. Cleanup still proves the frame's
+        // command and buffer became reusable after physical GPU settlement.
+        batch.reset(4, 4);
+        let recovered = await batch.renderTexture(
+            target,
+            rinzu.macos.Color(red: 0.0, green: 1.0, blue: 0.0, alpha: 1.0)
+        );
+        expect(target, 0, 0, byteArray(b"\x00\xff\x00\xff"));
+        batch.destroy();
+        let retired = target.destroy();
+        rinzu.stdio.writeLine("GRAPHICS:cancelled-frame:reusable");
+    }
+}
+
+async fn recording(device: rinzu.macos.Device) {
+    let batch = device.batch2D(4);
+    let target = device.texture2D(4, 4, rinzu.macos.pixelBGRA8, rinzu.macos.textureRenderTarget);
+    batch.reset(4, 4);
+    batch.fillRect(
+        rinzu.macos.Rect(x: 0.0, y: 0.0, width: 4.0, height: 4.0),
+        rinzu.macos.Color(red: 1.0, green: 0.0, blue: 0.0, alpha: 1.0)
+    );
+    let begun =
+        batch
+        .command
+        .beginRenderTexture(target, rinzu.macos.Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0));
+    let encoded = batch.encode(batch.command, rinzu.macos.pixelBGRA8);
+    var rejected = false;
+    try {
+        batch.reset(4, 4);
+    }
+    catch errors {
+        rejected = true;
+    }
+    if !rejected {
+        panic("recording buffer was writable");
+    }
+    // Owner close must abandon this recording and retire all batch resources.
+    rinzu.stdio.writeLine("GRAPHICS:recording:owner-drain");
+}
+
+async fn windowBody(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    let device = scope.session.device();
+    let batch = device.batch2D(4);
+    let surface = device.surface(rinzu.macos.Rect(x: 0.0, y: 0.0, width: 160.0, height: 100.0));
+    let root = scope.window.contentView();
+    let attached = root.addSubview(surface);
+    let mode = rinzu.process.setting("RINZU_GRAPHICS_TEST", "window-recording");
+    let drawing = scope.start(
+        async fn (job: rinzu.macos.UiJob) {
+            await rinzu.timer.sleep(30);
+            let size = surface.drawableSize();
+            batch.reset(Int(size.width), Int(size.height));
+            batch.fillRect(
+                rinzu.macos.Rect(x: 0.0, y: 0.0, width: size.width, height: size.height),
+                rinzu.macos.Color(red: 0.0, green: 0.5, blue: 1.0, alpha: 1.0)
+            );
+            let begun = batch.command.beginRender(
+                surface,
+                rinzu.macos.Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0)
+            );
+            let encoded = batch.encode(batch.command, rinzu.macos.pixelBGRA8);
+            if mode == "window-submitted" {
+                let committed = batch.command.commit();
+            }
+            rinzu.stdio.writeLine(f"GRAPHICS:{mode}:left-to-scope");
+            job.requestStop();
+        }
+    );
+    await scope.dispatch(
+        async fn (owner: rinzu.macos.UiScope, event: rinzu.macos.UiEvent) {
+            if event.kind == rinzu.macos.eventCloseRequested || event.kind == rinzu.macos.eventQuitRequested {
+                owner.requestStop();
+            }
+        }
+    );
+}
+
+async fn exercise() {
+    try {
+        let mode = rinzu.process.setting("RINZU_GRAPHICS_TEST", "pixels");
+        if mode == "window-recording" || mode == "window-submitted" {
+            let done = await rinzu.macos.application("Textured Window drain", 160.0, 100.0, windowBody);
+        }
+        else {
+            let session = rinzu.macos.open();
+            let device = session.device();
+            if mode == "pixels" {
+                await pixels(device);
+            }
+            else if mode == "cancel" {
+                await cancellation(device);
+            }
+            else if mode == "recording" {
+                await recording(device);
+            }
+            else {
+                panic("unknown graphics test mode");
+            }
+        }
+    }
+    finally {
+        let closed = await rinzu.macos.closeOwnerSessions();
+        let s = rinzu.macos.statistics();
+        if s.retainedControls != 0 || s.textureBytes != 0 || s.bufferBytes != 0 || s.snapshotBytes != 0 {
+            panic("graphics resources remained");
+        }
+        rinzu.stdio.writeLine("GRAPHICS:closed");
+    }
+}
+
+async fn main() {
+    try {
+        await exercise();
+    }
+    catch errors {
+        try {
+            rinzu.stdio.writeLine(f"GRAPHICS:error:{errors}");
+        }
+        catch outputErrors {}
+        panic("graphics test failed");
+    }
+}

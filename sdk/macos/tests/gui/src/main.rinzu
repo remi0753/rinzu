@@ -1,0 +1,373 @@
+import rinzu.timer;
+import rinzu.macos;
+import rinzu.process;
+import rinzu.stdio;
+import rinzu.testing;
+
+class Model {
+    const pending: Future<Int>,
+    events: Int
+}
+
+async fn work() -> Int {
+    try {
+        await rinzu.timer.sleep(3);
+    }
+    catch timerErrors {}
+    return 42;
+}
+
+// A normal Rinzu function may receive UI state containing a Future. No native
+// callback captures this Model; the OS loop and event wait take only Session.
+fn receive(model: Model, session: rinzu.macos.Session, event: rinzu.macos.UiEvent) {
+    model.events = model.events + 1;
+    if event.kind == rinzu.macos.eventStarted {
+        let stopped = session.stop();
+    }
+}
+
+async fn drive(session: rinzu.macos.Session) {
+    try {
+        let result = await session.runEvents();
+    }
+    catch errors {
+        panic("OS event stream failed");
+    }
+}
+
+async fn exercise() {
+    try {
+        let session = rinzu.macos.open();
+        let window = session.window("Rinzu GUI events", 320.0, 200.0);
+        let shown = window.show();
+        let pending = work();
+        try {
+            let model = Model(pending: pending, events: 0);
+            let running = drive(session);
+            try {
+                var active = true;
+                while active {
+                    let event = await session.nextEvent();
+                    if event.kind == rinzu.macos.eventStopped {
+                        active = false;
+                    }
+                    else {
+                        receive(model, session, event);
+                        active = session.isRunning();
+                    }
+                }
+            }
+            finally {
+                try {
+                    if session.isRunning() {
+                        let stopped = session.stop();
+                    }
+                }
+                finally {
+                    let finished = await running;
+                }
+            }
+            rinzu.testing.assertTrue(model.events > 0, "delivered owned event");
+        }
+        finally {
+            let answer = await pending;
+            rinzu.testing.assertEqual<Int>(answer, 42, "Future in application model");
+        }
+        rinzu.stdio.writeLine("GUI:events-ok");
+    }
+    finally {
+        let closed = await rinzu.macos.closeOwnerSessions();
+        let stats = rinzu.macos.statistics();
+        rinzu.testing.assertEqual<
+            Int
+        >(
+            stats
+                .sessions
+                + stats
+                .windows
+                + stats
+                .views
+                + stats
+                .retainedControls
+                + stats
+                .queuedEvents
+                + stats
+                .eventPayloadBytes,
+            0,
+            "GUI resources settled"
+        );
+        rinzu.stdio.writeLine("GUI:closed");
+    }
+}
+
+class ScopeState {
+    jobs: Int
+}
+
+async fn scopeBody(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    let state = ScopeState(jobs: 0);
+    let frame = rinzu.macos.Rect(x: 12.0, y: 12.0, width: 220.0, height: 32.0);
+    let label = scope.label("Ready", frame);
+    let button = scope.button("Action", frame, 100);
+    let check = scope.checkbox("Enabled", frame, 101);
+    let field = scope.textField("Search", frame, 102);
+    let original = utf8Decode(byteArray(b"A\x00\xf0\x9f\x98\x80\xe6\x97\xa5\xe6\x9c\xac"));
+    let editor = scope.textView(original, rinzu.macos.Rect(x: 12.0, y: 52.0, width: 240.0, height: 100.0));
+    let scroll = scope.scrollView(rinzu.macos.Rect(x: 12.0, y: 52.0, width: 260.0, height: 120.0));
+    let content = scope.window.contentView();
+    let addedLabel = content.addSubview(label.view);
+    let addedButton = content.addSubview(button.view);
+    let addedCheck = content.addSubview(check.view);
+    let addedField = content.addSubview(field.view);
+    let addedScroll = content.addSubview(scroll.view);
+    let document = scroll.setContent(editor.view);
+    rinzu.testing.assertEqual<String>(editor.text(), original, "owned widget UTF8 and NUL");
+    let selected = editor.select(2, 5);
+    let selection = editor.selection();
+    rinzu.testing.assertEqual<Int>(selection.start, 2, "scalar selection start");
+    rinzu.testing.assertEqual<Int>(selection.end, 5, "scalar selection end");
+    let checked = check.setChecked(true);
+    rinzu.testing.assertTrue(check.checked(), "native checkbox value");
+    let disabled = button.setEnabled(false);
+    rinzu.testing.assertTrue(!button.view.isEnabled(), "native enabled state");
+    let enabled = button.setEnabled(true);
+    let header = scope.session.view(rinzu.macos.Rect(x: 12.0, y: 200.0, width: 480.0, height: 140.0));
+    let addedHeader = content.addSubview(header);
+    let arranged = rinzu.macos.column(header, [label.view, button.view, check.view, field.view], 4.0, 4.0);
+    let labelFrame = label.view.frame();
+    rinzu.testing.assertTrue(
+        labelFrame.width == 472.0 && labelFrame.height == 30.0 && labelFrame.y == 106.0,
+        "column geometry"
+    );
+    let rowLayout = rinzu.macos.row(header, [label.view, button.view], 4.0, 8.0);
+    let buttonFrame = button.view.frame();
+    rinzu.testing.assertTrue(buttonFrame.x == 244.0 && buttonFrame.width == 232.0, "row geometry");
+    let bar = scope.menu("Main");
+    let file = scope.menu("File");
+    let menuItem = file.addAction("Save", 500, "s", rinzu.macos.modifierCommand);
+    let separator = file.addSeparator();
+    let quit = file.addStandard("Quit", rinzu.macos.commandQuit, "q", rinzu.macos.modifierCommand);
+    let submenu = bar.addSubmenu(file);
+    let installed = scope.window.setMenu(bar);
+    let stateChanged = file.setState(500, true, false);
+    let pending = scope.start(
+        async fn (owner: rinzu.macos.UiJob) {
+            await rinzu.timer.sleep(3);
+            state.jobs = state.jobs + 1;
+        }
+    );
+    let second = scope.start(
+        async fn (owner: rinzu.macos.UiJob) {
+            let secondary = await rinzu.macos.withWindow(owner.session, "Secondary", 240.0, 160.0, earlyBody);
+            state.jobs = state.jobs + 1;
+        }
+    );
+    while !scope.isStopping() {
+        let event = await scope.session.nextEvent();
+        if event.kind == rinzu.macos.eventStopped
+            || event.kind == rinzu.macos.eventCloseRequested
+            || event.kind == rinzu.macos.eventQuitRequested
+            || state.jobs == 2 {
+            return;
+        }
+    }
+}
+
+async fn earlyBody(scope: rinzu.macos.UiScope) {}
+
+async fn earlyApplication(app: rinzu.macos.UiApplication) {}
+
+async fn gpuBody(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    var started = false;
+    while !started {
+        let event = await scope.session.nextEvent();
+        started = event.kind == rinzu.macos.eventStarted;
+    }
+    let device = scope.session.device();
+    let surface = device.surface(rinzu.macos.Rect(x: 0.0, y: 0.0, width: 280.0, height: 160.0));
+    let attached = surface.fill(scope.window.contentView(), 8.0);
+    let command = device.command();
+    let begun = command.beginRender(surface, rinzu.macos.Color(red: 0.2, green: 0.4, blue: 0.6, alpha: 1.0));
+    let mode = rinzu.process.setting("RINZU_GUI_TEST", "gpu-recording");
+    if mode == "gpu-submitted" {
+        let committed = command.commit();
+    }
+    // Scope cleanup must abandon recording or await a submitted drawable before
+    // closing this Window, even when the caller never receives a native result.
+}
+
+async fn failureBody(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    let started = scope.start(
+        async fn (owner: rinzu.macos.UiJob) {
+            await rinzu.timer.sleep(3);
+            throw error(-7901, "job failed");
+        }
+    );
+    while !scope.isStopping() {
+        let event = await scope.session.nextEvent();
+        if event.kind == rinzu.macos.eventStopped {
+            return;
+        }
+    }
+}
+
+async fn overflowBody(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    var started = false;
+    while !started {
+        let event = await scope.session.nextEvent();
+        started = event.kind == rinzu.macos.eventStarted;
+    }
+    var index = 0;
+    while index < 300 {
+        let view = scope.session.view(rinzu.macos.Rect(x: 0.0, y: 0.0, width: 20.0, height: 20.0));
+        let moved = view.setFrame(rinzu.macos.Rect(x: 0.0, y: 0.0, width: 30.0, height: 30.0));
+        index = index + 1;
+    }
+    // No further event read: the OS loop must still report its overflow after
+    // this body returns and all Window tasks have been joined.
+}
+
+async fn cancelBody(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    var started = false;
+    while !started {
+        let event = await scope.session.nextEvent();
+        started = event.kind == rinzu.macos.eventStarted;
+    }
+    var attempts = 0;
+    while attempts < 32 {
+        let pending = scope.session.nextEvent();
+        try {
+            await rinzu.timer.sleep(2);
+            if futureReady(pending) {
+                let queued = await pending;
+            }
+            else {
+                let cancelled = cancelFuture(pending);
+                let result = await pending;
+                panic("event-reader cancellation was lost");
+            }
+        }
+        finally {
+            // This is also an independent observer if the timer itself fails.
+            let settled = await pending;
+        }
+        attempts = attempts + 1;
+    }
+    panic("could not acquire an empty event reader");
+}
+
+fn settled() {
+    let stats = rinzu.macos.statistics();
+    rinzu.testing.assertEqual<
+        Int
+    >(
+        stats
+            .sessions
+            + stats
+            .windows
+            + stats
+            .views
+            + stats
+            .retainedControls
+            + stats
+            .devices
+            + stats
+            .buffers
+            + stats
+            .libraries
+            + stats
+            .pipelines
+            + stats
+            .commands
+            + stats
+            .bufferBytes
+            + stats
+            .queuedEvents
+            + stats
+            .eventPayloadBytes
+            + stats
+            .snapshotBytes,
+        0,
+        "application resources settled"
+    );
+    rinzu.stdio.writeLine("GUI:closed");
+}
+
+async fn main() {
+    try {
+        let mode = rinzu.process.setting("RINZU_GUI_TEST", "events");
+        if mode == "events" {
+            await exercise();
+        }
+        else {
+            try {
+                if mode == "early" {
+                    let earlyDone = await rinzu.macos.application("Early return", 320.0, 200.0, earlyApplication);
+                }
+                else if mode == "cancel" {
+                    let cancelDone = await rinzu.macos.application("Reader cancel", 320.0, 200.0, cancelBody);
+                }
+                else if mode == "failure" {
+                    var observed = false;
+                    try {
+                        let failureDone = await rinzu.macos.application("Job failure", 320.0, 200.0, failureBody);
+                    }
+                    catch errors {
+                        switch listGet(errors, 0) {
+                            case Option.Some(problem): {
+                                rinzu.testing.assertEqual<
+                                    String
+                                >(errorMessage(problem), "job failed", "scope reports child failure");
+                                observed = true;
+                            }
+                            case Option.None: {}
+                        }
+                    }
+                    rinzu.testing.assertTrue(observed, "child failure is observed");
+                }
+                else if mode == "overflow" {
+                    var overflowObserved = false;
+                    try {
+                        let overflowDone = await rinzu.macos.application("Event overflow", 320.0, 200.0, overflowBody);
+                    }
+                    catch overflowErrors {
+                        switch listGet(overflowErrors, 0) {
+                            case Option.Some(problem): {
+                                switch errorNativeStatus(problem) {
+                                    case Option.Some(status): {
+                                        overflowObserved = status == -7808;
+                                    }
+                                    case Option.None: {}
+                                }
+                            }
+                            case Option.None: {}
+                        }
+                    }
+                    rinzu.testing.assertTrue(overflowObserved, "late OS failure is observed");
+                }
+                else if mode == "gpu-recording" || mode == "gpu-submitted" {
+                    let gpuDone = await rinzu.macos.application("GPU scope", 320.0, 200.0, gpuBody);
+                }
+                else {
+                    let scopeDone = await rinzu.macos.application("Rinzu widgets", 520.0, 360.0, scopeBody);
+                }
+                rinzu.stdio.writeLine(f"GUI:{mode}-ok");
+            }
+            finally {
+                settled();
+            }
+        }
+    }
+    catch errors {
+        try {
+            rinzu.stdio.writeLine(f"GUI failure: {errors}");
+        }
+        catch outputErrors {}
+        panic("macOS GUI test failed");
+    }
+}

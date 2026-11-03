@@ -1,0 +1,47 @@
+import rinzu.stdio;
+import rinzu.timer;
+
+error Failed {
+    payload: Int
+}
+
+error Cleanup {
+    payload: Int
+}
+
+error Final {
+    payload: Int
+}
+
+async fn fail() -> Int {
+    try {
+        await rinzu.timer.sleep(0);
+    }
+    catch errors {}
+    throw Failed(message: "async failure", payload: 383);
+}
+
+fn report(value: Int) {
+    try {
+        rinzu.stdio.writeLine(value);
+    }
+    catch errors {}
+}
+
+async fn main() {
+    try all {
+        let value = await fail();
+        try {
+            throw Cleanup(message: "cleanup", payload: 389);
+        }
+        finally {
+            throw Final(message: "finally", payload: 397);
+        }
+    }
+    catch [first: Failed, second: Cleanup, third: Final] {
+        report(first.payload);
+        report(second.payload);
+        report(third.payload);
+    }
+    catch errors {}
+}

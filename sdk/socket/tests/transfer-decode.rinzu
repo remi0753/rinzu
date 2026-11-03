@@ -1,0 +1,40 @@
+// Fixed native wire vectors: verify signed Int decoding in each backend.
+import rinzu.stdio;
+
+fn check(packed: Int, expectedStatus: Int, expectedLength: Int) {
+    let length = bitAnd(packed, 131071);
+    let status = (packed - length) / 131072;
+    if length != expectedLength || status != expectedStatus {
+        panic("failed");
+    }
+}
+
+fn main() {
+    try {
+        check(-281474976710656, -2147483648, 0);
+        check(-281474976710655, -2147483648, 1);
+        check(-281474976645120, -2147483648, 65536);
+        check(-984219648, -7509, 0);
+        check(-984219647, -7509, 1);
+        check(-984154112, -7509, 65536);
+        check(-131072, -1, 0);
+        check(-131071, -1, 1);
+        check(-65536, -1, 65536);
+        check(0, 0, 0);
+        check(1, 0, 1);
+        check(65536, 0, 65536);
+        check(131072, 1, 0);
+        check(131073, 1, 1);
+        check(196608, 1, 65536);
+        check(7077888, 54, 0);
+        check(7077889, 54, 1);
+        check(7143424, 54, 65536);
+        check(281474976579584, 2147483647, 0);
+        check(281474976579585, 2147483647, 1);
+        check(281474976645120, 2147483647, 65536);
+        rinzu.stdio.writeLine("SOCKET-TRANSFER-DECODE:21:OK");
+    }
+    catch errors {
+        panic("failed");
+    }
+}

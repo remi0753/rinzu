@@ -1,0 +1,72 @@
+import handlers;
+import rinzu.stdio;
+
+class Box {
+    value: Int
+}
+
+error Failed {
+    payload: Box
+}
+
+error Cleanup {}
+
+fn failed(value: Int) -> Int {
+    throw Failed(message: "failure", payload: Box(value: value));
+}
+
+fn cleanup(value: Int) -> Int fallback -19 {
+    try {
+        return failed(value);
+    }
+    finally {
+        throw Cleanup(message: "cleanup");
+    }
+}
+
+fn text(value: String) -> Int fallback -23 {
+    return Int(utf8ByteLength(value));
+}
+
+async fn main() {
+    let box = Box(value: 379);
+    let problem = Failed(message: "capture", payload: box);
+    var index = 0;
+    while index < 24 {
+        let value = handlers.apply(
+            fn (delta: Int) -> Int {
+                try {
+                    throw problem;
+                }
+                catch [error: Failed] {
+                    error.payload.value = error.payload.value + delta;
+                    return error.payload.value;
+                }
+            },
+            2
+        );
+        if value != box.value {
+            panic("mismatch");
+        }
+        index = index + 1;
+    }
+    let fallbackValue = handlers.apply(
+        fn (value: Int) -> Int fallback -17 {
+            throw problem;
+        },
+        0
+    );
+    let cleaned = handlers.apply(cleanup, 0);
+    let valid = handlers.input(text, 0);
+    let null = handlers.input(text, 1);
+    let invalid = handlers.input(text, 2);
+    try {
+        rinzu.stdio.writeLine(box.value);
+        rinzu.stdio.writeLine(fallbackValue);
+        rinzu.stdio.writeLine(cleaned);
+        rinzu.stdio.writeLine(valid);
+        rinzu.stdio.writeLine(null);
+        rinzu.stdio.writeLine(invalid);
+    }
+    catch errors {}
+}

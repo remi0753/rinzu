@@ -1,0 +1,39 @@
+import loops;
+
+fn work(seed: CInt) -> CInt {
+    let retained = ["callback root", "cancellation must remain masked"];
+    var index = seed;
+    while index < 512 {
+        let moved = ["managed GC", "still retained"];
+        index = index + 1;
+    }
+    if retained != ["callback root", "cancellation must remain masked"] {
+        panic("lost");
+    }
+    return 41;
+}
+
+fn callback(seed: CInt) -> CInt fallback -19 {
+    try {
+        return work(seed);
+    }
+    finally {
+        loops.checkInner();
+    }
+}
+
+async fn main() {
+    try {
+        loops.checkReset(0);
+        try {
+            let result = await loops.checkRun(callback, "queued argument 日本語", b"\x00\xAA\x00\x7F", 1);
+            panic("cancellationWasLost");
+        }
+        finally {
+            loops.checkOuter(1);
+        }
+    }
+    catch errors {
+        panic("failed");
+    }
+}

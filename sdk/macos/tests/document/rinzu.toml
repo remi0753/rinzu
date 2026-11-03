@@ -1,0 +1,5 @@
+[package]
+name = "macos_document_tests"
+language = "0.5"
+[dependencies]
+"rinzu.macos" = { path = "../.." }

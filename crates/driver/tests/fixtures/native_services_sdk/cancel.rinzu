@@ -1,0 +1,29 @@
+import rinzu.timer;
+import services;
+
+async fn main() {
+    try {
+        let retained = ["cancel timer roots 日本語", "pending child admission"];
+        try {
+            let pending = rinzu.timer.sleep(120);
+            var index = 0;
+            while index < 10000 {
+                index = index + 1;
+            }
+            await pending;
+        }
+        finally {
+            var cleanupIndex = 0;
+            while cleanupIndex < 256 {
+                let temporary = ["cancel finally", "moving collection"];
+                cleanupIndex = cleanupIndex + 1;
+            }
+            if retained != ["cancel timer roots 日本語", "pending child admission"] {
+                panic("invalidRoots");
+            }
+        }
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+    }
+}

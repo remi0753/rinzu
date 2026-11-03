@@ -1,0 +1,63 @@
+import rinzu.io;
+import rinzu.process;
+import rinzu.http;
+import rinzu.socket;
+import rinzu.stdio;
+
+fn status(problem: Error) -> Int {
+    switch errorNativeStatus(problem) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            panic("missing");
+        }
+    }
+    return 0;
+}
+
+async fn main() {
+    try {
+        try {
+            let invalidName = rinzu.process.environment("");
+        }
+        catch [environmentError: Error, ...environmentRest] {
+            rinzu.stdio.writeLine(errorCode(environmentError));
+        }
+        try {
+            let invalidFile = await rinzu.io.openRead("");
+        }
+        catch [fileError: Error, ...fileRest] {
+            rinzu.stdio.writeLine(status(fileError));
+        }
+        try {
+            let invalidAddress = rinzu.socket.address("\u{0}", 80);
+        }
+        catch [addressError: Error, ...addressRest] {
+            rinzu.stdio.writeLine(status(addressError));
+        }
+        let client = rinzu.http.newClient();
+        try {
+            let response = await rinzu.http.request(client, "\u{0}", byteArray(b""), false, 100);
+            panic("unexpectedlySucceeded");
+        }
+        catch [requestError: rinzu.http.HttpFailure, ...requestRest] {
+            rinzu.stdio.writeLine(status(requestError.payload.cause));
+            rinzu.stdio.writeLine(requestError.payload.status);
+            rinzu.stdio.writeLine(bytesLength(requestError.payload.partial));
+            rinzu.stdio.writeLine(requestError.payload.sent);
+        }
+        catch errors {
+            panic("unexpectedType");
+        }
+        finally {
+            let closed = await rinzu.http.close(client);
+        }
+        rinzu.stdio.writeLine(rinzu.http.liveClients());
+        rinzu.stdio.writeLine(rinzu.http.liveBuffers());
+        rinzu.stdio.writeLine(rinzu.io.liveFiles());
+    }
+    catch errors {
+        panic("unexpected");
+    }
+}

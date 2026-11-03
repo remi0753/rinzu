@@ -1,0 +1,86 @@
+import rinzu.macos;
+import rinzu.io;
+import rinzu.process;
+import rinzu.stdio;
+
+async fn exercise() {
+    let session = rinzu.macos.open();
+    var saved = "";
+    try {
+        var path = "";
+        switch session.resourceRoot() {
+            case Option.Some(root): {
+                saved = root;
+                path = session.resourcePath("assets/日本語.txt");
+            }
+            case Option.None: {
+                if rinzu.process.setting("RINZU_BUNDLE_EXPECT_APP", "0") == "1" {
+                    panic("bundle resource root missing");
+                }
+                let development = rinzu.process.setting("RINZU_BUNDLE_DEV_ROOT", "");
+                path = f"{development}/assets/日本語.txt";
+            }
+        }
+        var rejected = false;
+        try {
+            let invalid = session.resourcePath("assets/../outside");
+        }
+        catch errors {
+            rejected = true;
+        }
+        if !rejected {
+            panic("parent resource path accepted");
+        }
+        let text = await rinzu.macos.readDocument(path);
+        if text != "Bundled resources 日本語 😀\n" {
+            panic("resource bytes differ");
+        }
+        let legacy = await rinzu.io.readSize("data/probe.txt");
+        if legacy != 4 {
+            panic("legacy resource relocation failed");
+        }
+        rinzu.stdio.writeLine("BUNDLE:resources:unicode:legacy:read");
+    }
+    finally {
+        let files = await rinzu.io.closeOwnerFiles();
+        let closed = await session.close();
+    }
+    if rinzu.process.setting("RINZU_BUNDLE_EXPECT_APP", "0") == "1" && saved == "" {
+        panic("owned resource root lost");
+    }
+    let stats = rinzu.macos.statistics();
+    if stats.retainedControls + rinzu.io.liveFiles() + rinzu.io.liveBuffers() + rinzu.io.liveOperations() != 0 {
+        panic("bundle resources leaked");
+    }
+}
+
+async fn main() {
+    try {
+        try {
+            await exercise();
+        }
+        finally {
+            let files = await rinzu.io.closeOwnerFiles();
+            let sessions = await rinzu.macos.closeOwnerSessions();
+            let terminal = rinzu.macos.statistics();
+            if terminal
+                .retainedControls
+                + rinzu
+                .io
+                .liveFiles()
+                + rinzu
+                .io
+                .liveBuffers()
+                + rinzu
+                .io
+                .liveOperations()
+                != 0 {
+                panic("bundle final cleanup failed");
+            }
+            rinzu.stdio.writeLine("BUNDLE:closed");
+        }
+    }
+    catch errors {
+        panic(f"bundle test failed: {errors}");
+    }
+}

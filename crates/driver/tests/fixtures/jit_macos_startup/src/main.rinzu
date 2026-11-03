@@ -1,0 +1,12 @@
+import rinzu.macos;
+import rinzu.stdio;
+
+fn main() {
+    try {
+        let statistics = rinzu.macos.statistics();
+        rinzu.stdio.writeLine(statistics.sessions);
+    }
+    catch errors {
+        panic("macOS startup probe failed");
+    }
+}

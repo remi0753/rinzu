@@ -1,0 +1,52 @@
+import loops;
+
+fn callback(seed: CInt) -> CInt fallback -19 {
+    return 41;
+}
+
+async fn wrapper() -> String {
+    try {
+        try {
+            return await loops.checkRun(callback, "queued argument 日本語", b"\x00\xAA\x00\x7F", 3);
+        }
+        finally {
+            loops.checkOuter(0);
+        }
+    }
+    catch errors {
+        panic("failed");
+        return "";
+    }
+}
+
+async fn cancelQueued(pending: Future<String>) {
+    // A poll-injected shutdown can interrupt this task before it cancels.
+    // Cleanup must still revoke the prepared call before native entry.
+    try {
+        var index = 0;
+        while index < 32 {
+            let queuedRoots = ["prepared callback", "queued GC"];
+            index = index + 1;
+        }
+    }
+    finally {
+        let cancelled = cancelFuture(pending);
+        if !cancelled {
+            panic("lostCancellationRequest");
+        }
+    }
+}
+
+async fn main() {
+    try {
+        loops.checkReset(0);
+        let pending = wrapper();
+        let cancellation = cancelQueued(pending);
+        await cancellation;
+        let result = await pending;
+        panic("lostCancellation");
+    }
+    catch errors {
+        panic("failed");
+    }
+}

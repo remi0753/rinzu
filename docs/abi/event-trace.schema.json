@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rinzu:schema:event-trace:v1",
+  "title": "Rinzu normalized event trace",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "version", "producer", "events"],
+  "properties": {
+    "schema": { "const": "rinzu.event-trace" },
+    "version": { "const": 1 },
+    "producer": { "type": "string", "minLength": 1 },
+    "context": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "line", "column"],
+      "properties": {
+        "file": { "type": "string" },
+        "line": { "type": "integer", "minimum": 0 },
+        "column": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "observation": {
+      "description": "Nondeterministic diagnostics excluded from semantic comparison",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "monotonic_ns": { "type": "integer", "minimum": 0 },
+        "process_id": { "type": "integer", "minimum": 0 },
+        "os_thread_id": { "type": "string" },
+        "address": { "type": "string", "pattern": "^0x[0-9A-Fa-f]+$" }
+      }
+    },
+    "event": {
+      "type": "object",
+      "required": ["sequence", "domain", "kind"],
+      "properties": {
+        "sequence": { "type": "integer", "minimum": 0 },
+        "domain": { "type": "string", "minLength": 1 },
+        "task": { "type": "string" },
+        "source": { "$ref": "#/$defs/source" },
+        "observation": { "$ref": "#/$defs/observation" },
+        "kind": {
+          "enum": [
+            "task-start",
+            "await-pending",
+            "await-ready",
+            "safepoint",
+            "native-enter",
+            "native-leave",
+            "task-complete",
+            "resource-delta"
+          ]
+        },
+        "operation": { "type": "string" },
+        "reason": { "type": "string" },
+        "transition": { "type": "string" },
+        "outcome": { "type": "string" },
+        "resource": { "type": "string" },
+        "delta": { "type": "integer" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

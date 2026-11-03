@@ -1,0 +1,4 @@
+fn main() {
+    let first: List<Int> = [1];
+    let second: List<Int> = [2];
+}

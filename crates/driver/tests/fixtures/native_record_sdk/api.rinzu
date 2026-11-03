@@ -1,0 +1,202 @@
+import rinzu.core;
+
+native {
+    record Packet {
+        a: CInt8,
+        b: CInt16,
+        c: CInt32,
+        d: Int,
+        e: CUInt8,
+        f: CUInt16,
+        g: CUInt32,
+        h: CUInt64,
+        i: CFloat,
+        j: Float,
+        k: CBool
+    }
+
+    fn check(value: Packet, nan: CBool) -> CInt symbol "record_check";
+
+    fn result(kind: CInt) -> Packet symbol "record_result";
+
+    fn withCallback(value: Packet, callback: fn (Bytes(4)) -> CSize) -> Packet symbol "record_callback";
+
+    fn mutate() -> Unit symbol "record_mutate";
+
+    fn cleanup() -> Unit symbol "record_fixture_cleanup";
+}
+
+type Snapshot = {
+    a: CInt8, b: CInt16, c: CInt32, d: Int, e: CUInt8, f: CUInt16, g: CUInt32, h: CUInt64, i: CFloat, j: Float, k: CBool
+};
+
+fn packetSnapshot(value: Packet) -> Snapshot {
+    return {
+        a =
+            value
+            .a,
+        b =
+            value
+            .b,
+        c =
+            value
+            .c,
+        d =
+            value
+            .d,
+        e =
+            value
+            .e,
+        f =
+            value
+            .f,
+        g =
+            value
+            .g,
+        h =
+            value
+            .h,
+        i =
+            value
+            .i,
+        j =
+            value
+            .j,
+        k =
+            value
+            .k
+    };
+}
+
+class Sample {
+    const original: Snapshot,
+    const received: Snapshot,
+    const callback: Snapshot,
+    const caught: Int
+}
+
+fn emptyPacket() -> Packet {
+    return Packet(a: 0, b: 0, c: 0, d: 0, e: 0, f: 0, g: 0, h: 0, i: 0.0, j: 0.0, k: false);
+}
+
+fn original() -> Packet {
+    let high: CUInt64 = 18446744073709551615;
+    return Packet(
+        a: CInt8(-128),
+        b: CInt16(-32768),
+        c: CInt32(-2147483648),
+        d: -9223372036854775808,
+        e: CUInt8(255),
+        f: CUInt16(65535),
+        g: CUInt32(4294967295),
+        h: high,
+        i: CFloat(-0.0),
+        j: 1.0,
+        k: true
+    );
+}
+
+fn exercise() -> Sample {
+    try {
+        let original = original();
+        if check(original, false) != 1 {
+            panic("wrongInput");
+        }
+        let received = result(1);
+        let length: fn (Bytes(4)) -> CSize = byteLength;
+        let callback = withCallback(original, length);
+        mutate();
+        if check(received, true) != 1 || check(callback, true) != 1 || check(original, false) != 1 {
+            panic("changedCopy");
+        }
+        let padding = result(4);
+        if check(padding, true) != 1
+            || packetSnapshot(padding) == packetSnapshot(received)
+            || packetSnapshot(received) == packetSnapshot(received) {
+            panic("wrongNaN");
+        }
+        var caught = 0;
+        try {
+            let missing = result(0);
+        }
+        catch [nullError: Error, ...nullErrorRest] {
+            if nullError.message != "native value is NULL" {
+                panic("wrongNull");
+            }
+            caught = caught + 1;
+        }
+        try {
+            let invalid = result(2);
+        }
+        catch boolError {
+            caught = caught + 1;
+        }
+        if caught != 2 {
+            panic("wrongCount");
+        }
+        return Sample(
+            original: packetSnapshot(original),
+            received: packetSnapshot(received),
+            callback: packetSnapshot(callback),
+            caught: caught
+        );
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+        let empty = emptyPacket();
+        return Sample(
+            original: packetSnapshot(empty),
+            received: packetSnapshot(empty),
+            callback: packetSnapshot(empty),
+            caught: 0
+        );
+    }
+}
+
+fn failure(kind: CInt) -> Packet {
+    return result(kind);
+}
+
+fn failWorker(kind: CInt) -> Int {
+    try {
+        let invalid = failure(kind);
+    }
+    catch errors {
+        return 1;
+    }
+    return 999;
+}
+
+fn fatal() -> Int {
+    let invalid = result(3);
+    return invalid.d;
+}
+
+fn leaks() -> Int {
+    try {
+        let value = result(1);
+        let high: CUInt64 = 18446744073709551615;
+        var index = 0;
+        while index < 100 {
+            let temporary = "record root through managed polls";
+            if value.h != high {
+                panic("missingRoot");
+            }
+            index = index + 1;
+        }
+        return index;
+    }
+    catch unexpectedErrors {
+        panic("unexpected failure");
+        return 0;
+    }
+}
+
+export Packet;
+export Snapshot;
+export Sample;
+export exercise;
+export failure;
+export failWorker;
+export fatal;
+export leaks;

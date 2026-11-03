@@ -1,0 +1,18 @@
+[package]
+name = "rinzu-conformance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+rinzu-codegen = { path = "../codegen" }
+rinzu-runtime = { path = "../runtime" }
+rinzu-trace = { path = "../trace" }
+serde_json.workspace = true
+
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+libc.workspace = true
+
+[lints]
+workspace = true

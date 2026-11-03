@@ -1,0 +1,86 @@
+import rinzu.timer;
+import rinzu.socket;
+import rinzu.stdio;
+import rinzu.testing;
+
+fn expect<T>(value: T) -> T {
+    return value;
+}
+
+fn payload(size: Int) -> ByteArray {
+    var data = byteArray(b"\x00\xff\x80A\x00B\xfeC");
+    while bytesLength(data) < size {
+        data = bytesConcat(data, data);
+    }
+    switch bytesSlice(data, 0, size) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            return byteArray(b"");
+        }
+    }
+}
+
+async fn cleanup() {
+    let count = expect<Int>(await rinzu.socket.closeOwnerSockets());
+    let s = rinzu.socket.statistics();
+    rinzu.testing.assertEqual<
+        Int
+    >(s.handleSlots + s.operations + s.bufferBytes + s.eventThreads, 0, "HTTP socket cleanup");
+    rinzu.stdio.writeLine(f"CLEANUP:{s.handleSlots}:{s.operations}:{s.bufferBytes}:{s.eventThreads}");
+}
+
+async fn closeResult(result: Future<Int>) {
+    try {
+        let closed = await result;
+    }
+    catch [problem: Error, ...rest] {
+        assertEqual<
+            Option<Int>
+        >(errorNativeStatus(problem), Option<Int>.Some(value: -7502), "cleanup may see an already closed handle");
+        try {
+            rinzu.stdio.writeLine("CLOSE:ALREADY:CLOSED");
+        }
+        catch errors {
+            panic("unexpectedOutputFailure");
+        }
+    }
+}
+
+export expect;
+export payload;
+export cleanup;
+export closeResult;
+
+// Process-test assertions are fatal, so a failed assertion cannot strand I/O.
+fn assertTrue(condition: Bool, message: String) {
+    try {
+        rinzu.testing.assertTrue(condition, message);
+    }
+    catch errors {
+        panic("assertionFailed");
+    }
+}
+
+fn assertEqual<T: Equality>(actual: T, expected: T, message: String) {
+    try {
+        rinzu.testing.assertEqual<T>(actual, expected, message);
+    }
+    catch errors {
+        panic("assertionFailed");
+    }
+}
+
+async fn delay(milliseconds: Int) {
+    try {
+        await rinzu.timer.sleep(milliseconds);
+    }
+    catch errors {
+        panic("unexpectedTimerFailure");
+    }
+}
+
+export assertTrue;
+export assertEqual;
+export delay;

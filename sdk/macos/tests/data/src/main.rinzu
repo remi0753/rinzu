@@ -1,0 +1,185 @@
+import rinzu.macos;
+import rinzu.timer;
+import rinzu.process;
+import rinzu.stdio;
+import rinzu.testing;
+
+fn rowCount(data: rinzu.macos.DataView) -> Int {
+    let state = data.state();
+    return state.rows;
+}
+
+fn pendingCount(data: rinzu.macos.DataView) -> Int {
+    let state = data.state();
+    return state.pendingRows;
+}
+
+fn selectedId(data: rinzu.macos.DataView) -> Int {
+    let state = data.state();
+    return state.selectedId;
+}
+
+fn visibleCount(data: rinzu.macos.DataView) -> Int {
+    let state = data.state();
+    return state.visibleRows;
+}
+
+fn row(index: Int) -> rinzu.macos.DataRow {
+    return rinzu.macos.DataRow(id: index + 1, parent: 0, cells: [f"Item {index + 1}", "日本語 😀"]);
+}
+
+async fn filling(data: rinzu.macos.DataView) {
+    try {
+        await data.generateRows(100000, row);
+    }
+    catch errors {
+        panic(f"unexpected loading error: {errors}");
+    }
+}
+
+async fn secondary(scope: rinzu.macos.UiScope) {
+    let list = scope.listView(rinzu.macos.Rect(x: 8.0, y: 8.0, width: 200.0, height: 100.0), 51);
+    let root = scope.window.contentView();
+    let added = root.addSubview(list.view);
+    await list.setRows([rinzu.macos.DataRow(id: 1, parent: 0, cells: ["Second Window"])]);
+    let selected = list.select(1, true);
+    rinzu.testing.assertEqual<Int>(selectedId(list), 1, "secondary selection");
+}
+
+async fn body(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    let data = scope.tableView(
+        [
+            rinzu.macos.DataColumn(title: "Name", width: 180.0, sortable: true),
+            rinzu.macos.DataColumn(title: "Value", width: 180.0, sortable: true)
+        ],
+        rinzu.macos.Rect(x: 8.0, y: 8.0, width: 400.0, height: 220.0),
+        42
+    );
+    let root = scope.window.contentView();
+    let attached = root.addSubview(data.view);
+    let ax = data.view.setAccessibility("Records", "Use arrow keys", "test-records");
+    let help = data.view.setTooltip("Reusable rows");
+    let dark = scope.window.setTheme(rinzu.macos.themeDark);
+    rinzu.testing.assertEqual<Int>(scope.window.effectiveTheme(), rinzu.macos.themeDark, "dark theme");
+    let light = scope.window.setTheme(rinzu.macos.themeLight);
+    rinzu.testing.assertEqual<Int>(scope.window.effectiveTheme(), rinzu.macos.themeLight, "light theme");
+    let mode = rinzu.process.setting("RINZU_DATA_TEST", "basic");
+    if mode == "early" {
+        return;
+    }
+    await data.generateRows(2, row);
+    let original = data.cell(1, 1);
+    rinzu.testing.assertEqual<String>(original, "日本語 😀", "owned Unicode cell");
+    let selected = data.select(2, true);
+    let sorted = data.sort(0, false);
+    rinzu.testing.assertEqual<Int>(selectedId(data), 2, "sort preserves ID");
+    var failed = false;
+    try {
+        await data.generateRows(
+            10,
+            fn (index: Int) -> rinzu.macos.DataRow {
+                if index == 5 {
+                    throw error(-7840, "row failure");
+                }
+                return row(index);
+            }
+        );
+    }
+    catch errors {
+        failed = true;
+    }
+    rinzu.testing.assertTrue(failed, "row callback error");
+    rinzu.testing.assertEqual<Int>(rowCount(data), 2, "failed stage preserves display");
+    rinzu.testing.assertEqual<Int>(pendingCount(data), 0, "failed stage reclaimed");
+    rinzu.testing.assertEqual<String>(original, "日本語 😀", "owned cell survives stage");
+    if mode == "cancel" {
+        let cancelledLoad = filling(data);
+        try {
+            while pendingCount(data) == 0 {
+                await rinzu.timer.sleep(1);
+            }
+            let cancelled = cancelFuture(cancelledLoad);
+            await cancelledLoad;
+            panic("data cancellation was swallowed");
+        }
+        finally {
+            await cancelledLoad;
+            rinzu.testing.assertEqual<Int>(rowCount(data), 2, "cancel preserves installed rows");
+            rinzu.testing.assertEqual<Int>(pendingCount(data), 0, "cancel clears pending rows");
+        }
+    }
+    else if mode == "stop" {
+        let stoppingLoad = filling(data);
+        while pendingCount(data) == 0 {
+            await rinzu.timer.sleep(1);
+        }
+        scope.requestStop();
+        await stoppingLoad;
+        rinzu.testing.assertEqual<Int>(rowCount(data), 2, "scope stop keeps installed rows");
+        rinzu.testing.assertEqual<Int>(pendingCount(data), 0, "scope stop clears pending rows");
+    }
+    else if mode == "large" {
+        let ascending = data.sort(0, true);
+        await data.generateRows(100000, row);
+        let tail = data.select(100000, true);
+        await rinzu.timer.sleep(30);
+        let state = data.state();
+        rinzu.testing.assertEqual<Int>(state.rows, 100000, "all rows loaded");
+        rinzu.testing.assertTrue(
+            state.firstVisible > 99000 && state.cellViews < 1000,
+            "virtualized cells and tail scroll"
+        );
+        rinzu.stdio.writeLine("DATA:100000:virtualized:tail");
+    }
+    else if mode == "multi" {
+        let second = await rinzu.macos.withWindow(scope.session, "Data secondary", 240.0, 160.0, secondary);
+        rinzu.testing.assertEqual<Int>(rowCount(data), 2, "primary remains after secondary close");
+        let primarySelected = data.select(1, true);
+        rinzu.testing.assertEqual<Int>(selectedId(data), 1, "primary remains usable");
+        rinzu.stdio.writeLine("DATA:multiwindow:independent");
+    }
+    else {
+        let tree = scope.treeView(
+            [rinzu.macos.DataColumn(title: "Tree", width: 200.0, sortable: true)],
+            rinzu.macos.Rect(x: 8.0, y: 8.0, width: 200.0, height: 100.0),
+            43
+        );
+        await tree.setRows(
+            [
+                rinzu.macos.DataRow(id: 1, parent: 0, cells: ["Root"]),
+                rinzu.macos.DataRow(id: 2, parent: 1, cells: ["Child 😀"])
+            ]
+        );
+        let expanded = tree.setExpanded(1, true);
+        let child = tree.select(2, true);
+        rinzu.testing.assertTrue(tree.isExpanded(1), "tree expanded");
+        rinzu.testing.assertEqual<Int>(visibleCount(tree), 2, "tree visible rows");
+        rinzu.testing.assertEqual<String>(tree.cell(2, 0), "Child 😀", "tree cell");
+        rinzu.stdio.writeLine("DATA:unicode:atomic:error:tree:sort:theme:accessibility");
+    }
+    scope.requestStop();
+}
+
+async fn main() {
+    try {
+        try {
+            let tested = await rinzu.macos.application("Data Source test", 420.0, 240.0, body);
+        }
+        finally {
+            let closed = await rinzu.macos.closeOwnerSessions();
+            let stats = rinzu.macos.statistics();
+            rinzu.testing.assertEqual<
+                Int
+            >(
+                stats.retainedControls + stats.dataRows + stats.dataBytes + stats.dataUpdates + stats.snapshotBytes,
+                0,
+                "all data resources reclaimed"
+            );
+            rinzu.stdio.writeLine("DATA:closed");
+        }
+    }
+    catch errors {
+        panic(f"data test failed: {errors}");
+    }
+}

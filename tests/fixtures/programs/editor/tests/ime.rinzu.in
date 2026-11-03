@@ -1,0 +1,77 @@
+// Appended to a private editor with the actual native marked-text probe.
+async fn imeBody(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    let path = rinzu.process.setting("RINZU_EDITOR_IME_PATH", "");
+    let editor = Editor.create(
+        scope,
+        Configuration(
+            path: path,
+            url: "http://127.0.0.1:9/unused",
+            mode: "interactive",
+            repeats: 0,
+            timeout: 10,
+            initial: "Committed before IME",
+            saved: true
+        )
+    );
+    try {
+        var started = false;
+        while !started {
+            let event = await scope.session.nextEvent();
+            started = event.kind == rinzu.macos.eventStarted;
+        }
+        let dirty = editor.binding.replace("Committed dirty before IME", 0, 0);
+        let before = editor.binding.document.snapshot();
+        let signals = scope.start(
+            async fn (job: rinzu.macos.UiJob) {
+                await editor.signals(job);
+            }
+        );
+        let marked = rinzu.macos.testInput(editor.binding.input.view, 1);
+        require(marked == 1);
+        editor.stop();
+        require(!editor.closing && editor.binding.document.accepting && editor.binding.input.view.isEnabled());
+        let settled = await editor.settle(scope);
+        require(
+            !settled
+                && editor.closing
+                && !editor.binding.document.accepting
+                && !editor.binding.input.view.isEnabled()
+                && editor.binding.document.text == before.text
+                && editor.binding.document.version == before.version
+        );
+        rinzu.stdio.writeLine("IME:CLOSE:DEFERRED:FORCED:SETTLED");
+    }
+    finally {
+        let client = await rinzu.http.close(editor.client);
+    }
+}
+
+async fn main() {
+    try {
+        try {
+            let app = await rinzu.macos.application("Editor IME close", 780.0, 580.0, imeBody);
+        }
+        finally {
+            try {
+                let clients = await rinzu.http.closeOwnerClients();
+            }
+            finally {
+                try {
+                    let files = await rinzu.io.closeOwnerFiles();
+                }
+                finally {
+                    let windows = await rinzu.macos.closeOwnerSessions();
+                    let stats = rinzu.macos.statistics();
+                    require(
+                        stats.retainedControls + stats.sheets + rinzu.io.liveFiles() + rinzu.http.liveClients() == 0
+                    );
+                    rinzu.stdio.writeLine("IME:RESOURCES:CLOSED");
+                }
+            }
+        }
+    }
+    catch errors {
+        panic(f"IME close failed: {errors}");
+    }
+}

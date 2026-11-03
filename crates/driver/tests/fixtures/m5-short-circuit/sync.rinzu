@@ -1,0 +1,60 @@
+import rinzu.stdio;
+import rinzu.testing;
+
+class State {
+    calls: Int,
+    flag: Bool
+}
+
+fn unsafeDigit(digit: Int) -> Bool {
+    return 9223372036854775807 - digit > 0;
+}
+
+fn choose(state: State, value: Bool) -> Bool {
+    state.calls = state.calls + 1;
+    return value;
+}
+
+fn allocate(value: Bool) -> Bool {
+    var bytes = byteArray(b"abc\x00\xff");
+    while bytesLength(bytes) < 65536 {
+        bytes = bytesConcat(bytes, bytes);
+    }
+    var count = 0;
+    while count < 64 {
+        let temporary = bytesCopy(bytes);
+        count = count + 1;
+    }
+    return value;
+}
+
+fn keep(data: ByteArray, flag: Bool) -> ByteArray {
+    rinzu.testing.assertTrue(flag, "selected RHS");
+    return data;
+}
+
+fn main() {
+    try {
+        let state = State(calls: 0, flag: false);
+        rinzu.testing.assertTrue(true || unsafeDigit(-5), "OR skips overflow");
+        rinzu.testing.assertTrue(!(false && unsafeDigit(-5)), "AND skips overflow");
+        rinzu.testing.assertTrue(false || choose(state, true), "OR selects RHS");
+        rinzu.testing.assertTrue(!(true && choose(state, false)), "AND selects RHS");
+        rinzu.testing.assertEqual<Int>(state.calls, 2, "RHS evaluated once");
+        state.flag = false || choose(state, true);
+        let apply = keep;
+        let data = apply(utf8Encode("日本語\u{0}tail"), true && allocate(true));
+        rinzu.testing.assertEqual<
+            ByteArray
+        >(data, utf8Encode("日本語\u{0}tail"), "managed argument across expression edges/GC");
+        let nested = (false || choose(state, true)) && (true || unsafeDigit(-5));
+        rinzu.testing.assertTrue(state.flag && nested, "nested expressions / field receiver");
+        rinzu.testing.assertEqual<Int>(state.calls, 4, "nested call count");
+        let values = [true || unsafeDigit(-5), false || allocate(true)];
+        rinzu.testing.assertEqual<List<Bool>>(values, [true, true], "constructor operands across edges");
+        rinzu.stdio.writeLine("SHORT-CIRCUIT:sync:skip:selected:roots:OK");
+    }
+    catch errors {
+        panic("failed");
+    }
+}

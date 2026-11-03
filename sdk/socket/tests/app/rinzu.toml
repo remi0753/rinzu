@@ -1,0 +1,4 @@
+[package]
+name = "socket.integration"
+language = "0.5"
+entry = "src/main.rinzu"

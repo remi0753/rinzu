@@ -1,0 +1,13 @@
+async fn expectedInputSize() -> Int {
+    return 20;
+}
+
+fn cpuScore(size: Int) -> Int {
+    return size * 2;
+}
+
+async fn main() {
+    let size = await expectedInputSize();
+    let score = await spawn cpuScore(size);
+    let retained = score;
+}

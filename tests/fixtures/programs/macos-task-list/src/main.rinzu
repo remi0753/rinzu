@@ -1,0 +1,320 @@
+import rinzu.macos;
+import rinzu.process;
+import rinzu.stdio;
+
+class Task {
+    const id: Int,
+    const title: String,
+    done: Bool
+}
+
+class Tasks {
+    const list: rinzu.macos.DataView,
+    const input: rinzu.macos.TextField,
+    const status: rinzu.macos.Label,
+    const toggle: rinzu.macos.Button,
+    const remove: rinzu.macos.Button,
+    items: List<Task>,
+    nextId: Int,
+    selected: Int,
+    openOnly: Bool,
+    dark: Bool,
+    busy: Bool
+
+    async fn handle(self: Tasks, job: rinzu.macos.UiJob, event: rinzu.macos.UiEvent) {
+        if self.busy || job.isStopping() {
+            return;
+        }
+        self.busy = true;
+        try {
+            if event.action == 10 {
+                await self.add(job);
+            }
+            else if event.action == 11 {
+                await self.change(job);
+            }
+            else if event.action == 12 {
+                await self.erase(job);
+            }
+            else if event.action == 13 {
+                self.openOnly = !self.openOnly;
+                await self.refresh();
+            }
+            else if event.action == 14 {
+                self.dark = !self.dark;
+                var themeMode = rinzu.macos.themeLight;
+                if self.dark {
+                    themeMode = rinzu.macos.themeDark;
+                }
+                let themed = job.window.setTheme(themeMode);
+            }
+            else if event.action == 100 && self.list.accepts(event) && event.flags == rinzu.macos.dataActivated {
+                self.selected = event.selectionStart;
+                self.updateSelection();
+                await self.change(job);
+            }
+        }
+        finally {
+            self.busy = false;
+        }
+    }
+
+    async fn refresh(self: Tasks) {
+        var rows: List<rinzu.macos.DataRow> = [];
+        var index = 0;
+        var open = 0;
+        while index < listLength(self.items) {
+            switch listGet(self.items, index) {
+                case Option.Some(task): {
+                    if !task.done {
+                        open = open + 1;
+                    }
+                    if !self.openOnly || !task.done {
+                        var title = task.title;
+                        if task.done {
+                            title = f"✓  {title}";
+                        }
+                        rows = listAppend(rows, rinzu.macos.DataRow(id: task.id, parent: 0, cells: [title]));
+                    }
+                }
+                case Option.None: {}
+            }
+            index = index + 1;
+        }
+        await self.list.setRows(rows);
+        let state = self.list.state();
+        self.selected = state.selectedId;
+        self.updateSelection();
+        var filter = "All tasks";
+        if self.openOnly {
+            filter = "Open tasks";
+        }
+        let updated = self.status.setText(f"{listLength(self.items)} tasks · {open} open · {filter}");
+    }
+
+    fn updateSelection(self: Tasks) {
+        let toggleEnabled = self.toggle.setEnabled(self.selected > 0);
+        let removeEnabled = self.remove.setEnabled(self.selected > 0);
+    }
+
+    async fn add(self: Tasks, job: rinzu.macos.UiJob) {
+        if job.isStopping() {
+            return;
+        }
+        let title = self.input.text();
+        if title == "" {
+            return;
+        }
+        if byteLength(utf8Encode(title)) > 4096 {
+            let limited = self.status.setText("Task title is too long. Use a shorter title.");
+            return;
+        }
+        if listLength(self.items) >= 1000 {
+            let full = self.status.setText("This list is full. Delete a task before adding another.");
+            return;
+        }
+        let id = self.nextId;
+        self.nextId = id + 1;
+        self.items = listAppend(self.items, Task(id: id, title: title, done: false));
+        let cleared = self.input.setText("");
+        await self.refresh();
+        let selected = self.list.select(id, true);
+        self.selected = id;
+        self.updateSelection();
+        let focused = self.input.view.focus();
+    }
+
+    async fn change(self: Tasks, job: rinzu.macos.UiJob) {
+        if job.isStopping() || self.selected == 0 {
+            return;
+        }
+        var index = 0;
+        while index < listLength(self.items) {
+            switch listGet(self.items, index) {
+                case Option.Some(task): {
+                    if task.id == self.selected {
+                        task.done = !task.done;
+                    }
+                }
+                case Option.None: {}
+            }
+            index = index + 1;
+        }
+        await self.refresh();
+    }
+
+    async fn erase(self: Tasks, job: rinzu.macos.UiJob) {
+        if job.isStopping() || self.selected == 0 {
+            return;
+        }
+        var kept: List<Task> = [];
+        var index = 0;
+        while index < listLength(self.items) {
+            switch listGet(self.items, index) {
+                case Option.Some(task): {
+                    if task.id != self.selected {
+                        kept = listAppend(kept, task);
+                    }
+                }
+                case Option.None: {}
+            }
+            index = index + 1;
+        }
+        self.items = kept;
+        await self.refresh();
+    }
+
+    async fn exercise(self: Tasks, job: rinzu.macos.UiJob) {
+        var longTitle = "x";
+        while byteLength(utf8Encode(longTitle)) < 8192 {
+            longTitle = f"{longTitle}{longTitle}";
+        }
+        let oversized = self.input.setText(longTitle);
+        await self.add(job);
+        if listLength(self.items) != 3 {
+            panic("task input limit failed");
+        }
+        let title = self.input.setText("テスト task 😀");
+        await self.add(job);
+        if listLength(self.items) != 4 || self.list.cell(4, 0) != "テスト task 😀" {
+            panic("task add failed");
+        }
+        await self.change(job);
+        if self.list.cell(4, 0) != "✓  テスト task 😀" {
+            panic("task toggle failed");
+        }
+        self.openOnly = true;
+        await self.refresh();
+        let filtered = self.list.state();
+        if filtered.rows != 2 || filtered.selectedId != 0 {
+            panic("task filter failed");
+        }
+        let selected = self.list.select(1, true);
+        self.selected = 1;
+        await self.erase(job);
+        if listLength(self.items) != 3 {
+            panic("task delete failed");
+        }
+        let theme = job.window.setTheme(rinzu.macos.themeDark);
+        rinzu.stdio.writeLine("TASKS:add:unicode:toggle:filter:delete:theme");
+        job.requestStop();
+    }
+}
+
+async fn screen(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    let minimum = scope.window.setMinimumContentSize(520.0, 300.0);
+    let root = scope.window.contentView();
+    let label = scope.label("New task", rinzu.macos.Rect(x: 12.0, y: 380.0, width: 72.0, height: 24.0));
+    let addedLabel = root.addSubview(label.view);
+    let flexibleLabel = label.view.setAutoresizing(8);
+    let input = scope.textField("", rinzu.macos.Rect(x: 92.0, y: 376.0, width: 416.0, height: 32.0), 10);
+    let addedInput = root.addSubview(input.view);
+    let flexibleInput = input.view.setAutoresizing(10);
+    let add = scope.button("Add", rinzu.macos.Rect(x: 520.0, y: 376.0, width: 108.0, height: 32.0), 10);
+    let addedAdd = root.addSubview(add.view);
+    let flexibleAdd = add.view.setAutoresizing(9);
+    let list = scope.listView(rinzu.macos.Rect(x: 12.0, y: 92.0, width: 616.0, height: 272.0), 100);
+    let addedList = root.addSubview(list.view);
+    let flexibleList = list.view.setAutoresizing(18);
+    let toolbar = scope.session.view(rinzu.macos.Rect(x: 12.0, y: 48.0, width: 616.0, height: 32.0));
+    let addedToolbar = root.addSubview(toolbar);
+    let flexibleToolbar = toolbar.setAutoresizing(2);
+    let buttonRect = rinzu.macos.Rect(x: 0.0, y: 0.0, width: 100.0, height: 28.0);
+    let toggle = scope.button("Done / Open", buttonRect, 11);
+    let remove = scope.button("Delete", buttonRect, 12);
+    let filter = scope.button("Open / All", buttonRect, 13);
+    let theme = scope.button("Light / Dark", buttonRect, 14);
+    let items = [
+        rinzu.macos.LayoutItem(view: toggle.view, fixed: 140.0, grow: 0.0),
+        rinzu.macos.LayoutItem(view: remove.view, fixed: 80.0, grow: 0.0),
+        rinzu.macos.LayoutItem(view: filter.view, fixed: 120.0, grow: 0.0),
+        rinzu.macos.LayoutItem(view: theme.view, fixed: 120.0, grow: 0.0)
+    ];
+    let laid = rinzu.macos.weightedRow(toolbar, items, 0.0, 8.0);
+    let status = scope.label("", rinzu.macos.Rect(x: 12.0, y: 12.0, width: 616.0, height: 24.0));
+    let addedStatus = root.addSubview(status.view);
+    let flexibleStatus = status.view.setAutoresizing(2);
+    let inputAX = input.view.setAccessibility("Task title", "Type a title and press Return", "task-title");
+    let listAX = list.view.setAccessibility("Tasks", "Arrow keys select; Return toggles completion", "task-list");
+    let toggleHelp = toggle.view.setTooltip("Toggle completion of the selected task");
+    let state = Tasks(
+        list: list,
+        input: input,
+        status: status,
+        toggle: toggle,
+        remove: remove,
+        items: [
+            Task(id: 1, title: "Build a Rinzu application", done: false),
+            Task(id: 2, title: "日本語とemoji 😀を表示する", done: false),
+            Task(id: 3, title: "Use native keyboard navigation", done: true)
+        ],
+        nextId: 4,
+        selected: 0,
+        openOnly: false,
+        dark: false,
+        busy: false
+    );
+    await state.refresh();
+    let actions = rinzu.macos.actions();
+    let handle = async fn (job: rinzu.macos.UiJob, event: rinzu.macos.UiEvent) {
+        await state.handle(job, event);
+    };
+    actions.on(10, handle);
+    actions.on(11, handle);
+    actions.on(12, handle);
+    actions.on(13, handle);
+    actions.on(14, handle);
+    actions.on(100, handle);
+    let menu = scope.menu("Main");
+    let application = scope.menu("Rinzu Tasks");
+    let quit = application.addStandard("Quit", rinzu.macos.commandQuit, "q", rinzu.macos.modifierCommand);
+    let submenu = menu.addSubmenu(application);
+    let edit = scope.menu("Edit");
+    let cutItem = edit.addStandard("Cut", rinzu.macos.commandCut, "x", rinzu.macos.modifierCommand);
+    let copyItem = edit.addStandard("Copy", rinzu.macos.commandCopy, "c", rinzu.macos.modifierCommand);
+    let pasteItem = edit.addStandard("Paste", rinzu.macos.commandPaste, "v", rinzu.macos.modifierCommand);
+    let selectAllItem = edit.addStandard("Select All", rinzu.macos.commandSelectAll, "a", rinzu.macos.modifierCommand);
+    let editMenu = menu.addSubmenu(edit);
+    let installed = scope.window.setMenu(menu);
+    if rinzu.process.setting("RINZU_TASK_LIST_TEST", "0") == "1" {
+        let tested = scope.start(
+            async fn (job: rinzu.macos.UiJob) {
+                await state.exercise(job);
+            }
+        );
+    }
+    await scope.dispatch(
+        async fn (owner: rinzu.macos.UiScope, event: rinzu.macos.UiEvent) {
+            if event.kind == rinzu.macos.eventResized {
+                let resized = rinzu.macos.weightedRow(toolbar, items, 0.0, 8.0);
+            }
+            if event.kind == rinzu.macos.eventData && event.flags == rinzu.macos.dataSelected && list.accepts(event) {
+                state.selected = event.selectionStart;
+                state.updateSelection();
+            }
+            else {
+                actions.handle(owner, event);
+            }
+        }
+    );
+}
+
+async fn main() {
+    try {
+        if rinzu.process.setting("RINZU_TASK_LIST_TEST", "0") == "1" {
+            let tested = await rinzu.macos.application("Rinzu Tasks", 640.0, 420.0, screen);
+        }
+        else {
+            let running = await rinzu.macos.applicationWithSignals("Rinzu Tasks", 640.0, 420.0, screen);
+        }
+        let stats = rinzu.macos.statistics();
+        if stats.retainedControls + stats.dataRows + stats.dataBytes + stats.dataUpdates != 0 {
+            panic("tasks leaked resources");
+        }
+        rinzu.stdio.writeLine("TASKS:closed");
+    }
+    catch errors {
+        panic(f"tasks failed: {errors}");
+    }
+}

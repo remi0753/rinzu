@@ -1,0 +1,6 @@
+[package]
+name = "macos_data_browser"
+language = "0.5"
+
+[dependencies]
+"rinzu.macos" = { path = "../../../../sdk/macos" }

@@ -1,0 +1,8 @@
+native {
+    fn apply(callback: fn (Int) -> Int, value: Int) -> Int symbol "error_apply";
+
+    fn input(callback: fn (String) -> Int, mode: Int) -> Int symbol "error_input";
+}
+
+export apply;
+export input;

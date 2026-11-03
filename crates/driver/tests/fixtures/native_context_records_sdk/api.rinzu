@@ -1,0 +1,54 @@
+class Editor {
+    value: Int
+}
+
+type Context = {
+    editor: Editor, point: Packet, handle: Handle, action: fn (Int) -> Int
+};
+
+native {
+    record Packet {
+        x: Int
+    }
+
+    opaque Handle;
+
+    fn make() -> Handle symbol "context_make";
+
+    fn check(handle: Handle) -> Int symbol "context_check";
+
+    fn change(point: Packet, amount: Int) -> Int symbol "context_change";
+
+    fn invoke(context: Context, handler: fn (Context) -> Int) -> Int symbol "context_invoke";
+}
+
+fn action(value: Int) -> Int {
+    return value * 2;
+}
+
+fn read(context: Context) -> Int fallback -1 {
+    var index = 0;
+    while index < 48 {
+        let moved = f"context-{index}";
+        index = index + 1;
+    }
+    context.editor.value = context.editor.value + 1;
+    let changed = change(context.point, 3);
+    let nativeValue = check(context.handle);
+    return context.editor.value + context.point.x + nativeValue + context.action(1);
+}
+
+fn exercise() -> Int {
+    let editor = Editor(value: 10);
+    let point = Packet(x: 4);
+    let context: Context = {
+        editor = editor, point = point, handle = make(), action = action
+    };
+    let result = invoke(context, read);
+    if result != 25 || editor.value != 11 || point.x != 7 {
+        panic("lost context fields");
+    }
+    return result;
+}
+
+export exercise;

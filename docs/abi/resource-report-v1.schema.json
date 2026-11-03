@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rinzu:schema:resource-report:v1",
+  "title": "Rinzu resource accounting snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "version", "producer", "process_id", "sequence", "phase", "elapsed_ns", "consistency", "categories", "sources"],
+  "properties": {
+    "schema": {"const": "rinzu.resource-report"},
+    "version": {"const": 1},
+    "producer": {"type": "string"},
+    "process_id": {"type": "integer", "minimum": 1},
+    "sequence": {"type": "integer", "minimum": 0},
+    "phase": {"enum": ["start", "sample", "end"]},
+    "elapsed_ns": {"type": "integer", "minimum": 0},
+    "consistency": {"const": "subsystem-consistent; cross-subsystem-best-effort"},
+    "sources": {"type": "object", "additionalProperties": {"type": "string"}},
+    "categories": {"type": "array", "items": {"$ref": "#/$defs/category"}}
+  },
+  "$defs": {
+    "amount": {"type": ["integer", "null"], "minimum": 0},
+    "category": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "scope", "unit", "status", "live", "allocated", "released", "peak", "retention_reason", "subset_of", "attribution"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "scope": {"enum": ["process-runtime", "runtime-image", "run", "process-os", "sdk"]},
+        "unit": {"enum": ["bytes", "count"]},
+        "status": {"enum": ["measured", "unknown", "unsupported"]},
+        "live": {"$ref": "#/$defs/amount"},
+        "allocated": {"$ref": "#/$defs/amount"},
+        "released": {"$ref": "#/$defs/amount"},
+        "peak": {"$ref": "#/$defs/amount"},
+        "retention_reason": {"type": "string"},
+        "subset_of": {"type": ["string", "null"]},
+        "attribution": {
+          "type": "object", "additionalProperties": false,
+          "required": ["source_file", "symbol", "start_byte", "end_byte", "precision"],
+          "properties": {
+            "source_file": {"type": ["integer", "null"], "minimum": 0},
+            "symbol": {"type": ["string", "null"]},
+            "start_byte": {"$ref": "#/$defs/amount"},
+            "end_byte": {"$ref": "#/$defs/amount"},
+            "precision": {"enum": ["site", "run", "unknown"]}
+          }
+        }
+      }
+    }
+  }
+}

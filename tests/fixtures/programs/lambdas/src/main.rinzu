@@ -1,0 +1,81 @@
+import rinzu.stdio;
+
+type Commands = {
+    edit: fn (Int) -> Int, format: fn (Int) -> String, later: fn (Int) -> Future<Int>
+};
+
+class Editor {
+    text: String,
+    value: Int,
+    commands: Option<Commands>
+}
+
+fn identity(value: Int) -> Int {
+    return value;
+}
+
+fn makeFormat() -> fn (Int) -> String {
+    var prefix: String = "escaped";
+    let function = fn (value: Int) -> String {
+        return f"{prefix}:{value}";
+    };
+    prefix = "changed";
+    return function;
+}
+
+fn make() -> Editor {
+    let editor = Editor(text: "initial", value: 0, commands: Option<Commands>.None());
+    let commands: Commands = {
+        edit = fn (value: Int) -> Int {
+            editor.value = value;
+            editor.text = "edited";
+            return editor.value;
+        }, format = makeFormat(), later = async fn (value: Int) -> Int {
+            rinzu.stdio.writeLine("started");
+            let copied = await spawn identity(value);
+            editor.value = editor.value + copied;
+            return editor.value;
+        }
+    };
+    editor.commands = Option<Commands>.Some(value: commands);
+    return editor;
+}
+
+async fn main() {
+    try {
+        let editor = make();
+        switch editor.commands {
+            case Option.None: {
+                panic("bad");
+            }
+            case Option.Some(commands): {
+                var i: Int = 0;
+                while i < 300 {
+                    let temporary = f"gc-{i}";
+                    i = i + 1;
+                }
+                rinzu.stdio.writeLine(commands.edit(42));
+                rinzu.stdio.writeLine(commands.format(7));
+                rinzu.stdio.writeLine("created");
+                let pending = commands.later(1);
+                try all {
+                    rinzu.stdio.writeLine("called");
+                    var j: Int = 0;
+                    while j < 300 {
+                        let pendingTemporary = f"pending-gc-{j}";
+                        j = j + 1;
+                    }
+                    rinzu.stdio.writeLine(await pending);
+                }
+                catch errors {}
+            }
+        }
+        var base: Int = 40;
+        let addBase = fn (n: Int) -> Int {
+            return base + n;
+        };
+        base = 41;
+        rinzu.stdio.writeLine(addBase(2));
+    }
+    catch errors {}
+}

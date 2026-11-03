@@ -1,0 +1,17 @@
+native {
+    record ValueResult {
+        status: CInt,
+        value: Int
+    }
+
+    fn rawCalculate(value: Int, output: ValueResult) -> Unit symbol "rinzu_rinzu_shim_13883cc0_calculate";
+}
+
+fn calculate(value: Int) -> Int {
+    let output = ValueResult(status: CInt(0), value: 0);
+    rawCalculate(value, output);
+    let resultValue1 = nativeStatus(Int(output.status), "rinzu.shim.calculate");
+    return output.value;
+}
+
+export calculate;

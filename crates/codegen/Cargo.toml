@@ -1,0 +1,31 @@
+[package]
+name = "rinzu-codegen"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[features]
+test-allocation-probe = []
+test-c-lowering-probe = []
+test-dispatcher-probe = ["rinzu-runtime/test-dispatcher-probe"]
+
+[dependencies]
+anyhow.workspace = true
+cranelift-codegen.workspace = true
+cranelift-frontend.workspace = true
+cranelift-jit.workspace = true
+cranelift-module.workspace = true
+cranelift-native.workspace = true
+cranelift-object.workspace = true
+libc.workspace = true
+rinzu-bindgen = { path = "../bindgen" }
+rinzu-abi = { path = "../abi" }
+rinzu-compiler = { path = "../compiler" }
+rinzu-runtime = { path = "../runtime" }
+rinzu-trace = { path = "../trace" }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

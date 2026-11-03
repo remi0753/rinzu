@@ -1,0 +1,16 @@
+native {
+    fn testSheetReply(window: Window, choice: CInt, path: ByteArray, length: CSize)
+        -> CInt
+        symbol "rinzu_macos_test_sheet_reply";
+
+    fn testSheetVisible(window: Window) -> CInt symbol "rinzu_macos_test_sheet_visible";
+}
+
+fn Window.testSheetReply(self: Window, choice: Int, path: String) -> Int {
+    let bytes = utf8Encode(path);
+    return checked(Int(testSheetReply(self, CInt(choice), bytes, byteLength(bytes))), "test.sheet.reply");
+}
+
+fn Window.testSheetVisible(self: Window) -> Bool {
+    return testSheetVisible(self) != CInt(0);
+}

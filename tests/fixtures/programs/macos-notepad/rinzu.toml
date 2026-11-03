@@ -1,0 +1,6 @@
+[package]
+name = "macos_notepad"
+language = "0.5"
+
+[dependencies]
+"rinzu.macos" = { path = "../../../../sdk/macos" }

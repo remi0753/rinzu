@@ -1,0 +1,64 @@
+import rinzu.stdio;
+import rinzu.timer;
+
+error Failed {
+    payload: Int
+}
+
+async fn fail(value: Int) -> Int {
+    throw Failed(message: "failure", payload: value);
+}
+
+async fn slow(value: Future<Int>) {
+    try {
+        await rinzu.timer.sleep(100);
+    }
+    catch errors {}
+    try {
+        let received = await value;
+    }
+    catch errors {}
+}
+
+async fn show(value: Future<Int>) {
+    try {
+        let received = await value;
+    }
+    catch [error: Failed] {
+        try {
+            rinzu.stdio.writeLine(error.payload);
+        }
+        catch errors {}
+    }
+    catch errors {}
+}
+
+fn make(value: Int) -> Future<Unit> {
+    return show(fail(value));
+}
+
+async fn main() {
+    try {
+        let pending = fail(307);
+        let observer = slow(pending);
+        let cancelled = cancelFuture(observer);
+        try {
+            let received = await pending;
+        }
+        catch [error: Failed] {
+            rinzu.stdio.writeLine(error.payload);
+        }
+        catch errors {}
+        let private = make(311);
+        await private;
+        let completed = cancelFuture(private);
+        try {
+            let repeated = await pending;
+        }
+        catch [error: Failed] {
+            rinzu.stdio.writeLine(error.payload);
+        }
+        catch errors {}
+    }
+    catch errors {}
+}

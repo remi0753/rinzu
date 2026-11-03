@@ -1,0 +1,136 @@
+import loops;
+
+fn worker(round: CInt) -> Int {
+    try {
+        let root = ["Worker child of supplant callback", "moving heap"];
+        if root != ["Worker child of supplant callback", "moving heap"] {
+            panic("lost");
+        }
+        let barrier = loops.workerBarrier(round);
+        if barrier != round || root != ["Worker child of supplant callback", "moving heap"] {
+            panic("lostAfterBarrier");
+        }
+        return Int(round);
+    }
+    catch unexpectedErrors {
+        panic("failed");
+        return 0;
+    }
+}
+
+async fn child(round: CInt) -> Int {
+    try {
+        let root = ["async child of original supplant scope", "root after capsule closes"];
+        await loops.completed(loops.completion(round, 0));
+        let bytes = await loops.readSize("data/proof.bin");
+        if bytes != 8193 || root != ["async child of original supplant scope", "root after capsule closes"] {
+            panic("lost");
+        }
+        loops.mark(round, 4);
+        return bytes;
+    }
+    catch unexpectedErrors {
+        panic("failed");
+        return 0;
+    }
+}
+
+async fn readObserved(path: String) -> Int {
+    try {
+        return await loops.readSize(path);
+    }
+    catch errors {
+        panic("failed");
+        return 0;
+    }
+}
+
+fn callback(round: CInt) -> CInt fallback -19 {
+    let root = ["callback input/activation", "child admission"];
+    let cpu = spawn worker(round);
+    let task = child(round);
+    let direct = readObserved("data/proof.bin");
+    loops.mark(round, 1);
+    if root != ["callback input/activation", "child admission"] {
+        panic("lost");
+    }
+    return 41;
+}
+
+async fn wrapper(round: CInt) -> String {
+    let root = ["wrapper", "pin across queued GC and child join"];
+    try {
+        let result = await loops.run(callback, round);
+        loops.mark(round, 3);
+        if root != ["wrapper", "pin across queued GC and child join"] {
+            panic("lost");
+        }
+        return result;
+    }
+    catch [error: Error, ...errorRest] {
+        if error.message != "another supplant call is still active" {
+            panic("wrongBusy");
+        }
+        loops.busy();
+        return "busy";
+    }
+}
+
+async fn ready() -> Int {
+    return 7;
+}
+
+async fn main() {
+    try {
+        loops.reset(0);
+        let root = ["Main prefix", "Main stays on its caller thread"];
+        let first = wrapper(1);
+        loops.prefix(1);
+        let rejected = wrapper(2);
+        loops.prefix(2);
+        let busy = await rejected;
+        let available = ready();
+        let seven = await available;
+        var index = 0;
+        while index < 32 {
+            let temporary = ["Queued GC", "callback and argument roots"];
+            if temporary != ["Queued GC", "callback and argument roots"] {
+                panic("lost");
+            }
+            index = index + 1;
+        }
+        if busy != "busy" || seven != 7 {
+            panic("wrongReady");
+        }
+        let firstResult = await first;
+        let independent = await loops.readSize("data/proof.bin");
+        if independent != 8193 {
+            panic("wrongFile");
+        }
+        loops.prefix(3);
+        let second = wrapper(2);
+        loops.prefix(4);
+        let secondResult = await second;
+        await loops.completed(loops.completion(2, 1));
+        loops.mark(2, 5);
+        loops.prefix(5);
+        if secondResult != "second native result 🧭" {
+            panic("wrongSecond");
+        }
+        await loops.completed(loops.completion(1, 1));
+        let repeatedFirst = await first;
+        if repeatedFirst != firstResult {
+            panic("wrongAlias");
+        }
+        loops.mark(1, 5);
+        if firstResult != "first native result 日本語" || root != ["Main prefix", "Main stays on its caller thread"] {
+            panic("wrongFirst");
+        }
+        if loops.finish() != 2 {
+            panic("unfinished");
+        }
+    }
+    catch errors {
+        panic("failed");
+    }
+}

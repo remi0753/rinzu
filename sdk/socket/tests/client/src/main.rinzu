@@ -1,0 +1,562 @@
+import rinzu.timer;
+import rinzu.socket;
+import rinzu.process;
+import rinzu.stdio;
+import rinzu.testing;
+
+class Progress {
+    ticks: Int,
+    done: Bool
+}
+
+async fn heartbeat(progress: Progress) {
+    while !progress.done {
+        await delay(5);
+        progress.ticks = progress.ticks + 1;
+    }
+}
+
+fn pattern() -> ByteArray {
+    return byteArray(b"\x00\xff\x80A\x00B\xfeC");
+}
+
+fn payload() -> ByteArray {
+    var data = pattern();
+    while bytesLength(data) < 65536 {
+        data = bytesConcat(data, data);
+    }
+    return data;
+}
+
+fn verify(data: ByteArray, offset: Int) {
+    let expected = pattern();
+    var index = 0;
+    while index < bytesLength(data) {
+        let position = offset + index;
+        assertTrue(bytesGet(data, index) == bytesGet(expected, position - (position / 8) * 8), "binary content");
+        index = index + 1;
+    }
+}
+
+fn configuration(name: String, defaultValue: String) -> String {
+    try {
+        let resultValue6 = rinzu.process.setting(name, defaultValue);
+        return resultValue6;
+    }
+    catch [resultError6: Error, ...resultRest6] {
+        assertTrue(false, errorMessage(resultError6));
+    }
+    return defaultValue;
+}
+
+fn integer(name: String) -> Int {
+    try {
+        let resultValue5 = parseInt(configuration(name, "0"));
+        return resultValue5;
+    }
+    catch [resultError5: Error, ...resultRest5] {
+        assertTrue(false, errorMessage(resultError5));
+    }
+    return 0;
+}
+
+fn readLimit(defaultSize: Int) -> Int {
+    let configured = integer("SOCKET_READ_MAXIMUM");
+    if configured == 0 {
+        return defaultSize;
+    }
+    assertTrue(configured >= 1 && configured <= 65536, "read maximum");
+    return configured;
+}
+
+async fn put(stream: rinzu.socket.TcpStream, data: ByteArray) {
+    try {
+        try {
+            let resultValue4 = await rinzu.socket.writeAll(stream, data);
+            assertEqual<Int>(resultValue4, bytesLength(data), "writeAll length");
+        }
+        catch [resultError4: Error, ...resultRest4] {
+            if resultError4 is rinzu.socket.WriteFailure {
+                assertTrue(false, errorMessage(resultError4.payload.cause));
+            }
+            else {
+                throw resultError4;
+            }
+        }
+    }
+    catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
+        assertTrue(false, errorMessage(unexpectedWorkerError));
+    }
+}
+
+async fn half(stream: rinzu.socket.TcpStream) {
+    try {
+        try {
+            let resultValue3 = await rinzu.socket.shutdownWrite(stream);
+        }
+        catch [resultError3: Error, ...resultRest3] {
+            assertTrue(false, errorMessage(resultError3));
+        }
+    }
+    catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
+        assertTrue(false, errorMessage(unexpectedWorkerError));
+    }
+}
+
+fn cleanup(ticks: Int) {
+    let stats = rinzu.socket.statistics();
+    rinzu.stdio.writeLine(
+        f"CLEANUP:{stats.handleSlots}:{stats.operations}:{stats.buffers}:{stats.eventThreads}:TICKS:{ticks}:EVENTS:{stats.readinessEvents}:PARTIAL:{stats.partialWrites}"
+    );
+    assertEqual<Int>(stats.handleSlots, 0, "live handles");
+    assertEqual<Int>(stats.operations, 0, "live operations");
+    assertEqual<Int>(stats.buffers, 0, "live buffers");
+    assertEqual<Int>(stats.eventThreads, 0, "event thread joined");
+    assertTrue(ticks > 0, "timer progressed");
+}
+
+async fn receive(stream: rinzu.socket.TcpStream) {
+    let maximum = readLimit(4096);
+    try {
+        await delay(300);
+        var total = 0;
+        var chunks = 0;
+        while true {
+            try {
+                let resultValue2 = await rinzu.socket.read(stream, maximum);
+                if resultValue2.eof {
+                    break;
+                }
+                verify(resultValue2.data, total);
+                total = total + bytesLength(resultValue2.data);
+                chunks = chunks + 1;
+            }
+            catch [resultError2: Error, ...resultRest2] {
+                assertTrue(false, errorMessage(resultError2));
+                return;
+            }
+        }
+        assertEqual<Int>(total, 1114240, "greeting plus byte echo");
+        rinzu.stdio.writeLine(f"BINARY:{total}:CHUNKS:{chunks}");
+    }
+    catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
+        assertTrue(false, errorMessage(unexpectedWorkerError));
+    }
+}
+
+async fn main() {
+    try {
+        let progress = Progress(ticks: 0, done: false);
+        let ticker = heartbeat(progress);
+        let mode = configuration("SOCKET_MODE", "echo");
+        let port = integer("SOCKET_PORT");
+        try all {
+            if mode == "connect-cancel" {
+                let pending0 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending1 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending2 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending3 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending4 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending5 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending6 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending7 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending8 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending9 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending10 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending11 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending12 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending13 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending14 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending15 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending16 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending17 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending18 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending19 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending20 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending21 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending22 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending23 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending24 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending25 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending26 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending27 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending28 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending29 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending30 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                let pending31 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                await delay(200);
+                var waiting = 0;
+                if !futureReady(pending0) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending1) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending2) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending3) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending4) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending5) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending6) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending7) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending8) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending9) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending10) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending11) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending12) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending13) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending14) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending15) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending16) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending17) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending18) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending19) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending20) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending21) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending22) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending23) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending24) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending25) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending26) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending27) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending28) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending29) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending30) {
+                    waiting = waiting + 1;
+                }
+                if !futureReady(pending31) {
+                    waiting = waiting + 1;
+                }
+                rinzu.stdio.writeLine(f"CONNECT:PENDING:{waiting}");
+                assertTrue(waiting > 0, "backlog makes connect pending");
+                if !futureReady(pending0) {
+                    let stopped1 = cancelFuture(pending0);
+                }
+                if !futureReady(pending1) {
+                    let stopped2 = cancelFuture(pending1);
+                }
+                if !futureReady(pending2) {
+                    let stopped3 = cancelFuture(pending2);
+                }
+                if !futureReady(pending3) {
+                    let stopped4 = cancelFuture(pending3);
+                }
+                if !futureReady(pending4) {
+                    let stopped5 = cancelFuture(pending4);
+                }
+                if !futureReady(pending5) {
+                    let stopped6 = cancelFuture(pending5);
+                }
+                if !futureReady(pending6) {
+                    let stopped7 = cancelFuture(pending6);
+                }
+                if !futureReady(pending7) {
+                    let stopped8 = cancelFuture(pending7);
+                }
+                if !futureReady(pending8) {
+                    let stopped9 = cancelFuture(pending8);
+                }
+                if !futureReady(pending9) {
+                    let stopped10 = cancelFuture(pending9);
+                }
+                if !futureReady(pending10) {
+                    let stopped11 = cancelFuture(pending10);
+                }
+                if !futureReady(pending11) {
+                    let stopped12 = cancelFuture(pending11);
+                }
+                if !futureReady(pending12) {
+                    let stopped13 = cancelFuture(pending12);
+                }
+                if !futureReady(pending13) {
+                    let stopped14 = cancelFuture(pending13);
+                }
+                if !futureReady(pending14) {
+                    let stopped15 = cancelFuture(pending14);
+                }
+                if !futureReady(pending15) {
+                    let stopped16 = cancelFuture(pending15);
+                }
+                if !futureReady(pending16) {
+                    let stopped17 = cancelFuture(pending16);
+                }
+                if !futureReady(pending17) {
+                    let stopped18 = cancelFuture(pending17);
+                }
+                if !futureReady(pending18) {
+                    let stopped19 = cancelFuture(pending18);
+                }
+                if !futureReady(pending19) {
+                    let stopped20 = cancelFuture(pending19);
+                }
+                if !futureReady(pending20) {
+                    let stopped21 = cancelFuture(pending20);
+                }
+                if !futureReady(pending21) {
+                    let stopped22 = cancelFuture(pending21);
+                }
+                if !futureReady(pending22) {
+                    let stopped23 = cancelFuture(pending22);
+                }
+                if !futureReady(pending23) {
+                    let stopped24 = cancelFuture(pending23);
+                }
+                if !futureReady(pending24) {
+                    let stopped25 = cancelFuture(pending24);
+                }
+                if !futureReady(pending25) {
+                    let stopped26 = cancelFuture(pending25);
+                }
+                if !futureReady(pending26) {
+                    let stopped27 = cancelFuture(pending26);
+                }
+                if !futureReady(pending27) {
+                    let stopped28 = cancelFuture(pending27);
+                }
+                if !futureReady(pending28) {
+                    let stopped29 = cancelFuture(pending28);
+                }
+                if !futureReady(pending29) {
+                    let stopped30 = cancelFuture(pending29);
+                }
+                if !futureReady(pending30) {
+                    let stopped31 = cancelFuture(pending30);
+                }
+                if !futureReady(pending31) {
+                    let stopped32 = cancelFuture(pending31);
+                }
+                // Cancellation does not imply physical completion.
+                var settling = true;
+                while settling {
+                    settling = false;
+                    if !futureReady(pending0) {
+                        settling = true;
+                    }
+                    if !futureReady(pending1) {
+                        settling = true;
+                    }
+                    if !futureReady(pending2) {
+                        settling = true;
+                    }
+                    if !futureReady(pending3) {
+                        settling = true;
+                    }
+                    if !futureReady(pending4) {
+                        settling = true;
+                    }
+                    if !futureReady(pending5) {
+                        settling = true;
+                    }
+                    if !futureReady(pending6) {
+                        settling = true;
+                    }
+                    if !futureReady(pending7) {
+                        settling = true;
+                    }
+                    if !futureReady(pending8) {
+                        settling = true;
+                    }
+                    if !futureReady(pending9) {
+                        settling = true;
+                    }
+                    if !futureReady(pending10) {
+                        settling = true;
+                    }
+                    if !futureReady(pending11) {
+                        settling = true;
+                    }
+                    if !futureReady(pending12) {
+                        settling = true;
+                    }
+                    if !futureReady(pending13) {
+                        settling = true;
+                    }
+                    if !futureReady(pending14) {
+                        settling = true;
+                    }
+                    if !futureReady(pending15) {
+                        settling = true;
+                    }
+                    if !futureReady(pending16) {
+                        settling = true;
+                    }
+                    if !futureReady(pending17) {
+                        settling = true;
+                    }
+                    if !futureReady(pending18) {
+                        settling = true;
+                    }
+                    if !futureReady(pending19) {
+                        settling = true;
+                    }
+                    if !futureReady(pending20) {
+                        settling = true;
+                    }
+                    if !futureReady(pending21) {
+                        settling = true;
+                    }
+                    if !futureReady(pending22) {
+                        settling = true;
+                    }
+                    if !futureReady(pending23) {
+                        settling = true;
+                    }
+                    if !futureReady(pending24) {
+                        settling = true;
+                    }
+                    if !futureReady(pending25) {
+                        settling = true;
+                    }
+                    if !futureReady(pending26) {
+                        settling = true;
+                    }
+                    if !futureReady(pending27) {
+                        settling = true;
+                    }
+                    if !futureReady(pending28) {
+                        settling = true;
+                    }
+                    if !futureReady(pending29) {
+                        settling = true;
+                    }
+                    if !futureReady(pending30) {
+                        settling = true;
+                    }
+                    if !futureReady(pending31) {
+                        settling = true;
+                    }
+                    if settling {
+                        await delay(1);
+                    }
+                }
+                return;
+            }
+            try {
+                let resultValue1 = await rinzu.socket.connect(rinzu.socket.Address(host: "127.0.0.1", port: port));
+                if mode == "echo" {
+                    let incoming = receive(resultValue1);
+                    var small = pattern();
+                    while bytesLength(small) < 64 {
+                        small = bytesConcat(small, small);
+                    }
+                    await put(resultValue1, small);
+                    await put(resultValue1, small);
+                    await delay(200);
+                    var burst = 0;
+                    while burst < 16 {
+                        await put(resultValue1, payload());
+                        burst = burst + 1;
+                    }
+                    await half(resultValue1);
+                    await incoming;
+                }
+                else {
+                    await delay(2000);
+                }
+            }
+            catch [resultError1: Error, ...resultRest1] {
+                assertTrue(false, errorMessage(resultError1));
+            }
+        }
+        finally {
+            let disposedSockets = await rinzu.socket.closeOwnerSockets();
+            progress.done = true;
+            await ticker;
+            cleanup(progress.ticks);
+        }
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}
+
+// Assertions in process fixtures terminate the test; they are not task failures.
+fn assertTrue(condition: Bool, message: String) {
+    try {
+        rinzu.testing.assertTrue(condition, message);
+    }
+    catch errors {
+        panic("failedAssertion");
+    }
+}
+
+fn assertEqual<T: Equality>(actual: T, expected: T, message: String) {
+    try {
+        rinzu.testing.assertEqual<T>(actual, expected, message);
+    }
+    catch errors {
+        panic("failedAssertion");
+    }
+}
+
+async fn delay(milliseconds: Int) {
+    try {
+        await rinzu.timer.sleep(milliseconds);
+    }
+    catch errors {
+        panic("unexpectedTimerFailure");
+    }
+}
+
+// Refusal is expected during the connection saturation/cancellation probe.
+async fn connecting(address: rinzu.socket.Address) {
+    try {
+        let stream = await rinzu.socket.connect(address);
+    }
+    catch errors {}
+}

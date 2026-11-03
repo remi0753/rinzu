@@ -1,0 +1,5 @@
+[package]
+name = "macos_canvas_test"
+language = "0.5"
+[dependencies]
+"rinzu.macos" = { path = "../.." }

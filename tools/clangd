@@ -1,0 +1,3 @@
+#!/bin/sh
+# Resolve LLVM 21 even when VS Code was opened without Homebrew on PATH.
+exec python3 "$(dirname "$0")/native_quality.py" clangd "$@"

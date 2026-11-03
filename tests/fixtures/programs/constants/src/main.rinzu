@@ -1,0 +1,77 @@
+import rinzu.stdio;
+
+class Config {
+    const enabled: Bool,
+    const title: String,
+    const masks: List<Int>,
+    const prefix: Bytes(4)
+}
+
+class Box<T> {
+    const value: T
+}
+
+let ENABLED = true;
+
+let TITLE = r#"日本語 {name}"#;
+
+let ALIAS = TITLE;
+
+let MASK = bitOr(0xf0, 0b1111);
+
+let MASKS: List<Int> = [MASK, 2, 3];
+
+let EMPTY: List<String> = [];
+
+let TABLE: Map<String, Int> = {
+    "a": 1, "b": 2, "a": 3
+};
+
+let PREFIX: Bytes(4) = b"A";
+
+let DEFAULT: Config = Config(enabled: ENABLED, title: ALIAS, masks: MASKS, prefix: PREFIX);
+
+let BOXED: Box<Config> = Box<Config>(value: DEFAULT);
+
+let PRESENT: Option<Config> = Option<Config>.Some(value: DEFAULT);
+
+fn shadow(TITLE: String) -> String {
+    return TITLE;
+}
+
+fn copy(value: Config) -> Config {
+    return value;
+}
+
+fn generic<T>(value: T) -> T {
+    let local = TITLE;
+    return value;
+}
+
+async fn main() {
+    try {
+        rinzu.stdio.writeLine(ENABLED);
+        rinzu.stdio.writeLine(DEFAULT.title);
+        rinzu.stdio.writeLine(DEFAULT.masks);
+        rinzu.stdio.writeLine(DEFAULT.prefix);
+        rinzu.stdio.writeLine(listLength(EMPTY));
+        rinzu.stdio.writeLine(mapGet(TABLE, "a"));
+        rinzu.stdio.writeLine(BOXED.value == DEFAULT);
+        switch PRESENT {
+            case Option.Some(value): {
+                rinzu.stdio.writeLine(value.enabled);
+            }
+            case Option.None: {
+                rinzu.stdio.writeLine(false);
+            }
+        }
+        rinzu.stdio.writeLine(shadow("local"));
+        let TITLE = "local name";
+        rinzu.stdio.writeLine(TITLE);
+        rinzu.stdio.writeLine(generic<Int>(7));
+        rinzu.stdio.writeLine(generic<String>("generic"));
+        let pending = spawn copy(DEFAULT);
+        rinzu.stdio.writeLine(await pending == DEFAULT);
+    }
+    catch errors {}
+}

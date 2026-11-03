@@ -1,0 +1,62 @@
+import rinzu.io;
+import rinzu.stream;
+
+/// Read plain UTF8 with a 1 MiB bound; the enclosing Owner recovers unreceived opens.
+async fn readDocument(path: String) -> String {
+    let input = await rinzu.stream.openFile(path);
+    try {
+        var data = byteArray(b"");
+        while true {
+            switch await rinzu.stream.next(input) {
+                case Option.None: {
+                    return utf8Decode(data);
+                }
+                case Option.Some(bytes): {
+                    if bytesLength(data) + bytesLength(bytes) > 1048576 {
+                        throw error(-7820, "document.textLimit");
+                    }
+                    data = bytesConcat(data, bytes);
+                }
+            }
+        }
+        throw error(-7820, "document.unreachable");
+    }
+    finally {
+        let closed = await rinzu.stream.close(input);
+    }
+}
+
+/// Unique sibling temporary file -> bounded writes -> fsync -> atomic rename -> close.
+/// Cancellation before installation removes the temporary during close/Owner recovery.
+async fn saveDocument(path: String, text: String) -> Int {
+    if utf8ByteLength(text) > 1048576 {
+        throw error(-7820, "document.textLimit");
+    }
+    let output = await rinzu.io.openTemporary(f"{path}.rinzu-XXXXXX");
+    try {
+        let data = utf8Encode(text);
+        var index = 0;
+        while index < bytesLength(data) {
+            var end = index + 65536;
+            if end > bytesLength(data) {
+                end = bytesLength(data);
+            }
+            switch bytesSlice(data, index, end) {
+                case Option.None: {
+                    throw error(-7820, "document.saveSlice");
+                }
+                case Option.Some(chunk): {
+                    index = index + await rinzu.io.writeAll(output, chunk);
+                }
+            }
+        }
+        let flushed = await rinzu.io.flush(output);
+        return await rinzu.io.installTemporary(output, path);
+    }
+    finally {
+        let closed = await rinzu.io.close(output);
+    }
+}
+
+export readDocument;
+export saveDocument;

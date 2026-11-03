@@ -1,0 +1,40 @@
+import returns;
+
+async fn main() {
+    try {
+        let mainValue = returns.exercise();
+        let one = spawn returns.exercise();
+        let two = spawn returns.exercise();
+        let three = spawn returns.exercise();
+        let four = spawn returns.exercise();
+        let five = spawn returns.exercise();
+        let six = spawn returns.exercise();
+        let seven = spawn returns.exercise();
+        let eight = spawn returns.exercise();
+        let r8 = await eight;
+        let r7 = await seven;
+        let r6 = await six;
+        let r5 = await five;
+        let r4 = await four;
+        let r3 = await three;
+        let r2 = await two;
+        let r1 = await one;
+        let again = await one;
+        if mainValue != 56
+            || r1 != 56
+            || r2 != 56
+            || r3 != 56
+            || r4 != 56
+            || r5 != 56
+            || r6 != 56
+            || r7 != 56
+            || r8 != 56
+            || again != 56
+            || returns.verifyHeld() != 1 {
+            panic("wrong");
+        }
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}

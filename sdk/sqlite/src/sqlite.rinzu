@@ -1,0 +1,409 @@
+class Connection {
+    const handle: ConnectionHandle
+
+    fn open(path: String) -> Connection {
+        return open(path);
+    }
+
+    fn openMemory() -> Connection {
+        return openMemory();
+    }
+
+    fn prepare(self: Connection, sql: String) -> Statement {
+        return prepare(self, sql);
+    }
+
+    fn execute(self: Connection, sql: String) -> Int {
+        return execute(self, sql);
+    }
+
+    fn queryInt(self: Connection, sql: String) -> Int {
+        return queryInt(self, sql);
+    }
+
+    fn close(self: Connection) -> Int {
+        return close(self);
+    }
+
+    fn isOpen(self: Connection) -> Bool {
+        return isOpen(self);
+    }
+
+    fn executeWithObserver(self: Connection, sql: String, handler: fn (ObserverContext) -> CInt) -> Int {
+        return executeWithObserver(self, sql, handler);
+    }
+
+    fn queryBytes(self: Connection, sql: String) -> ByteArray {
+        return queryBytes(self, sql);
+    }
+
+    fn queryText(self: Connection, sql: String) -> String {
+        return queryText(self, sql);
+    }
+
+    fn setDeadline(self: Connection, milliseconds: Int) -> Int {
+        return setDeadline(self, milliseconds);
+    }
+
+    fn inTransaction(self: Connection) -> Bool {
+        return inTransaction(self);
+    }
+
+    fn queryByteRows(self: Connection, sql: String, maximumRows: Int) -> List<ByteArray> {
+        return queryByteRows(self, sql, maximumRows);
+    }
+}
+
+class Statement {
+    const handle: StatementHandle
+
+    fn step(self: Statement) -> Bool {
+        return step(self);
+    }
+
+    fn columnInt(self: Statement, index: Int) -> Int {
+        return columnInt(self, index);
+    }
+
+    fn finalize(self: Statement) -> Int {
+        return finalize(self);
+    }
+
+    fn isOpen(self: Statement) -> Bool {
+        return isStatementOpen(self);
+    }
+}
+
+type ObserverContext = {
+    connection: Connection
+};
+
+native {
+    opaque ConnectionHandle;
+
+    opaque StatementHandle;
+
+    record ValueResult {
+        status: CInt,
+        value: Int
+    }
+
+    fn rawOpen(path: String) -> ConnectionHandle symbol "rinzu_sqlite_open";
+
+    fn connectionStatus(connection: ConnectionHandle) -> CInt symbol "rinzu_sqlite_connection_status";
+
+    fn connectionState(connection: ConnectionHandle) -> CInt symbol "rinzu_sqlite_connection_state";
+
+    fn rawExecute(connection: ConnectionHandle, sql: String) -> CInt symbol "rinzu_sqlite_execute";
+
+    fn rawQuery(connection: ConnectionHandle, sql: String, output: ValueResult) -> Unit symbol "rinzu_sqlite_query_int";
+
+    fn rawPrepare(connection: ConnectionHandle, sql: String) -> StatementHandle symbol "rinzu_sqlite_prepare";
+
+    fn statementStatus(statement: StatementHandle) -> CInt symbol "rinzu_sqlite_statement_status";
+
+    fn statementState(statement: StatementHandle) -> CInt symbol "rinzu_sqlite_statement_state";
+
+    fn rawStep(statement: StatementHandle) -> CInt symbol "rinzu_sqlite_step";
+
+    fn rawColumn(statement: StatementHandle, index: Int, output: ValueResult) -> Unit symbol "rinzu_sqlite_column_int";
+
+    fn rawFinalize(statement: StatementHandle) -> CInt symbol "rinzu_sqlite_finalize";
+
+    fn rawClose(connection: ConnectionHandle) -> CInt symbol "rinzu_sqlite_close";
+
+    fn rawCloseOwnerConnections() -> CInt symbol "rinzu_sqlite_close_owner_connections";
+
+    fn rawObserve(
+        connection: ConnectionHandle,
+        sql: String,
+        context: ObserverContext,
+        handler: fn (ObserverContext) -> CInt
+    ) -> CInt symbol "rinzu_sqlite_observe";
+
+    fn rawOwnedReady(connection: ConnectionHandle) -> CInt symbol "rinzu_sqlite_owned_ready";
+
+    fn rawOwnedBegin(connection: ConnectionHandle, sql: String, text: CBool) -> CInt symbol "rinzu_sqlite_owned_begin";
+
+    fn rawOwnedLength(connection: ConnectionHandle) -> Int symbol "rinzu_sqlite_owned_length";
+
+    fn rawOwnedBytes(connection: ConnectionHandle) -> Bytes(65536) symbol "rinzu_sqlite_owned_bytes";
+
+    fn rawOwnedRelease(connection: ConnectionHandle) -> CInt symbol "rinzu_sqlite_owned_release";
+
+    fn ownedAllocations() -> Int symbol "rinzu_sqlite_owned_allocations";
+
+    fn ownedReleases() -> Int symbol "rinzu_sqlite_owned_releases";
+
+    fn ownedLive() -> Int symbol "rinzu_sqlite_owned_live";
+
+    fn retainedControlBytes() -> Int symbol "rinzu_sqlite_retained_control_bytes";
+
+    fn rawDeadline(connection: ConnectionHandle, milliseconds: Int) -> CInt symbol "rinzu_sqlite_deadline";
+
+    fn rawTransactionState(connection: ConnectionHandle) -> CInt symbol "rinzu_sqlite_transaction_state";
+
+    fn rawOwnedRowsBegin(connection: ConnectionHandle, sql: String, maximumRows: Int)
+        -> CInt
+        symbol "rinzu_sqlite_owned_rows_begin";
+
+    fn rawOwnedRows(connection: ConnectionHandle) -> Int symbol "rinzu_sqlite_owned_rows";
+
+    fn rawOwnedRowLength(connection: ConnectionHandle, row: Int) -> Int symbol "rinzu_sqlite_owned_row_length";
+
+    fn liveConnections() -> Int symbol "rinzu_sqlite_live_connections";
+
+    fn liveStatements() -> Int symbol "rinzu_sqlite_live_statements";
+
+    fn allocatorCurrent() -> Int symbol "rinzu_sqlite_allocator_current";
+
+    fn allocatorPeak() -> Int symbol "rinzu_sqlite_allocator_peak";
+
+    fn rawEnableAllocatorStats() -> CInt symbol "rinzu_sqlite_enable_allocator_stats";
+
+    fn monotonicNanos() -> Int symbol "rinzu_sqlite_monotonic_nanos";
+
+    fn libraryVersion() -> String symbol "rinzu_sqlite_library_version";
+
+    fn headerVersion() -> String symbol "rinzu_sqlite_header_version";
+
+    fn sourceId() -> String symbol "rinzu_sqlite_source_id";
+}
+
+fn open(path: String) -> Connection {
+    let handle = rawOpen(path);
+    let resultValue13 = nativeStatus(Int(connectionStatus(handle)), "sqlite.open");
+    return Connection(handle: handle);
+}
+
+fn openMemory() -> Connection {
+    return open(":memory:");
+}
+
+fn prepare(connection: Connection, sql: String) -> Statement {
+    let handle = rawPrepare(connection.handle, sql);
+    let resultValue12 = nativeStatus(Int(statementStatus(handle)), "sqlite.prepare");
+    return Statement(handle: handle);
+}
+
+fn execute(connection: Connection, sql: String) -> Int {
+    return nativeStatus(Int(rawExecute(connection.handle, sql)), "sqlite.execute");
+}
+
+fn queryInt(connection: Connection, sql: String) -> Int {
+    let result = ValueResult(status: CInt(0), value: 0);
+    rawQuery(connection.handle, sql, result);
+    let resultValue11 = nativeStatus(Int(result.status), "sqlite.queryInt");
+    return (result.value);
+}
+
+fn step(statement: Statement) -> Bool {
+    let status = Int(rawStep(statement.handle));
+    if status == 100 {
+        return (true);
+    }
+    if status == 101 {
+        return (false);
+    }
+    let resultValue10 = nativeStatus(status, "sqlite.step");
+    return (false);
+}
+
+fn columnInt(statement: Statement, index: Int) -> Int {
+    let result = ValueResult(status: CInt(0), value: 0);
+    rawColumn(statement.handle, index, result);
+    let resultValue9 = nativeStatus(Int(result.status), "sqlite.columnInt");
+    return (result.value);
+}
+
+fn finalize(statement: Statement) -> Int {
+    return nativeStatus(Int(rawFinalize(statement.handle)), "sqlite.finalize");
+}
+
+fn close(connection: Connection) -> Int {
+    return nativeStatus(Int(rawClose(connection.handle)), "sqlite.close");
+}
+
+fn closeOwnerConnections() -> Int {
+    return nativeStatus(Int(rawCloseOwnerConnections()), "sqlite.closeOwnerConnections");
+}
+
+export closeOwnerConnections;
+
+fn isOpen(connection: Connection) -> Bool {
+    let state = Int(connectionState(connection.handle));
+    if state == 0 {
+        return (true);
+    }
+    if state == 1 {
+        return (false);
+    }
+    let resultValue8 = nativeStatus(state, "sqlite.isOpen");
+    return (false);
+}
+
+fn isStatementOpen(statement: Statement) -> Bool {
+    let state = Int(statementState(statement.handle));
+    if state == 0 {
+        return (true);
+    }
+    if state == 1 {
+        return (false);
+    }
+    let resultValue7 = nativeStatus(state, "sqlite.isStatementOpen");
+    return (false);
+}
+
+fn executeWithObserver(connection: Connection, sql: String, handler: fn (ObserverContext) -> CInt) -> Int {
+    return nativeStatus(
+        Int(
+            rawObserve(
+                connection.handle,
+                sql,
+                {
+                    connection = connection
+                },
+                handler
+            )
+        ),
+        "sqlite.executeWithObserver"
+    );
+}
+
+export Connection;
+export Statement;
+export open;
+export openMemory;
+export execute;
+export queryInt;
+export prepare;
+export step;
+export columnInt;
+export finalize;
+export close;
+export isOpen;
+export isStatementOpen;
+export executeWithObserver;
+export retainedControlBytes;
+
+fn ownedCopy(connection: Connection, sql: String, text: Bool) -> ByteArray {
+    switch stringFind(sql, "\u{0}", 0) {
+        case Option.Some(index): {
+            throw error(-7010, "sqlite.query.input");
+        }
+        case Option.None: {}
+    }
+    let resultValue6 = nativeStatus(Int(rawOwnedReady(connection.handle)), "sqlite.query.owner");
+    // Protect acquisition itself: cancellation may arrive at the native return boundary.
+    try {
+        let resultValue5 = nativeStatus(Int(rawOwnedBegin(connection.handle, sql, text)), "sqlite.query.data");
+        let all = byteArray(rawOwnedBytes(connection.handle));
+        switch bytesSlice(all, 0, rawOwnedLength(connection.handle)) {
+            case Option.Some(data): {
+                return (data);
+            }
+            case Option.None: {
+                throw error(-7010, "sqlite.query.length");
+            }
+        }
+    }
+    finally {
+        let released = rawOwnedRelease(connection.handle);
+    }
+    throw error(-7010, "sqlite.query.unreachable");
+}
+
+fn queryBytes(connection: Connection, sql: String) -> ByteArray {
+    return ownedCopy(connection, sql, false);
+}
+
+fn queryText(connection: Connection, sql: String) -> String {
+    let resultValue4 = ownedCopy(connection, sql, true);
+    return utf8Decode(resultValue4);
+    throw error(-7010, "sqlite.queryText.unreachable");
+}
+
+export queryBytes;
+export queryText;
+export ownedAllocations;
+export ownedReleases;
+export ownedLive;
+
+fn setDeadline(connection: Connection, milliseconds: Int) -> Int {
+    return nativeStatus(Int(rawDeadline(connection.handle, milliseconds)), "sqlite.deadline");
+}
+
+fn inTransaction(connection: Connection) -> Bool {
+    let state = Int(rawTransactionState(connection.handle));
+    if state == 0 {
+        return (false);
+    }
+    if state == 1 {
+        return (true);
+    }
+    let resultValue3 = nativeStatus(state, "sqlite.inTransaction");
+    return (false);
+}
+
+fn queryByteRows(connection: Connection, sql: String, maximumRows: Int) -> List<ByteArray> {
+    if maximumRows < 1 || maximumRows > 256 {
+        throw error(-7010, "sqlite.query.rows");
+    }
+    switch stringFind(sql, "\u{0}", 0) {
+        case Option.Some(index): {
+            throw error(-7010, "sqlite.query.input");
+        }
+        case Option.None: {}
+    }
+    let resultValue2 = nativeStatus(Int(rawOwnedReady(connection.handle)), "sqlite.query.owner");
+    try {
+        let resultValue1 = nativeStatus(
+            Int(rawOwnedRowsBegin(connection.handle, sql, maximumRows)),
+            "sqlite.query.rows"
+        );
+        let data = byteArray(rawOwnedBytes(connection.handle));
+        let count = rawOwnedRows(connection.handle);
+        var rows: List<ByteArray> = [];
+        var row = 0;
+        var offset = 0;
+        while row < count {
+            let length = rawOwnedRowLength(connection.handle, row);
+            switch bytesSlice(data, offset, offset + length) {
+                case Option.None: {
+                    throw error(-7010, "sqlite.query.rowLength");
+                }
+                case Option.Some(value): {
+                    rows = listAppend(rows, value);
+                }
+            }
+            row = row + 1;
+            offset = offset + length;
+        }
+        return (rows);
+    }
+    finally {
+        let released = rawOwnedRelease(connection.handle);
+    }
+    throw error(-7010, "sqlite.query.unreachable");
+}
+
+export setDeadline;
+export inTransaction;
+export queryByteRows;
+export liveConnections;
+export liveStatements;
+export allocatorCurrent;
+export allocatorPeak;
+export monotonicNanos;
+export libraryVersion;
+export headerVersion;
+export sourceId;
+
+fn enableAllocatorStatsBeforeOpen() -> Int {
+    return nativeStatus(Int(rawEnableAllocatorStats()), "sqlite.allocatorStats.startup");
+}
+
+export enableAllocatorStatsBeforeOpen;
+export ObserverContext;
+export ConnectionHandle;
+export StatementHandle;

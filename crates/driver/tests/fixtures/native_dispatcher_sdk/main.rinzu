@@ -1,0 +1,75 @@
+import dispatcher;
+
+fn calculate(seed: CInt) -> CInt {
+    try {
+        let root = ["Worker heap", "no Main heap access"];
+        var index = 0;
+        while index < 32 {
+            let temporary = ["Worker GC", "root retained"];
+            index = index + 1;
+        }
+        if root != ["Worker heap", "no Main heap access"] {
+            panic("lostWorker");
+        }
+        return seed * 3;
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+        return 0;
+    }
+}
+
+async fn ready(value: CInt) -> CInt {
+    return value;
+}
+
+async fn flow(seed: CInt) -> CInt {
+    try {
+        let root = ["Main flow root", "parked independently of callback"];
+        let first = await dispatcher.readSize("data/proof.bin");
+        let job = spawn calculate(seed);
+        let calculated = await job;
+        let second = await dispatcher.readSize("data/proof.bin");
+        let nextJob = spawn calculate(calculated);
+        let next = await nextJob;
+        let result = await ready(next);
+        var index = 0;
+        while index < 32 {
+            let temporary = ["Main GC", "keep parked root"];
+            index = index + 1;
+        }
+        if first != 8193
+            || second != 8193
+            || result != 63
+            || root != ["Main flow root", "parked independently of callback"] {
+            panic("lostMain");
+        }
+        dispatcher.done(result);
+        return result;
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+        return 0;
+    }
+}
+
+fn callback(seed: CInt) -> CInt {
+    dispatcher.enterCallback();
+    let pending = flow(seed);
+    dispatcher.nested();
+    dispatcher.leaveCallback();
+    return 41;
+}
+
+async fn main() {
+    try {
+        dispatcher.reset(0);
+        let result = await dispatcher.run(callback);
+        if result != 23 || dispatcher.finish() != 63 {
+            panic("wrongReturn");
+        }
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+    }
+}

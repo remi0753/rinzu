@@ -1,0 +1,253 @@
+class Box {
+    value: Int
+}
+
+error Problem {
+    payload: Box
+}
+
+fn integer(values: List<Int>, index: Int) -> Int {
+    switch listGet(values, index) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            panic("assertionFailure0");
+            return 0;
+        }
+    }
+}
+
+fn checks() {
+    let empty: List<Int> = [];
+    let one = listAppend(empty, 11);
+    let two = listAppend(one, 22);
+    if empty != [] || one != [11] || two != [11, 22] {
+        panic("assertionFailure1");
+    }
+    switch listSet(one, 0, 33) {
+        case Option.Some(updated): {
+            if updated != [33] || one != [11] {
+                panic("assertionFailure2");
+            }
+        }
+        case Option.None: {
+            panic("assertionFailure3");
+        }
+    }
+    switch listRemove(one, 0) {
+        case Option.Some(updated): {
+            if updated != [] || one != [11] {
+                panic("assertionFailure4");
+            }
+        }
+        case Option.None: {
+            panic("assertionFailure5");
+        }
+    }
+    switch listRemove(two, 0) {
+        case Option.Some(updated): {
+            if updated != [22] {
+                panic("assertionFailure6");
+            }
+        }
+        case Option.None: {
+            panic("assertionFailure7");
+        }
+    }
+    switch listRemove(two, 1) {
+        case Option.Some(updated): {
+            if updated != [11] {
+                panic("assertionFailure8");
+            }
+        }
+        case Option.None: {
+            panic("assertionFailure9");
+        }
+    }
+    var index = -1;
+    while index < 3 {
+        if index != 0 {
+            switch listSet(one, index, 99) {
+                case Option.None: {}
+                case Option.Some(unexpected): {
+                    panic("assertionFailure10");
+                }
+            }
+            switch listRemove(one, index) {
+                case Option.None: {}
+                case Option.Some(unexpected): {
+                    panic("assertionFailure11");
+                }
+            }
+        }
+        index = index + 1;
+    }
+    switch listRemove(empty, 9223372036854775807) {
+        case Option.None: {}
+        case Option.Some(unexpected): {
+            panic("assertionFailure12");
+        }
+    }
+    var values: List<Int> = [];
+    index = 0;
+    while index < 130 {
+        values = listAppend(values, index);
+        index = index + 1;
+    }
+    switch listSet(values, 64, 999) {
+        case Option.Some(updated): {
+            index = 0;
+            while index < 130 {
+                var setExpected = index;
+                if index == 64 {
+                    setExpected = 999;
+                }
+                if integer(updated, index) != setExpected || integer(values, index) != index {
+                    panic("assertionFailure13");
+                }
+                index = index + 1;
+            }
+        }
+        case Option.None: {
+            panic("assertionFailure14");
+        }
+    }
+    switch listRemove(values, 64) {
+        case Option.Some(updated): {
+            if listLength(updated) != 129 {
+                panic("assertionFailure15");
+            }
+            index = 0;
+            while index < 129 {
+                var removeExpected = index;
+                if index >= 64 {
+                    removeExpected = index + 1;
+                }
+                if integer(updated, index) != removeExpected {
+                    panic("assertionFailure16");
+                }
+                index = index + 1;
+            }
+        }
+        case Option.None: {
+            panic("assertionFailure17");
+        }
+    }
+    let strings = ["日本語", "tail"];
+    let appended = listAppend(strings, "third");
+    switch listSet(appended, 1, "changed") {
+        case Option.Some(updated): {
+            if updated != ["日本語", "changed", "third"] || strings != ["日本語", "tail"] {
+                panic("assertionFailure18");
+            }
+        }
+        case Option.None: {
+            panic("assertionFailure19");
+        }
+    }
+    let bytes = [byteArray(b"\x00\xff"), byteArray(b"\x80")];
+    let more = listAppend(bytes, byteArray(b"end"));
+    switch listRemove(more, 1) {
+        case Option.Some(updated): {
+            if updated != [byteArray(b"\x00\xff"), byteArray(b"end")]
+                || bytes != [byteArray(b"\x00\xff"), byteArray(b"\x80")] {
+                panic("assertionFailure20");
+            }
+        }
+        case Option.None: {
+            panic("assertionFailure21");
+        }
+    }
+    let box = Box(value: 7);
+    let boxes = [box];
+    let shared = listAppend(boxes, box);
+    box.value = 8;
+    switch listGet(shared, 1) {
+        case Option.Some(value): {
+            if value.value != 8 {
+                panic("assertionFailure22");
+            }
+        }
+        case Option.None: {
+            panic("assertionFailure23");
+        }
+    }
+    let noErrors: List<Error> = [];
+    let problems = listAppend(noErrors, Problem(message: "first", payload: box));
+    switch listSet(problems, 0, Problem(message: "second", payload: box)) {
+        case Option.Some(replacedProblems): {
+            if listLength(replacedProblems) != 1 || listLength(problems) != 1 {
+                panic("errorListFailure");
+            }
+        }
+        case Option.None: {
+            panic("missingErrorList");
+        }
+    }
+    let nested = [one, two];
+    switch listSet(nested, 0, [44]) {
+        case Option.Some(updated): {
+            if updated != [[44], [11, 22]] || nested != [[11], [11, 22]] {
+                panic("assertionFailure24");
+            }
+        }
+        case Option.None: {
+            panic("assertionFailure25");
+        }
+    }
+}
+
+fn worker() -> Int {
+    try {
+        checks();
+        return 42;
+    }
+    catch errors {
+        panic("assertionFailure26");
+        return 0;
+    }
+}
+
+async fn number(value: Int) -> Int {
+    return value;
+}
+
+async fn main() {
+    try {
+        checks();
+        let result = await spawn worker();
+        if result != 42 {
+            panic("assertionFailure27");
+        }
+        let first = number(41);
+        let second = number(42);
+        let futures = [first];
+        switch listSet(futures, 0, second) {
+            case Option.Some(updated): {
+                switch listGet(updated, 0) {
+                    case Option.Some(future): {
+                        let value = await future;
+                        if value != 42 {
+                            panic("assertionFailure28");
+                        }
+                    }
+                    case Option.None: {
+                        panic("assertionFailure29");
+                    }
+                }
+            }
+            case Option.None: {
+                panic("assertionFailure30");
+            }
+        }
+        let old = await first;
+        let new = await second;
+        if old != 41 || new != 42 {
+            panic("assertionFailure31");
+        }
+    }
+    catch errors {
+        panic("assertionFailure32");
+    }
+}

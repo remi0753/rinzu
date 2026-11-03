@@ -1,0 +1,63 @@
+import loops;
+
+async fn child() -> Int {
+    try {
+        try {
+            let read = await loops.readSize("data/proof.bin");
+            if read != 8193 {
+                panic("wrongRead");
+            }
+            return read;
+        }
+        finally {
+            loops.checkChild();
+        }
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+        return 0;
+    }
+}
+
+fn work(seed: CInt) -> CInt {
+    let retained = ["callback root", "shutdown remains masked"];
+    let pending = child();
+    var index = seed;
+    while index < 512 {
+        let moved = ["managed GC", "still retained"];
+        index = index + 1;
+    }
+    if retained != ["callback root", "shutdown remains masked"] {
+        panic("lost");
+    }
+    return 41;
+}
+
+fn callback(seed: CInt) -> CInt fallback -19 {
+    try {
+        return work(seed);
+    }
+    finally {
+        loops.checkInner();
+    }
+}
+
+async fn wrapper() -> String {
+    try {
+        return await loops.checkRun(callback, "queued argument 日本語", b"\x00\xAA\x00\x7F", 1);
+    }
+    finally {
+        loops.checkOuter(1);
+    }
+}
+
+async fn main() {
+    try {
+        loops.checkReset(0);
+        let result = await wrapper();
+        panic("shutdownWasLost");
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+    }
+}

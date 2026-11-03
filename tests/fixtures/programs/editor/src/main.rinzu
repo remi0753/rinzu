@@ -1,0 +1,769 @@
+import rinzu.timer;
+import rinzu.macos;
+import rinzu.process;
+import rinzu.io;
+import rinzu.http;
+import rinzu.shutdown;
+import rinzu.stdio;
+import rinzu.testing;
+
+class Configuration {
+    const path: String,
+    const url: String,
+    const mode: String,
+    const repeats: Int,
+    const timeout: Int,
+    const initial: String,
+    const saved: Bool
+}
+
+class Analysis {
+    const version: Int,
+    const scalars: Int,
+    const lines: Int,
+    const keywords: Int
+}
+
+fn analyze(snapshot: rinzu.macos.DocumentSnapshot) -> Analysis {
+    return Analysis(
+        version: snapshot.version,
+        scalars: stringLength(snapshot.text),
+        lines: listLength(stringSplit(snapshot.text, "\n")),
+        keywords: listLength(stringSplit(snapshot.text, "TODO")) - 1
+    );
+}
+
+fn require(condition: Bool) {
+    if !condition {
+        panic("editor invariant");
+    }
+}
+
+fn test_unicode_analysis_snapshot() {
+    let snapshot = rinzu.macos.DocumentSnapshot(text: "日本 e\u{301} 😀\nTODO\n", start: 1, end: 5, version: 7);
+    let result = analyze(snapshot);
+    rinzu.testing.assertTrue(
+        result.version == 7 && result.scalars == 13 && result.lines == 3 && result.keywords == 1,
+        "Unicode snapshot"
+    );
+}
+
+fn test_seeded_history_bounds() {
+    let doc = rinzu.macos.Document.withHistory("", true, 100, 4096);
+    var seed = 37;
+    var index = 0;
+    while index < 240 {
+        seed = (seed * 48271) % 2147483647;
+        let edited = doc.edit(f"{seed}:日本🙂", 0, 2);
+        rinzu.testing.assertTrue(doc.undo.length() <= 100 && doc.undo.bytes <= 4096, "bounded history");
+        index = index + 1;
+    }
+    let snapshot = doc.snapshot();
+    let undone = doc.undoEdit();
+    let redone = doc.redoEdit();
+    rinzu.testing.assertTrue(
+        undone && redone && doc.text == snapshot.text && doc.start == snapshot.start && doc.end == snapshot.end,
+        "history selection"
+    );
+}
+
+async fn test_undo_redo_branch_and_closing() {
+    let session = rinzu.macos.open();
+    try {
+        let input = session.textView("before", rinzu.macos.Rect(x: 0.0, y: 0.0, width: 200.0, height: 100.0));
+        let doc = rinzu.macos.Document.create("A\u{0}日本🙂", true);
+        let binding = rinzu.macos.DocumentBinding.create(session, input, doc);
+        let edited = binding.replace("second 日本🙂", 1, 3);
+        let undone = binding.undoEdit();
+        let redone = binding.redoEdit();
+        rinzu.testing.assertTrue(
+            edited && undone && redone && input.text() == doc.text && doc.start == 1 && doc.end == 3,
+            "native undo/redo"
+        );
+        let back = binding.undoEdit();
+        let branch = binding.replace("branch", 0, 2);
+        rinzu.testing.assertTrue(doc.redo.length() == 0, "branch removes redo");
+        let disabled = binding.setAccepting(false);
+        rinzu.testing.assertTrue(
+            !binding.replace("rejected", 0, 0) && input.text() == "branch",
+            "closing rejects edits"
+        );
+    }
+    finally {
+        let closed = await session.close();
+    }
+}
+
+async fn test_stale_analysis_and_settlement() {
+    let doc = rinzu.macos.Document.create("old TODO", true);
+    let old = doc.snapshot();
+    let pending = spawn analyze(old);
+    let edited = doc.edit("new 日本🙂", 0, 2);
+    let result = await pending;
+    rinzu.testing.assertTrue(result.version == old.version && !doc.accepts(old), "stale worker rejected");
+    doc.accepting = false;
+    rinzu.testing.assertTrue(!doc.accepts(doc.snapshot()), "closed result rejected");
+}
+
+class Editor {
+    const binding: rinzu.macos.DocumentBinding,
+    const status: rinzu.macos.Label,
+    const toolbar: rinzu.macos.View,
+    const buttons: List<rinzu.macos.View>,
+    const client: rinzu.http.Client,
+    const config: Configuration,
+    closing: Bool,
+    analyzing: Bool,
+    saving: Bool,
+    sending: Bool,
+    analysisRequested: Bool,
+    analyzedVersion: Int,
+    stale: Int,
+    backgroundSettled: Int,
+    pendingSave: Option<rinzu.macos.DocumentSnapshot>,
+    pendingSavePath: String,
+    pendingSend: Option<rinzu.macos.DocumentSnapshot>,
+    firstAnalysis: Bool,
+    firstSend: Bool,
+    exerciseStarted: Bool,
+    exerciseFrame: Int,
+    editAfterSchedule: Bool,
+    closeAfterSchedule: Bool,
+    recovered: Bool,
+    signalHandled: Bool,
+    largePrefix: Option<String>
+
+    fn create(scope: rinzu.macos.UiScope, config: Configuration) -> Editor {
+        let root = scope.window.contentView();
+        let toolbar = scope.session.view(rinzu.macos.Rect(x: 12.0, y: 536.0, width: 756.0, height: 32.0));
+        let attachedToolbar = root.addSubview(toolbar);
+        let flexibleToolbar = toolbar.setAutoresizing(10);
+        let frame = rinzu.macos.Rect(x: 0.0, y: 0.0, width: 160.0, height: 28.0);
+        let save = scope.button("Save", frame, 5);
+        let analyze = scope.button("Analyze", frame, 6);
+        let send = scope.button("Send metadata", frame, 7);
+        let buttons = [save.view, analyze.view, send.view];
+        let arranged = rinzu.macos.row(toolbar, buttons, 0.0, 8.0);
+        let scroll = scope.scrollView(rinzu.macos.Rect(x: 12.0, y: 48.0, width: 756.0, height: 476.0));
+        let attachedScroll = root.addSubview(scroll.view);
+        let flexibleScroll = scroll.view.setAutoresizing(18);
+        let input = scope.textView(config.initial, frame);
+        let content = scroll.setContent(input.view);
+        let status = scope.label("Ready", rinzu.macos.Rect(x: 12.0, y: 12.0, width: 756.0, height: 24.0));
+        let attachedStatus = root.addSubview(status.view);
+        let flexibleStatus = status.view.setAutoresizing(2);
+        let document = rinzu.macos.Document.create(config.initial, config.saved);
+        let binding = rinzu.macos.DocumentBinding.create(scope.session, input, document);
+        let bar = scope.menu("Main");
+        let appMenu = scope.menu("Rinzu Editor");
+        let quit = appMenu.addStandard("Quit", rinzu.macos.commandQuit, "q", rinzu.macos.modifierCommand);
+        let fileMenu = scope.menu("File");
+        let saveItem = fileMenu.addAction("Save", 5, "s", rinzu.macos.modifierCommand);
+        let analyzeItem = fileMenu.addAction("Analyze", 6, "r", rinzu.macos.modifierCommand);
+        let sendItem = fileMenu.addAction("Send metadata", 7, "e", rinzu.macos.modifierCommand);
+        let editMenu = scope.menu("Edit");
+        let undo = editMenu.addStandard("Undo", rinzu.macos.commandUndo, "z", rinzu.macos.modifierCommand);
+        let redo = editMenu.addStandard(
+            "Redo",
+            rinzu.macos.commandRedo,
+            "z",
+            rinzu.macos.modifierCommand + rinzu.macos.modifierShift
+        );
+        let separator = editMenu.addSeparator();
+        let cut = editMenu.addStandard("Cut", rinzu.macos.commandCut, "x", rinzu.macos.modifierCommand);
+        let copy = editMenu.addStandard("Copy", rinzu.macos.commandCopy, "c", rinzu.macos.modifierCommand);
+        let paste = editMenu.addStandard("Paste", rinzu.macos.commandPaste, "v", rinzu.macos.modifierCommand);
+        let selectAll = editMenu.addStandard(
+            "Select All",
+            rinzu.macos.commandSelectAll,
+            "a",
+            rinzu.macos.modifierCommand
+        );
+        let addedApp = bar.addSubmenu(appMenu);
+        let addedFile = bar.addSubmenu(fileMenu);
+        let addedEdit = bar.addSubmenu(editMenu);
+        let installed = scope.window.setMenu(bar);
+        if config.mode == "interactive" {
+            let focused = input.view.focus();
+        }
+        else {
+            // Synthetic scenarios own every edit; physical input has its own gate.
+            let isolated = input.setEnabled(false);
+        }
+        var prefix = Option<String>.None();
+        if utf8ByteLength(config.initial) > 524288 {
+            prefix = stringSlice(config.initial, 0, stringLength(config.initial) - 1);
+        }
+        return Editor(
+            binding: binding,
+            status: status,
+            toolbar: toolbar,
+            buttons: buttons,
+            client: rinzu.http.newClient(),
+            config: config,
+            closing: false,
+            analyzing: false,
+            saving: false,
+            sending: false,
+            analysisRequested: true,
+            analyzedVersion: -1,
+            stale: 0,
+            backgroundSettled: 0,
+            pendingSave: Option<rinzu.macos.DocumentSnapshot>.None(),
+            pendingSavePath: config.path,
+            pendingSend: Option<rinzu.macos.DocumentSnapshot>.None(),
+            firstAnalysis: true,
+            firstSend: true,
+            exerciseStarted: false,
+            exerciseFrame: 0,
+            editAfterSchedule: false,
+            closeAfterSchedule: false,
+            recovered: false,
+            signalHandled: false,
+            largePrefix: prefix
+        );
+    }
+
+    fn message(self: Editor, text: String) {
+        let doc = self.binding.document;
+        let updated = self.status.setText(
+            f"{text} | v{doc.version}/saved {doc.savedVersion} | undo {doc.undo.length()} redo {doc.redo.length()}"
+        );
+    }
+
+    fn stop(self: Editor) {
+        if self.closing {
+            return;
+        }
+        if self.binding.input.isComposing() {
+            self.message("Finish text composition before closing");
+            return;
+        }
+        let captured = self.binding.setAccepting(false);
+        self.closing = true;
+        self.message("Closing: waiting for jobs");
+        rinzu.stdio.writeLine("STOP:ADMISSION");
+    }
+
+    async fn signals(self: Editor, owner: rinzu.macos.UiJob) {
+        while !self.closing && !owner.isStopping() {
+            if rinzu.shutdown.signalRequested() != 0 && !self.signalHandled {
+                self.signalHandled = true;
+                self.stop();
+                return;
+            }
+            await rinzu.timer.sleep(16);
+        }
+    }
+
+    async fn background(self: Editor, snapshot: rinzu.macos.DocumentSnapshot, delay: Int) {
+        try {
+            await rinzu.timer.sleep(delay);
+            let result = await spawn analyze(snapshot);
+            if self.binding.document.accepts(snapshot) && !self.closing {
+                self.analyzedVersion = result.version;
+                self.message(f"{result.scalars} scalars, {result.lines} lines, {result.keywords} TODOs");
+            }
+            else {
+                self.stale = self.stale + 1;
+                rinzu.stdio.writeLine(f"ANALYSIS:STALE:{result.version}:{self.binding.document.version}");
+            }
+        }
+        finally {
+            self.analyzing = false;
+            self.backgroundSettled = self.backgroundSettled + 1;
+            rinzu.stdio.writeLine("BACKGROUND:SETTLED:WINDOW:LIVE");
+        }
+    }
+
+    async fn analysisJob(self: Editor, snapshot: rinzu.macos.DocumentSnapshot, delay: Int, cancelled: Bool) {
+        if cancelled {
+            let pending = self.background(snapshot, delay);
+            try {
+                await rinzu.timer.sleep(2);
+                let requested = cancelFuture(pending);
+                rinzu.stdio.writeLine(f"CANCEL:BACKGROUND:{requested}");
+            }
+            finally {
+                await pending;
+            }
+        }
+        else {
+            await self.background(snapshot, delay);
+        }
+    }
+
+    async fn save(self: Editor, path: String, snapshot: rinzu.macos.DocumentSnapshot) {
+        try {
+            try {
+                let installed = await rinzu.macos.saveDocument(path, snapshot.text);
+                self.binding.document.markSaved(snapshot);
+                self.message("Saved");
+                rinzu.stdio.writeLine(f"SAVE:OK:{snapshot.version}");
+            }
+            catch errors {
+                switch listGet(errors, 0) {
+                    case Option.Some(problem): {
+                        self.message(f"Save failed: {errorMessage(problem)}; retry Save");
+                        rinzu.stdio.writeLine(f"SAVE:FAILED:{errorCode(problem)}:{errorContext(problem)}");
+                    }
+                    case Option.None: {}
+                }
+            }
+        }
+        finally {
+            self.saving = false;
+        }
+    }
+
+    async fn send(self: Editor, snapshot: rinzu.macos.DocumentSnapshot) {
+        try {
+            let payload = utf8Encode(
+                f"version={snapshot.version};scalars={stringLength(snapshot.text)};selection={snapshot.start}:{snapshot.end}"
+            );
+            try {
+                let response = await rinzu.http.request(
+                    self.client,
+                    self.config.url,
+                    payload,
+                    true,
+                    self.config.timeout
+                );
+                self.message(f"Peer status {response.status}, {bytesLength(response.body)} bytes");
+                rinzu.stdio.writeLine(f"HTTP:OK:{response.status}");
+            }
+            catch errors {
+                switch listGet(errors, 0) {
+                    case Option.Some(problem): {
+                        if problem is rinzu.http.HttpFailure {
+                            self.message(f"Send failed: {errorMessage(problem.payload.cause)}; retry Send");
+                            rinzu.stdio.writeLine(f"HTTP:FAILED:{errorNativeStatus(problem.payload.cause)}");
+                        }
+                        else {
+                            throw problem;
+                        }
+                    }
+                    case Option.None: {}
+                }
+            }
+        }
+        finally {
+            self.sending = false;
+            rinzu.stdio.writeLine("HTTP:SETTLED:WINDOW:LIVE");
+        }
+    }
+
+    async fn sendJob(self: Editor, snapshot: rinzu.macos.DocumentSnapshot, cancelled: Bool) {
+        if cancelled {
+            let pending = self.send(snapshot);
+            try {
+                await rinzu.timer.sleep(2);
+                let requested = cancelFuture(pending);
+                rinzu.stdio.writeLine(f"CANCEL:HTTP:{requested}");
+            }
+            finally {
+                await pending;
+            }
+        }
+        else {
+            await self.send(snapshot);
+        }
+    }
+
+    fn queueSave(self: Editor, path: String) {
+        self.pendingSave = Option<rinzu.macos.DocumentSnapshot>.Some(value: self.binding.document.snapshot());
+        self.pendingSavePath = path;
+    }
+
+    fn queueSend(self: Editor) {
+        self.pendingSend = Option<rinzu.macos.DocumentSnapshot>.Some(value: self.binding.document.snapshot());
+    }
+
+    fn schedule(self: Editor, scope: rinzu.macos.UiScope) {
+        if self.closing || scope.isStopping() {
+            return;
+        }
+        if !self.analyzing && (self.analysisRequested || self.analyzedVersion != self.binding.document.version) {
+            let snapshot = self.binding.document.snapshot();
+            var delay = 10;
+            if self.firstAnalysis && self.config.mode != "interactive" {
+                delay = 30;
+            }
+            if self.firstAnalysis && self.config.mode == "close-pending" {
+                delay = 200;
+            }
+            let cancelled = self.firstAnalysis && self.config.mode == "cancel";
+            self.analyzing = true;
+            self.analysisRequested = false;
+            self.firstAnalysis = false;
+            let started = scope.start(
+                async fn (owner: rinzu.macos.UiJob) {
+                    await self.analysisJob(snapshot, delay, cancelled);
+                }
+            );
+        }
+        if !self.saving {
+            switch self.pendingSave {
+                case Option.Some(snapshotToSave): {
+                    let path = self.pendingSavePath;
+                    self.pendingSave = Option<rinzu.macos.DocumentSnapshot>.None();
+                    self.saving = true;
+                    let saveStarted = scope.start(
+                        async fn (owner: rinzu.macos.UiJob) {
+                            await self.save(path, snapshotToSave);
+                        }
+                    );
+                }
+                case Option.None: {}
+            }
+        }
+        if !self.sending {
+            switch self.pendingSend {
+                case Option.Some(snapshotToSend): {
+                    self.pendingSend = Option<rinzu.macos.DocumentSnapshot>.None();
+                    self.sending = true;
+                    let cancelSend = self.firstSend && self.config.mode == "cancel-http";
+                    self.firstSend = false;
+                    let sendStarted = scope.start(
+                        async fn (owner: rinzu.macos.UiJob) {
+                            await self.sendJob(snapshotToSend, cancelSend);
+                        }
+                    );
+                }
+                case Option.None: {}
+            }
+        }
+    }
+
+    fn exercise(self: Editor) {
+        if self.config.mode == "interactive" || self.closing {
+            return;
+        }
+        if !self.exerciseStarted {
+            self.exerciseStarted = true;
+            switch self.largePrefix {
+                case Option.Some(prefix): {
+                    let editedLarge = self.binding.replace(f"{prefix}?", 0, 0);
+                }
+                case Option.None: {
+                    let editedSmall = self.binding.replace(f"{self.config.initial}\n日本 e\u{301} 😀 TODO", 0, 0);
+                }
+            }
+            self.queueSend();
+            if self.config.mode == "save-failure" {
+                self.queueSave(f"{self.config.path}/missing/child");
+            }
+            if self.config.mode == "save-pending" {
+                self.queueSave(self.config.path);
+                self.editAfterSchedule = true;
+            }
+            if self.config.mode == "close-pending" {
+                self.closeAfterSchedule = true;
+            }
+        }
+        else if self.config.mode == "cancel" || self.config.mode == "cancel-http" {
+            // Keep the cancellation scenario fixed while its job reports completion.
+            // Further synthetic edits would depend on event/completion scheduling.
+            return;
+        }
+        else if !self.analyzing && !self.sending && !self.saving {
+            if self.config.mode == "http-recovery" && !self.recovered {
+                self.recovered = true;
+                self.queueSend();
+            }
+            else if self.exerciseFrame < self.config.repeats {
+                switch self.largePrefix {
+                    case Option.Some(large): {
+                        let editLarge = self.binding.replace(f"{large}{self.exerciseFrame%2}", 0, 2);
+                    }
+                    case Option.None: {
+                        let editSmall = self.binding.replace(f"日本 e\u{301} 😀 TODO {self.exerciseFrame}", 0, 2);
+                    }
+                }
+                let undone = self.binding.undoEdit();
+                let redone = self.binding.redoEdit();
+                self.exerciseFrame = self.exerciseFrame + 1;
+            }
+            else {
+                self.stop();
+            }
+        }
+    }
+
+    fn afterSchedule(self: Editor) {
+        if self.editAfterSchedule {
+            self.editAfterSchedule = false;
+            let edited = self.binding.replace("Edited while saving 日本 😀", 0, 2);
+        }
+        if self.closeAfterSchedule {
+            self.closeAfterSchedule = false;
+            self.stop();
+        }
+    }
+
+    fn receive(self: Editor, event: rinzu.macos.UiEvent) {
+        if event.kind == rinzu.macos.eventCloseRequested
+            || event.kind == rinzu.macos.eventQuitRequested
+            || event.kind == rinzu.macos.eventStopped {
+            self.stop();
+        }
+        else if event.kind == rinzu.macos.eventResized {
+            let arranged = rinzu.macos.row(self.toolbar, self.buttons, 0.0, 8.0);
+        }
+        else if event.kind == rinzu.macos.eventTextChanged || event.kind == rinzu.macos.eventSelectionChanged {
+            let changed = self.binding.receive(event);
+        }
+        else if event.kind == rinzu.macos.eventInputLimit {
+            self.message("Document limit: 1 MiB");
+        }
+        else if event.kind == rinzu.macos.eventAction && !self.closing {
+            if event.action == rinzu.macos.actionUndo || event.action == rinzu.macos.actionRedo {
+                try {
+                    if event.action == rinzu.macos.actionUndo {
+                        let undone = self.binding.undoEdit();
+                    }
+                    else {
+                        let redone = self.binding.redoEdit();
+                    }
+                }
+                catch errors {
+                    self.message("Finish text composition before Undo/Redo");
+                }
+            }
+            else if event.action == 5 {
+                self.queueSave(self.config.path);
+            }
+            else if event.action == 6 {
+                self.analysisRequested = true;
+            }
+            else if event.action == 7 {
+                self.queueSend();
+            }
+        }
+    }
+
+    async fn handle(self: Editor, event: rinzu.macos.UiEvent) {
+        self.receive(event);
+    }
+
+    async fn update(self: Editor, scope: rinzu.macos.UiScope, event: rinzu.macos.UiEvent) {
+        await self.handle(event);
+        self.exercise();
+        self.schedule(scope);
+        self.afterSchedule();
+    }
+
+    async fn settle(self: Editor, scope: rinzu.macos.UiScope) -> Bool {
+        var saveCommitted = true;
+        try {
+            if self.binding.input.isComposing() {
+                // Forced cleanup must drain jobs without waiting for IME or
+                // persisting provisional input. Normal close is deferred above.
+                saveCommitted = false;
+                self.binding.document.accepting = false;
+                let disabled = self.binding.input.setEnabled(false);
+            }
+            else {
+                self.stop();
+            }
+        }
+        finally {
+            self.closing = true;
+            try {
+                let joined = await scope.join();
+            }
+            finally {
+                if saveCommitted && self.binding.document.dirty() {
+                    self.saving = true;
+                    await self.save(self.config.path, self.binding.document.snapshot());
+                }
+            }
+        }
+        return !self.binding.document.dirty();
+    }
+
+    async fn run(self: Editor, scope: rinzu.macos.UiScope) {
+        try {
+            var started = false;
+            while !started && !scope.isStopping() {
+                let startup = await scope.session.nextEvent();
+                if startup.kind == rinzu.macos.eventStopped {
+                    return;
+                }
+                await self.handle(startup);
+                started = startup.kind == rinzu.macos.eventStarted;
+            }
+            self.message("Ready");
+            rinzu.stdio.writeLine(f"EDITOR:READY:{utf8ByteLength(self.binding.document.text)}");
+            if self.config.mode == "stale" {
+                let old = self.binding.document.snapshot();
+                let replaced = self.binding.replace("Newer document 日本 😀", 0, 2);
+                self.analyzing = true;
+                await self.background(old, 0);
+                require(self.analyzedVersion == -1 && self.stale == 1);
+            }
+            var finished = false;
+            while !finished && !scope.isStopping() {
+                let signals = scope.start(
+                    async fn (owner: rinzu.macos.UiJob) {
+                        await self.signals(owner);
+                    }
+                );
+                self.exercise();
+                self.schedule(scope);
+                self.afterSchedule();
+                while !self.closing && !scope.isStopping() {
+                    let event = await scope.session.nextEvent();
+                    await self.update(scope, event);
+                }
+                finished = await self.settle(scope);
+                if !finished {
+                    self.closing = false;
+                    let accepting = self.binding.setAccepting(true);
+                    self.message("Close postponed: Save failed; retry");
+                }
+            }
+        }
+        finally {
+            try {
+                let settled = await self.settle(scope);
+            }
+            finally {
+                let closedClient = await rinzu.http.close(self.client);
+                rinzu.stdio.writeLine("HTTP:CLOSED");
+            }
+        }
+    }
+}
+
+class EditorState {
+    editor: Option<Editor>
+}
+
+async fn application(config: Configuration) {
+    let state = EditorState(editor: Option<Editor>.None());
+    try {
+        let result = await rinzu.macos.application(
+            "Rinzu M5 Editor",
+            780.0,
+            580.0,
+            async fn (app: rinzu.macos.UiApplication) {
+                let scope = app.primary;
+                let editor = Editor.create(scope, config);
+                state.editor = Option<Editor>.Some(value: editor);
+                await editor.run(scope);
+            }
+        );
+    }
+    finally {
+        switch state.editor {
+            case Option.Some(editor): {
+                let doc = editor.binding.document;
+                rinzu.stdio.writeLine(
+                    f"WINDOW:CLOSED:version={doc.version},saved={doc.savedVersion},edits={doc.edits},undo={doc.undo.length()},redo={doc.redo.length()},stale={editor.stale},background={editor.backgroundSettled}"
+                );
+            }
+            case Option.None: {}
+        }
+        let stats = rinzu.macos.statistics();
+        rinzu.stdio.writeLine(
+            f"RESOURCES:windows={stats.windows},bufferBytes={stats.eventPayloadBytes + stats.snapshotBytes},controls={stats.retainedControls},files={rinzu.io.liveFiles()},fileBuffers={rinzu.io.liveBuffers()},clients={rinzu.http.liveClients()},httpBuffers={rinzu.http.liveBuffers()},fileControlBytes={rinzu.io.retainedControlBytes()},httpControlBytes={rinzu.http.retainedControlBytes()}"
+        );
+    }
+}
+
+async fn launch() {
+    let path = rinzu.process.setting("RINZU_EDITOR_PATH", "document.txt");
+    let url = rinzu.process.setting("RINZU_EDITOR_URL", "http://127.0.0.1:18085/echo");
+    let mode = rinzu.process.setting("RINZU_EDITOR_MODE", "interactive");
+    let repeats = rinzu.process.integer("RINZU_EDITOR_REPEATS", 100, 0, 100000);
+    let timeout = rinzu.process.integer("RINZU_EDITOR_TIMEOUT", 1000, 1, 60000);
+    if mode != "interactive"
+        && mode != "exercise"
+        && mode != "stale"
+        && mode != "cancel"
+        && mode != "cancel-http"
+        && mode != "save-failure"
+        && mode != "save-pending"
+        && mode != "close-pending"
+        && mode != "http-recovery" {
+        rinzu.stdio.writeLine("CONFIG:FAILED");
+        return;
+    }
+    var initial = "";
+    var saved = true;
+    try {
+        initial = await rinzu.macos.readDocument(path);
+    }
+    catch errors {
+        switch listGet(errors, 0) {
+            case Option.Some(problem): {
+                switch errorNativeStatus(problem) {
+                    case Option.Some(status): {
+                        if status == 2 {
+                            saved = false;
+                        }
+                        else {
+                            rinzu.stdio.writeLine(f"OPEN:FAILED:{errorCode(problem)}:{errorContext(problem)}");
+                            return;
+                        }
+                    }
+                    case Option.None: {
+                        rinzu.stdio.writeLine(f"OPEN:FAILED:{errorCode(problem)}:{errorMessage(problem)}");
+                        return;
+                    }
+                }
+            }
+            case Option.None: {
+                throw error(-7820, "empty open failure");
+            }
+        }
+    }
+    try {
+        let enabled = rinzu.shutdown.enableSignals();
+        await application(
+            Configuration(
+                path: path,
+                url: url,
+                mode: mode,
+                repeats: repeats,
+                timeout: timeout,
+                initial: initial,
+                saved: saved
+            )
+        );
+    }
+    finally {
+        let disabled = rinzu.shutdown.disableSignals();
+    }
+}
+
+async fn main() {
+    try {
+        try {
+            await launch();
+        }
+        finally {
+            try {
+                let clients = await rinzu.http.closeOwnerClients();
+            }
+            finally {
+                try {
+                    let files = await rinzu.io.closeOwnerFiles();
+                }
+                finally {
+                    let sessions = await rinzu.macos.closeOwnerSessions();
+                    let stats = rinzu.macos.statistics();
+                    rinzu.stdio.writeLine(f"OWNER:SETTLED:windows={stats.windows},clients={rinzu.http.liveClients()}");
+                    rinzu.stdio.writeLine(
+                        f"IO:OWNER:SETTLED files={rinzu.io.liveFiles()} buffers={rinzu.io.liveBuffers()} operations={rinzu.io.liveOperations()}"
+                    );
+                    rinzu.stdio.writeLine("APP:CLOSED");
+                }
+            }
+        }
+    }
+    catch errors {
+        panic(f"editor failed: {errors}");
+    }
+}

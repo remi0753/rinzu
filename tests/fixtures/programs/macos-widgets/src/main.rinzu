@@ -1,0 +1,125 @@
+import rinzu.timer;
+import rinzu.macos;
+import rinzu.process;
+import rinzu.stdio;
+
+class Screen {
+    const text: rinzu.macos.TextView,
+    const status: rinzu.macos.Label,
+    const search: rinzu.macos.TextField,
+    const accepting: rinzu.macos.Checkbox,
+    analyses: Int
+
+    async fn receive(self: Screen, scope: rinzu.macos.UiScope, event: rinzu.macos.UiEvent) {
+        if event.kind == rinzu.macos.eventCloseRequested || event.kind == rinzu.macos.eventQuitRequested {
+            scope.requestStop();
+        }
+        else if event.kind == rinzu.macos.eventTextChanged && event.viewId == self.text.identity() {
+            let changed = self.status.setText(f"{stringLength(event.text)} characters");
+        }
+        else if event.kind == rinzu.macos.eventAction {
+            if event.action == 10 {
+                let snapshot = self.text.text();
+                let analysis = scope.start(
+                    async fn (owner: rinzu.macos.UiJob) {
+                        await rinzu.timer.sleep(30);
+                        if !owner.isStopping() {
+                            self.analyses = self.analyses + 1;
+                            let updated = self.status.setText(
+                                f"Analysis {self.analyses}: {stringLength(snapshot)} characters, {listLength(stringSplit(snapshot, "\n"))} lines"
+                            );
+                        }
+                    }
+                );
+            }
+            else if event.action == 11 {
+                let enabled = self.text.setEnabled(self.accepting.checked());
+            }
+            else if event.action == 12 {
+                let term = self.search.text();
+                let message = self.status.setText(f"Search submitted: {term}");
+            }
+        }
+    }
+}
+
+async fn screen(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    let root = scope.window.contentView();
+    let toolbar = scope.session.view(rinzu.macos.Rect(x: 12.0, y: 410.0, width: 616.0, height: 32.0));
+    let attachedToolbar = root.addSubview(toolbar);
+    let flexibleToolbar = toolbar.setAutoresizing(10);
+    let frame = rinzu.macos.Rect(x: 0.0, y: 0.0, width: 160.0, height: 28.0);
+    let analyze = scope.button("Analyze snapshot", frame, 10);
+    let accepting = scope.checkbox("Editable", frame, 11);
+    let checked = accepting.setChecked(true);
+    let search = scope.textField("Search", frame, 12);
+    let arranged = rinzu.macos.row(toolbar, [analyze.view, accepting.view, search.view], 0.0, 8.0);
+    let scroll = scope.scrollView(rinzu.macos.Rect(x: 12.0, y: 48.0, width: 616.0, height: 350.0));
+    let attachedScroll = root.addSubview(scroll.view);
+    let flexibleScroll = scroll.view.setAutoresizing(18);
+    let text = scope.textView("Rinzu macOS GUI SDK\n日本語と絵文字 🙂\n\nEdit text, then analyze an owned snapshot.\n", frame);
+    let document = scroll.setContent(text.view);
+    let status = scope.label("Ready", rinzu.macos.Rect(x: 12.0, y: 12.0, width: 616.0, height: 24.0));
+    let attachedStatus = root.addSubview(status.view);
+    let flexibleStatus = status.view.setAutoresizing(2);
+    let menu = scope.menu("Main");
+    let applicationMenu = scope.menu("Rinzu Widgets");
+    let quit = applicationMenu.addStandard("Quit", rinzu.macos.commandQuit, "q", rinzu.macos.modifierCommand);
+    let edit = scope.menu("Edit");
+    let cut = edit.addStandard("Cut", rinzu.macos.commandCut, "x", rinzu.macos.modifierCommand);
+    let copy = edit.addStandard("Copy", rinzu.macos.commandCopy, "c", rinzu.macos.modifierCommand);
+    let paste = edit.addStandard("Paste", rinzu.macos.commandPaste, "v", rinzu.macos.modifierCommand);
+    let select = edit.addStandard("Select All", rinzu.macos.commandSelectAll, "a", rinzu.macos.modifierCommand);
+    let analyzeItem = edit.addAction("Analyze", 10, "r", rinzu.macos.modifierCommand);
+    let appMenu = menu.addSubmenu(applicationMenu);
+    let editMenu = menu.addSubmenu(edit);
+    let installed = scope.window.setMenu(menu);
+    let state = Screen(text: text, status: status, search: search, accepting: accepting, analyses: 0);
+    let automated = rinzu.process.setting("RINZU_WIDGETS_TEST", "0");
+    if automated == "1" {
+        let task = scope.start(
+            async fn (owner: rinzu.macos.UiJob) {
+                await rinzu.timer.sleep(30);
+                let expanded = owner.window.setContentSize(720.0, 510.0);
+                await rinzu.timer.sleep(30);
+                let expandedToolbar = toolbar.frame();
+                if expandedToolbar.width != 696.0 {
+                    panic("toolbar did not resize");
+                }
+                let restored = owner.window.setContentSize(640.0, 454.0);
+                await rinzu.timer.sleep(30);
+                let replaced = text.setText("Automated GUI: 日本語 🙂\n");
+                let count = status.setText(f"{stringLength(text.text())} characters");
+                owner.requestStop();
+            }
+        );
+    }
+    await scope.dispatch(
+        async fn (owner: rinzu.macos.UiScope, event: rinzu.macos.UiEvent) {
+            if event.kind == rinzu.macos.eventResized {
+                let layout = rinzu.macos.row(toolbar, [analyze.view, accepting.view, search.view], 0.0, 8.0);
+            }
+            await state.receive(owner, event);
+        }
+    );
+}
+
+async fn main() {
+    try {
+        let closed = await rinzu.macos.applicationWithSignals("Rinzu Widgets", 640.0, 454.0, screen);
+        rinzu.stdio.writeLine("WIDGETS:closed");
+    }
+    catch errors {
+        try {
+            switch listGet(errors, 0) {
+                case Option.Some(problem): {
+                    rinzu.stdio.writeLine(f"Widgets failed: {errorMessage(problem)} {errorContext(problem)}");
+                }
+                case Option.None: {}
+            }
+        }
+        catch outputErrors {}
+        panic("widgets application failed");
+    }
+}

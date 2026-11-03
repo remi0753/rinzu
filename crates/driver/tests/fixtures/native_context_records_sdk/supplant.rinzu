@@ -1,0 +1,95 @@
+import contexts;
+import rinzu.stdio;
+
+async fn invoke(first: contexts.Context, second: contexts.Context) -> contexts.Context {
+    return await contexts.select(
+        first,
+        second,
+        second.point,
+        fn (context: contexts.Context) -> Int fallback -11 {
+            context.editor.value = 31;
+            var index = 0;
+            while index < 512 {
+                let moved = f"callback-{index}";
+                index = index + 1;
+            }
+            return context.point.x;
+        }
+    );
+}
+
+fn queue(first: contexts.Context, second: contexts.Context, early: Bool) -> Future<contexts.Context> {
+    let pending = invoke(first, second);
+    if early {
+        let accepted = cancelFuture(pending);
+        if !accepted {
+            panic("queued cancellation was lost");
+        }
+    }
+    else {
+        try {
+            let status = contexts.change(second.point, 20);
+        }
+        catch errors {
+            panic("record became Busy before native entry");
+        }
+    }
+    return pending;
+}
+
+fn action(value: Int) -> Int {
+    return value * 2;
+}
+
+async fn main() {
+    try {
+        let first: contexts.Context = {
+            editor =
+                contexts
+                .Editor(value: 10),
+            point =
+                contexts
+                .Packet(x: 4),
+            handle =
+                contexts
+                .make(),
+            action =
+                action
+        };
+        let second: contexts.Context = {
+            editor =
+                contexts
+                .Editor(value: 20),
+            point =
+                contexts
+                .Packet(x: 1),
+            handle =
+                contexts
+                .make(),
+            action =
+                action
+        };
+        contexts.resetSelectEntries();
+        try {
+            let result = await queue(first, second, EARLY);
+            result.editor.value = result.editor.value + 10;
+            rinzu.stdio.writeLine(result.action(contexts.check(result.handle)));
+        }
+        finally {
+            try {
+                rinzu.stdio.writeLine(second.editor.value);
+                rinzu.stdio.writeLine(second.point.x);
+                rinzu.stdio.writeLine(contexts.selectEntries());
+                if first.editor.value != 10 {
+                    panic("selected the wrong context");
+                }
+            }
+            catch errors {
+                panic("record remained Busy during cleanup");
+            }
+        }
+    }
+    catch errors {
+        panic("unexpected supplant context Error");
+    }
+}

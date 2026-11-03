@@ -1,0 +1,236 @@
+import rinzu.timer;
+import rinzu.socket;
+import rinzu.stdio;
+import rinzu.testing;
+
+class Progress {
+    ticks: Int,
+    done: Bool
+}
+
+fn unwrap<T>(value: T) -> T {
+    return value;
+}
+
+async fn invalid<T>(operation: fn () -> Future<T>, code: Int) {
+    try {
+        let unexpected = await operation();
+        panic("unexpectedlySucceeded");
+    }
+    catch [problem: Error, ...rest] {
+        assertEqual<Option<Int>>(errorNativeStatus(problem), Option<Int>.Some(value: -code), "native status");
+    }
+}
+
+fn pattern() -> ByteArray {
+    return byteArray(b"\x00\xff\x80A\x00B\xfeC");
+}
+
+fn payload() -> ByteArray {
+    var data = pattern();
+    while bytesLength(data) < 65536 {
+        data = bytesConcat(data, data);
+    }
+    return data;
+}
+
+fn verify(data: ByteArray, offset: Int) {
+    let expected = pattern();
+    var i = 0;
+    while i < bytesLength(data) {
+        let at = offset + i;
+        assertTrue(bytesGet(data, i) == bytesGet(expected, at - (at / 8) * 8), "binary bytes");
+        i = i + 1;
+    }
+}
+
+fn sent(value: Int, length: Int) {
+    assertEqual<Int>(value, length, "write length");
+}
+
+async fn heartbeat(progress: Progress) {
+    while !progress.done {
+        await delay(5);
+        progress.ticks = progress.ticks + 1;
+    }
+}
+
+async fn echo(stream: rinzu.socket.TcpStream) {
+    try {
+        var total = 0;
+        var held = pattern();
+        while true {
+            let chunk = unwrap<rinzu.socket.ReadChunk>(await rinzu.socket.readWithTimeout(stream, 257, 10000));
+            if chunk.eof {
+                break;
+            }
+            verify(chunk.data, total);
+            if total > 0 {
+                verify(held, 0);
+            }
+            if total == 0 {
+                held = chunk.data;
+            }
+            sent(await rinzu.socket.writeAllWithTimeout(stream, chunk.data, 10000), bytesLength(chunk.data));
+            total = total + bytesLength(chunk.data);
+        }
+        assertEqual<Int>(total, 131072, "echo input");
+        let half = unwrap<Int>(await rinzu.socket.shutdownWrite(stream));
+        verify(held, 0);
+        rinzu.stdio.writeLine(f"ECHO:{total}");
+    }
+    catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
+        assertTrue(false, errorMessage(unexpectedWorkerError));
+    }
+}
+
+async fn receive(stream: rinzu.socket.TcpStream) {
+    try {
+        await delay(30);
+        var total = 0;
+        while true {
+            let chunk = unwrap<rinzu.socket.ReadChunk>(await rinzu.socket.readWithTimeout(stream, 4096, 10000));
+            if chunk.eof {
+                break;
+            }
+            verify(chunk.data, total);
+            total = total + bytesLength(chunk.data);
+        }
+        assertEqual<Int>(total, 131072, "echo output");
+        rinzu.stdio.writeLine(f"BINARY:{total}");
+    }
+    catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
+        assertTrue(false, errorMessage(unexpectedWorkerError));
+    }
+}
+
+async fn main() {
+    try {
+        await invalid<rinzu.socket.Address>(
+            async fn () -> rinzu.socket.Address {
+                return rinzu.socket.address("localhost", 80);
+            },
+            7506
+        );
+        await invalid<rinzu.socket.Address>(
+            async fn () -> rinzu.socket.Address {
+                return rinzu.socket.address("127.0.0.1\u{0}bad", 80);
+            },
+            7504
+        );
+        await invalid<rinzu.socket.Address>(
+            async fn () -> rinzu.socket.Address {
+                return rinzu.socket.address("127.0.0.1", 4294967296);
+            },
+            7504
+        );
+        await invalid<rinzu.socket.TcpStream>(
+            async fn () -> rinzu.socket.TcpStream {
+                return await rinzu.socket.connect(rinzu.socket.Address(host: "127.0.0.1", port: 0));
+            },
+            7504
+        );
+        let bound = unwrap<rinzu.socket.Address>(rinzu.socket.address("127.0.0.1", 0));
+        let listener = unwrap<rinzu.socket.Listener>(await rinzu.socket.listen(bound, 16));
+        let port = unwrap<Int>(rinzu.socket.localPort(listener));
+        await invalid<rinzu.socket.TcpStream>(
+            async fn () -> rinzu.socket.TcpStream {
+                return await rinzu.socket.acceptWithTimeout(listener, 20);
+            },
+            7509
+        );
+        await invalid<rinzu.socket.TcpStream>(
+            async fn () -> rinzu.socket.TcpStream {
+                return await rinzu.socket.acceptWithTimeout(listener, 0);
+            },
+            7504
+        );
+        let accepting = rinzu.socket.accept(listener);
+        try {
+            let client = unwrap<
+                rinzu.socket.TcpStream
+            >(await rinzu.socket.connectWithTimeout(rinzu.socket.Address(host: "127.0.0.1", port: port), 10000));
+            let server = unwrap<rinzu.socket.TcpStream>(await accepting);
+            let closedListener = unwrap<Int>(await rinzu.socket.closeListener(listener));
+            await invalid<Int>(
+                async fn () -> Int {
+                    return rinzu.socket.localPort(listener);
+                },
+                7502
+            );
+            await invalid<rinzu.socket.ReadChunk>(
+                async fn () -> rinzu.socket.ReadChunk {
+                    return await rinzu.socket.read(server, 0);
+                },
+                7504
+            );
+            sent(await rinzu.socket.write(client, byteArray(b"")), 0);
+            let progress = Progress(ticks: 0, done: false);
+            let ticker = heartbeat(progress);
+            let echoing = echo(server);
+            let receiving = receive(client);
+            try all {
+                let data = payload();
+                sent(await rinzu.socket.writeAll(client, data), 65536);
+                sent(await rinzu.socket.writeAllWithTimeout(client, data, 10000), 65536);
+                let half = unwrap<Int>(await rinzu.socket.shutdownWrite(client));
+                await echoing;
+                await receiving;
+            }
+            finally {
+                progress.done = true;
+                await ticker;
+                let cleanup = unwrap<Int>(await rinzu.socket.closeOwnerSockets());
+            }
+            await invalid<rinzu.socket.ReadChunk>(
+                async fn () -> rinzu.socket.ReadChunk {
+                    return await rinzu.socket.read(client, 1);
+                },
+                7502
+            );
+            let statistics = rinzu.socket.statistics();
+            assertEqual<Int>(statistics.handleSlots, 0, "handles drained");
+            assertEqual<Int>(statistics.operations, 0, "operations finished");
+            assertEqual<Int>(statistics.bufferBytes, 0, "payload released");
+            assertEqual<Int>(statistics.eventThreads, 0, "driver joined");
+            assertTrue(statistics.controlBytes > 0, "fixed controls remain");
+            assertTrue(progress.ticks > 0, "timer progressed");
+            rinzu.stdio.writeLine(f"CLEANUP:0:0:0:0:TICKS:{progress.ticks}:CONTROL:{statistics.controlBytes}");
+        }
+        finally {
+            let stoppedAccept = cancelFuture(accepting);
+            let settledAccept = await accepting;
+        }
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}
+
+// Assertions in process fixtures terminate the test; they are not task failures.
+fn assertTrue(condition: Bool, message: String) {
+    try {
+        rinzu.testing.assertTrue(condition, message);
+    }
+    catch errors {
+        panic("failedAssertion");
+    }
+}
+
+fn assertEqual<T: Equality>(actual: T, expected: T, message: String) {
+    try {
+        rinzu.testing.assertEqual<T>(actual, expected, message);
+    }
+    catch errors {
+        panic("failedAssertion");
+    }
+}
+
+async fn delay(milliseconds: Int) {
+    try {
+        await rinzu.timer.sleep(milliseconds);
+    }
+    catch errors {
+        panic("unexpectedTimerFailure");
+    }
+}

@@ -1,0 +1,43 @@
+import rinzu.timer;
+import rinzu.stdio;
+
+enum Environment {
+    Later(value: Int)
+}
+
+class Function {
+    environment: Environment
+}
+
+async fn later(value: Int) -> Int {
+    await rinzu.timer.sleep(1);
+    return value + 1;
+}
+
+fn invoke(function: Function) -> Future<Int> {
+    switch function.environment {
+        case Environment.Later(value): {
+            return later(value);
+        }
+    }
+}
+
+fn make() -> Function {
+    return Function(environment: Environment.Later(value: 41));
+}
+
+async fn main() {
+    try {
+        let function = make();
+        let pending = invoke(function);
+        var i = 0;
+        while i < 300 {
+            let temporary = f"gc-{i}";
+            i = i + 1;
+        }
+        rinzu.stdio.writeLine(await pending);
+    }
+    catch errors {
+        panic(f"unexpected Error in Main: {errors}");
+    }
+}

@@ -1,0 +1,68 @@
+async fn completed(completion: Completion) -> Unit {
+    await nativeCompleted(completion);
+}
+
+async fn readSize(path: String) -> Int {
+    return await readResourceSize(path);
+}
+
+native {
+    opaque Completion;
+
+    fn completion(round: CInt, child: CInt) -> Completion symbol "supplant_completion";
+
+    fn reset(processMain: CInt) symbol "supplant_reset";
+
+    fn prefix(stage: CInt) symbol "supplant_prefix";
+
+    fn busy() symbol "supplant_busy";
+
+    fn mark(round: CInt, step: CInt) symbol "supplant_mark";
+
+    fn finish() -> CInt symbol "supplant_finish";
+
+    fn workerBarrier(round: CInt) -> CInt symbol "supplant_worker_barrier";
+
+    supplant fn run(callback: fn (CInt) -> CInt, round: CInt) -> String symbol "supplant_run";
+
+    supplant fn runAlias(callback: fn (CInt) -> CInt, round: CInt) -> String symbol "supplant_run_alias";
+
+    fn checkReset(processMain: CInt) symbol "supplant_check_reset";
+
+    fn checkInner() symbol "supplant_check_inner";
+
+    fn checkOuter(expected: CInt) symbol "supplant_check_outer";
+
+    fn checkChild() symbol "supplant_check_child";
+
+    fn workerBlock(input: String, bytes: Bytes(4)) -> CInt symbol "supplant_worker_block";
+
+    fn waitWorkerEntry() symbol "supplant_wait_worker_entry";
+
+    fn workerFinally(input: String, bytes: Bytes(4)) symbol "supplant_worker_finally";
+
+    supplant fn checkRun(callback: fn (CInt) -> CInt, input: String, bytes: Bytes(4), mode: CInt)
+        -> String
+        symbol "supplant_check_run";
+}
+
+export reset;
+export prefix;
+export busy;
+export mark;
+export finish;
+export run;
+export runAlias;
+export readSize;
+export checkReset;
+export checkInner;
+export checkOuter;
+export checkRun;
+export checkChild;
+export workerBarrier;
+export workerBlock;
+export waitWorkerEntry;
+export workerFinally;
+export completion;
+export completed;
+export Completion;

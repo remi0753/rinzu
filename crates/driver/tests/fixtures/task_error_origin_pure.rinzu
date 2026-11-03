@@ -1,0 +1,104 @@
+class Held {
+    const text: String,
+    const bytes: ByteArray
+}
+
+error Wrapped {
+    payload: Held
+}
+
+error Child {
+    payload: Int
+}
+
+async fn rejected() -> Int {
+    throw Child(message: "child", payload: 41);
+}
+
+fn keep(value: Future<Int>) -> Future<Int> {
+    return value;
+}
+
+async fn ready() -> Int {
+    return 7;
+}
+
+async fn copy(value: Held) -> Held {
+    try {
+        return Held(text: value.text, bytes: bytesCopy(value.bytes));
+    }
+    finally {
+        let cleanup = bytesConcat(byteArray(b"left"), byteArray(b"right"));
+        let cleanupFuture = ready();
+        if await cleanupFuture != 7 {
+            panic("wrongCleanup");
+        }
+    }
+}
+
+async fn main() {
+    try {
+        var index = 0;
+        while index < 1100 {
+            let future = ready();
+            let alias = keep(future);
+            if await future != 7 || await alias != 7 {
+                panic("wrongFuture");
+            }
+            index = index + 1;
+        }
+        let badFuture = rejected();
+        let badAlias = badFuture;
+        try {
+            let missingFailure = await badFuture;
+            panic("missingChild");
+        }
+        catch [childProblem: Child] {
+            if childProblem.payload != 41 {
+                panic("wrongChild");
+            }
+        }
+        try {
+            let missingAgain = await badAlias;
+            panic("missingAlias");
+        }
+        catch [aliasProblem: Child] {
+            if aliasProblem.payload != 41 {
+                panic("wrongChildAlias");
+            }
+        }
+        let held = Held(text: "retained", bytes: byteArray(b"\x00\xffA\x00"));
+        let copiedFuture = copy(held);
+        let copiedAlias = copiedFuture;
+        let first = await copiedFuture;
+        let again = await copiedAlias;
+        if first.text != held.text || again.bytes != held.bytes {
+            panic("wrongAlias");
+        }
+        try {
+            throw Wrapped(message: "wrapped", payload: again);
+        }
+        catch [problem: Wrapped] {
+            let common: Error = problem;
+            if common.name != "Wrapped" || common.message != "wrapped" {
+                panic("wrongMetadata");
+            }
+            switch common.source {
+                case Option.Some(source): {
+                    if source.line <= 0 {
+                        panic("wrongSource");
+                    }
+                }
+                case Option.None: {
+                    panic("missingSource");
+                }
+            }
+            if problem.payload.bytes != held.bytes {
+                panic("wrongPayload");
+            }
+        }
+    }
+    catch unexpected {
+        panic("failed");
+    }
+}

@@ -1,0 +1,112 @@
+native {
+    fn scalar(callback: fn (CInt) -> CInt, mode: CInt) -> CInt symbol "termination_scalar";
+
+    fn unit(callback: fn () -> Unit) -> CInt symbol "termination_unit";
+
+    fn text(callback: fn (String) -> CInt, mode: CInt) -> CInt symbol "termination_text";
+
+    fn bytes(callback: fn (Bytes(4)) -> CInt) -> CInt symbol "termination_bytes";
+
+    fn mark(marker: CInt) -> Unit symbol "termination_mark";
+
+    fn nativeAbort() -> Unit symbol "termination_abort";
+
+    fn mode() -> CInt symbol "termination_mode";
+
+    fn forever(input: String, data: Bytes(4)) -> CInt symbol "termination_forever";
+
+    supplant fn runForever(callback: fn () -> Unit, input: String, data: Bytes(4))
+        -> CInt
+        symbol "termination_run_forever";
+}
+
+fn missingScalar(value: CInt) -> CInt {
+    mark(1);
+    try {
+        if value == 0 {
+            panic("invalid");
+        }
+        else {
+            let trapped = 1 / 0;
+        }
+    }
+    finally {
+        mark(2);
+    }
+    return 0;
+}
+
+fn missingUnit() -> Unit {
+    mark(1);
+    try {
+        panic("invalid");
+    }
+    finally {
+        mark(2);
+    }
+}
+
+fn missingText(value: String) -> CInt fallback 31 {
+    mark(1);
+    return 0;
+}
+
+fn abortUnit() -> Unit fallback () {
+    mark(1);
+    nativeAbort();
+    mark(2);
+}
+
+fn explicitUnit() -> Unit fallback () {
+    mark(1);
+    try {
+        let invalid = CInt8(300);
+    }
+    finally {
+        mark(2);
+    }
+}
+
+fn explicitScalar(value: CInt) -> CInt fallback 31 {
+    mark(1);
+    try {
+        let trapped = 1 / 0;
+    }
+    finally {
+        mark(2);
+    }
+    return value;
+}
+
+fn fatalBytes(value: Bytes(4)) -> CInt fallback 31 {
+    mark(1);
+    return 0;
+}
+
+fn exercise(selected: CInt) -> CInt {
+    if selected == 0 || selected == 1 {
+        return scalar(missingScalar, selected);
+    }
+    if selected == 2 {
+        return unit(missingUnit);
+    }
+    if selected == 3 || selected == 4 {
+        return text(missingText, selected);
+    }
+    if selected == 5 {
+        return unit(abortUnit);
+    }
+    if selected == 6 {
+        return unit(explicitUnit);
+    }
+    if selected == 8 {
+        return bytes(fatalBytes);
+    }
+    return scalar(explicitScalar, selected);
+}
+
+export exercise;
+export mode;
+export mark;
+export forever;
+export runForever;

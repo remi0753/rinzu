@@ -1,0 +1,28 @@
+[package]
+name = "rinzu-driver"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "rinzu"
+path = "src/main.rs"
+
+[dependencies]
+rinzu-abi = { path = "../abi" }
+rinzu-bindgen = { path = "../bindgen" }
+rinzu-codegen = { path = "../codegen" }
+rinzu-compiler = { path = "../compiler" }
+rinzu-runtime = { path = "../runtime" }
+rinzu-trace = { path = "../trace" }
+serde_json.workspace = true
+serde.workspace = true
+libc.workspace = true
+object = { version = "0.40.0", default-features = false, features = ["read", "std"] }
+
+[dev-dependencies]
+libc.workspace = true
+rinzu-codegen = { path = "../codegen", features = ["test-allocation-probe", "test-dispatcher-probe"] }
+
+[lints]
+workspace = true

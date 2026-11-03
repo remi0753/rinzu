@@ -1,0 +1,86 @@
+native {
+    fn rawRead(name: String) -> Int symbol "rinzu_process_environment_read";
+
+    fn rawBytes() -> Bytes(4096) symbol "rinzu_process_environment_bytes";
+
+    fn rawErrorLine(bytes: ByteArray, length: CSize) -> CInt symbol "rinzu_process_error_line";
+
+    fn identifier() -> Int symbol "rinzu_process_identifier";
+}
+
+fn environment(name: String) -> Option<String> {
+    if utf8ByteLength(name) == 0 || utf8ByteLength(name) > 1024 {
+        throw error(610, "process.environment.name");
+    }
+    switch stringFind(name, "\u{0}", 0) {
+        case Option.Some(index): {
+            throw error(610, "process.environment.name");
+        }
+        case Option.None: {}
+    }
+    let length = rawRead(name);
+    if length == -1 {
+        return (Option<String>.None());
+    }
+    if length < 0 {
+        throw error(610, "process.environment.length");
+    }
+    switch bytesSlice(byteArray(rawBytes()), 0, length) {
+        case Option.None: {
+            throw error(610, "process.environment.snapshot");
+        }
+        case Option.Some(bytes): {
+            let resultValue4 = utf8Decode(bytes);
+            return (Option<String>.Some(value: resultValue4));
+        }
+    }
+}
+
+fn setting(name: String, defaultValue: String) -> String {
+    let resultValue3 = environment(name);
+    switch resultValue3 {
+        case Option.None: {
+            return (defaultValue);
+        }
+        case Option.Some(text): {
+            return (text);
+        }
+    }
+}
+
+fn integer(name: String, defaultValue: Int, minimum: Int, maximum: Int) -> Int {
+    let resultValue2 = environment(name);
+    var number = defaultValue;
+    switch resultValue2 {
+        case Option.None: {}
+        case Option.Some(text): {
+            let resultValue1 = parseInt(text);
+            number = resultValue1;
+        }
+    }
+    if number < minimum || number > maximum {
+        throw error(610, "process.integer.range");
+    }
+    return (number);
+}
+
+export environment;
+export setting;
+export integer;
+
+// Explicit Main-only status. Root cleanup completes before the host returns it.
+fn setExitStatus(status: Int) -> Bool {
+    return setProcessExitStatus(status);
+}
+
+fn writeErrorLine(text: String) -> Int {
+    let data = utf8Encode(f"{text}\n");
+    if bytesLength(data) > 4096 {
+        throw error(610, "process.stderr.length");
+    }
+    return nativeStatus(Int(rawErrorLine(data, byteLength(data))), "process.stderr");
+}
+
+export setExitStatus;
+export writeErrorLine;
+export identifier;

@@ -1,0 +1,151 @@
+import rinzu.timer;
+import "common.rinzu" as bench;
+import rinzu.socket;
+import rinzu.stdio;
+
+class Progress {
+    ready: Int,
+    go: Bool,
+    active: Bool,
+    done: Bool,
+    ticks: Int,
+    last: Int,
+    maxGap: Int
+}
+
+async fn heartbeat(progress: Progress) {
+    try {
+        while !progress.done {
+            await rinzu.timer.sleep(2);
+            let now = bench.nanos();
+            if progress.active {
+                let gap = now - progress.last;
+                if gap > progress.maxGap {
+                    progress.maxGap = gap;
+                }
+                progress.ticks = progress.ticks + 1;
+            }
+            progress.last = now;
+        }
+    }
+    catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
+        panic("unexpectedBenchmarkFailure");
+    }
+}
+
+async fn session(index: Int, progress: Progress) {
+    try {
+        let size = bench.integer("BENCH_CHUNK", 65536, 8, 65536);
+        let rounds = bench.integer("BENCH_ROUNDS", 64, 1, 512);
+        let warm = bench.integer("BENCH_WARM", 2, 1, 32);
+        let slow = bench.integer("BENCH_SLOW_MS", 0, 0, 20);
+        let mode = bench.setting("BENCH_MODE");
+        let port = bench.integer("BENCH_PORT", 0, 1, 65535);
+        let stream = bench.expect<
+            rinzu.socket.TcpStream
+        >(await rinzu.socket.connectWithTimeout(rinzu.socket.Address(host: "127.0.0.1", port: port), 30000));
+        let data = bench.payload(size);
+        var warmed = 0;
+        while warmed < warm {
+            await bench.put(stream, data);
+            await bench.receive(stream, size, 0);
+            warmed = warmed + 1;
+        }
+        progress.ready = progress.ready + 1;
+        while !progress.go {
+            await rinzu.timer.sleep(1);
+        }
+        let start = bench.nanos();
+        if mode == "throughput" {
+            let receiving = bench.receive(stream, size * rounds, slow);
+            var round = 0;
+            while round < rounds {
+                await bench.put(stream, data);
+                round = round + 1;
+            }
+            await receiving;
+        }
+        else {
+            var pingIndex = 0;
+            while pingIndex < rounds {
+                let before = bench.nanos();
+                await bench.put(stream, data);
+                await bench.receive(stream, size, slow);
+                let elapsed = bench.nanos() - before;
+                rinzu.stdio.writeLine(f"RTT:{index}:{pingIndex}:{elapsed}");
+                pingIndex = pingIndex + 1;
+            }
+        }
+        let end = bench.nanos();
+        rinzu.stdio.writeLine(f"RESULT:{index}:{size * rounds}:{start}:{end}");
+        let half = bench.expect<Int>(await rinzu.socket.shutdownWrite(stream));
+        let eof = bench.expect<rinzu.socket.ReadChunk>(await rinzu.socket.readWithTimeout(stream, 65536, 30000));
+        if !eof.eof {
+            let bad = CInt8(300);
+        }
+    }
+    catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
+        panic("unexpectedBenchmarkFailure");
+    }
+}
+
+async fn main() {
+    try {
+        let connections = bench.integer("BENCH_CONNECTIONS", 1, 1, 4);
+        let progress = Progress(
+            ready: 0,
+            go: false,
+            active: false,
+            done: false,
+            ticks: 0,
+            last: bench.nanos(),
+            maxGap: 0
+        );
+        let ticker = heartbeat(progress);
+        try all {
+            let session0 = session(0, progress);
+            if connections == 4 {
+                let session1 = session(1, progress);
+                let session2 = session(2, progress);
+                let session3 = session(3, progress);
+                while progress.ready < 4 {
+                    await rinzu.timer.sleep(1);
+                }
+                rinzu.stdio.writeLine("WARM");
+                await bench.gate(bench.setting("BENCH_GO"));
+                progress.last = bench.nanos();
+                progress.active = true;
+                progress.go = true;
+                await session0;
+                await session1;
+                await session2;
+                await session3;
+            }
+            else {
+                while progress.ready < 1 {
+                    await rinzu.timer.sleep(1);
+                }
+                rinzu.stdio.writeLine("WARM");
+                await bench.gate(bench.setting("BENCH_GO"));
+                progress.last = bench.nanos();
+                progress.active = true;
+                progress.go = true;
+                await session0;
+            }
+            progress.active = false;
+            rinzu.stdio.writeLine(f"TIMER:{progress.ticks}:{progress.maxGap}");
+            bench.report("client-active");
+            rinzu.stdio.writeLine("END");
+            await bench.gate(bench.setting("BENCH_CLIENT_DONE"));
+        }
+        finally {
+            progress.done = true;
+            await ticker;
+            let cleanup = bench.expect<Int>(await rinzu.socket.closeOwnerSockets());
+        }
+        bench.report("client-cleanup");
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}

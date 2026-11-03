@@ -1,0 +1,392 @@
+import rinzu.macos;
+import rinzu.timer;
+import rinzu.process;
+import rinzu.stdio;
+
+async fn textPixels() {
+    let session = rinzu.macos.open();
+    let device = session.device();
+    let font = session.font("", 18.0, false);
+    let text = device.text2D(font, "Rinzu 日本語 😀", 0.0, rinzu.macos.textLeft, 1.0);
+    let metrics = text.metrics;
+    if metrics.lines != 1 || metrics.width <= 0.0 || metrics.baseline <= 0.0 {
+        panic("text metrics mismatch");
+    }
+    let target = device.texture2D(
+        text.width + 32,
+        text.height + 32,
+        rinzu.macos.pixelRGBA8,
+        rinzu.macos.textureRenderTarget
+    );
+    let batch = device.batch2D(4);
+    batch.reset(text.width + 32, text.height + 32);
+    batch.setFilter(rinzu.macos.filterNearest);
+    batch.text(
+        text,
+        12.0 - metrics.left,
+        12.0 - metrics.top,
+        rinzu.macos.Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)
+    );
+    let rendered = await batch.renderTexture(target, rinzu.macos.Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0));
+    let original = text.texture.read(rinzu.macos.Scissor(x: 0, y: 0, width: text.width, height: text.height));
+    let drawn = target.read(rinzu.macos.Scissor(x: 12, y: 12, width: text.width, height: text.height));
+    if original != drawn {
+        panic("text texture pixel copy differs");
+    }
+    batch.destroy();
+    text.destroy();
+    let fontClosed = font.destroy();
+    let targetClosed = target.destroy();
+    rinzu.stdio.writeLine("CANVAS:text:unicode:metrics:gpu-pixels");
+}
+
+class TestState {
+    canvas: Option<rinzu.macos.Canvas2D>,
+    paints: Int,
+    fail: Bool,
+    submit: Bool
+
+    fn current(self: TestState) -> rinzu.macos.Canvas2D {
+        switch self.canvas {
+            case Option.Some(value): {
+                return value;
+            }
+            case Option.None: {
+                throw error(-7890, "canvas not initialized");
+            }
+        }
+    }
+
+    async fn paint(self: TestState, frame: rinzu.macos.Frame2D) {
+        self.paints = self.paints + 1;
+        frame.batch.fillRect(
+            rinzu.macos.Rect(x: 0.0, y: 0.0, width: frame.width, height: frame.height),
+            rinzu.macos.Color(red: 0.2, green: 0.7, blue: 0.9, alpha: 1.0)
+        );
+        if self.fail {
+            let canvas = self.current();
+            let begun = frame.batch.command.beginRender(
+                canvas.view,
+                rinzu.macos.Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0)
+            );
+            let encoded = frame.batch.encode(frame.batch.command, rinzu.macos.pixelBGRA8);
+            if self.submit {
+                let submitted = frame.batch.command.commit();
+            }
+            throw error(-7890, "draw-test");
+        }
+    }
+
+    async fn exercise(self: TestState, job: rinzu.macos.UiJob) {
+        let canvas = self.current();
+        var guard = 0;
+        while canvas.frames < 1 {
+            if guard > 1000 {
+                panic("first frame timeout");
+            }
+            await rinzu.timer.sleep(5);
+            guard = guard + 1;
+        }
+        await rinzu.timer.sleep(40);
+        let initial = canvas.clock.statistics();
+        let before = canvas.frames;
+        var index = 0;
+        while index < 1000 {
+            let changed = canvas.invalidate();
+            index = index + 1;
+        }
+        while canvas.frames <= before {
+            await rinzu.timer.sleep(5);
+        }
+        await rinzu.timer.sleep(40);
+        let coalesced = canvas.clock.statistics();
+        if coalesced.coalesced - initial.coalesced < 999 {
+            panic("invalidation did not coalesce");
+        }
+        let hidden = canvas.view.setHidden(true);
+        let requested = canvas.invalidate();
+        await rinzu.timer.sleep(40);
+        let resources = rinzu.macos.statistics();
+        let invisible = canvas.clock.statistics();
+        if resources.frameTimers != 0 || invisible.visible {
+            panic("hidden clock scheduled a timer");
+        }
+        let shown = canvas.view.setHidden(false);
+        let old = canvas.frames;
+        while canvas.frames <= old {
+            await rinzu.timer.sleep(5);
+        }
+        rinzu.stdio.writeLine("CANVAS:idle:coalesced:hidden:resume");
+        job.requestStop();
+    }
+}
+
+async fn body(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    let mode = rinzu.process.setting("RINZU_CANVAS_TEST", "canvas");
+    let device = scope.session.device();
+    let state = TestState(
+        canvas: Option<rinzu.macos.Canvas2D>.None(),
+        paints: 0,
+        fail: mode == "recording-failure" || mode == "submitted-failure",
+        submit: mode == "submitted-failure"
+    );
+    let canvas = scope.canvas2D(
+        device,
+        rinzu.macos.Rect(x: 0.0, y: 0.0, width: 240.0, height: 160.0),
+        16,
+        60,
+        rinzu.macos.Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0),
+        async fn (frame: rinzu.macos.Frame2D) {
+            await state.paint(frame);
+        }
+    );
+    state.canvas = Option<rinzu.macos.Canvas2D>.Some(value: canvas);
+    if mode == "early" {
+        return;
+    }
+    if mode == "canvas" {
+        let testing = scope.start(
+            async fn (job: rinzu.macos.UiJob) {
+                await state.exercise(job);
+            }
+        );
+    }
+    await scope.dispatch(
+        async fn (owner: rinzu.macos.UiScope, event: rinzu.macos.UiEvent) {
+            if event.kind == rinzu.macos.eventCloseRequested || event.kind == rinzu.macos.eventQuitRequested {
+                owner.requestStop();
+            }
+        }
+    );
+}
+
+async fn observe(clock: rinzu.macos.FrameClock) {
+    try {
+        let unexpected = await clock.next();
+    }
+    catch errors {
+        panic("clock await failed unexpectedly");
+    }
+}
+
+async fn cancelBody(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    let device = scope.session.device();
+    let surface = scope.surface(device, rinzu.macos.Rect(x: 0.0, y: 0.0, width: 100.0, height: 100.0));
+    let root = scope.window.contentView();
+    let attached = root.addSubview(surface);
+    let clock = surface.frameClock(60);
+    let hidden = surface.setHidden(true);
+    let watching = observe(clock);
+    try {
+        var guard = 0;
+        var stats = clock.statistics();
+        while !stats.pending {
+            if guard > 1000 {
+                panic("idle reader did not admit");
+            }
+            await rinzu.timer.sleep(1);
+            guard = guard + 1;
+            stats = clock.statistics();
+        }
+        let cancelled = cancelFuture(watching);
+        await watching;
+        panic("idle frame cancellation was lost");
+    }
+    finally {
+        let stopped = clock.stop();
+        await watching;
+    }
+}
+
+fn actionEvent(kind: Int, window: Int, action: Int) -> rinzu.macos.UiEvent {
+    return rinzu.macos.UiEvent(
+        kind: kind,
+        windowId: window,
+        viewId: 0,
+        sequence: 0,
+        x: 0.0,
+        y: 0.0,
+        width: 0.0,
+        height: 0.0,
+        scale: 1.0,
+        keyCode: 0,
+        modifiers: 0,
+        action: action,
+        selectionStart: 0,
+        selectionEnd: 0,
+        flags: 0,
+        value: 0.0,
+        deltaX: 0.0,
+        deltaY: 0.0,
+        text: ""
+    );
+}
+
+class ActionState {
+    calls: Int,
+    release: Bool
+}
+
+async fn actionsBody(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    let state = ActionState(calls: 0, release: false);
+    let actions = rinzu.macos.actions();
+    let handler = async fn (job: rinzu.macos.UiJob, event: rinzu.macos.UiEvent) {
+        state.calls = state.calls + 1;
+        while !state.release && !job.isStopping() {
+            await rinzu.timer.sleep(1);
+        }
+    };
+    actions.on(42, handler);
+    var rejected = false;
+    try {
+        actions.on(42, handler);
+    }
+    catch errors {
+        rejected = true;
+    }
+    if !rejected {
+        panic("duplicate action binding was accepted");
+    }
+    actions.handle(scope, actionEvent(rinzu.macos.eventCloseRequested, scope.windowId + 1, 0));
+    actions.handle(scope, actionEvent(rinzu.macos.eventAction, scope.windowId + 1, 42));
+    if scope.isStopping() || state.calls != 0 {
+        panic("action crossed Window scope");
+    }
+    let event = actionEvent(rinzu.macos.eventAction, scope.windowId, 42);
+    var index = 0;
+    while index < 1000 {
+        actions.handle(scope, event);
+        index = index + 1;
+    }
+    while state.calls == 0 {
+        await rinzu.timer.sleep(1);
+    }
+    if state.calls != 1 {
+        panic("busy action admitted duplicate jobs");
+    }
+    state.release = true;
+    let firstJoined = await scope.join();
+    actions.handle(scope, event);
+    let secondJoined = await scope.join();
+    if state.calls != 2 {
+        panic("completed action could not be reused");
+    }
+    let parent = scope.session.view(rinzu.macos.Rect(x: 0.0, y: 0.0, width: 240.0, height: 160.0));
+    let root = scope.window.contentView();
+    let attached = root.addSubview(parent);
+    let box = rinzu.macos.Rect(x: 0.0, y: 0.0, width: 1.0, height: 1.0);
+    let fixed = scope.label("Fixed", box);
+    let flexible = scope.label("Flexible", box);
+    let items = [
+        rinzu.macos.LayoutItem(view: fixed.view, fixed: 40.0, grow: 0.0),
+        rinzu.macos.LayoutItem(view: flexible.view, fixed: 0.0, grow: 1.0)
+    ];
+    let row = rinzu.macos.weightedRow(parent, items, 10.0, 10.0);
+    let fixedRow = fixed.view.frame();
+    let flexibleRow = flexible.view.frame();
+    if fixedRow.width != 40.0 || flexibleRow.x != 60.0 || flexibleRow.width != 170.0 {
+        panic("weighted row geometry mismatch");
+    }
+    let column = rinzu.macos.weightedColumn(parent, items, 10.0, 10.0);
+    let fixedColumn = fixed.view.frame();
+    let flexibleColumn = flexible.view.frame();
+    if fixedColumn.y != 110.0 || flexibleColumn.y != 10.0 || flexibleColumn.height != 90.0 {
+        panic("weighted column geometry mismatch");
+    }
+    var invalid = false;
+    try {
+        let bad = rinzu.macos.weightedRow(parent, items, -1.0, 0.0);
+    }
+    catch errors {
+        invalid = true;
+    }
+    if !invalid {
+        panic("invalid layout spacing was accepted");
+    }
+    actions.on(
+        43,
+        async fn (job: rinzu.macos.UiJob, event: rinzu.macos.UiEvent) {
+            throw error(-7891, "action-test");
+        }
+    );
+    actions.handle(scope, actionEvent(rinzu.macos.eventAction, scope.windowId, 43));
+    var failed = false;
+    try {
+        let joined = await scope.join();
+    }
+    catch errors {
+        switch listGet(errors, 0) {
+            case Option.Some(problem): {
+                if errorCode(problem) == -7891 {
+                    failed = true;
+                }
+                else {
+                    throw problem;
+                }
+            }
+            case Option.None: {}
+        }
+    }
+    if !failed || !scope.isStopping() {
+        panic("async action failure did not stop its scope");
+    }
+    rinzu.stdio.writeLine("CANVAS:actions:bounded:reusable:window-routing:error:weighted-layout");
+}
+
+async fn exercise() {
+    let mode = rinzu.process.setting("RINZU_CANVAS_TEST", "text");
+    try {
+        if mode == "text" {
+            await textPixels();
+        }
+        else if mode == "cancel" {
+            let cancelled = await rinzu.macos.application("Idle frame cancel", 240.0, 160.0, cancelBody);
+        }
+        else if mode == "actions" {
+            let acted = await rinzu.macos.application("Actions and layout", 240.0, 160.0, actionsBody);
+        }
+        else {
+            var failed = false;
+            try {
+                let finished = await rinzu.macos.application("Canvas test", 240.0, 160.0, body);
+            }
+            catch errors {
+                switch listGet(errors, 0) {
+                    case Option.Some(problem): {
+                        if errorCode(problem) == -7890 {
+                            failed = true;
+                        }
+                        else {
+                            throw problem;
+                        }
+                    }
+                    case Option.None: {}
+                }
+            }
+            if (mode == "recording-failure" || mode == "submitted-failure") && !failed {
+                panic("draw error was not reported");
+            }
+            rinzu.stdio.writeLine(f"CANVAS:{mode}:ok");
+        }
+    }
+    finally {
+        let closed = await rinzu.macos.closeOwnerSessions();
+        let stats = rinzu.macos.statistics();
+        if stats.retainedControls != 0 || stats.textBytes != 0 || stats.frameTimers != 0 || stats.frameWaiters != 0 {
+            panic("canvas resources remained");
+        }
+        rinzu.stdio.writeLine("CANVAS:closed");
+    }
+}
+
+async fn main() {
+    try {
+        await exercise();
+    }
+    catch errors {
+        panic(f"canvas test failed: {errors}");
+    }
+}

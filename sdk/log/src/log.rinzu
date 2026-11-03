@@ -1,0 +1,84 @@
+import rinzu.io;
+
+class Logger {
+    const file: rinzu.io.File,
+    busy: Bool,
+    closed: Bool
+}
+
+async fn open(path: String) -> Logger {
+    let resultValue1 = await rinzu.io.openWrite(path);
+    return (Logger(file: resultValue1, busy: false, closed: false));
+    throw error(-7404, "log.open");
+}
+
+fn available(logger: Logger) -> Int {
+    if logger.closed {
+        return -7402;
+    }
+    if logger.busy {
+        return -7401;
+    }
+    return 0;
+}
+
+async fn emit(logger: Logger, level: Int, operationId: Int, event: Int, status: Int) -> Int {
+    let check = available(logger);
+    if check != 0 {
+        throw error(check, "log.emit");
+    }
+    if level < 0 || level > 3 || operationId < 0 || event < 0 || event > 15 {
+        throw error(-7404, "log.emit");
+    }
+    let row = utf8Encode(
+        f"{rinzu.io.unixMillis()} {rinzu.io.monotonicMillis()} {level} {operationId} {event} {status}\n"
+    );
+    if bytesLength(row) > 128 {
+        throw error(-7404, "log.row");
+    }
+    logger.busy = true;
+    try {
+        return await rinzu.io.writeAll(logger.file, row);
+    }
+    finally {
+        logger.busy = false;
+    }
+    throw error(-7404, "log.emit");
+}
+
+async fn flush(logger: Logger) -> Int {
+    let check = available(logger);
+    if check != 0 {
+        throw error(check, "log.flush");
+    }
+    logger.busy = true;
+    try {
+        return await rinzu.io.flush(logger.file);
+    }
+    finally {
+        logger.busy = false;
+    }
+    throw error(-7404, "log.flush");
+}
+
+async fn close(logger: Logger) -> Int {
+    let check = available(logger);
+    if check != 0 {
+        throw error(check, "log.close");
+    }
+    logger.busy = true;
+    logger.closed = true;
+    try {
+        return await rinzu.io.close(logger.file);
+    }
+    finally {
+        logger.busy = false;
+    }
+    throw error(-7404, "log.close");
+}
+
+export Logger;
+export open;
+export emit;
+export flush;
+export close;

@@ -1,0 +1,196 @@
+import rinzu.macos;
+import rinzu.process;
+import rinzu.stdio;
+import rinzu.testing;
+
+class RunProbe {
+    const view: rinzu.macos.View,
+    const retained: rinzu.macos.Rect,
+    calls: Int
+}
+
+async fn capturedRun() {
+    var iteration = 0;
+    while iteration < 2 {
+        let session = rinzu.macos.open();
+        let window = session.window("Rinzu captured RunContext", 240.0, 160.0);
+        let shown = window.show();
+        let probe = RunProbe(
+            view: window.contentView(),
+            retained: rinzu.macos.Rect(x: 19.0, y: 23.0, width: 240.0, height: 160.0),
+            calls: 41
+        );
+        let result = await session.run(
+            fn (context: rinzu.macos.RunContext, event: rinzu.macos.Event) -> Unit fallback () {
+                if event.kind == rinzu.macos.eventStarted {
+                    try {
+                        rinzu.testing.assertTrue(context.session.isRunning(), "restored RunContext");
+                        var index = 0;
+                        while index < 32 {
+                            let transient = f"callback collection {index}";
+                            rinzu.testing.assertTrue(transient != "", "temporary callback data");
+                            index = index + 1;
+                        }
+                        let frame = probe.view.frame();
+                        rinzu.testing.assertTrue(frame.width > 0.0, "captured class handle");
+                        rinzu.testing.assertTrue(
+                            probe.retained.x == 19.0 && event.kind == rinzu.macos.eventStarted,
+                            "captured native reference and callback record"
+                        );
+                        probe.calls = probe.calls + 1;
+                    }
+                    finally {
+                        let stopped = context.session.stop();
+                    }
+                }
+            }
+        );
+        rinzu.testing.assertEqual<Int>(result, 0, "native run returned");
+        rinzu.testing.assertEqual<Int>(probe.calls, 42, "private captured class survived callback");
+        rinzu.testing.assertTrue(!session.isRunning(), "stopped through restored context");
+        let closed = await session.close();
+        iteration = iteration + 1;
+    }
+    rinzu.stdio.writeLine("SOURCE:callback-ok:2:42");
+}
+
+fn core() {
+    let session = rinzu.macos.open();
+    let view = session.view(rinzu.macos.Rect(x: 2.0, y: 3.0, width: 20.0, height: 30.0));
+    let frame = view.frame();
+    rinzu.testing.assertTrue(
+        frame.x == 2.0 && frame.y == 3.0 && frame.width == 20.0 && frame.height == 30.0,
+        "native geometry"
+    );
+    let child = session.view(rinzu.macos.Rect(x: 0.0, y: 0.0, width: 10.0, height: 10.0));
+    let added = view.addSubview(child);
+    var caught = false;
+    try {
+        let cycle = child.addSubview(view);
+    }
+    catch [problem: Error, ...rest] {
+        rinzu.testing.assertEqual<
+            Option<Int>
+        >(errorNativeStatus(problem), Option<Int>.Some(value: -7804), "cycle status");
+        caught = true;
+    }
+    rinzu.testing.assertTrue(caught, "cycle rejected");
+    let destroyed = view.destroy();
+    caught = false;
+    try {
+        let stale = child.identity();
+    }
+    catch [problem: Error, ...rest] {
+        rinzu.testing.assertEqual<
+            Option<Int>
+        >(errorNativeStatus(problem), Option<Int>.Some(value: -7802), "closed alias status");
+        caught = true;
+    }
+    rinzu.testing.assertTrue(caught, "closed alias rejected");
+    rinzu.stdio.writeLine("SOURCE:core-ok");
+}
+
+async fn gpu(cancelled: Bool, recording: Bool, closing: Bool) {
+    let session = rinzu.macos.open();
+    let device = session.device();
+    let library = device.library(r#"
+#include <metal_stdlib>
+using namespace metal;
+kernel void increment(device uchar *data [[buffer(0)]], uint i [[thread_position_in_grid]]) { data[i] += 1; }
+"#);
+    let pipeline = library.computePipeline("increment");
+    let buffer = device.buffer(byteArray(b"\x00\xff\x40\x7f"));
+    let command = device.command();
+    var iteration = 0;
+    while iteration < 3 {
+        let begun = command.beginCompute(pipeline);
+        let bound = command.setComputeBuffer(0, buffer, 0);
+        let dispatched = command.dispatch(4, 1, 1, 4, 1, 1);
+        if recording {
+            rinzu.stdio.writeLine("SOURCE:recording-left-to-close");
+            return;
+        }
+        let committed = command.commit();
+        if closing {
+            let closedEarly = await session.close();
+            rinzu.stdio.writeLine("SOURCE:close-ok");
+            return;
+        }
+        if cancelled {
+            let pending = command.wait();
+            let requested = cancelFuture(pending);
+            let result = await pending;
+            panic("queued waiter cancellation was lost");
+        }
+        let completed = await command.wait();
+        iteration = iteration + 1;
+    }
+    let copied = buffer.read(0, 4);
+    let destroyed = buffer.destroy();
+    rinzu
+        .testing
+        .assertEqual<ByteArray>(copied, byteArray(b"\x03\x02\x43\x82"), "owned GPU bytes after buffer destroy");
+    let abandoned = command.beginCompute(pipeline);
+    let released = command.abandon();
+    let stats = rinzu.macos.statistics();
+    rinzu.testing.assertEqual<Int>(stats.commands, 1, "reuse one command control");
+    rinzu.stdio.writeLine("SOURCE:gpu-ok");
+    let closedFinal = await session.close();
+}
+
+async fn application() {
+    try {
+        let mode = rinzu.process.setting("RINZU_MACOS_TEST", "core");
+        if mode == "core" {
+            core();
+        }
+        else if mode == "callback" {
+            await capturedRun();
+        }
+        else {
+            await gpu(mode == "cancel", mode == "recording", mode == "close");
+        }
+    }
+    finally {
+        let closed = await rinzu.macos.closeOwnerSessions();
+        let stats = rinzu.macos.statistics();
+        rinzu.testing.assertEqual<
+            Int
+        >(
+            stats
+                .sessions
+                + stats
+                .windows
+                + stats
+                .views
+                + stats
+                .devices
+                + stats
+                .buffers
+                + stats
+                .libraries
+                + stats
+                .pipelines
+                + stats
+                .commands
+                + stats
+                .bufferBytes,
+            0,
+            "all SDK payloads settled"
+        );
+        rinzu.stdio.writeLine("SOURCE:closed");
+    }
+}
+
+async fn main() {
+    try {
+        await application();
+    }
+    catch errors {
+        try {
+            rinzu.stdio.writeLine(f"macOS SDK test: {errors}");
+        }
+        catch outputErrors {}
+        panic("macOS SDK source test failed");
+    }
+}

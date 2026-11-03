@@ -1,0 +1,27 @@
+{
+  "schema": "rinzu.runtime-model.host-vectors",
+  "version": 1,
+  "vectors": [
+    {
+      "name": "accepted-owner-delivery",
+      "postResult": "accepted",
+      "terminal": "graceful",
+      "managedTurns": 1,
+      "runtimePumpRequired": false
+    },
+    {
+      "name": "closed-handoff",
+      "postResult": "closed",
+      "terminal": "graceful",
+      "managedTurns": 0,
+      "runtimePumpRequired": true
+    },
+    {
+      "name": "post-failure",
+      "postResult": "failure",
+      "terminal": "fail-fast",
+      "managedTurns": 0,
+      "runtimePumpRequired": true
+    }
+  ]
+}

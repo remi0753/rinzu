@@ -1,0 +1,38 @@
+import rinzu.timer;
+import rinzu.stdio;
+
+class Snapshot {
+    const value: Int
+
+    fn work(self: Snapshot) -> Int {
+        let local = Editor(value: 0);
+        return local.edit(self.value);
+    }
+}
+
+class Editor {
+    value: Int
+
+    fn edit(self: Editor, value: Int) -> Int {
+        self.value = value;
+        return self.value;
+    }
+
+    async fn later(self: Editor) -> Int {
+        await rinzu.timer.sleep(1);
+        return self.value;
+    }
+}
+
+async fn main() {
+    try {
+        let editor = Editor(value: 41);
+        let value = editor.edit(42);
+        let worker = spawn Snapshot.work(Snapshot(value: value));
+        let pending = editor.later();
+        let settled = await pending;
+        let result = await worker;
+        rinzu.stdio.writeLine(f"{settled},{result}");
+    }
+    catch errors {}
+}

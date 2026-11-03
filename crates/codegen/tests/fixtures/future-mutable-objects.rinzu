@@ -1,0 +1,68 @@
+import rinzu.stdio;
+
+error Failed {
+    payload: Int
+}
+
+async fn fail(number: Int) -> Int {
+    throw Failed(message: "failed", payload: number);
+}
+
+class Cell {
+    future: Future<Int>
+}
+
+type Pair = {
+    left: Cell, right: Cell
+};
+
+fn build(number: Int) -> Cell {
+    return Cell(future: fail(number));
+}
+
+fn read(cell: Cell) -> Future<Int> {
+    return cell.future;
+}
+
+fn pair() -> Pair {
+    let cell = build(149);
+    return {
+        left = cell, right = cell
+    };
+}
+
+async fn observe(value: Future<Int>) {
+    try {
+        let result = await value;
+    }
+    catch [problem: Failed] {
+        try {
+            rinzu.stdio.writeLine(problem.payload);
+        }
+        catch outputErrors {}
+    }
+    catch errors {}
+}
+
+async fn main() {
+    try {
+        let cell = build(131);
+        let alias = cell;
+        let saved = read(cell);
+        alias.future = fail(137);
+        let first = observe(saved);
+        await first;
+        let second = observe(read(cell));
+        await second;
+        let aliases = pair();
+        let original = aliases.left.future;
+        aliases.left.future = fail(157);
+        let third = observe(original);
+        await third;
+        let fourth = observe(aliases.right.future);
+        await fourth;
+        let repeated = observe(read(alias));
+        await repeated;
+    }
+    catch errors {}
+}

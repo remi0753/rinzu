@@ -1,0 +1,50 @@
+import rinzu.timer;
+import rinzu.stdio;
+import rinzu.testing;
+
+class State {
+    calls: Int,
+    closed: Int
+}
+
+async fn choose(state: State, value: Bool) -> Bool {
+    try all {
+        state.calls = state.calls + 1;
+        await rinzu.timer.sleep(1);
+        return value;
+    }
+    finally {
+        state.closed = state.closed + 1;
+    }
+    return false;
+}
+
+async fn unsafeValue() -> Bool {
+    let digit = -5;
+    return 9223372036854775807 - digit > 0;
+}
+
+fn combine(data: ByteArray, selected: Bool) -> ByteArray {
+    rinzu.testing.assertTrue(selected, "await RHS value");
+    return data;
+}
+
+async fn main() {
+    try {
+        let state = State(calls: 0, closed: 0);
+        let initial = await choose(state, true);
+        rinzu.testing.assertTrue(initial, "consumed Future before boolean edges");
+        rinzu.testing.assertTrue(true || await unsafeValue(), "skipped async OR");
+        rinzu.testing.assertTrue(!(false && await unsafeValue()), "skipped async AND");
+        let data = combine(utf8Encode("日\u{0}\u{fffd}"), false || await choose(state, true));
+        rinzu.testing.assertEqual<ByteArray>(data, utf8Encode("日\u{0}\u{fffd}"), "earlier argument across pending RHS");
+        let flag = (true && await choose(state, true)) || await unsafeValue();
+        rinzu.testing.assertTrue(flag, "nested await short circuit");
+        rinzu.testing.assertEqual<Int>(state.calls, 3, "only selected futures started");
+        rinzu.testing.assertEqual<Int>(state.closed, 3, "selected children physical finally");
+        rinzu.stdio.writeLine("SHORT-CIRCUIT:async:skip:await:cleanup:OK");
+    }
+    catch errors {
+        panic("failed");
+    }
+}

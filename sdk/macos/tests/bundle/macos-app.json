@@ -1,0 +1,6 @@
+{
+  "schema": "rinzu.macos-app-v1",
+  "identifier": "dev.rinzu.tests.bundle",
+  "name": "Rinzu Bundle Probe",
+  "resources": ["assets"]
+}

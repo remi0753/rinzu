@@ -1,0 +1,56 @@
+import rinzu.timer;
+import rinzu.sqlite;
+import rinzu.stdio;
+
+fn worker() -> ByteArray {
+    try {
+        let resultValue2 = rinzu.sqlite.openMemory();
+        try {
+            try {
+                let resultValue1 = resultValue2.queryBytes("SELECT x'00ff0001'");
+                return resultValue1;
+            }
+            catch [resultError1: Error, ...resultRest1] {
+                panic("badQuery");
+            }
+        }
+        finally {
+            let closed = resultValue2.close();
+        }
+    }
+    catch [resultError2: Error, ...resultRest2] {
+        panic("badOpen");
+    }
+    return byteArray(b"");
+}
+
+async fn main() {
+    try {
+        try all {
+            let child = spawn worker();
+            await rinzu.sqlite.gateStarted();
+            if rinzu.sqlite.ownedLive() != 1 {
+                panic("badHeld");
+            }
+            let cancelled = cancelFuture(child);
+            if !cancelled {
+                panic("badCancel");
+            }
+            if rinzu.sqlite.ownedLive() != 1 {
+                panic("badEarlyFree");
+            }
+            rinzu.sqlite.gateRelease();
+            while !futureReady(child) {
+                await rinzu.timer.sleep(1);
+            }
+        }
+        finally {}
+        if rinzu.sqlite.ownedLive() != 0 || rinzu.sqlite.ownedAllocations() != 1 || rinzu.sqlite.ownedReleases() != 1 {
+            panic("badBaseline");
+        }
+        rinzu.stdio.writeLine("owned-cancel-ok");
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}

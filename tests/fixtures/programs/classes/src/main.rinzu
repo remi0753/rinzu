@@ -1,0 +1,54 @@
+import rinzu.stdio;
+
+class Point {
+    const x: Int,
+    const y: Int
+
+    fn sum(self: Point) -> Int {
+        return self.x + self.y;
+    }
+}
+
+class Counter {
+    const limit: Int,
+    value: Int
+
+    fn increase(self: Counter, n: Int) {
+        self.value = self.value + n;
+    }
+}
+
+fn snapshot(point: Point) -> Point {
+    return point;
+}
+
+async fn main() {
+    try {
+        let counter = Counter(limit: 100, value: 0);
+        let alias = counter;
+        alias.increase(2);
+        let point = Point(x: 40, y: 2);
+        let index: Map<Point, Int> = {
+            point: 42
+        };
+        var i: Int = 0;
+        while i < 300 {
+            let garbage = f"class-gc-{i}";
+            i = i + 1;
+        }
+        let pending = spawn snapshot(point);
+        let received = await pending;
+        rinzu.stdio.writeLine(counter.value);
+        rinzu.stdio.writeLine(received == Point(x: 40, y: 2));
+        rinzu.stdio.writeLine(received.sum());
+        switch mapGet(index, received) {
+            case Option.Some(value): {
+                rinzu.stdio.writeLine(value);
+            }
+            case Option.None: {
+                rinzu.stdio.writeLine("missing");
+            }
+        }
+    }
+    catch errors {}
+}

@@ -1,0 +1,28 @@
+fn readSize(path: String) -> Future<Int> {
+    return readResourceSize(path);
+}
+
+native {
+    fn invoke(body: fn (CInt) -> CInt, identity: CInt) -> CInt symbol "capsule_invoke";
+
+    fn mark(identity: CInt, step: CInt) -> Unit symbol "capsule_mark";
+
+    fn finish(processMain: CInt) -> CInt symbol "capsule_finish";
+
+    fn cancelReset() -> Unit symbol "capsule_cancel_reset";
+
+    fn cancelInvoke(body: fn (CInt) -> CInt) -> CInt symbol "capsule_cancel_invoke";
+
+    fn cancelInner() -> Unit symbol "capsule_cancel_inner";
+
+    fn cancelOuter() -> Unit symbol "capsule_cancel_outer";
+}
+
+export invoke;
+export mark;
+export finish;
+export readSize;
+export cancelReset;
+export cancelInvoke;
+export cancelInner;
+export cancelOuter;

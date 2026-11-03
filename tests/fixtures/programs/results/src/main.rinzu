@@ -1,0 +1,59 @@
+import rinzu.stdio;
+
+enum Result<T, E> {
+    Ok(value: T),
+    Err(error: E)
+}
+
+fn echo<T: Transferable>(value: T) -> T {
+    return value;
+}
+
+async fn main() {
+    try {
+        try {
+            let absent = Option<Int>.None();
+            let zero = Option<Int>.Some(value: 0);
+            rinzu.stdio.writeLine(absent == zero);
+            switch zero {
+                case Option.None: {
+                    rinzu.stdio.writeLine("none");
+                }
+                case Option.Some(value): {
+                    rinzu.stdio.writeLine(value);
+                }
+            }
+            let nested = Option<Result<String, Int>>.Some(value: Result<String, Int>.Ok(value: "日本語\u{0}tail"));
+            let future = spawn echo<Option<Result<String, Int>>>(nested);
+            let copied = await future;
+            rinzu.stdio.writeLine(copied == nested);
+            switch copied {
+                case Option.Some(value): {
+                    switch value {
+                        case Result.Ok(payload): {
+                            rinzu.stdio.writeLine(payload);
+                        }
+                        case Result.Err(payload): {
+                            rinzu.stdio.writeLine(payload);
+                        }
+                    }
+                }
+                case Option.None: {}
+            }
+            let failed = Result<Int, String>.Err(error: "invalid digit");
+            rinzu.stdio.writeLine(failed);
+            switch failed {
+                case Result.Ok(value): {
+                    rinzu.stdio.writeLine(value);
+                }
+                case Result.Err(value): {
+                    rinzu.stdio.writeLine(value);
+                }
+            }
+        }
+        catch errors {}
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}

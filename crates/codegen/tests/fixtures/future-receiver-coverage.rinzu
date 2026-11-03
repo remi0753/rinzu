@@ -1,0 +1,64 @@
+import rinzu.stdio;
+
+error Failed {
+    payload: Int
+}
+
+async fn fail(value: Int) -> Int {
+    throw Failed(message: "failure", payload: value);
+}
+
+async fn safe() -> Int {
+    return 0;
+}
+
+class Cell {
+    future: Future<Int>
+}
+
+async fn fromCell(cell: Cell) {
+    try {
+        let value = await cell.future;
+    }
+    catch errors {}
+}
+
+async fn receive(value: Future<Int>) {
+    try {
+        let result = await value;
+    }
+    catch [error: Failed] {
+        try {
+            rinzu.stdio.writeLine(error.payload);
+        }
+        catch errors {}
+    }
+    catch errors {}
+}
+
+fn overwrite(cells: List<Cell>) {
+    var index = 0;
+    while index < listLength(cells) {
+        switch listGet(cells, index) {
+            case Option.Some(cell): {
+                cell.future = safe();
+            }
+            case Option.None: {}
+        }
+        index = index + 1;
+    }
+}
+
+async fn main() {
+    var cells: List<Cell> = [];
+    var index = 0;
+    while index < 2 {
+        let pending = fail(317 + index * 2);
+        let cell = Cell(future: pending);
+        let field = fromCell(cell);
+        let data = receive(pending);
+        cells = listAppend(cells, cell);
+        index = index + 1;
+    }
+    overwrite(cells);
+}

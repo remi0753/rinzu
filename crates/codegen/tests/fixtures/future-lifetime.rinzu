@@ -1,0 +1,51 @@
+import rinzu.stdio;
+import rinzu.timer;
+
+error A {}
+
+class State {
+    value: Int,
+    text: String
+}
+
+async fn finish(state: State) {
+    try {
+        await rinzu.timer.sleep(1);
+        state.value = state.value + 1;
+        rinzu.stdio.writeLine(f"{state.text}:{state.value}");
+    }
+    catch errors {}
+}
+
+async fn parent(state: State) -> Int {
+    finish(state);
+    return 17;
+}
+
+async fn failingParent(state: State) -> Int {
+    finish(state);
+    throw A(message: "parent only");
+}
+
+async fn main() {
+    try {
+        let state = State(value: 0, text: "late");
+        let first = parent(state);
+        rinzu.stdio.writeLine(await first);
+        if state.value != 0 {
+            panic("implicitJoin");
+        }
+        let second = failingParent(state);
+        try {
+            let ignored = await second;
+        }
+        catch [problem: A] {
+            rinzu.stdio.writeLine(problem.message);
+        }
+        if state.value != 0 {
+            panic("cancelledOrJoined");
+        }
+        rinzu.stdio.writeLine("main complete");
+    }
+    catch errors {}
+}

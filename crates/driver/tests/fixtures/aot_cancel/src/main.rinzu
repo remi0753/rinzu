@@ -1,0 +1,13 @@
+fn cleanup() {}
+
+fn main() {
+    var counter = 0;
+    try {
+        while true {
+            counter = counter + 1;
+        }
+    }
+    finally {
+        cleanup();
+    }
+}

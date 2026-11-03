@@ -1,0 +1,79 @@
+import records;
+
+async fn main() {
+    try {
+        let first = records.exercise();
+        let one = spawn records.exercise();
+        let two = spawn records.exercise();
+        let three = spawn records.exercise();
+        let four = spawn records.exercise();
+        let five = spawn records.exercise();
+        let six = spawn records.exercise();
+        let seven = spawn records.exercise();
+        let eight = spawn records.exercise();
+        let r8 = await eight;
+        let r7 = await seven;
+        let r6 = await six;
+        let r5 = await five;
+        let r4 = await four;
+        let r3 = await three;
+        let r2 = await two;
+        let r1 = await one;
+        let again = await one;
+        if first.original != r1.original
+            || r1.original != r2.original
+            || r2.original != r3.original
+            || r3.original != r4.original
+            || r4.original != r5.original
+            || r5.original != r6.original
+            || r6.original != r7.original
+            || r7.original != r8.original
+            || again.original != r1.original
+            || first.caught != 2 {
+            panic("wrongWorker");
+        }
+        let failedNull = spawn records.failWorker(0);
+        if await failedNull != 1 {
+            panic("missing");
+        }
+        let failedBool = spawn records.failWorker(2);
+        if await failedBool != 1 {
+            panic("invalid");
+        }
+        if await failedNull != 1 {
+            panic("missingAgain");
+        }
+        if await failedBool != 1 {
+            panic("invalidAgain");
+        }
+        try {
+            let skipped = records.failure(CInt(2147483648));
+        }
+        catch argError {}
+        var order = 0;
+        try {
+            try {
+                let nested = records.failure(0);
+            }
+            finally {
+                order = order * 10 + 1;
+            }
+        }
+        catch caughtNested {
+            order = order * 10 + 2;
+        }
+        finally {
+            order = order * 10 + 3;
+        }
+        if order != 123 {
+            panic("wrongFinally");
+        }
+        if false {
+            let bad = records.fatal();
+            let held = records.leaks();
+        }
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+    }
+}

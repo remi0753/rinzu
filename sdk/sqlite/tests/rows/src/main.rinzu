@@ -1,0 +1,153 @@
+import rinzu.sqlite;
+import rinzu.stdio;
+
+class Snapshot {
+    const rows: List<ByteArray>
+}
+
+fn rejected(connection: rinzu.sqlite.Connection, sql: String, maximum: Int, status: Int) {
+    try {
+        let resultValue8 = connection.queryByteRows(sql, maximum);
+        panic("unexpectedSuccess");
+    }
+    catch [resultError8: Error, ...resultRest8] {
+        var matches = false;
+        switch errorNativeStatus(resultError8) {
+            case Option.None: {
+                matches = errorCode(resultError8) == status;
+            }
+            case Option.Some(value): {
+                matches = value == status;
+            }
+        }
+        if !matches {
+            let incorrectError = CInt8(300);
+        }
+    }
+    if rinzu.sqlite.ownedLive() != 0 {
+        let leakedFailure = CInt8(300);
+    }
+}
+
+fn worker() -> Snapshot {
+    try {
+        let resultValue7 = rinzu.sqlite.openMemory();
+        try {
+            try {
+                let resultValue6 = resultValue7.setDeadline(500);
+            }
+            catch [resultError6: Error, ...resultRest6] {
+                panic("failedDeadline");
+            }
+            let controls = rinzu.sqlite.retainedControlBytes();
+            var i = 0;
+            while i < 100 {
+                try {
+                    let resultValue5 = resultValue7.queryByteRows(
+                        "SELECT X'0001ff' UNION ALL SELECT zeroblob(0) UNION ALL SELECT X'80'",
+                        3
+                    );
+                    if resultValue5 != [byteArray(b"\x00\x01\xff"), byteArray(b""), byteArray(b"\x80")] {
+                        let incorrectRows = CInt8(300);
+                    }
+                }
+                catch [resultError5: Error, ...resultRest5] {
+                    panic("failedRows");
+                }
+                if rinzu.sqlite.ownedLive() != 0 || rinzu.sqlite.retainedControlBytes() != controls {
+                    let growingControl = CInt8(300);
+                }
+                i = i + 1;
+            }
+            rejected(resultValue7, "SELECT X'00'", 0, -7010);
+            rejected(resultValue7, "SELECT X'00'\u{0}SELECT X'01'", 1, -7010);
+            rejected(resultValue7, "SELECT X'00' UNION ALL SELECT X'01'", 1, -7010);
+            rejected(resultValue7, "SELECT zeroblob(65537)", 1, -7010);
+            rejected(resultValue7, "SELECT 'text'", 1, -7008);
+            try {
+                let resultValue4 = resultValue7.queryByteRows("SELECT X'00' WHERE 0", 1);
+                if listLength(resultValue4) != 0 {
+                    let incorrectEmpty = CInt8(300);
+                }
+            }
+            catch [resultError4: Error, ...resultRest4] {
+                panic("failedEmpty");
+            }
+            try {
+                let resultValue3 = resultValue7.queryByteRows(
+                    "WITH RECURSIVE n(x) AS (VALUES(0) UNION ALL SELECT x+1 FROM n WHERE x<255) SELECT zeroblob(256) FROM n",
+                    256
+                );
+                return Snapshot(rows: resultValue3);
+            }
+            catch [resultError3: Error, ...resultRest3] {
+                panic("failedBoundary");
+            }
+        }
+        finally {
+            try {
+                let resultValue2 = resultValue7.close();
+            }
+            catch [resultError2: Error, ...resultRest2] {
+                panic("failedClose");
+            }
+        }
+    }
+    catch [resultError7: Error, ...resultRest7] {
+        panic("failedOpen");
+    }
+    return Snapshot(rows: []);
+}
+
+async fn main() {
+    try {
+        try {
+            let resultValue1 = rinzu.sqlite.enableAllocatorStatsBeforeOpen();
+        }
+        catch [resultError1: Error, ...resultRest1] {
+            let unavailableStats = CInt8(300);
+        }
+        let snapshot = await spawn worker();
+        if listLength(snapshot.rows) != 256 {
+            panic("failedTransport");
+        }
+        var i = 0;
+        while i < 256 {
+            switch listGet(snapshot.rows, i) {
+                case Option.None: {
+                    panic("missingRow");
+                }
+                case Option.Some(row): {
+                    if bytesLength(row) != 256 {
+                        let shortRow = CInt8(300);
+                    }
+                    var j = 0;
+                    while j < 256 {
+                        switch bytesGet(row, j) {
+                            case Option.None: {
+                                panic("missingByte");
+                            }
+                            case Option.Some(value): {
+                                if value != CUInt8(0) {
+                                    let incorrectByte = CInt8(300);
+                                }
+                            }
+                        }
+                        j = j + 1;
+                    }
+                }
+            }
+            i = i + 1;
+        }
+        if rinzu.sqlite.ownedLive() != 0
+            || rinzu.sqlite.ownedAllocations() != rinzu.sqlite.ownedReleases()
+            || rinzu.sqlite.liveConnections() != 0
+            || rinzu.sqlite.allocatorCurrent() != 0 {
+            panic("failedSettlement");
+        }
+        rinzu.stdio.writeLine("sqlite-owned-rows-ok 256 65536");
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}

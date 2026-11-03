@@ -1,0 +1,58 @@
+import records;
+import rinzu.stdio;
+
+async fn invoke(point: records.Packet) -> Int {
+    return await records.run(
+        point,
+        fn () -> Int fallback -11 {
+            var index = 0;
+            while index < 512 {
+                let moved = f"callback-{index}";
+                index = index + 1;
+            }
+            return point.x;
+        }
+    );
+}
+
+fn queue(point: records.Packet, early: Bool) -> Future<Int> {
+    let pending = invoke(point);
+    if early {
+        let accepted = cancelFuture(pending);
+        if !accepted {
+            panic("queued cancellation was lost");
+        }
+    }
+    else {
+        try {
+            let status = records.change(point, 20);
+        }
+        catch errors {
+            panic("record became Busy before native entry");
+        }
+    }
+    return pending;
+}
+
+async fn main() {
+    let point = records.Packet(x: 1, valid: false);
+    try {
+        records.resetRunEntries();
+        try {
+            let result = await queue(point, EARLY);
+            rinzu.stdio.writeLine(result);
+        }
+        finally {
+            try {
+                rinzu.stdio.writeLine(point.x);
+                rinzu.stdio.writeLine(records.runEntries());
+            }
+            catch errors {
+                panic("record remained Busy during cleanup");
+            }
+        }
+    }
+    catch errors {
+        panic("unexpected supplant record Error");
+    }
+}

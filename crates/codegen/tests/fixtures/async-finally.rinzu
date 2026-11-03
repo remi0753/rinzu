@@ -1,0 +1,50 @@
+import rinzu.stdio;
+import rinzu.timer;
+
+error A {}
+
+error B {}
+
+async fn cleanup(fails: Bool) {
+    await rinzu.timer.sleep(1);
+    if fails {
+        throw B(message: "cleanup");
+    }
+}
+
+async fn failed() {
+    try {
+        throw A(message: "body");
+    }
+    finally {
+        await cleanup(true);
+    }
+}
+
+async fn value() -> String {
+    try {
+        return f"preserved-{42}";
+    }
+    finally {
+        await cleanup(false);
+    }
+}
+
+async fn main() {
+    try {
+        try {
+            await failed();
+        }
+        catch [a: A, b: B] {
+            rinzu.stdio.writeLine(a.message);
+            rinzu.stdio.writeLine(b.message);
+        }
+        catch errors {
+            panic("unexpectedErrors");
+        }
+        rinzu.stdio.writeLine(await value());
+    }
+    catch errors {
+        panic("unexpected");
+    }
+}

@@ -1,0 +1,46 @@
+import measure;
+
+fn badArgument() -> Bytes(2) {
+    let failedConversion = CInt8(999);
+    return b"A\xff";
+}
+
+async fn main() {
+    let original = b"A\xff";
+    let text = "日本語\u{0}🙂";
+    if measure.measure(original, text) != 13 {
+        panic("mainFailure");
+    }
+    let first = spawn measure.measure(original, text);
+    let second = spawn measure.measure(original, text);
+    let third = spawn measure.measure(original, text);
+    let fourth = spawn measure.measure(original, text);
+    let fifth = spawn measure.measure(original, text);
+    let sixth = spawn measure.measure(original, text);
+    let seventh = spawn measure.measure(original, text);
+    let eighth = spawn measure.measure(original, text);
+    if await first != 13
+        || await second != 13
+        || await third != 13
+        || await fourth != 13
+        || await fifth != 13
+        || await sixth != 13
+        || await seventh != 13
+        || await eighth != 13 {
+        panic("workerFailure");
+    }
+    if original != b"A\xff" || text != "日本語\u{0}🙂" {
+        panic("callerFailure");
+    }
+    var caught = 0;
+    try {
+        let skipped = measure.measure(badArgument(), text);
+    }
+    catch [error: Error, ...errorRest] {
+        caught = 1;
+        let message = error.message;
+    }
+    if caught != 1 || measure.calls() != 9 {
+        panic("preparationFailure");
+    }
+}

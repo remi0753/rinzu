@@ -1,0 +1,33 @@
+import callbacks;
+
+async fn main() {
+    let original = callbacks.exercise();
+    let one = spawn callbacks.exercise();
+    let two = spawn callbacks.exercise();
+    let three = spawn callbacks.exercise();
+    let four = spawn callbacks.exercise();
+    let five = spawn callbacks.exercise();
+    let six = spawn callbacks.exercise();
+    let seven = spawn callbacks.exercise();
+    let eight = spawn callbacks.exercise();
+    let r8 = await eight;
+    let r7 = await seven;
+    let r6 = await six;
+    let r5 = await five;
+    let r4 = await four;
+    let r3 = await three;
+    let r2 = await two;
+    let r1 = await one;
+    let again = await one;
+    if original != r1
+        || r1 != r2
+        || r2 != r3
+        || r3 != r4
+        || r4 != r5
+        || r5 != r6
+        || r6 != r7
+        || r7 != r8
+        || r1 != again {
+        panic("wrongTransport");
+    }
+}

@@ -1,0 +1,85 @@
+import rinzu.stdio;
+
+fn chunks(data: ByteArray) -> List<ByteArray> {
+    var output: List<ByteArray> = [];
+    var start = 0;
+    while start < bytesLength(data) {
+        var end = start + 3;
+        if end > bytesLength(data) {
+            end = bytesLength(data);
+        }
+        switch bytesSlice(data, start, end) {
+            case Option.Some(part): {
+                output = listAppend(output, part);
+            }
+            case Option.None: {}
+        }
+        start = end;
+    }
+    return output;
+}
+
+fn validRange(data: ByteArray, start: Int, end: Int) -> Bool {
+    let expected = start >= 0 && start <= end && end <= bytesLength(data);
+    switch bytesSlice(data, start, end) {
+        case Option.None: {
+            return !expected;
+        }
+        case Option.Some(part): {
+            if !expected || bytesLength(part) != end - start {
+                return false;
+            }
+            var index = 0;
+            while index < bytesLength(part) {
+                if bytesGet(part, index) != bytesGet(data, start + index) {
+                    return false;
+                }
+                index = index + 1;
+            }
+            return true;
+        }
+    }
+}
+
+async fn main() {
+    try {
+        let binary: List<CUInt8> = [0, 255, 128, 65, 195, 169, 0];
+        let data = byteArray(binary);
+        var all = true;
+        var start = -1;
+        while start <= 8 {
+            var end = -1;
+            while end <= 8 {
+                all = all && validRange(data, start, end);
+                end = end + 1;
+            }
+            start = start + 1;
+        }
+        rinzu.stdio.writeLine(all);
+        rinzu.stdio.writeLine(bytesGet(data, 9223372036854775807));
+        rinzu.stdio.writeLine(bytesSlice(data, 0, 9223372036854775807));
+        let empty = byteArray(b"");
+        rinzu.stdio.writeLine(bytesConcat(empty, empty) == empty);
+        rinzu.stdio.writeLine(bytesCopy(data) == data);
+        let fixed: Bytes(8) = b"A";
+        let short: List<CUInt8> = [65];
+        rinzu.stdio.writeLine(bytesLength(byteArray(fixed)));
+        rinzu.stdio.writeLine(bytesLength(byteArray(short)));
+        let pending = spawn chunks(data);
+        let parts = await pending;
+        rinzu.stdio.writeLine(parts);
+        var joined = empty;
+        var i = 0;
+        while i < listLength(parts) {
+            switch listGet(parts, i) {
+                case Option.Some(part): {
+                    joined = bytesConcat(joined, part);
+                }
+                case Option.None: {}
+            }
+            i = i + 1;
+        }
+        rinzu.stdio.writeLine(joined == data);
+    }
+    catch errors {}
+}

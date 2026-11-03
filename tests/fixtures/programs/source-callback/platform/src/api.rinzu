@@ -1,0 +1,23 @@
+native {
+    opaque Handle;
+
+    record Event {
+        kind: CInt,
+        sequence: Int
+    }
+
+    fn create(valid: Bool) -> Handle symbol "sample_loop_create";
+
+    fn isRunning(handle: Handle) -> CBool symbol "sample_loop_running";
+
+    fn stop(handle: Handle) -> CInt symbol "sample_loop_stop";
+
+    supplant fn run(handle: Handle, handler: fn (Handle, Event) -> Unit) -> CInt symbol "sample_loop_run";
+}
+
+export Handle;
+export Event;
+export create;
+export isRunning;
+export stop;
+export run;

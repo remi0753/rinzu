@@ -1,0 +1,71 @@
+import rinzu.stdio;
+
+class Box<T> {
+    const value: T
+}
+
+enum Choice<T> {
+    Empty,
+    Value(value: T)
+}
+
+enum Token<T> {
+    Empty,
+    Value(value: T)
+}
+
+fn identity<T>(value: T) -> T {
+    return value;
+}
+
+fn worker<T: Transferable>(value: Box<T>) -> Box<T> {
+    return value;
+}
+
+fn sealed<T: Transferable + Equality + Key>(left: T, right: T) -> Bool {
+    return left == right;
+}
+
+fn repeat<T>(value: T, count: Int) -> T {
+    if count == 0 {
+        return value;
+    }
+    return repeat<T>(value, count - 1);
+}
+
+async fn main() {
+    try {
+        let number = Box<Int>(value: identity<Int>(42));
+        let text = Box<String>(value: identity<String>("日本語\u{0}tail"));
+        let nested = Box<Box<Int>>(value: repeat<Box<Int>>(number, 3));
+        let pendingNumber = spawn worker<Int>(number);
+        let pendingText = spawn worker<String>(text);
+        let copiedNumber = await pendingNumber;
+        let copiedText = await pendingText;
+        rinzu.stdio.writeLine(copiedNumber.value);
+        rinzu.stdio.writeLine(copiedText.value);
+        rinzu.stdio.writeLine(nested.value.value);
+        let choice = Choice<String>.Value(value: "choice");
+        switch choice {
+            case Choice.Value(payload): {
+                rinzu.stdio.writeLine(payload);
+            }
+            case Choice.Empty: {}
+        }
+        try {
+            let bad: CInt8 = CInt8(300);
+        }
+        catch error {
+            rinzu.stdio.writeLine("conversion caught");
+        }
+        let token = Token<Int>.Value(value: 7);
+        let table: Map<Token<Int>, String> = {
+            token: "seven"
+        };
+        let pendingTable = spawn worker<Map<Token<Int>, String>>(Box<Map<Token<Int>, String>>(value: table));
+        let copiedTable = await pendingTable;
+        rinzu.stdio.writeLine(copiedTable.value == table);
+        rinzu.stdio.writeLine(sealed<Token<Int>>(token, Token<Int>.Value(value: 7)));
+    }
+    catch errors {}
+}

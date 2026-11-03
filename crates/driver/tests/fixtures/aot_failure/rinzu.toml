@@ -1,0 +1,3 @@
+[package]
+name = "aot_failure"
+language = "0.1"

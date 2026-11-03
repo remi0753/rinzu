@@ -1,0 +1,203 @@
+import rinzu.core;
+
+class Packet {
+    const text: String,
+    const bytes: Bytes(4),
+    const high: CSize,
+    const number: CDouble
+}
+
+enum Payload {
+    packet(value: Packet),
+    empty
+}
+
+enum Key {
+    label(value: String),
+    number(value: CSize),
+    empty
+}
+
+fn make(number: CDouble) -> Packet {
+    return Packet(text: "日本語\u{0}🙂", bytes: b"A\xff", high: 18446744073709551615, number: number);
+}
+
+fn churn() {
+    var iteration = 0;
+    while iteration < 20 {
+        let temporary = make(0.0);
+        let list: List<Packet> = [temporary];
+        iteration = iteration + 1;
+    }
+}
+
+fn wide(
+    value: Payload,
+    list: List<Packet>,
+    map: Map<Key, List<Packet>>,
+    zero: Bytes(0),
+    signed: CInt8,
+    floating: CDouble,
+    flag: Bool,
+    marker: CSize,
+    tail: String
+) -> Payload {
+    churn();
+    let expected: List<Packet> = [make(-0.0), make(0.0)];
+    let expected_map: Map<Key, List<Packet>> = {
+        Key.number(value: 18446744073709551615): expected, Key.label(value: "key\u{0}"): expected
+    };
+    if list != expected || map != expected_map || byteLength(zero) != 0 {
+        panic("bad_graph");
+    }
+    if signed != -128 || floating != -0.0 || !flag || marker != 9223372036854775809 || utf8ByteLength(tail) != 14 {
+        panic("bad_preparation");
+    }
+    switch value {
+        case Payload.empty: {
+            panic("bad_case");
+        }
+        case Payload.packet(packet): {
+            if packet.high != 18446744073709551615 || packet.bytes != b"A\xff\x00\x00" {
+                panic("bad_packet");
+            }
+        }
+    }
+    return value;
+}
+
+fn copyPacket(value: Packet) -> Packet {
+    churn();
+    return value;
+}
+
+fn list(value: Packet) -> List<Packet> {
+    churn();
+    return [value, value];
+}
+
+fn map(value: Packet) -> Map<Key, List<Packet>> {
+    churn();
+    return {
+        Key.empty(): [value]
+    };
+}
+
+fn bytes(value: Packet) -> Bytes(4) {
+    churn();
+    return value.bytes;
+}
+
+fn text(value: Packet) -> String {
+    churn();
+    return value.text;
+}
+
+fn nan(value: Packet) -> Packet {
+    churn();
+    if value == value {
+        panic("lost_nan");
+    }
+    return value;
+}
+
+fn empty(value: Payload) -> Payload {
+    churn();
+    return value;
+}
+
+fn failedUnchecked(value: Packet) -> Packet {
+    try {
+        churn();
+        let producer = CInt8(200);
+    }
+    finally {
+        if value.bytes != b"A\xff\x00\x00" {
+            panic("lost_cleanup_root");
+        }
+        let cleanup = CInt8(300);
+    }
+    return value;
+}
+
+fn failed(value: Packet) -> Packet {
+    try {
+        return failedUnchecked(value);
+    }
+    catch errors {
+        return value;
+    }
+}
+
+async fn main() {
+    let original = make(-0.0);
+    let packets: List<Packet> = [original, make(0.0)];
+    let table: Map<Key, List<Packet>> = {
+        Key.label(value: "key\u{0}"): packets, Key.number(value: 18446744073709551615): packets
+    };
+    let first = spawn wide(
+        Payload.packet(value: original),
+        packets,
+        table,
+        b"",
+        -128,
+        -0.0,
+        true,
+        9223372036854775809,
+        original.text
+    );
+    let copy = spawn copyPacket(original);
+    let received_list = spawn list(original);
+    let received_map = spawn map(original);
+    let received_bytes = spawn bytes(original);
+    let received_text = spawn text(original);
+    let received_nan = spawn nan(make(0.0 / 0.0));
+    churn();
+    let nan_copy = await received_nan;
+    if nan_copy == nan_copy {
+        panic("bad_nan");
+    }
+    let byte_copy = await received_bytes;
+    let text_copy = await received_text;
+    let map_copy = await received_map;
+    let list_copy = await received_list;
+    let record_copy = await copy;
+    let payload_copy = await first;
+    churn();
+    let expected_map: Map<Key, List<Packet>> = {
+        Key.empty(): [original]
+    };
+    let expected_list: List<Packet> = [original, original];
+    if map_copy != expected_map || list_copy != expected_list || record_copy != original {
+        panic("bad_copies");
+    }
+    if byte_copy != original.bytes || text_copy != original.text || utf8ByteLength(text_copy) != 14 {
+        panic("bad_leaves");
+    }
+    switch payload_copy {
+        case Payload.empty: {
+            panic("bad_result_case");
+        }
+        case Payload.packet(packet): {
+            if packet != original {
+                panic("bad_result");
+            }
+        }
+    }
+    let again = await first;
+    if again != payload_copy {
+        panic("bad_reawait");
+    }
+    let empty_copy = await spawn empty(Payload.empty());
+    if empty_copy != Payload.empty() {
+        panic("bad_empty");
+    }
+    let failure = spawn failed(original);
+    let alias = failure;
+    let first_result = await failure;
+    churn();
+    let second_result = await alias;
+    if first_result != original || second_result != first_result {
+        panic("bad_report");
+    }
+}

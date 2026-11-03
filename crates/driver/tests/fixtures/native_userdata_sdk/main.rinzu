@@ -1,0 +1,59 @@
+import userdata;
+
+async fn main() {
+    let original = userdata.exercise();
+    let one = spawn userdata.exercise();
+    let two = spawn userdata.exercise();
+    let three = spawn userdata.exercise();
+    let four = spawn userdata.exercise();
+    let five = spawn userdata.exercise();
+    let six = spawn userdata.exercise();
+    let seven = spawn userdata.exercise();
+    let eight = spawn userdata.exercise();
+    let r8 = await eight;
+    let r7 = await seven;
+    let r6 = await six;
+    let r5 = await five;
+    let r4 = await four;
+    let r3 = await three;
+    let r2 = await two;
+    let r1 = await one;
+    let again = await one;
+    if original != r1
+        || r1 != r2
+        || r2 != r3
+        || r3 != r4
+        || r4 != r5
+        || r5 != r6
+        || r6 != r7
+        || r7 != r8
+        || r1 != again {
+        panic("wrongTransport");
+    }
+    let returned = userdata.returning();
+    let returnedWorker = await spawn userdata.returning();
+    let parked = await userdata.pending();
+    if returned != original || returnedWorker != returned || parked != original {
+        panic("lostReturn");
+    }
+    if userdata.preEntryError() != 1 {
+        panic("unexpectedEntry");
+    }
+    var caught = 0;
+    try {
+        let failed = userdata.failed();
+    }
+    catch directError {
+        caught = caught + 1;
+    }
+    let failedWorker = spawn userdata.handledFailure();
+    let failedFirst = await failedWorker;
+    let failedAgain = await failedWorker;
+    if failedFirst != 1 || failedAgain != 1 {
+        panic("lostWorkerFailure");
+    }
+    caught = caught + failedFirst + failedAgain;
+    if caught != 3 {
+        panic("wrongErrorCount");
+    }
+}

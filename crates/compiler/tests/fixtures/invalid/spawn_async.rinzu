@@ -1,0 +1,7 @@
+async fn work() -> Int {
+    return 1;
+}
+
+async fn main() {
+    let value = await spawn work();
+}

@@ -1,0 +1,128 @@
+import rinzu.stdio;
+
+class Node {
+    future: Option<Future<Node>>,
+    value: Int
+}
+
+class Slot {
+    future: Option<Future<String>>
+}
+
+async fn produce(value: Int) -> String {
+    return f"discarded result {value}";
+}
+
+async fn cycle(node: Node) -> Node {
+    return node;
+}
+
+async fn turn() {}
+
+async fn queuedValue() -> String {
+    return "retained for queued observer";
+}
+
+async fn churn() {
+    var count = 0;
+    while count < 20 {
+        let moved = f"churn {count}";
+        count = count + 1;
+    }
+}
+
+async fn consume(pending: Future<String>) {
+    try {
+        rinzu.stdio.writeLine(await pending);
+    }
+    catch errors {}
+}
+
+async fn launchQueuedObserver() {
+    let pending = queuedValue();
+    churn();
+    consume(pending);
+}
+
+async fn finallyValue() -> String {
+    return "retained through finally";
+}
+
+fn makeSlot() -> Slot {
+    return Slot(future: Option<Future<String>>.Some(value: finallyValue()));
+}
+
+async fn settleSlot(slot: Slot) {
+    switch slot.future {
+        case Option.None: {}
+        case Option.Some(pending): {
+            try {
+                let result = await pending;
+            }
+            catch errors {}
+        }
+    }
+}
+
+fn fetchSlot(slot: Slot) -> Future<String> {
+    switch slot.future {
+        case Option.None: {
+            return finallyValue();
+        }
+        case Option.Some(pending): {
+            return pending;
+        }
+    }
+}
+
+fn takeSlot(slot: Slot) -> Future<String> {
+    try {
+        return fetchSlot(slot);
+    }
+    finally {
+        slot.future = Option<Future<String>>.None();
+        var count = 0;
+        while count < 20 {
+            let moved = f"finally {count}";
+            count = count + 1;
+        }
+    }
+}
+
+async fn main() {
+    var batch = 0;
+    while batch < 64 {
+        var index = 0;
+        while index < 64 {
+            let discarded = produce(batch * 64 + index);
+            index = index + 1;
+        }
+        await turn();
+        batch = batch + 1;
+    }
+    var cycleIndex = 0;
+    while cycleIndex < 64 {
+        let node = Node(future: Option<Future<Node>>.None(), value: 0);
+        let pending = cycle(node);
+        node.future = Option<Future<Node>>.Some(value: pending);
+        let result = await pending;
+        result.value = 17;
+        if node.value != 17 {
+            panic("lostIdentity");
+        }
+        cycleIndex = cycleIndex + 1;
+    }
+    try {
+        rinzu.stdio.writeLine(batch * 64);
+        rinzu.stdio.writeLine(cycleIndex);
+    }
+    catch errors {}
+    let slot = makeSlot();
+    await settleSlot(slot);
+    let saved = takeSlot(slot);
+    try {
+        rinzu.stdio.writeLine(await saved);
+    }
+    catch errors {}
+    launchQueuedObserver();
+}

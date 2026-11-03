@@ -1,0 +1,92 @@
+import rinzu.stdio;
+
+async fn main() {
+    try {
+        rinzu.stdio.writeLine(parseInt("42"));
+        rinzu.stdio.writeLine(utf8Decode(byteArray(b"hello")));
+        rinzu.stdio.writeLine(checkedAdd(20, 22));
+        rinzu.stdio.writeLine(checkedSub(44, 2));
+        rinzu.stdio.writeLine(checkedMul(6, 7));
+        rinzu.stdio.writeLine(shiftLeft(21, 1));
+        rinzu.stdio.writeLine(shiftRight(84, 1));
+        rinzu.stdio.writeLine(nativeStatus(0, "success"));
+        let enriched = errorWithCause(error(1, "outer"), error(2, "inner"));
+        rinzu.stdio.writeLine(errorCode(enriched));
+        try {
+            let invalidNumber = parseInt("x");
+        }
+        catch [numberError: Error] {
+            rinzu.stdio.writeLine(errorCode(numberError));
+        }
+        try {
+            let overflowNumber = parseInt("9223372036854775808");
+        }
+        catch [overflowError: Error] {
+            rinzu.stdio.writeLine(errorCode(overflowError));
+        }
+        try {
+            let invalidText = utf8Decode(byteArray(b"\xff"));
+        }
+        catch [textError: Error] {
+            rinzu.stdio.writeLine(errorCode(textError));
+        }
+        try {
+            let invalidShift = shiftLeft(1, 64);
+        }
+        catch [shiftError: Error] {
+            rinzu.stdio.writeLine(errorCode(shiftError));
+        }
+        try {
+            let overflowAdd = checkedAdd(9223372036854775807, 1);
+        }
+        catch [addError: Error] {
+            rinzu.stdio.writeLine(errorCode(addError));
+        }
+        try {
+            let overflowSub = checkedSub(-9223372036854775807, 2);
+        }
+        catch [subError: Error] {
+            rinzu.stdio.writeLine(errorCode(subError));
+        }
+        try {
+            let overflowMul = checkedMul(9223372036854775807, 2);
+        }
+        catch [mulError: Error] {
+            rinzu.stdio.writeLine(errorCode(mulError));
+        }
+        try {
+            let failedNative = nativeStatus(-7, "native failure");
+        }
+        catch [nativeError: Error] {
+            rinzu.stdio.writeLine(errorCode(nativeError));
+            switch errorNativeStatus(nativeError) {
+                case Option.Some(status): {
+                    rinzu.stdio.writeLine(status);
+                }
+                case Option.None: {}
+            }
+        }
+        var chain = error(3, "first");
+        var count = 1;
+        while count < 64 {
+            chain = errorWithCause(error(4, "outer"), chain);
+            count = count + 1;
+        }
+        try {
+            let tooDeep = errorWithCause(error(5, "overflow"), chain);
+        }
+        catch [causeError: Error] {
+            rinzu.stdio.writeLine(errorCode(causeError));
+        }
+        try all {
+            let a = parseInt("bad");
+            let b = utf8Decode(byteArray(b"\xff"));
+        }
+        catch errors {
+            rinzu.stdio.writeLine(listLength(errors));
+        }
+    }
+    catch errors {
+        panic("unexpected");
+    }
+}

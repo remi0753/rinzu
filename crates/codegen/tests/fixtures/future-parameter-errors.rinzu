@@ -1,0 +1,98 @@
+import rinzu.stdio;
+
+error A {
+    payload: Int
+}
+
+error B {}
+
+error C {}
+
+async fn fail() -> Int {
+    throw A(message: "failure", payload: 17);
+}
+
+async fn forward(value: Future<Int>) -> Int {
+    return await value;
+}
+
+async fn makeError() -> Error {
+    return A(message: "success value", payload: 29);
+}
+
+async fn raise(value: Future<Error>) {
+    let problem = await value;
+    throw problem;
+}
+
+async fn makeRow() -> {
+    problem: Error
+}
+{
+    return {
+        problem = A(message: "field", payload: 31)
+    };
+}
+
+async fn raiseRow(
+    value: Future<
+        {
+            problem: Error
+        }
+    >
+) {
+    let row = await value;
+    throw row.problem;
+}
+
+async fn ok() {}
+
+async fn replace(value: Future<Unit>) {
+    try {
+        await value;
+    }
+    catch errors {
+        throw B(message: "replacement");
+    }
+}
+
+async fn main() {
+    try {
+        try {
+            let one = await forward(fail());
+        }
+        catch [first: A] {
+            rinzu.stdio.writeLine(first.payload);
+        }
+        try {
+            await raise(makeError());
+        }
+        catch [second: A] {
+            rinzu.stdio.writeLine(second.payload);
+        }
+        try {
+            await raiseRow(makeRow());
+        }
+        catch [third: A] {
+            rinzu.stdio.writeLine(third.payload);
+        }
+        try {
+            await replace(ok());
+        }
+        catch [unexpected: C] {
+            rinzu.stdio.writeLine("unexpected");
+        }
+        let count = 3;
+        let action = async fn (value: Future<Int>) -> Int {
+            let marker = count;
+            return await value;
+        };
+        try {
+            let four = await action(fail());
+        }
+        catch [fourth: A] {
+            rinzu.stdio.writeLine(fourth.payload);
+        }
+    }
+    catch outputErrors {}
+}

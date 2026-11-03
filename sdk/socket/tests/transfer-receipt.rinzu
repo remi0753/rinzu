@@ -1,0 +1,61 @@
+import rinzu.socket;
+import rinzu.stdio;
+import rinzu.testing;
+
+fn check(condition: Bool) {
+    try {
+        rinzu.testing.assertTrue(condition, "fixed transfer receipt");
+    }
+    catch errors {
+        panic("failedAssertion");
+    }
+}
+
+// Each read consumes exactly one byte. No timer or segmentation-dependent loop
+// changes the number of admitted tasks between Source, C-JIT and AOT.
+async fn main() {
+    try {
+        let listener = await rinzu.socket.listen(rinzu.socket.address("127.0.0.1", 0), 4);
+        let port = rinzu.socket.localPort(listener);
+        let accepting = rinzu.socket.accept(listener);
+        try {
+            let client = await rinzu.socket.connect(rinzu.socket.address("127.0.0.1", port));
+            let server = await accepting;
+            let closedListener = await rinzu.socket.closeListener(listener);
+            try {
+                check(await rinzu.socket.write(client, byteArray(b"")) == 0);
+                check(await rinzu.socket.writeAll(client, byteArray(b"\x00")) == 1);
+                let first = await rinzu.socket.read(server, 1);
+                check(
+                    !first.eof
+                        && bytesLength(first.data) == 1
+                        && bytesGet(first.data, 0) == bytesGet(byteArray(b"\x00"), 0)
+                );
+                check(await rinzu.socket.writeAll(server, byteArray(b"\xff")) == 1);
+                let reply = await rinzu.socket.read(client, 1);
+                check(
+                    !reply.eof
+                        && bytesLength(reply.data) == 1
+                        && bytesGet(reply.data, 0) == bytesGet(byteArray(b"\xff"), 0)
+                );
+                let half = await rinzu.socket.shutdownWrite(client);
+                let end = await rinzu.socket.read(server, 1);
+                check(end.eof && bytesLength(end.data) == 0);
+                check(bytesLength(first.data) == 1 && bytesGet(first.data, 0) == bytesGet(byteArray(b"\x00"), 0));
+            }
+            finally {
+                let cleaned = await rinzu.socket.closeOwnerSockets();
+            }
+        }
+        finally {
+            let stopped = cancelFuture(accepting);
+            let settled = await accepting;
+        }
+        let stats = rinzu.socket.statistics();
+        check(stats.handleSlots == 0 && stats.operations == 0 && stats.bufferBytes == 0 && stats.eventThreads == 0);
+        rinzu.stdio.writeLine("N03:public-SDK:fixed-transfer:OK");
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}

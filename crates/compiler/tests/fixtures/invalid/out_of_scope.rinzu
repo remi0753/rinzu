@@ -1,0 +1,6 @@
+fn main() {
+    if true {
+        let inside = 1;
+    }
+    let copy = inside;
+}

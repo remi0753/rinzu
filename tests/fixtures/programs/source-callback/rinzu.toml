@@ -1,0 +1,5 @@
+[package]
+name="source_callback"
+language="0.5"
+[dependencies]
+"sample.platform"={path="platform"}

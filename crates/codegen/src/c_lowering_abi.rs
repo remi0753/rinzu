@@ -1,0 +1,395 @@
+// Private typed C helper ABI, guarded against the actual generated definitions.
+pub(super) const C_HELPERS: &[(&str, &str, &[&str])] = &[
+    (
+        "rinzu_baseline_commit_partial_roots_poll",
+        "int64_t",
+        &["void *", "int64_t", "uint64_t"],
+    ),
+    (
+        "rinzu_baseline_commit_partial_roots_poll_owner_proven",
+        "int64_t",
+        &["void *", "int64_t", "uint64_t"],
+    ),
+    (
+        "rinzu_baseline_commit_proven_roots_poll_owner_proven",
+        "int64_t",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_commit_roots_poll_owner_proven",
+        "int64_t",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_publish_roots_poll_owner_proven",
+        "int64_t",
+        &["void *", "const uint64_t *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_project_owner_proven",
+        "int64_t",
+        &["void *", "int64_t", "int64_t", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_construct_owner_proven",
+        "int64_t",
+        &[
+            "void *",
+            "int64_t",
+            "int64_t",
+            "const uint64_t *",
+            "int64_t",
+        ],
+    ),
+    (
+        "rinzu_baseline_data_operation_owner_proven",
+        "int64_t",
+        &[
+            "void *",
+            "int64_t",
+            "int64_t",
+            "const uint64_t *",
+            "const uint64_t *",
+            "int64_t",
+        ],
+    ),
+    (
+        "rinzu_baseline_bytes_slice_payload_owner_proven",
+        "int64_t",
+        &["void *", "int64_t", "int64_t", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_bytes_int_length_owner_proven",
+        "int64_t",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_string_scalar_length_owner_proven",
+        "int64_t",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_collection_length_owner_proven",
+        "int64_t",
+        &["void *", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_async_await",
+        "int64_t",
+        &["void *", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_async_call",
+        "int64_t",
+        &[
+            "void *",
+            "int64_t",
+            "const uint64_t *",
+            "int64_t",
+            "int64_t",
+        ],
+    ),
+    (
+        "rinzu_baseline_async_file",
+        "int64_t",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_async_service",
+        "int64_t",
+        &["void *", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_async_spawn",
+        "int64_t",
+        &["void *", "int64_t", "const uint64_t *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_async_timer",
+        "int64_t",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_begin_cleanup",
+        "void",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_bytes",
+        "int64_t",
+        &["void *", "const unsigned char *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_bytes_int_length",
+        "int64_t",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_bytes_length",
+        "int64_t",
+        &["void *", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_bytes_pad",
+        "int64_t",
+        &["void *", "int64_t", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_bytes_slice_payload",
+        "int64_t",
+        &["void *", "int64_t", "int64_t", "int64_t", "int64_t"],
+    ),
+    ("rinzu_baseline_catch_error", "int64_t", &["void *"]),
+    ("rinzu_baseline_check_local", "void", &["void *", "int64_t"]),
+    (
+        "rinzu_baseline_checked_arithmetic",
+        "int64_t",
+        &["void *", "int64_t", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_collection_length",
+        "int64_t",
+        &["void *", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_commit_roots",
+        "int64_t",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_commit_proven_roots_poll",
+        "int64_t",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_commit_roots_poll",
+        "int64_t",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_construct",
+        "int64_t",
+        &[
+            "void *",
+            "int64_t",
+            "int64_t",
+            "const uint64_t *",
+            "int64_t",
+        ],
+    ),
+    (
+        "rinzu_baseline_data_operation",
+        "int64_t",
+        &[
+            "void *",
+            "int64_t",
+            "int64_t",
+            "const uint64_t *",
+            "const uint64_t *",
+            "int64_t",
+        ],
+    ),
+    ("rinzu_baseline_end_cleanup", "void", &["void *", "int64_t"]),
+    (
+        "rinzu_baseline_enum_variant",
+        "int64_t",
+        &["void *", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_error_data",
+        "int64_t",
+        &[
+            "void *",
+            "int64_t",
+            "int64_t",
+            "int64_t",
+            "int64_t",
+            "const uint64_t *",
+            "int64_t",
+        ],
+    ),
+    (
+        "rinzu_baseline_error_message",
+        "int64_t",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_format_string",
+        "int64_t",
+        &["void *", "const uint64_t *", "const uint64_t *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_function_entry",
+        "int64_t",
+        &["void *", "int64_t"],
+    ),
+    ("rinzu_baseline_has_error", "int64_t", &["void *"]),
+    ("rinzu_baseline_has_failure", "int64_t", &["void *"]),
+    ("rinzu_baseline_leave_dispatch", "void", &["void *"]),
+    (
+        "rinzu_baseline_native_invoke",
+        "int64_t",
+        &[
+            "void *", "int64_t", "int64_t", "int64_t", "int64_t", "int64_t", "int64_t", "int64_t",
+            "int64_t", "int64_t", "int64_t",
+        ],
+    ),
+    ("rinzu_baseline_observe_source", "void", &["void *"]),
+    ("rinzu_baseline_poll", "int64_t", &["void *", "int64_t"]),
+    (
+        "rinzu_baseline_prepare_roots",
+        "uint64_t *",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_project",
+        "int64_t",
+        &["void *", "int64_t", "int64_t", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_publish_roots",
+        "int64_t",
+        &["void *", "const uint64_t *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_publish_roots_poll",
+        "int64_t",
+        &["void *", "const uint64_t *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_record_task_error",
+        "void",
+        &["void *", "int64_t"],
+    ),
+    ("rinzu_baseline_release_return", "void", &["RinzuContext *"]),
+    (
+        "rinzu_baseline_resolve_dispatch",
+        "int64_t",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_retain_return",
+        "void",
+        &["void *", "uint64_t"],
+    ),
+    (
+        "rinzu_baseline_scalar_arithmetic",
+        "int64_t",
+        &["void *", "int64_t", "int64_t", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_scalar_compare",
+        "int64_t",
+        &["void *", "int64_t", "int64_t", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_scalar_convert",
+        "int64_t",
+        &["void *", "int64_t", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_set_source",
+        "void",
+        &["void *", "int64_t", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_set_source_packed",
+        "void",
+        &["void *", "uint64_t", "uint64_t"],
+    ),
+    (
+        "rinzu_baseline_source_native_address",
+        "uint64_t",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_source_native_close",
+        "void",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_source_native_prepare",
+        "void",
+        &["void *", "int64_t", "const uint64_t *"],
+    ),
+    (
+        "rinzu_baseline_source_native_read",
+        "uint64_t",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_source_native_release",
+        "void",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_source_native_returned",
+        "void",
+        &["void *", "int64_t", "uint64_t"],
+    ),
+    (
+        "rinzu_baseline_source_native_settle",
+        "void",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_source_native_words",
+        "const uint64_t *",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_stdout",
+        "int64_t",
+        &["void *", "int64_t", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_store_field",
+        "int64_t",
+        &["void *", "int64_t", "int64_t", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_string",
+        "int64_t",
+        &["void *", "const unsigned char *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_string_compare",
+        "int64_t",
+        &["void *", "int64_t", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_string_scalar_length",
+        "int64_t",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_take_task_errors",
+        "int64_t",
+        &["void *", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_task_control",
+        "int64_t",
+        &["void *", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_task_error_origin",
+        "void",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_task_scope",
+        "void",
+        &["void *", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_utf8_length",
+        "int64_t",
+        &["void *", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_value_compare",
+        "int64_t",
+        &["void *", "int64_t", "int64_t", "int64_t", "int64_t"],
+    ),
+];

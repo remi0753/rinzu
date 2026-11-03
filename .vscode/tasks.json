@@ -1,0 +1,45 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "C: refresh compilation database",
+      "type": "process",
+      "command": "cargo",
+      "args": ["xtask", "c-db"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "C: check current file formatting",
+      "type": "process",
+      "command": "cargo",
+      "args": ["xtask", "c-fmt", "${file}"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "C: lint current file",
+      "type": "process",
+      "command": "cargo",
+      "args": ["xtask", "c-lint", "${file}"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Check Rinzu, Rust and C formatting",
+      "type": "process",
+      "command": "cargo",
+      "args": ["xtask", "fmt"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": ["$rustc", "$gcc"]
+    },
+    {
+      "label": "Lint Rinzu, Rust and C",
+      "type": "process",
+      "command": "cargo",
+      "args": ["xtask", "lint"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": ["$rustc", "$gcc"]
+    }
+  ]
+}

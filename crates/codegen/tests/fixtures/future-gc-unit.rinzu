@@ -1,0 +1,16 @@
+async fn idle() {}
+
+async fn turn() {}
+
+async fn main() {
+    var batch = 0;
+    while batch < 64 {
+        var index = 0;
+        while index < 64 {
+            idle();
+            index = index + 1;
+        }
+        await turn();
+        batch = batch + 1;
+    }
+}

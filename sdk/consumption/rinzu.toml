@@ -1,0 +1,8 @@
+[package]
+name = "rinzu.consumption"
+kind = "sdk"
+language = "0.5"
+entry = "src/consumption.rinzu"
+[native]
+sources = ["native/consumption.c"]
+headers = ["native/consumption.h"]

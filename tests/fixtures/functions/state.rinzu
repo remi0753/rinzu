@@ -1,0 +1,58 @@
+import rinzu.stdio;
+
+class Editor {
+    text: String,
+    command: Option<Function>
+}
+
+enum Environment {
+    Edit(editor: Editor)
+}
+
+class Function {
+    environment: Environment
+}
+
+fn apply(editor: Editor, text: String) -> String {
+    editor.text = text;
+    return editor.text;
+}
+
+fn invoke(function: Function, text: String) -> String {
+    switch function.environment {
+        case Environment.Edit(editor): {
+            return apply(editor, text);
+        }
+    }
+}
+
+fn make() -> Editor {
+    let editor = Editor(text: "before", command: Option<Function>.None());
+    let function = Function(environment: Environment.Edit(editor: editor));
+    editor.command = Option<Function>.Some(value: function);
+    return editor;
+}
+
+fn main() {
+    try {
+        let editor = make();
+        var i = 0;
+        while i < 300 {
+            let temporary = f"gc-{i}";
+            i = i + 1;
+        }
+        switch editor.command {
+            case Option.None: {
+                panic("bad");
+            }
+            case Option.Some(function): {
+                let result = invoke(function, "after");
+                rinzu.stdio.writeLine(result);
+            }
+        }
+        rinzu.stdio.writeLine(editor.text);
+    }
+    catch errors {
+        panic(f"unexpected Error in Main: {errors}");
+    }
+}

@@ -1,0 +1,300 @@
+/// Immutable, transferable input for saving and background analysis.
+class DocumentSnapshot {
+    const text: String,
+    const start: Int,
+    const end: Int,
+    const version: Int
+}
+
+class DocumentHistory {
+    const maximumEntries: Int,
+    const maximumBytes: Int,
+    entries: List<DocumentSnapshot>,
+    bytes: Int
+
+    fn create(maximumEntries: Int, maximumBytes: Int) -> DocumentHistory {
+        if maximumEntries < 0 || maximumEntries > 10000 || maximumBytes < 0 || maximumBytes > 268435456 {
+            throw error(-7820, "document.invalidHistoryLimit");
+        }
+        return DocumentHistory(maximumEntries: maximumEntries, maximumBytes: maximumBytes, entries: [], bytes: 0);
+    }
+
+    fn clear(self: DocumentHistory) {
+        try {}
+        finally {
+            self.clearNow();
+        }
+    }
+
+    private fn clearNow(self: DocumentHistory) {
+        self.entries = [];
+        self.bytes = 0;
+    }
+
+    fn length(self: DocumentHistory) -> Int {
+        return listLength(self.entries);
+    }
+
+    fn peek(self: DocumentHistory) -> Option<DocumentSnapshot> {
+        if listLength(self.entries) == 0 {
+            return Option<DocumentSnapshot>.None();
+        }
+        return listGet(self.entries, listLength(self.entries) - 1);
+    }
+
+    fn pop(self: DocumentHistory) -> Option<DocumentSnapshot> {
+        var result = Option<DocumentSnapshot>.None();
+        try {}
+        finally {
+            result = self.popNow();
+        }
+        return result;
+    }
+
+    private fn popNow(self: DocumentHistory) -> Option<DocumentSnapshot> {
+        switch self.peek() {
+            case Option.None: {
+                return Option<DocumentSnapshot>.None();
+            }
+            case Option.Some(snapshot): {
+                switch listRemove(self.entries, listLength(self.entries) - 1) {
+                    case Option.Some(next): {
+                        self.entries = next;
+                    }
+                    case Option.None: {
+                        throw error(-7820, "document.historyInvariant");
+                    }
+                }
+                self.bytes = self.bytes - Int(utf8ByteLength(snapshot.text));
+                return Option<DocumentSnapshot>.Some(value: snapshot);
+            }
+        }
+    }
+
+    fn push(self: DocumentHistory, snapshot: DocumentSnapshot) {
+        try {}
+        finally {
+            self.pushNow(snapshot);
+        }
+    }
+
+    private fn pushNow(self: DocumentHistory, snapshot: DocumentSnapshot) {
+        let size = Int(utf8ByteLength(snapshot.text));
+        if self.maximumEntries == 0 || size > self.maximumBytes {
+            // An omitted intermediate state must not connect unrelated undo steps.
+            self.clear();
+            return;
+        }
+        while listLength(self.entries) >= self.maximumEntries || self.bytes + size > self.maximumBytes {
+            switch listGet(self.entries, 0) {
+                case Option.Some(oldest): {
+                    self.bytes = self.bytes - Int(utf8ByteLength(oldest.text));
+                    switch listRemove(self.entries, 0) {
+                        case Option.Some(shorter): {
+                            self.entries = shorter;
+                        }
+                        case Option.None: {
+                            throw error(-7820, "document.historyInvariant");
+                        }
+                    }
+                }
+                case Option.None: {
+                    throw error(-7820, "document.historyInvariant");
+                }
+            }
+        }
+        self.entries = listAppend(self.entries, snapshot);
+        self.bytes = self.bytes + size;
+    }
+}
+
+/// Source document state. Native input updates this model without echoing setText.
+/// Public mutations finish synchronously under cancellation masking.
+class Document {
+    const undo: DocumentHistory,
+    const redo: DocumentHistory,
+    text: String,
+    start: Int,
+    end: Int,
+    version: Int,
+    savedVersion: Int,
+    accepting: Bool,
+    edits: Int
+
+    fn create(text: String, saved: Bool) -> Document {
+        return Document.withHistory(text, saved, 100, 8388608);
+    }
+
+    fn withHistory(text: String, saved: Bool, maximumEntries: Int, maximumBytes: Int) -> Document {
+        validateDocument(text, 0, 0);
+        var savedVersion = -1;
+        if saved {
+            savedVersion = 0;
+        }
+        return Document(
+            undo: DocumentHistory.create(maximumEntries, maximumBytes),
+            redo: DocumentHistory.create(maximumEntries, maximumBytes),
+            text: text,
+            start: 0,
+            end: 0,
+            version: 0,
+            savedVersion: savedVersion,
+            accepting: true,
+            edits: 0
+        );
+    }
+
+    fn snapshot(self: Document) -> DocumentSnapshot {
+        return DocumentSnapshot(text: self.text, start: self.start, end: self.end, version: self.version);
+    }
+
+    /// Install another document after its read succeeds; invalidate outstanding snapshots.
+    fn reset(self: Document, text: String, saved: Bool) -> Bool {
+        validateDocument(text, 0, 0);
+        if !self.accepting {
+            return false;
+        }
+        try {}
+        finally {
+            self.text = text;
+            self.start = 0;
+            self.end = 0;
+            self.version = self.version + 1;
+            self.edits = self.edits + 1;
+            self.savedVersion = -1;
+            if saved {
+                self.savedVersion = self.version;
+            }
+            self.undo.clear();
+            self.redo.clear();
+        }
+        return true;
+    }
+
+    fn dirty(self: Document) -> Bool {
+        return self.version != self.savedVersion;
+    }
+
+    fn select(self: Document, start: Int, end: Int) {
+        try {}
+        finally {
+            self.selectNow(start, end);
+        }
+    }
+
+    private fn selectNow(self: Document, start: Int, end: Int) {
+        validateDocument(self.text, start, end);
+        if self.accepting {
+            self.start = start;
+            self.end = end;
+        }
+    }
+
+    fn edit(self: Document, text: String, start: Int, end: Int) -> Bool {
+        var result = false;
+        try {}
+        finally {
+            result = self.editNow(text, start, end);
+        }
+        return result;
+    }
+
+    private fn editNow(self: Document, text: String, start: Int, end: Int) -> Bool {
+        validateDocument(text, start, end);
+        if !self.accepting {
+            return false;
+        }
+        if text == self.text {
+            self.select(start, end);
+            return false;
+        }
+        self.undo.push(self.snapshot());
+        self.redo.clear();
+        self.text = text;
+        self.start = start;
+        self.end = end;
+        self.version = self.version + 1;
+        self.edits = self.edits + 1;
+        return true;
+    }
+
+    fn undoEdit(self: Document) -> Bool {
+        var result = false;
+        try {}
+        finally {
+            result = self.undoEditNow();
+        }
+        return result;
+    }
+
+    private fn undoEditNow(self: Document) -> Bool {
+        if !self.accepting {
+            return false;
+        }
+        switch self.undo.pop() {
+            case Option.None: {
+                return false;
+            }
+            case Option.Some(snapshot): {
+                self.redo.push(self.snapshot());
+                self.text = snapshot.text;
+                self.start = snapshot.start;
+                self.end = snapshot.end;
+                self.version = self.version + 1;
+                return true;
+            }
+        }
+    }
+
+    fn redoEdit(self: Document) -> Bool {
+        var result = false;
+        try {}
+        finally {
+            result = self.redoEditNow();
+        }
+        return result;
+    }
+
+    private fn redoEditNow(self: Document) -> Bool {
+        if !self.accepting {
+            return false;
+        }
+        switch self.redo.pop() {
+            case Option.None: {
+                return false;
+            }
+            case Option.Some(snapshot): {
+                self.undo.push(self.snapshot());
+                self.text = snapshot.text;
+                self.start = snapshot.start;
+                self.end = snapshot.end;
+                self.version = self.version + 1;
+                return true;
+            }
+        }
+    }
+
+    fn markSaved(self: Document, snapshot: DocumentSnapshot) {
+        if snapshot.version < 0 || snapshot.version > self.version {
+            throw error(-7820, "document.invalidSaveReceipt");
+        }
+        self.savedVersion = snapshot.version;
+    }
+
+    fn accepts(self: Document, snapshot: DocumentSnapshot) -> Bool {
+        return self.accepting && snapshot.version == self.version;
+    }
+}
+
+fn validateDocument(text: String, start: Int, end: Int) {
+    if utf8ByteLength(text) > 1048576 {
+        throw error(-7820, "document.textLimit");
+    }
+    if start < 0 || end < start || end > stringLength(text) {
+        throw error(-7820, "document.invalidScalarSelection");
+    }
+}
+
+export DocumentSnapshot;
+export DocumentHistory;
+export Document;

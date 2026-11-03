@@ -1,0 +1,11 @@
+[package]
+name = "rinzu.sdl2"
+language = "0.5"
+kind = "sdk"
+entry = "src/sdl2.rinzu"
+
+[native]
+sources = ["native/src/sdl2_source.c"]
+headers = ["native/include/rinzu_sdl2_source.h"]
+include-dirs = ["native/include"]
+config-tools = ["sdl2-config"]

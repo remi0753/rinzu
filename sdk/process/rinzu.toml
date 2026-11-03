@@ -1,0 +1,9 @@
+[package]
+name = "rinzu.process"
+language = "0.5"
+kind = "sdk"
+entry = "src/process.rinzu"
+
+[native]
+sources = ["native/process.c"]
+headers = ["native/process.h"]

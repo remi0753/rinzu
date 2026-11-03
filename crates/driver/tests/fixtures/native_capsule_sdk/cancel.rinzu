@@ -1,0 +1,39 @@
+import capsules;
+
+fn synchronousWork(seed: CInt) -> CInt {
+    let retained = ["callback root", "GC remains enabled during cancellation mask"];
+    var value = seed;
+    while value < 512 {
+        value = value + 1;
+    }
+    if retained != ["callback root", "GC remains enabled during cancellation mask"] {
+        panic("lost");
+    }
+    return 41;
+}
+
+fn cancellationHandler(seed: CInt) -> CInt fallback -19 {
+    try {
+        return synchronousWork(seed);
+    }
+    finally {
+        capsules.cancelInner();
+    }
+}
+
+async fn main() {
+    capsules.cancelReset();
+    try {
+        let value = capsules.cancelInvoke(cancellationHandler);
+        var outside = 0;
+        while outside < 1 {
+            outside = outside + 1;
+        }
+        if value != 41 {
+            panic("lost");
+        }
+    }
+    finally {
+        capsules.cancelOuter();
+    }
+}

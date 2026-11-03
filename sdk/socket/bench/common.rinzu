@@ -1,0 +1,127 @@
+import rinzu.timer;
+import rinzu.socket;
+import rinzu.io;
+import rinzu.process;
+import rinzu.stdio;
+import rinzu.testing;
+
+native {
+    fn nanos() -> Int symbol "rinzu_bench_nanoseconds";
+
+    fn verify(data: ByteArray, length: CSize, offset: Int) -> CBool symbol "rinzu_bench_verify";
+}
+
+fn expect<T>(result: T) -> T {
+    return result;
+}
+
+fn integer(name: String, defaultValue: Int, minimum: Int, maximum: Int) -> Int {
+    try {
+        return rinzu.process.integer(name, defaultValue, minimum, maximum);
+    }
+    catch errors {
+        panic("failed");
+        return defaultValue;
+    }
+}
+
+fn setting(name: String) -> String {
+    try {
+        return rinzu.process.setting(name, "");
+    }
+    catch errors {
+        panic("failed");
+        return "";
+    }
+}
+
+fn payload(size: Int) -> ByteArray {
+    var value = byteArray(b"\x00\xff\x80A\x00B\xfeC");
+    while bytesLength(value) < size {
+        value = bytesConcat(value, value);
+    }
+    return expectBytes(value, size);
+}
+
+fn expectBytes(value: ByteArray, size: Int) -> ByteArray {
+    switch bytesSlice(value, 0, size) {
+        case Option.Some(data): {
+            return data;
+        }
+        case Option.None: {
+            rinzu.testing.assertTrue(false, "payload bounds");
+            return value;
+        }
+    }
+}
+
+async fn put(stream: rinzu.socket.TcpStream, data: ByteArray) {
+    try {
+        let resultValue1 = await rinzu.socket.writeAllWithTimeout(stream, data, 30000);
+        rinzu.testing.assertEqual<Int>(resultValue1, bytesLength(data), "send length");
+    }
+    catch [resultError1: Error, ...resultRest1] {
+        if resultError1 is rinzu.socket.WriteFailure {
+            rinzu.testing.assertTrue(false, errorMessage(resultError1.payload.cause));
+        }
+        else {
+            throw resultError1;
+        }
+    }
+}
+
+async fn receive(stream: rinzu.socket.TcpStream, count: Int, slow: Int) {
+    try {
+        var total = 0;
+        while total < count {
+            if slow > 0 {
+                await rinzu.timer.sleep(slow);
+            }
+            let chunk = expect<rinzu.socket.ReadChunk>(await rinzu.socket.readWithTimeout(stream, 65536, 30000));
+            rinzu.testing.assertTrue(!chunk.eof && bytesLength(chunk.data) > 0, "unexpected EOF");
+            rinzu.testing.assertTrue(verify(chunk.data, byteLength(chunk.data), total), "byte verification");
+            total = total + bytesLength(chunk.data);
+            rinzu.testing.assertTrue(total <= count, "unexpected extra bytes");
+        }
+    }
+    catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
+        panic("unexpectedBenchmarkFailure");
+    }
+}
+
+async fn gate(path: String) {
+    let file = expect<rinzu.io.File>(await rinzu.io.openRead(path));
+    try all {
+        var attempts = 0;
+        while attempts < 10000 {
+            let chunk = expect<rinzu.io.ReadChunk>(await rinzu.io.read(file, 1));
+            if !chunk.eof {
+                return;
+            }
+            await rinzu.timer.sleep(1);
+            attempts = attempts + 1;
+        }
+        rinzu.testing.assertTrue(false, "benchmark harness gate timeout");
+    }
+    finally {
+        let closed = await rinzu.io.close(file);
+    }
+}
+
+fn report(label: String) {
+    let s = rinzu.socket.statistics();
+    rinzu.stdio.writeLine(
+        f"SOCKET:{label}:{s.handleSlots}:{s.operations}:{s.bufferBytes}:{s.peakBufferBytes}:{s.controlBytes}:{s.eventThreads}:{s.keventCalls}:{s.readinessEvents}:{s.userWakes}:{s.pollTimeouts}:{s.readCalls}:{s.writeCalls}:{s.partialWrites}:{s.copyBytes}:{s.allocations}:{s.receivedBytes}:{s.sentBytes}:{s.pendingOperations}:{s.finishWaitOperations}"
+    );
+}
+
+export nanos;
+export verify;
+export expect;
+export integer;
+export setting;
+export payload;
+export put;
+export receive;
+export gate;
+export report;

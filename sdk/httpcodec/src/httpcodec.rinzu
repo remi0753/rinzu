@@ -1,0 +1,44 @@
+native {
+    fn rawLineEnd(data: ByteArray, length: CSize) -> Int symbol "rinzu_httpcodec_request_line_end";
+}
+
+class RequestLine {
+    const method: String,
+    const target: String
+}
+
+error InvalidRequestLine {
+    payload: Int
+}
+
+fn invalid(status: Int) -> InvalidRequestLine {
+    return InvalidRequestLine(message: "invalid HTTP request line", payload: status);
+}
+
+fn text(data: ByteArray, start: Int, end: Int) -> String {
+    switch bytesSlice(data, start, end) {
+        case Option.Some(part): {
+            try {
+                return utf8Decode(part);
+            }
+            catch errors {
+                throw invalid(400);
+            }
+        }
+        case Option.None: {
+            throw invalid(400);
+        }
+    }
+}
+
+fn requestLine(data: ByteArray) -> RequestLine {
+    let first = rawLineEnd(data, byteLength(data));
+    if first < 0 {
+        throw invalid(-first);
+    }
+    return RequestLine(method: text(data, 0, first), target: text(data, first + 1, bytesLength(data) - 9));
+}
+
+export RequestLine;
+export InvalidRequestLine;
+export requestLine;

@@ -1,0 +1,5 @@
+import rinzu.ffi;
+
+fn main() {
+    rinzu.ffi.call();
+}

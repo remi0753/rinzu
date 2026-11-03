@@ -1,0 +1,186 @@
+fn equal(actual: ByteArray, expected: ByteArray) {
+    if actual != expected {
+        panic("invalid");
+    }
+}
+
+fn padded(value: Bytes(3)) -> Bytes(8) {
+    return value;
+}
+
+fn sliceEqual(data: ByteArray, start: Int, end: Int, expected: ByteArray) {
+    switch bytesSlice(data, start, end) {
+        case Option.Some(value): {
+            equal(value, expected);
+        }
+        case Option.None: {
+            panic("missingSlice");
+        }
+    }
+}
+
+fn escapingSlice() -> ByteArray {
+    let local = byteArray(b"\x00\xffA\x80");
+    switch bytesSlice(bytesConcat(byteArray(b""), local), 0, 4) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            panic("missing");
+            return byteArray(b"");
+        }
+    }
+}
+
+fn escapingConcatAll() -> ByteArray {
+    let local = byteArray(b"\x00\xffA\x80");
+    return bytesConcatAll([byteArray(b""), local, byteArray(b"")]);
+}
+
+fn escapingFixedBytes() -> ByteArray {
+    let local = padded(b"\x00\xffA");
+    return byteArray(local);
+}
+
+fn concatBounds() -> ByteArray {
+    var parts: List<ByteArray> = [];
+    var expected = byteArray(b"");
+    var index = 0;
+    while index < 258 {
+        let part = byteArray([CUInt8(index % 256)]);
+        parts = listAppend(parts, byteArray(b""));
+        parts = listAppend(parts, part);
+        expected = bytesConcat(expected, part);
+        if index == 62
+            || index == 63
+            || index == 64
+            || index == 127
+            || index == 128
+            || index == 129
+            || index == 254
+            || index == 255
+            || index == 256
+            || index == 257 {
+            equal(bytesConcatAll(parts), expected);
+        }
+        index = index + 1;
+    }
+    return bytesConcatAll(parts);
+}
+
+fn checks() {
+    let empty = byteArray(b"");
+    let bounded = concatBounds();
+    let original = byteArray(b"\x00\xffA\x80");
+    let noChunks: List<ByteArray> = [];
+    equal(bytesConcatAll(noChunks), empty);
+    equal(bytesConcatAll([empty]), empty);
+    equal(bytesConcatAll([original]), original);
+    equal(bytesConcatAll([empty, original, empty]), original);
+    let combined = bytesConcatAll([original, empty, original]);
+    equal(combined, byteArray(b"\x00\xffA\x80\x00\xffA\x80"));
+    let sharedConcat = escapingConcatAll();
+    let sharedFixed = escapingFixedBytes();
+    equal(bytesConcat(empty, original), original);
+    equal(bytesConcat(original, empty), original);
+    equal(bytesConcat(original, original), byteArray(b"\x00\xffA\x80\x00\xffA\x80"));
+    equal(bytesXor(original, CUInt8(255)), byteArray(b"\xff\x00\xbe\x7f"));
+    equal(bytesXor(empty, CUInt8(255)), empty);
+    equal(original, byteArray(b"\x00\xffA\x80"));
+    sliceEqual(original, 0, 4, original);
+    sliceEqual(empty, 0, 0, empty);
+    sliceEqual(original, 1, 4, byteArray(b"\xffA\x80"));
+    sliceEqual(original, 4, 4, empty);
+    let shared = bytesConcat(empty, original);
+    let copied = bytesCopy(shared);
+    let escaped = escapingSlice();
+    let noBytes: List<CUInt8> = [];
+    equal(byteArray(noBytes), empty);
+    equal(byteArray([CUInt8(0), CUInt8(255), CUInt8(128)]), byteArray(b"\x00\xff\x80"));
+    if padded(b"\x00\xffA") != b"\x00\xffA\x00\x00\x00\x00\x00" {
+        panic("invalidPadding");
+    }
+    var alphabet: List<CUInt8> = [];
+    var index = 0;
+    while index < 256 {
+        alphabet = listAppend(alphabet, CUInt8(index));
+        index = index + 1;
+    }
+    let bytes = byteArray(alphabet);
+    var large = bytes;
+    index = 0;
+    while index < 8 {
+        large = bytesConcat(large, large);
+        index = index + 1;
+    }
+    if bytesLength(large) != 65536 {
+        panic("wrongLength");
+    }
+    equal(bytesXor(bytesXor(large, CUInt8(255)), CUInt8(255)), large);
+    var lowerAlphabet: List<CUInt8> = [];
+    index = 0;
+    while index < 256 {
+        var code = index;
+        if code >= 65 && code <= 90 {
+            code = code + 32;
+        }
+        lowerAlphabet = listAppend(lowerAlphabet, CUInt8(code));
+        index = index + 1;
+    }
+    let lowerBytes = byteArray(lowerAlphabet);
+    var lowerLarge = lowerBytes;
+    index = 0;
+    while index < 8 {
+        lowerLarge = bytesConcat(lowerLarge, lowerLarge);
+        index = index + 1;
+    }
+    equal(bytesLowerAscii(large), lowerLarge);
+    equal(bytesLowerAscii(bytes), lowerBytes);
+    equal(bytesLowerAscii(empty), empty);
+    sliceEqual(large, 0, bytesLength(large), large);
+    // Leave the original inputs live across allocation pressure and moving GC.
+    equal(bytes, byteArray(alphabet));
+    equal(original, byteArray(b"\x00\xffA\x80"));
+    equal(shared, byteArray(b"\x00\xffA\x80"));
+    equal(copied, shared);
+    equal(escaped, shared);
+    equal(sharedConcat, original);
+    equal(combined, bytesConcat(original, original));
+    equal(sharedFixed, byteArray(b"\x00\xffA\x00\x00\x00\x00\x00"));
+    sliceEqual(bounded, 0, 2, byteArray(b"\x00\x01"));
+    sliceEqual(bounded, 128, 130, byteArray(b"\x80\x81"));
+    sliceEqual(bounded, 256, 258, byteArray(b"\x00\x01"));
+}
+
+fn workerChecks(value: ByteArray) -> ByteArray {
+    try {
+        checks();
+        switch bytesSlice(bytesConcat(byteArray(b""), value), 0, bytesLength(value)) {
+            case Option.Some(full): {
+                return bytesConcat(full, full);
+            }
+            case Option.None: {
+                panic("missingWorkerSlice");
+                return byteArray(b"");
+            }
+        }
+    }
+    catch errors {
+        panic("unexpectedWorkerError");
+        return byteArray(b"");
+    }
+}
+
+async fn main() {
+    try {
+        checks();
+        let input = byteArray(b"\x00\xffA\x80");
+        let retainedFixed = escapingFixedBytes();
+        let completed = await spawn workerChecks(input);
+        equal(completed, bytesConcat(input, input));
+        equal(retainedFixed, byteArray(b"\x00\xffA\x00\x00\x00\x00\x00"));
+    }
+    catch errors {
+        panic("unexpected");
+    }
+}

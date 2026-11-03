@@ -1,0 +1,88 @@
+import rinzu.stdio;
+
+error A {
+    payload: Int
+}
+
+error Producer {
+    payload: fn (Int) -> Future<Int>
+}
+
+async fn fail(value: Int) -> Int {
+    throw A(message: "failure", payload: value);
+}
+
+fn factory(value: Int) -> Future<Int> {
+    return fail(value);
+}
+
+class Pending {
+    const future: Future<Int>
+}
+
+fn unwrap(value: Pending) -> Future<Int> {
+    return value.future;
+}
+
+fn CInt8(value: Int) -> CInt8 {
+    return 7;
+}
+
+async fn observe(value: Future<Int>) {
+    try {
+        try {
+            let result = await value;
+            rinzu.stdio.writeLine(result);
+        }
+        catch [problem: A, ...rest] {
+            rinzu.stdio.writeLine(problem.payload);
+        }
+        catch otherErrors {}
+    }
+    catch outputErrors {}
+}
+
+async fn main() {
+    try {
+        let original = fail(71);
+        let alias = original;
+        try {
+            let firstValue = await alias;
+        }
+        catch [firstProblem: A] {
+            rinzu.stdio.writeLine(firstProblem.payload);
+        }
+        let first = fail(73);
+        let second = fail(79);
+        try all {
+            let secondValue = await first;
+            let thirdValue = await second;
+        }
+        catch [secondProblem: A, thirdProblem: A] {
+            rinzu.stdio.writeLine(secondProblem.payload);
+            rinzu.stdio.writeLine(thirdProblem.payload);
+        }
+        catch [singleProblem: A] {
+            rinzu.stdio.writeLine(singleProblem.payload);
+        }
+        let observer = observe(factory(83));
+        await observer;
+        let job = Pending(future: factory(89));
+        try {
+            let lastValue = await unwrap(job);
+        }
+        catch [lastProblem: A] {
+            rinzu.stdio.writeLine(lastProblem.payload);
+        }
+        let producer = Producer(message: "function payload", payload: factory);
+        try {
+            let producedValue = await producer.payload(97);
+        }
+        catch [producedProblem: A] {
+            rinzu.stdio.writeLine(producedProblem.payload);
+        }
+        let CInt8 = CInt8;
+        rinzu.stdio.writeLine(Int(CInt8(300)));
+    }
+    catch outputErrors {}
+}

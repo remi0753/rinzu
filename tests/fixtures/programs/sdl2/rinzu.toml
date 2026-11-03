@@ -1,0 +1,6 @@
+[package]
+name = "v0_2_sdl2"
+language = "0.5"
+
+[dependencies]
+"rinzu.sdl2" = { path = "../../../../sdk/sdl2" }

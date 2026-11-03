@@ -1,0 +1,39 @@
+import loops;
+
+fn work(seed: CInt) -> CInt {
+    let retained = ["callback root", "shutdown remains masked through physical return"];
+    var index = seed;
+    while index < 512 {
+        let moved = ["managed GC", "still retained"];
+        index = index + 1;
+    }
+    if retained != ["callback root", "shutdown remains masked through physical return"] {
+        panic("lost");
+    }
+    return 41;
+}
+
+fn callback(seed: CInt) -> CInt fallback -19 {
+    try {
+        return work(seed);
+    }
+    finally {
+        loops.checkInner();
+    }
+}
+
+async fn main() {
+    try {
+        loops.checkReset(0);
+        try {
+            let result = await loops.checkRun(callback, "queued argument 日本語", b"\x00\xAA\x00\x7F", 4);
+            panic("shutdownWasLost");
+        }
+        finally {
+            loops.checkOuter(1);
+        }
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+    }
+}

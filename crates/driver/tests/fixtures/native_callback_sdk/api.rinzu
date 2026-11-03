@@ -1,0 +1,243 @@
+import rinzu.core;
+
+type State = {
+    id: Int, text: String, bytes: Bytes(4), numbers: List<Int>
+};
+
+type Other = {
+    id: Int
+};
+
+enum EventValue {
+    state(value: State),
+    empty
+}
+
+type Event = {
+    value: EventValue
+};
+
+native {
+    opaque Handle;
+
+    record Packet {
+        narrow: CInt8,
+        wide: CUInt64,
+        okay: CBool,
+        small: CFloat,
+        large: CDouble
+    }
+
+    fn probe(
+        first: State,
+        same: State,
+        second: State,
+        event: Event,
+        other: Other,
+        callback: fn (
+            State,
+            State,
+            State,
+            Event,
+            Other,
+            Bytes(4),
+            String,
+            Packet,
+            Handle,
+            CInt8,
+            CUInt64,
+            CFloat,
+            CDouble,
+            CBool
+        ) -> CSize,
+        mode: CInt
+    ) -> CSize symbol "cb_probe";
+
+    fn inner(data: State, callback: fn (State, String) -> CSize) -> CSize symbol "cb_inner";
+
+    fn touch(handle: Handle, value: CInt) -> CInt symbol "cb_touch";
+
+    fn unit(callback: fn () -> Unit) -> CInt symbol "cb_unit";
+
+    fn tick() -> Unit symbol "cb_tick";
+
+    fn bodyEntered() -> Unit symbol "cb_body";
+
+    fn raw(value: CInt) -> CInt symbol "cb_raw";
+
+    fn runRaw(callback: fn (CInt) -> CInt) -> CInt symbol "cb_run_raw";
+
+    fn noData(callback: fn (State) -> CInt) -> CInt symbol "cb_no_data";
+}
+
+fn original() -> State {
+    return {
+        id = 41, text = "日本語\u{0}tail", bytes = b"\x00\xff\x07\x00", numbers = [1, 2, 3]
+    };
+}
+
+fn innerBody(data: State, text: String) -> CSize fallback 0 {
+    let moved: State = {
+        id = 1, text = "nested moving collection", bytes = b"", numbers = [7, 8]
+    };
+    if text != "inner" || data.id != 42 || data.text != "second" {
+        panic("wrongNestedData");
+    }
+    return CSize(data.id) + utf8ByteLength(text);
+}
+
+fn unitBody() -> Unit {
+    let moved = "zero-parameter Unit body";
+    tick();
+}
+
+fn noDataBody(data: State) -> CInt fallback 31 {
+    return CInt(data.id);
+}
+
+fn receive(
+    first: State,
+    same: State,
+    second: State,
+    event: Event,
+    other: Other,
+    bytes: Bytes(4),
+    text: String,
+    packet: Packet,
+    handle: Handle,
+    narrow: CInt8,
+    wide: CUInt64,
+    small: CFloat,
+    large: CDouble,
+    okay: CBool
+) -> CSize fallback 901 {
+    bodyEntered();
+    if first.id != 42 || first.text != "second" || same != original() || second != same || event != {
+        value = EventValue.state(value: same)
+    }
+    || other.id != 7 {
+        panic("positionalToken");
+    }
+    if bytes != b"\x00\xff\x07\x00" || text != "日本語😀" || byteLength(bytes) != 4 || utf8ByteLength(text) != 13 {
+        panic("wrongCopy");
+    }
+    if packet.narrow != CInt8(-128)
+        || packet.wide != wide
+        || !packet.okay
+        || packet.small == packet.small
+        || packet.large != large
+        || small != CFloat(-0.0)
+        || large != 42.5
+        || !okay {
+        panic("wrongPhysicalValue");
+    }
+    try {
+        if narrow == CInt8(99) {
+            try {
+                let invalid = CInt8(300);
+            }
+            catch [conversion: Error, ...conversionRest] {
+                if conversion.message == "" {
+                    panic("wrongCatch");
+                }
+                return 888;
+            }
+        }
+        if narrow == CInt8(98) {
+            let unhandled = CInt8(300);
+        }
+        if narrow == CInt8(97) {
+            let trapped = 1 / 0;
+        }
+        let nested = inner(first, innerBody);
+        if nested != 47 || first.numbers != [4, 5] || same.numbers != [1, 2, 3] {
+            panic("lostNestedRoots");
+        }
+        return 777;
+    }
+    finally {
+        let cleaned = touch(handle, 55);
+        if cleaned != 55 {
+            panic("wrongCleanup");
+        }
+    }
+    return 0;
+}
+
+fn invoke(
+    first: State,
+    second: State,
+    handler: fn (
+        State,
+        State,
+        State,
+        Event,
+        Other,
+        Bytes(4),
+        String,
+        Packet,
+        Handle,
+        CInt8,
+        CUInt64,
+        CFloat,
+        CDouble,
+        CBool
+    ) -> CSize,
+    mode: CInt
+) -> CSize {
+    return probe(
+        first,
+        first,
+        second,
+        {
+            value = EventValue.state(value: first)
+        },
+        {
+            id = 7
+        },
+        handler,
+        mode
+    );
+}
+
+fn exercise() -> State {
+    let first = original();
+    let second: State = {
+        id = 42, text = "second", bytes = b"\x00\xff\x07\x00", numbers = [4, 5]
+    };
+    let alias = receive;
+    var selected = alias;
+    selected = receive;
+    var repeat = 0;
+    while repeat < 3 {
+        let normal = invoke(first, second, selected, 0);
+        if normal != 777 {
+            panic("wrongResult");
+        }
+        repeat = repeat + 1;
+    }
+    var mode: CInt = 2;
+    while mode <= 10 {
+        let recovered = invoke(first, second, alias, mode);
+        if (mode == 6 && recovered != 888) || (mode != 6 && recovered != 901) {
+            panic("wrongFallback");
+        }
+        mode = mode + 1;
+    }
+    if unit(unitBody) != 17 || runRaw(raw) != 23 || noData(noDataBody) != 31 {
+        panic("wrongZeroOrRaw");
+    }
+    if first != original() || second.id != 42 {
+        panic("lostCallerRoot");
+    }
+    return first;
+}
+
+export State;
+export Other;
+export Event;
+export EventValue;
+export Packet;
+export Handle;
+export original;
+export exercise;

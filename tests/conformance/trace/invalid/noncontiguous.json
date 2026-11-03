@@ -1,0 +1,15 @@
+{
+  "schema": "rinzu.event-trace",
+  "version": 1,
+  "producer": "i0-invalid-fixture",
+  "events": [
+    { "sequence": 0, "domain": "main", "kind": "task-start" },
+    {
+      "sequence": 2,
+      "domain": "main",
+      "kind": "task-complete",
+      "outcome": "success"
+    }
+  ]
+}
+

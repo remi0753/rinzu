@@ -1,0 +1,83 @@
+import rinzu.stdio;
+
+class Editor {
+    value: Int,
+    reads: Int,
+    command: fn (Int) -> Int
+
+    fn set(self: Editor, first: Int, second: Int) -> Int {
+        self.value = first + second;
+        return self.value;
+    }
+
+    fn add(self: Editor, value: Int) -> Int {
+        self.value = self.value + value;
+        return self.value;
+    }
+
+    fn read(self: Editor) -> Int {
+        self.reads = self.reads + 1;
+        return self.value;
+    }
+}
+
+class Holder {
+    editor: Editor
+}
+
+class Journal {
+    events: String
+}
+
+fn idle(value: Int) -> Int {
+    return value;
+}
+
+fn first(journal: Journal) -> Int {
+    journal.events = f"{journal.events}A";
+    return 40;
+}
+
+fn second(journal: Journal, holder: Holder, replacement: Editor) -> Int {
+    journal.events = f"{journal.events}B";
+    holder.editor = replacement;
+    var i = 0;
+    while i < 400 {
+        let transient = f"argument-gc-{i}";
+        i = i + 1;
+    }
+    return 2;
+}
+
+fn select(journal: Journal, editor: Editor) -> Editor {
+    journal.events = f"{journal.events}C";
+    return editor;
+}
+
+fn delta(journal: Journal) -> Int {
+    journal.events = f"{journal.events}D";
+    return 3;
+}
+
+fn main() {
+    try {
+        let editor = Editor(value: 0, reads: 0, command: idle);
+        let replacement = Editor(value: 7, reads: 0, command: idle);
+        let holder = Holder(editor: editor);
+        let journal = Journal(events: "");
+        let result = holder.editor.set(first(journal), second(journal, holder, replacement));
+        let field = editor.value;
+        let getter = editor.read();
+        editor.command = fn (argument0: Int) -> Int {
+            return Editor.add(editor, argument0);
+        };
+        let bound = editor.command(3);
+        let computed = Editor.add(select(journal, editor), delta(journal));
+        let Editor = replacement;
+        let shadow = Editor.add(1);
+        rinzu.stdio.writeLine(
+            f"{journal.events},{result},{field},{getter},{bound},{computed},{editor.value},{replacement.value},{editor.reads},{shadow}"
+        );
+    }
+    catch errors {}
+}

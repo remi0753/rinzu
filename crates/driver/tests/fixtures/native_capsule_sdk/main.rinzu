@@ -1,0 +1,116 @@
+import rinzu.timer;
+import capsules;
+
+class Completion {
+    ready: Bool,
+    complete: Bool
+}
+
+fn worker(identity: CInt) -> Int {
+    try {
+        let retained = ["child Worker", "native callback Origin scope"];
+        if retained != ["child Worker", "native callback Origin scope"] {
+            panic("lost");
+        }
+        return Int(identity);
+    }
+    catch unexpectedErrors {
+        panic("unexpected failure");
+        return 0;
+    }
+}
+
+async fn child(identity: CInt, completion: Completion) -> Int {
+    try {
+        let retained = ["child Main", "root after native callback ends"];
+        while !completion.ready {
+            await rinzu.timer.sleep(0);
+        }
+        let future = capsules.readSize("data/proof.bin");
+        let size = await future;
+        if size != 8193 || retained != ["child Main", "root after native callback ends"] {
+            panic("lost");
+        }
+        capsules.mark(identity, 2);
+        completion.complete = true;
+        return size;
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+        return 0;
+    }
+}
+
+async fn readSize(path: String) -> Int {
+    try {
+        return await capsules.readSize(path);
+    }
+    catch unexpectedErrors {
+        panic("unexpected failure");
+        return 0;
+    }
+}
+
+fn handler(identity: CInt, completion: Completion) -> CInt fallback -19 {
+    let retained = ["callback", "moving input and nested activation"];
+    let cpu = spawn worker(identity);
+    let task = child(identity, completion);
+    let direct = readSize("data/proof.bin");
+    capsules.mark(identity, 1);
+    if retained != ["callback", "moving input and nested activation"] {
+        panic("lost");
+    }
+    return 41;
+}
+
+async fn parent(identity: CInt, completion: Completion) -> Int {
+    try {
+        let retained = ["parent", "captured Origin scope"];
+        if capsules.invoke(
+            fn (value: CInt) -> CInt fallback -19 {
+                return handler(value, completion);
+            },
+            identity
+        ) != 41 {
+            panic("wrongCallback");
+        }
+        capsules.mark(identity, 3);
+        if retained != ["parent", "captured Origin scope"] {
+            panic("lost");
+        }
+        return 7;
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+        return 0;
+    }
+}
+
+async fn main() {
+    try {
+        let firstCompletion = Completion(ready: false, complete: false);
+        let secondCompletion = Completion(ready: false, complete: false);
+        let first = parent(1, firstCompletion);
+        let second = parent(2, secondCompletion);
+        let one = await first;
+        let two = await second;
+        capsules.mark(1, 4);
+        capsules.mark(2, 4);
+        firstCompletion.ready = true;
+        secondCompletion.ready = true;
+        while !firstCompletion.complete || !secondCompletion.complete {
+            await rinzu.timer.sleep(0);
+        }
+        if one != 7 || two != 7 {
+            panic("lost");
+        }
+        capsules.mark(1, 5);
+        capsules.mark(2, 5);
+        if capsules.finish(0) != 2 {
+            panic("unfinished");
+        }
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+    }
+}

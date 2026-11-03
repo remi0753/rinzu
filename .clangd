@@ -1,0 +1,5 @@
+CompileFlags:
+  CompilationDatabase: target/native-quality
+Diagnostics:
+  # Includes shared between generated fragments can look unused locally.
+  UnusedIncludes: None

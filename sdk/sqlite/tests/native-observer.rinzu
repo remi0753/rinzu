@@ -1,0 +1,134 @@
+import rinzu.sqlite;
+import rinzu.stdio;
+
+class Observed {
+    calls: Int,
+    inFlight: Int,
+    reentry: Int
+}
+
+fn statusIs(problem: Error, status: Int) -> Bool {
+    switch errorNativeStatus(problem) {
+        case Option.Some(value): {
+            return value == status;
+        }
+        case Option.None: {
+            return false;
+        }
+    }
+}
+
+fn execute() -> Int {
+    let connection = rinzu.sqlite.Connection.openMemory();
+    let alias = connection;
+    let observed = Observed(calls: 0, inFlight: 0, reentry: 0);
+    var result = 0;
+    try {
+        let count = connection.executeWithObserver(
+            "SELECT 1 UNION ALL SELECT 2",
+            fn (context: rinzu.sqlite.ObserverContext) -> CInt fallback -1 {
+                var index = 0;
+                while index < 64 {
+                    let moved = f"sqlite-observer-{index}";
+                    index = index + 1;
+                }
+                observed.calls = observed.calls + 1;
+                try {
+                    let closed = context.connection.close();
+                    panic("closed in callback");
+                }
+                catch [problem: Error, ...rest] {
+                    if !statusIs(problem, -7004) {
+                        panic("wrong in-flight status");
+                    }
+                    observed.inFlight = observed.inFlight + 1;
+                }
+                try {
+                    let nested = context.connection.queryInt("SELECT 1");
+                    panic("reentered SQLite");
+                }
+                catch [problem: Error, ...rest] {
+                    if !statusIs(problem, -7005) {
+                        panic("wrong reentry status");
+                    }
+                    observed.reentry = observed.reentry + 1;
+                }
+                return CInt(0);
+            }
+        );
+        if observed.calls != 2 || observed.inFlight != 2 || observed.reentry != 2 {
+            panic("lost callback context");
+        }
+        result = observed.calls + observed.inFlight + observed.reentry;
+        try {
+            let aborted = connection.executeWithObserver(
+                "SELECT 1",
+                fn (context: rinzu.sqlite.ObserverContext) -> CInt fallback 1 {
+                    throw error(9001, "observer abort");
+                }
+            );
+            panic("lost nonzero fallback");
+        }
+        catch [problem: Error, ...rest] {
+            if !statusIs(problem, 4) {
+                panic("wrong abort status");
+            }
+            result = result + 1;
+        }
+        let ignored = connection.executeWithObserver(
+            "SELECT 1",
+            fn (context: rinzu.sqlite.ObserverContext) -> CInt fallback 0 {
+                throw error(9002, "observer continue");
+            }
+        );
+        result = result + 1;
+        let statement = connection.prepare("SELECT 7");
+        try {
+            try {
+                let busy = connection.close();
+                panic("closed with a statement");
+            }
+            catch [problem: Error, ...rest] {
+                if !statusIs(problem, 5) {
+                    panic("wrong busy status");
+                }
+                result = result + 1;
+            }
+        }
+        finally {
+            let finalized = statement.finalize();
+        }
+        result = result + connection.queryInt("SELECT 42");
+    }
+    finally {
+        let closed = connection.close();
+    }
+    try {
+        let stale = alias.queryInt("SELECT 1");
+        panic("reused closed connection");
+    }
+    catch [problem: Error, ...rest] {
+        if !statusIs(problem, -7003) {
+            panic("wrong closed status");
+        }
+        result = result + 1;
+    }
+    if rinzu.sqlite.liveConnections() != 0 || rinzu.sqlite.liveStatements() != 0 || rinzu.sqlite.ownedLive() != 0 {
+        panic("SQLite resources remained live");
+    }
+    return result;
+}
+
+async fn main() {
+    try {
+        try {
+            rinzu.stdio.writeLine(execute());
+        }
+        finally {
+            let drained = rinzu.sqlite.closeOwnerConnections();
+        }
+    }
+    catch errors {
+        panic("unexpected SQLite Error");
+    }
+}

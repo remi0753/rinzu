@@ -1,0 +1,136 @@
+import rinzu.stdio;
+
+enum Tag {
+    Empty,
+    Flag(value: Bool),
+    Packet(value: ByteArray)
+}
+
+class Inner {
+    const flag: Bool,
+    const bytes: ByteArray
+}
+
+class Key<T> {
+    const inner: Inner,
+    const fixed: Bytes(4),
+    const tag: Tag,
+    const value: T
+}
+
+class Empty {}
+
+fn require(condition: Bool) {
+    if !condition {
+        panic("failed");
+    }
+}
+
+fn same<T: Key + Equality + Transferable>(left: T, right: T) -> Bool {
+    return left == right;
+}
+
+fn echo<T: Transferable>(value: T) -> T {
+    return value;
+}
+
+async fn main() {
+    try {
+        let flags: Map<CBool, String> = {
+            false: "first", true: "second", false: "last"
+        };
+        require(mapLength(flags) == 2 && mapKeys(flags) == [false, true]);
+        require(mapGet(flags, false) == Option<String>.Some(value: "last"));
+        let changedFlags = mapInsert(flags, true, "updated");
+        require(mapGet(flags, true) == Option<String>.Some(value: "second"));
+        require(mapKeys(mapInsert(mapRemove(flags, false), false, "again")) == [true, false]);
+        let first: Bytes(4) = b"A";
+        let second: Bytes(4) = b"AB";
+        let fixed: Map<Bytes(4), Int> = {
+            first: 1, second: 2, b"A\x00\x00\x00": 3
+        };
+        require(mapLength(fixed) == 2 && mapKeys(fixed) == [first, second]);
+        require(mapGet(fixed, first) == Option<Int>.Some(value: 3));
+        let invalid: List<CUInt8> = [0, 255, 128];
+        let data = byteArray(invalid);
+        let empty = byteArray(b"");
+        let binary: Map<ByteArray, Int> = {
+            empty: 0, data: 1, bytesCopy(data): 2
+        };
+        require(mapKeys(binary) == [empty, data] && mapLength(binary) == 2);
+        require(mapGet(binary, bytesCopy(data)) == Option<Int>.Some(value: 2));
+        require(mapGet(binary, byteArray(b"missing")) == Option<Int>.None());
+        let original = Key<
+            Int
+        >(inner: Inner(flag: true, bytes: data), fixed: first, tag: Tag.Packet(value: data), value: 1);
+        let copy = Key<
+            Int
+        >(
+            inner: Inner(flag: true, bytes: bytesCopy(data)),
+            fixed: b"A",
+            tag: Tag.Packet(value: bytesCopy(data)),
+            value: 1
+        );
+        let changed = Key<Int>(inner: original.inner, fixed: original.fixed, tag: original.tag, value: 2);
+        let changedChild = Key<
+            Int
+        >(
+            inner: Inner(flag: false, bytes: original.inner.bytes),
+            fixed: original.fixed,
+            tag: original.tag,
+            value: original.value
+        );
+        require(same<Key<Int>>(original, copy));
+        require(same<Bool>(true, true) && same<ByteArray>(data, bytesCopy(data)));
+        let records: Map<Key<Int>, String> = {
+            original: "old", changed: "changed", copy: "last", changedChild: "child"
+        };
+        require(mapLength(records) == 3 && mapKeys(records) == [original, changed, changedChild]);
+        require(mapGet(records, copy) == Option<String>.Some(value: "last"));
+        require(mapGet(records, changed) == Option<String>.Some(value: "changed"));
+        require(mapGet(records, changedChild) == Option<String>.Some(value: "child"));
+        require(original.value == 1 && original.inner.flag);
+        let tags: Map<Tag, Int> = {
+            Tag.Empty(): 1, Tag.Flag(value: false): 2, Tag.Flag(value: true): 3
+        };
+        require(mapLength(tags) == 3 && mapGet(tags, Tag.Flag(value: true)) == Option<Int>.Some(value: 3));
+        let zero: Map<Bytes(0), Int> = {
+            b"": 1, b"": 2
+        };
+        let emptyRecords: Map<Empty, Int> = {
+            Empty(): 1, Empty(): 2
+        };
+        require(mapLength(zero) == 1 && mapGet(zero, b"") == Option<Int>.Some(value: 2));
+        require(mapLength(emptyRecords) == 1 && mapGet(emptyRecords, Empty()) == Option<Int>.Some(value: 2));
+        var many: Map<ByteArray, Int> = {};
+        var index = 0;
+        while index < 64 {
+            let one: List<CUInt8> = [CUInt8(index)];
+            many = mapInsert(many, byteArray(one), index);
+            index = index + 1;
+        }
+        index = 0;
+        while index < 64 {
+            let query: List<CUInt8> = [CUInt8(index)];
+            require(mapGet(many, byteArray(query)) == Option<Int>.Some(value: index));
+            index = index + 1;
+        }
+        let flagFuture = spawn echo<Map<Bool, String>>(changedFlags);
+        let fixedFuture = spawn echo<Map<Bytes(4), Int>>(fixed);
+        let binaryFuture = spawn echo<Map<ByteArray, Int>>(binary);
+        let recordFuture = spawn echo<Map<Key<Int>, String>>(records);
+        let later = mapInsert(records, original, "later");
+        let copiedFlags = await flagFuture;
+        let copiedFixed = await fixedFuture;
+        let copiedBinary = await binaryFuture;
+        let copiedRecords = await recordFuture;
+        require(
+            copiedFlags == changedFlags && copiedFixed == fixed && copiedBinary == binary && copiedRecords == records
+        );
+        require(mapGet(copiedRecords, copy) == Option<String>.Some(value: "last"));
+        require(mapGet(later, original) == Option<String>.Some(value: "later"));
+        require(mapKeys(copiedRecords) == mapKeys(records));
+        rinzu.stdio.writeLine("keys ok");
+    }
+    catch errors {}
+}

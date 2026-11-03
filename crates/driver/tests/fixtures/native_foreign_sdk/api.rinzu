@@ -1,0 +1,84 @@
+async fn readSize(path: String) -> Int {
+    return await readResourceSize(path);
+}
+
+native {
+    opaque Handle;
+
+    fn reset(processMain: CInt) symbol "foreign_reset";
+
+    fn finish() -> CInt symbol "foreign_finish";
+
+    fn nested() symbol "foreign_nested";
+
+    fn bodyMarker() symbol "foreign_body_marker";
+
+    fn afterReturn() symbol "foreign_after_return";
+
+    fn ordinary(callback: fn (String) -> String) -> CInt symbol "foreign_ordinary";
+
+    supplant fn run(
+        scalar: fn (
+            CInt8,
+            CInt16,
+            CInt32,
+            CInt64,
+            CUInt8,
+            CUInt16,
+            CUInt32,
+            CUInt64,
+            CFloat,
+            CDouble,
+            CBool,
+            String,
+            Bytes(4)
+        ) -> CDouble,
+        unit: fn (String, Bytes(0)) -> Unit,
+        text: fn (String) -> String,
+        bytes: fn (Bytes(4)) -> Bytes(4),
+        failed: fn (String) -> CInt,
+        failedText: fn (String) -> String,
+        failedBytes: fn (String) -> Bytes(4),
+        core: fn (Bytes(4)) -> CSize,
+        unsupported: fn (Handle) -> CInt,
+        mode: CInt
+    ) -> CInt symbol "foreign_run";
+
+    supplant fn runProtected(
+        scalar: fn (
+            CInt8,
+            CInt16,
+            CInt32,
+            CInt64,
+            CUInt8,
+            CUInt16,
+            CUInt32,
+            CUInt64,
+            CFloat,
+            CDouble,
+            CBool,
+            String,
+            Bytes(4)
+        ) -> CDouble,
+        unit: fn (String, Bytes(0)) -> Unit,
+        text: fn (String) -> String,
+        bytes: fn (Bytes(4)) -> Bytes(4),
+        failed: fn (String) -> CInt,
+        failedText: fn (String) -> String,
+        failedBytes: fn (String) -> Bytes(4),
+        core: fn (Bytes(4)) -> CSize,
+        unsupported: fn (Handle) -> CInt,
+        mode: CInt
+    ) -> String symbol "foreign_run_protected";
+}
+
+export Handle;
+export reset;
+export finish;
+export nested;
+export bodyMarker;
+export afterReturn;
+export ordinary;
+export run;
+export runProtected;
+export readSize;

@@ -1,0 +1,10 @@
+[package]
+name = "rinzu.io"
+language = "0.5"
+kind = "sdk"
+entry = "src/io.rinzu"
+
+[native]
+sources = ["native/src/io.c"]
+headers = ["native/include/rinzu_io.h"]
+include-dirs = ["native/include"]

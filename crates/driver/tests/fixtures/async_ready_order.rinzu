@@ -1,0 +1,46 @@
+class Trace {
+    values: List<Int>
+}
+
+fn note(trace: Trace, value: Int) {
+    trace.values = listAppend(trace.values, value);
+}
+
+async fn mark(trace: Trace, value: Int) -> Int {
+    note(trace, value);
+    return value;
+}
+
+async fn middle(trace: Trace) -> Int {
+    let first = mark(trace, 3);
+    let second = mark(trace, 5);
+    let value = await first;
+    note(trace, 4);
+    let later = mark(trace, 7);
+    return value;
+}
+
+async fn parent(trace: Trace) -> Int {
+    note(trace, 1);
+    let value = await middle(trace);
+    note(trace, 6);
+    return value;
+}
+
+async fn main() {
+    var round = 0;
+    while round < 3 {
+        let trace = Trace(values: []);
+        let first = parent(trace);
+        let second = mark(trace, 2);
+        if listLength(trace.values) != 0 {
+            panic("ranBeforeTurn");
+        }
+        let one = await first;
+        let two = await second;
+        if one != 3 || two != 2 || trace.values != [1, 2, 3, 5, 4, 6, 7] {
+            panic("changedSnapshot");
+        }
+        round = round + 1;
+    }
+}

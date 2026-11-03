@@ -1,0 +1,57 @@
+import rinzu.stdio;
+
+class State {
+    value: Int,
+    text: String
+}
+
+async fn child(state: State) -> String {
+    state.value = state.value + 1;
+    return state.text;
+}
+
+fn launch(state: State) -> Future<String> {
+    return child(state);
+}
+
+async fn cancelledChild(state: State) {
+    try {
+        state.value = 1;
+    }
+    finally {
+        state.value = 2;
+    }
+}
+
+async fn turn() {}
+
+async fn main() {
+    try {
+        let state = State(value: 0, text: "界\u{0}🙂");
+        let pending = launch(state);
+        if state.value != 0 || futureReady(pending) {
+            panic("inlineBody");
+        }
+        var i = 0;
+        while i < 80 {
+            let moved = ["queued", "arguments"];
+            i = i + 1;
+        }
+        let result = await pending;
+        let repeated = await pending;
+        if result != state.text || repeated != result || state.value != 1 {
+            panic("wrongBody");
+        }
+        rinzu.stdio.writeLine(state.value);
+        rinzu.stdio.writeLine(result);
+        let untouched = State(value: 0, text: "queued cancellation");
+        let cancelled = cancelledChild(untouched);
+        let won = cancelFuture(cancelled);
+        await turn();
+        if !won || untouched.value != 0 {
+            panic("enteredCancelledBody");
+        }
+        rinzu.stdio.writeLine(untouched.value);
+    }
+    catch errors {}
+}

@@ -1,0 +1,48 @@
+import rinzu.stdio;
+
+class Editor {
+    text: String,
+    selection: Int,
+    undo: List<String>,
+    link: Option<Editor>
+}
+
+fn edit(editor: Editor) {
+    editor.undo = listAppend(editor.undo, editor.text);
+    editor.text = "after";
+}
+
+fn select(editor: Editor) {
+    editor.selection = stringLength(editor.text);
+}
+
+fn snapshot(text: String) -> String {
+    return text;
+}
+
+async fn main() {
+    try {
+        let editor = Editor(text: "before", selection: 0, undo: [], link: Option<Editor>.None());
+        let alias = editor;
+        edit(editor);
+        alias.link = Option<Editor>.Some(value: editor);
+        var i = 0;
+        while i < 300 {
+            let transient = f"collect-{i}";
+            i = i + 1;
+        }
+        switch editor.link {
+            case Option.None: {}
+            case Option.Some(linked): {
+                select(linked);
+            }
+        }
+        let pending = spawn snapshot(editor.text);
+        editor.text = "updated-after-snapshot";
+        let text = await pending;
+        rinzu.stdio.writeLine(f"selection={alias.selection},undo={listLength(alias.undo)}");
+        rinzu.stdio.writeLine(text);
+        rinzu.stdio.writeLine(f"current={editor.text}");
+    }
+    catch errors {}
+}

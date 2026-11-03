@@ -1,0 +1,6 @@
+[package]
+name = "macos_data_acquire_test"
+language = "0.5"
+
+[dependencies]
+"rinzu.macos" = { path = "../.." }

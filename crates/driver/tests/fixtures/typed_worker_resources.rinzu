@@ -1,0 +1,36 @@
+class Packet {
+    const text: String,
+    const bytes: Bytes(4),
+    const high: CSize
+}
+
+fn echo(value: Packet) -> Packet {
+    return value;
+}
+
+fn expanded(value: Packet) -> List<Packet> {
+    return [value, value, value, value];
+}
+
+fn observed(value: Packet) -> Packet {
+    try {
+        let first = CInt8(200);
+    }
+    catch [one: Error, ...oneRest] {
+        let first_message = one.message;
+    }
+    try {
+        let second = CInt8(300);
+    }
+    catch [two: Error, ...twoRest] {
+        let second_message = two.message;
+    }
+    return value;
+}
+
+async fn main() {
+    let original = Packet(text: "日本語\u{0}🙂", bytes: b"A\xff", high: 18446744073709551615);
+    let one = spawn echo(original);
+    let two = spawn expanded(original);
+    let three = spawn observed(original);
+}

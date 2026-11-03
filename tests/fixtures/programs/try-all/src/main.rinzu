@@ -1,0 +1,81 @@
+import rinzu.stdio;
+
+class Counter {
+    calls: Int
+}
+
+fn consume(counter: Counter, value: CInt8) {
+    counter.calls = counter.calls + 1 + Int(value);
+}
+
+fn work() -> Int {
+    var n = 0;
+    while n < 10000 {
+        n = n + 1;
+    }
+    return 42;
+}
+
+async fn failed() -> Int {
+    let bad = CInt8(300);
+    return 1;
+}
+
+async fn finish(counter: Counter) {
+    let result = await spawn work();
+    counter.calls = result;
+    rinzu.stdio.writeLine("settled");
+}
+
+async fn main() {
+    try {
+        let counter = Counter(calls: 0);
+        try all {
+            let unbound = CInt8(300);
+            consume(counter, unbound);
+            let captured = fn () -> Int {
+                return Int(unbound);
+            };
+            var gc: Int = 0;
+            while gc < 300 {
+                let temporary = f"gc-{gc}";
+                gc = gc + 1;
+            }
+            var kept: Int = 7;
+            kept = Int(CInt8(300));
+            counter.calls = Int(CInt8(300));
+            {
+                let bad = CInt8(300);
+                rinzu.stdio.writeLine("nested");
+            }
+            let task = failed();
+            let first = await task;
+            let repeated = await task;
+            let finishing = finish(counter);
+            try {
+                let ordinaryBad = CInt8(300);
+                rinzu.stdio.writeLine("skipped");
+            }
+            catch error {
+                rinzu.stdio.writeLine("ordinary");
+            }
+            if Int(CInt8(300)) == 1 {
+                rinzu.stdio.writeLine("skipped-if");
+            }
+            while Int(CInt8(300)) == 1 {
+                rinzu.stdio.writeLine("skipped-while");
+            }
+            rinzu.stdio.writeLine(kept);
+            rinzu.stdio.writeLine("body");
+            await finishing;
+        }
+        catch errors {
+            rinzu.stdio.writeLine(f"errors={listLength(errors)}");
+        }
+        finally {
+            rinzu.stdio.writeLine("finally");
+        }
+        rinzu.stdio.writeLine(counter.calls);
+    }
+    catch errors {}
+}

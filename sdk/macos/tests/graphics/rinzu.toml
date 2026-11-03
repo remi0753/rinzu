@@ -1,0 +1,6 @@
+[package]
+name = "macos_graphics_test"
+language = "0.5"
+
+[dependencies]
+"rinzu.macos" = { path = "../.." }

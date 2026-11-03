@@ -1,0 +1,157 @@
+import rinzu.core;
+
+let width = 4;
+
+class Packet {
+    const bytes: Bytes(width),
+    const label: String
+}
+
+enum Payload {
+    bytes(value: Bytes(8)),
+    empty
+}
+
+enum Key {
+    label(value: String),
+    number(value: CSize),
+    empty
+}
+
+fn raw() -> Bytes(2) {
+    return b"A\xff";
+}
+
+fn widened() -> Bytes(8) {
+    return raw();
+}
+
+fn argument(value: Bytes(8)) -> Bytes(8) {
+    return value;
+}
+
+fn key(value: Int) -> Key {
+    if value == 0 {
+        return Key.empty();
+    }
+    return Key.label(value: "same\u{0}key");
+}
+
+fn packet() -> Packet {
+    return Packet(bytes: raw(), label: "retained");
+}
+
+fn verify() -> Int {
+    let zero: Bytes(0) = b"";
+    let empty: Bytes(4) = b"";
+    if byteLength(zero) != 0 || byteLength(empty) != 4 {
+        panic("bad_length");
+    }
+    if empty != b"\x00\x00\x00\x00" {
+        panic("bad_empty");
+    }
+    let original = raw();
+    let copy: Bytes(width) = original;
+    if original != b"A\xff" || copy != b"A\xff\x00\x00" {
+        panic("bad_padding");
+    }
+    let big = widened();
+    if big != b"A\xff\x00\x00\x00\x00\x00\x00" {
+        panic("bad_return");
+    }
+    if argument(original) != big {
+        panic("bad_argument");
+    }
+    var variable: Bytes(4) = b"A";
+    variable = b"B";
+    if variable != b"B\x00\x00\x00" {
+        panic("bad_assignment");
+    }
+    let received = packet();
+    if received.bytes != copy {
+        panic("bad_field");
+    }
+    let choice = Payload.bytes(value: original);
+    switch choice {
+        case Payload.empty: {
+            panic("bad_dispatch");
+        }
+        case Payload.bytes(bytes): {
+            if bytes != big || byteLength(bytes) != 8 {
+                panic("bad_enum");
+            }
+        }
+    }
+    let padded: List<Bytes(4)> = [b"A", b"B"];
+    let exact: List<Bytes(4)> = [b"A\x00\x00\x00", b"B\x00\x00\x00"];
+    if padded != exact {
+        panic("bad_collection_padding");
+    }
+    let empty_list: List<Packet> = [];
+    let other_empty: List<Packet> = [];
+    if empty_list != other_empty {
+        panic("bad_empty_list");
+    }
+    let empty_map: Map<Key, Packet> = {};
+    let other_map: Map<Key, Packet> = {};
+    if empty_map != other_map {
+        panic("bad_empty_map");
+    }
+    let duplicate: Map<Key, Bytes(4)> = {
+        key(1): b"old", key(1): b"last"
+    };
+    let expected: Map<Key, Bytes(4)> = {
+        Key.label(value: "same\u{0}key"): b"last"
+    };
+    if duplicate != expected {
+        panic("bad_later_wins");
+    }
+    let text_map: Map<String, Bytes(4)> = {
+        "a\u{0}": b"A", "a\u{0}": b"B", "a": b"C"
+    };
+    let text_set: Map<String, Bytes(4)> = {
+        "a": b"C", "a\u{0}": b"B"
+    };
+    if text_map != text_set {
+        panic("bad_string_key");
+    }
+    let unsigned: Map<CSize, Bytes(4)> = {
+        18446744073709551615: b"A", 9223372036854775808: b"B", 18446744073709551615: b"C"
+    };
+    let unsigned_set: Map<CSize, Bytes(4)> = {
+        9223372036854775808: b"B", 18446744073709551615: b"C"
+    };
+    if unsigned != unsigned_set {
+        panic("bad_unsigned_key");
+    }
+    var caught = 0;
+    try {
+        let invalid_first: Map<Int, CInt8> = {
+            1: CInt8(200), 1: 42
+        };
+    }
+    catch first_error {
+        caught = caught + 1;
+    }
+    try {
+        let invalid_last: Map<Int, CInt8> = {
+            1: 42, 1: CInt8(200)
+        };
+    }
+    catch last_error {
+        caught = caught + 1;
+    }
+    if caught != 2 {
+        panic("skipped_entry");
+    }
+    if [1, 2] == [2, 1] {
+        panic("bad_list_order");
+    }
+    return 42;
+}
+
+fn main() {
+    if verify() != 42 {
+        panic("bad_result");
+    }
+}

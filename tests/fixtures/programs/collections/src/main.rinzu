@@ -1,0 +1,61 @@
+import rinzu.stdio;
+
+fn echo<T: Transferable>(value: T) -> T {
+    return value;
+}
+
+async fn main() {
+    try {
+        let empty: List<String> = [];
+        let original = listAppend(empty, "日本語\u{0}tail");
+        let alias = original;
+        let extended = listAppend(original, "second");
+        rinzu.stdio.writeLine(listLength(empty));
+        rinzu.stdio.writeLine(listLength(extended));
+        rinzu.stdio.writeLine(listGet(extended, -1) == Option<String>.None());
+        switch listGet(extended, 0) {
+            case Option.Some(value): {
+                rinzu.stdio.writeLine(value);
+            }
+            case Option.None: {}
+        }
+        switch listSet(extended, 0, "updated") {
+            case Option.Some(value): {
+                rinzu.stdio.writeLine(value);
+            }
+            case Option.None: {}
+        }
+        switch listRemove(extended, 0) {
+            case Option.Some(value): {
+                rinzu.stdio.writeLine(value);
+            }
+            case Option.None: {}
+        }
+        rinzu.stdio.writeLine(alias == original);
+        let initial: Map<String, Int> = {
+            "a": 1, "b": 2, "a": 3
+        };
+        let updated = mapInsert(initial, "a", 4);
+        let appended = mapInsert(updated, "c", 5);
+        let removed = mapRemove(appended, "b");
+        rinzu.stdio.writeLine(mapLength(removed));
+        rinzu.stdio.writeLine(mapKeys(removed));
+        rinzu.stdio.writeLine(mapGet(removed, "b") == Option<Int>.None());
+        switch mapGet(removed, "a") {
+            case Option.Some(value): {
+                rinzu.stdio.writeLine(value);
+            }
+            case Option.None: {}
+        }
+        let snapshot = spawn echo<Map<String, Int>>(initial);
+        let copied = await snapshot;
+        rinzu.stdio.writeLine(copied == initial);
+        switch mapGet(copied, "a") {
+            case Option.Some(value): {
+                rinzu.stdio.writeLine(value);
+            }
+            case Option.None: {}
+        }
+    }
+    catch errors {}
+}

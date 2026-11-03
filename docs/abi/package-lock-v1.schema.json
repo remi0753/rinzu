@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rinzu.dev/schema/package-lock-v1.schema.json",
+  "title": "Rinzu package lock v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "version", "target", "root", "packages"],
+  "properties": {
+    "schema": { "const": "rinzu.package-lock" },
+    "version": { "const": 1 },
+    "target": { "type": "string", "minLength": 1 },
+    "root": { "type": "string", "minLength": 1 },
+    "packages": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/package" }
+    }
+  },
+  "$defs": {
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "source", "manifestDigest", "exportsDigest", "dependencies", "nativeArtifacts"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "path"],
+          "properties": {
+            "kind": { "const": "path" },
+            "path": { "type": "string", "minLength": 1 }
+          }
+        },
+        "manifestDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "exportsDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "dependencies": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "nativeArtifacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["target", "path", "digest", "entry"],
+            "properties": {
+              "target": { "type": "string", "minLength": 1 },
+              "path": { "type": "string", "minLength": 1 },
+              "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "entry": { "const": "rinzu_native_package_v1" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

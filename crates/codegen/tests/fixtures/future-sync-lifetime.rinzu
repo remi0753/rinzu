@@ -1,0 +1,27 @@
+import rinzu.stdio;
+import rinzu.timer;
+
+class State {
+    text: String
+}
+
+async fn finish(state: State) {
+    try {
+        await rinzu.timer.sleep(1);
+        rinzu.stdio.writeLine(state.text);
+    }
+    catch errors {}
+}
+
+fn launch(state: State) {
+    finish(state);
+}
+
+fn main() {
+    try {
+        let state = State(text: "retained after sync main");
+        launch(state);
+        rinzu.stdio.writeLine("sync main complete");
+    }
+    catch errors {}
+}

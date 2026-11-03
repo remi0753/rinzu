@@ -1,0 +1,144 @@
+import rinzu.timer;
+import rinzu.macos;
+import rinzu.process;
+import rinzu.shutdown;
+import rinzu.stdio;
+
+class Scene {
+    const session: rinzu.macos.Session,
+    const surface: rinzu.macos.View,
+    const command: rinzu.macos.Command,
+    const pipeline: rinzu.macos.RenderPipeline,
+    const maximum: Int,
+    started: Bool,
+    active: Bool,
+    frames: Int
+}
+
+fn receive(scene: Scene, event: rinzu.macos.Event) {
+    if event.kind == rinzu.macos.eventStarted {
+        scene.started = true;
+    }
+    if event.kind == rinzu.macos.eventCloseRequested || event.kind == rinzu.macos.eventQuitRequested {
+        scene.active = false;
+        let stopped = scene.session.stop();
+    }
+}
+
+async fn draw(scene: Scene) {
+    try {
+        while !scene.started && scene.active {
+            await rinzu.timer.sleep(1);
+        }
+        while scene.active {
+            let begun = scene.command.beginRender(
+                scene.surface,
+                rinzu.macos.Color(red: 0.035, green: 0.05, blue: 0.08, alpha: 1.0)
+            );
+            let pipeline = scene.command.setRenderPipeline(scene.pipeline);
+            let triangle = scene.command.drawTriangles(0, 3);
+            let committed = scene.command.commit();
+            let completed = await scene.command.wait();
+            scene.frames = scene.frames + 1;
+            if (scene.maximum > 0 && scene.frames >= scene.maximum) || rinzu.shutdown.signalRequested() != 0 {
+                break;
+            }
+            await rinzu.timer.sleep(16);
+        }
+    }
+    finally {
+        if scene.started && scene.active {
+            scene.active = false;
+            let stopped = scene.session.stop();
+        }
+    }
+}
+
+async fn application() {
+    let enabled = rinzu.shutdown.enableSignals();
+    try {
+        let session = rinzu.macos.open();
+        let device = session.device();
+        let shader = r#"
+#include <metal_stdlib>
+using namespace metal;
+kernel void increment(device uchar *data [[buffer(0)]], uint i [[thread_position_in_grid]]) {
+    data[i] += 1;
+}
+vertex float4 triangle(uint i [[vertex_id]]) {
+    const float2 positions[3] = {float2(0, 0.7), float2(-0.7, -0.7), float2(0.7, -0.7)};
+    return float4(positions[i], 0, 1);
+}
+fragment float4 color() { return float4(0.2, 0.7, 0.9, 1); }
+"#;
+        let library = device.library(shader);
+        let compute = library.computePipeline("increment");
+        let command = device.command();
+        let bytes = device.buffer(byteArray(b"\x00\xff\x40\x7f"));
+        let begun = command.beginCompute(compute);
+        let bound = command.setComputeBuffer(0, bytes, 0);
+        let dispatched = command.dispatch(4, 1, 1, 4, 1, 1);
+        let committed = command.commit();
+        let completed = await command.wait();
+        if bytes.read(0, 4) != byteArray(b"\x01\x00\x41\x80") {
+            panic("GPU result mismatch");
+        }
+        let destroyed = bytes.destroy();
+        rinzu.stdio.writeLine("MACOS:compute-ok");
+        let window = session.window("Rinzu / AppKit + Metal", 640.0, 440.0);
+        let content = window.contentView();
+        let surface = device.surface(rinzu.macos.Rect(x: 20.0, y: 20.0, width: 600.0, height: 400.0));
+        let attached = content.addSubview(surface);
+        let shown = window.show();
+        let scene = Scene(
+            session: session,
+            surface: surface,
+            command: command,
+            pipeline: library.renderPipeline("triangle", "color"),
+            maximum: rinzu.process.integer("RINZU_MACOS_FRAMES", 0, 0, 100000),
+            started: false,
+            active: true,
+            frames: 0
+        );
+        let drawing = draw(scene);
+        try {
+            let result = await session.run(
+                fn (context: rinzu.macos.RunContext, event: rinzu.macos.Event) -> Unit fallback () {
+                    let app = context.session;
+                    receive(scene, event);
+                }
+            );
+        }
+        finally {
+            scene.active = false;
+            await drawing;
+        }
+        rinzu.stdio.writeLine(f"MACOS:frames={scene.frames}");
+    }
+    finally {
+        try {
+            let closed = await rinzu.macos.closeOwnerSessions();
+        }
+        finally {
+            let disabled = rinzu.shutdown.disableSignals();
+        }
+    }
+    let stats = rinzu.macos.statistics();
+    if stats.sessions != 0 || stats.windows != 0 || stats.views != 0 || stats.commands != 0 || stats.bufferBytes != 0 {
+        panic("macOS resources remained live");
+    }
+    rinzu.stdio.writeLine("MACOS:closed");
+}
+
+async fn main() {
+    try {
+        await application();
+    }
+    catch errors {
+        try {
+            rinzu.stdio.writeLine(f"macOS sample: {errors}");
+        }
+        catch outputErrors {}
+        panic("macOS sample failed; check GPU availability and SDK diagnostic");
+    }
+}

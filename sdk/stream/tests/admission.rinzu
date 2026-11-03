@@ -1,0 +1,41 @@
+import rinzu.timer;
+import rinzu.stdio;
+
+class Count {
+    value: Int
+}
+
+async fn child(count: Count) {
+    try {
+        count.value = count.value + 1;
+        await rinzu.timer.sleep(100);
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+    }
+}
+
+async fn main() {
+    let count = Count(value: 0);
+    try {
+        try {
+            let first = child(count);
+            let second = child(count);
+            let third = child(count);
+            // Let admitted bodies start while keeping all three pending. The
+            // fourth registration is then the one rejected by the test profile.
+            await rinzu.timer.sleep(0);
+            let fourth = child(count);
+            await first;
+            await second;
+            await third;
+            await fourth;
+        }
+        finally {
+            rinzu.stdio.writeLine(f"{count.value}");
+        }
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+    }
+}

@@ -1,0 +1,6 @@
+[package]
+name = "macos_bundle_probe"
+language = "0.5"
+
+[dependencies]
+"rinzu.macos" = { path = "../.." }

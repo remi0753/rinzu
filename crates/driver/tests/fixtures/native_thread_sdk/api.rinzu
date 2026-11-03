@@ -1,0 +1,108 @@
+async fn readSize(path: String) -> Int {
+    return await readResourceSize(path);
+}
+
+native {
+    opaque Witness;
+
+    fn create(main: CInt) -> Witness symbol "thread_create";
+
+    fn ping(value: Witness) -> CInt symbol "thread_ping";
+
+    fn invoke(value: Witness, body: fn (Witness, CInt) -> CInt, depth: CInt) -> CInt symbol "thread_invoke";
+
+    fn destroy(value: Witness) -> Unit symbol "thread_destroy";
+
+    fn live() -> CInt symbol "thread_live";
+
+    fn clear() -> CInt symbol "thread_clear";
+
+    fn block(value: Witness, body: fn (Witness, CInt) -> CInt) -> CInt symbol "thread_block";
+
+    fn waitBlocked() -> Unit symbol "thread_wait_blocked";
+
+    fn isBlocked() -> CInt symbol "thread_is_blocked";
+
+    fn releaseBlocked() -> Unit symbol "thread_release_blocked";
+}
+
+fn receive(value: Witness, depth: CInt) -> CInt fallback -19 {
+    let retained = ["日本語", "caller root after nested native call"];
+    if ping(value) != 41 {
+        panic("wrongThread");
+    }
+    try {
+        if depth == 99 {
+            let conversion = CInt8(300);
+        }
+        if depth > 0 {
+            return invoke(value, receive, depth - 1) + 1;
+        }
+        return ping(value);
+    }
+    finally {
+        if retained != ["日本語", "caller root after nested native call"] || ping(value) != 41 {
+            panic("lostCaller");
+        }
+    }
+}
+
+fn exercise(main: CInt) -> Int {
+    try {
+        let value = create(main);
+        let retained = ["outer", "moving root"];
+        if invoke(value, receive, 12) != 53 || invoke(value, receive, 99) != -19 {
+            panic("wrongResult");
+        }
+        if retained != ["outer", "moving root"] {
+            panic("lostRoot");
+        }
+        destroy(value);
+        return 1;
+    }
+    catch unexpectedErrors {
+        panic("failed");
+        return 0;
+    }
+}
+
+fn orphan(main: CInt) -> Int {
+    try {
+        let value = create(main);
+        if ping(value) != 41 {
+            panic("wrong");
+        }
+        return 1;
+    }
+    catch unexpectedErrors {
+        panic("failed");
+        return 0;
+    }
+}
+
+fn blocking() -> Int {
+    try {
+        let value = create(0);
+        let retained = ["blocked Worker", "root while I/O runs"];
+        let result = block(value, receive);
+        if result != 41 || retained != ["blocked Worker", "root while I/O runs"] {
+            panic("wrongBlock");
+        }
+        destroy(value);
+        return 1;
+    }
+    catch unexpectedErrors {
+        panic("failed");
+        return 0;
+    }
+}
+
+export exercise;
+export orphan;
+export live;
+export clear;
+export blocking;
+export waitBlocked;
+export isBlocked;
+export releaseBlocked;
+export readSize;

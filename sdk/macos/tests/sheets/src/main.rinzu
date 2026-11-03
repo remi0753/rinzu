@@ -1,0 +1,174 @@
+import rinzu.timer;
+import rinzu.macos;
+import rinzu.process;
+import rinzu.stdio;
+import rinzu.testing;
+
+fn require(value: Bool, message: String) {
+    rinzu.testing.assertTrue(value, message);
+}
+
+async fn shown(window: rinzu.macos.Window) {
+    var attempts = 0;
+    while !window.testSheetVisible() && attempts < 5000 {
+        await rinzu.timer.sleep(1);
+        attempts = attempts + 1;
+    }
+    require(window.testSheetVisible(), "panel is physically shown before cancellation");
+}
+
+// Observe failures independently of the display wait. A UI wait must not put
+// the only observer of another failable Future behind its polling loop.
+async fn observePanel(pending: Future<Option<String>>) {
+    try {
+        switch await pending {
+            case Option.None: {}
+            case Option.Some(path): {
+                panic("stopped sheet selected a path");
+            }
+        }
+    }
+    catch errors {
+        panic(f"panel failed: {errors}");
+    }
+}
+
+async fn scopeSheet(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    let started = scope.start(
+        async fn (job: rinzu.macos.UiJob) {
+            let result = await job.window.alert("Pending", "Close the Window scope", "OK", "", "");
+            require(result == 0, "scope close dismisses sheet");
+        }
+    );
+    await shown(scope.window);
+    scope.requestStop();
+    let joined = await scope.join();
+    return;
+}
+
+async fn pendingSheet(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    let mode = rinzu.process.setting("RINZU_SHEET_TEST", "results");
+    let pending = scope.window.openFile("Pending open", "");
+    let observing = observePanel(pending);
+    try {
+        await shown(scope.window);
+        if mode == "cancel" {
+            rinzu.stdio.writeLine("SHEETS:cancelling");
+            let cancelled = cancelFuture(pending);
+            require(cancelled, "panel wait cancellation admitted");
+            rinzu.stdio.writeLine("SHEETS:cancel-requested");
+        }
+        else {
+            let stopped = scope.session.stop();
+        }
+    }
+    finally {
+        try {
+            let dismissed = scope.window.dismissSheet();
+        }
+        finally {
+            await observing;
+        }
+    }
+}
+
+async fn results(app: rinzu.macos.UiApplication) {
+    let window = app.primary.window;
+    let path = rinzu.process.setting("RINZU_SHEET_PATH", "");
+    let first = window.testSheetReply(1, "");
+    require(await window.alert("日本😀", "Save / Discard / Cancel", "Save", "Discard", "Cancel") == 1, "first button");
+    let second = window.testSheetReply(2, "");
+    require(await window.alert("Unsaved", "Choose discard", "Save", "Discard", "Cancel") == 2, "second button");
+    let third = window.testSheetReply(3, "");
+    require(await window.alert("Unsaved", "Choose cancel", "Save", "Discard", "Cancel") == 3, "third button");
+    let cancelled = window.testSheetReply(0, "");
+    switch await window.openFile("Open cancel", "") {
+        case Option.None: {}
+        case Option.Some(unexpected): {
+            panic("cancel returned path");
+        }
+    }
+    let chosen = window.testSheetReply(1, path);
+    // Closing an Open panel with OK without selecting a row must fail, rather
+    // than manufacture a file path from its directory/name configuration.
+    var missingSelection = false;
+    try {
+        let opened = await window.openFile("Open without selection", "");
+    }
+    catch errors {
+        missingSelection = true;
+    }
+    require(missingSelection, "missing Open selection is an Error");
+    let savePath = f"{path}.saved";
+    let destination = window.testSheetReply(1, savePath);
+    let directory = rinzu.process.setting("RINZU_SHEET_DIRECTORY", "");
+    let parts = stringSplit(savePath, "/");
+    var name = "document.txt";
+    switch listGet(parts, listLength(parts) - 1) {
+        case Option.Some(last): {
+            name = last;
+        }
+        case Option.None: {}
+    }
+    switch await window.saveFile("Save file", directory, name) {
+        case Option.Some(saved): {
+            require(saved == savePath, f"save destination: {saved} != {savePath}");
+        }
+        case Option.None: {
+            panic("save selection cancelled");
+        }
+    }
+    let stats = rinzu.macos.statistics();
+    require(stats.sheets == 0 && stats.sheetBytes == 0, "all receipts released");
+}
+
+async fn acquisition(app: rinzu.macos.UiApplication) {
+    let path = await app.primary.window.openFile("Cancel before Source receives admission", "");
+    panic("return cancellation did not fire");
+}
+
+async fn main() {
+    try {
+        let mode = rinzu.process.setting("RINZU_SHEET_TEST", "results");
+        try {
+            if mode == "results" {
+                let result = await rinzu.macos.application("Sheet results", 520.0, 320.0, results);
+            }
+            else if mode == "acquisition" {
+                let acquired = await rinzu.macos.application("Sheet acquisition", 520.0, 320.0, acquisition);
+            }
+            else if mode == "scope" {
+                let scoped = await rinzu.macos.application("Scope sheet", 520.0, 320.0, scopeSheet);
+            }
+            else {
+                let lifecycle = await rinzu.macos.application("Sheet lifecycle", 520.0, 320.0, pendingSheet);
+            }
+            rinzu.stdio.writeLine(f"SHEETS:{mode}:ok");
+        }
+        finally {
+            let stats = rinzu.macos.statistics();
+            require(
+                stats
+                    .sessions
+                    + stats
+                    .windows
+                    + stats
+                    .views
+                    + stats
+                    .retainedControls
+                    + stats
+                    .sheets
+                    + stats
+                    .sheetBytes
+                    == 0,
+                "Window / Session / sheet cleanup"
+            );
+            rinzu.stdio.writeLine("SHEETS:closed");
+        }
+    }
+    catch errors {
+        panic(f"sheet test failed: {errors}");
+    }
+}

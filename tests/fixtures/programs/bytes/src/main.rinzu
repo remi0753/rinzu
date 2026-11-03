@@ -1,0 +1,33 @@
+import rinzu.stdio;
+
+fn copy<T: Transferable>(value: T) -> T {
+    return value;
+}
+
+fn length(value: ByteArray, measure: fn (ByteArray) -> CSize) -> CSize {
+    return measure(value);
+}
+
+async fn main() {
+    try {
+        let values: List<CUInt8> = [0, 255, 65];
+        let data = byteArray(values);
+        let padded: Bytes(8) = b"A";
+        let fixed = byteArray(padded);
+        rinzu.stdio.writeLine(bytesLength(data));
+        rinzu.stdio.writeLine(length(data, byteLength));
+        rinzu.stdio.writeLine(bytesLength(fixed));
+        rinzu.stdio.writeLine(bytesGet(data, 0));
+        rinzu.stdio.writeLine(bytesGet(data, 3));
+        rinzu.stdio.writeLine(bytesSlice(data, 0, 2));
+        rinzu.stdio.writeLine(bytesSlice(data, 3, 3));
+        rinzu.stdio.writeLine(bytesSlice(data, -1, 2));
+        let empty: List<CUInt8> = [];
+        let combined = bytesConcat(byteArray(empty), bytesCopy(data));
+        rinzu.stdio.writeLine(combined == data);
+        let pending = spawn copy<List<ByteArray>>([combined, fixed]);
+        rinzu.stdio.writeLine(await pending);
+        rinzu.stdio.writeLine(f"data={data}");
+    }
+    catch errors {}
+}

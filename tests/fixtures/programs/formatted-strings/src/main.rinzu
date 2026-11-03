@@ -1,0 +1,18 @@
+import messages;
+import products;
+import rinzu.stdio;
+
+fn main() {
+    try {
+        let item = products.Item(name: "Rinzu notebook", unitPrice: 1200, quantity: 2);
+        let receipt = messages.receipt(item);
+        rinzu.stdio.writeLine(receipt);
+        rinzu.stdio.writeLine(f"商品: {item}");
+        rinzu.stdio.writeLine(f"一覧: {[1, 2, 3]}");
+        rinzu.stdio.writeLine(f"波括弧: \{name\}");
+        rinzu.stdio.writeLine(f"入れ子: {f"{item.name}: {item.quantity}個"}");
+    }
+    catch errors {
+        panic("failed");
+    }
+}

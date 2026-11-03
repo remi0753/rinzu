@@ -1,0 +1,74 @@
+import pump;
+
+fn blockedWorker(text: String, bytes: Bytes(4)) -> CInt {
+    let workerRetained = ["actual Worker root", "physical return before release"];
+    try {
+        var workerIndex = 0;
+        while workerIndex < 512 {
+            let workerMoved = ["moving GC", "input retained"];
+            workerIndex = workerIndex + 1;
+        }
+    }
+    finally {
+        let physicalReturn = pump.block(text, bytes);
+        var finishIndex = 0;
+        while finishIndex < 512 {
+            let finishMoved = ["moving GC after real return", "input retained"];
+            finishIndex = finishIndex + 1;
+        }
+        if workerRetained != ["actual Worker root", "physical return before release"] {
+            panic("lostWorker");
+        }
+        pump.workerFinally(text, bytes);
+    }
+    return 41;
+}
+
+fn delayWorker() -> CInt {
+    return pump.delay();
+}
+
+async fn stopLater() {
+    let cleanupRetained = ["Main cleanup root", "pump while native blocked"];
+    let delayed = spawn delayWorker();
+    try {
+        let elapsed = await delayed;
+        if elapsed != 13 {
+            panic("lostDelay");
+        }
+    }
+    finally {
+        var cleanupIndex = 0;
+        while cleanupIndex < 512 {
+            let cleanupMoved = ["cleanup moving GC", "roots kept"];
+            cleanupIndex = cleanupIndex + 1;
+        }
+        if cleanupRetained != ["Main cleanup root", "pump while native blocked"] {
+            panic("lostCleanup");
+        }
+        pump.stop();
+    }
+}
+
+async fn main() {
+    pump.reset();
+    let originRetained = ["Origin pending child", "wait for native physical return"];
+    try {
+        let blocked = spawn blockedWorker("blocker 日本語", b"\x00\xAA\x00\x7F");
+        let stopper = stopLater();
+        pump.waitEntries();
+        var originIndex = 0;
+        while originIndex < 1024 {
+            let originMoved = ["Origin moving GC", "still retained"];
+            originIndex = originIndex + 1;
+        }
+        let unexpected = await blocked;
+        panic("lostShutdown");
+    }
+    finally {
+        if originRetained != ["Origin pending child", "wait for native physical return"] {
+            panic("lostOrigin");
+        }
+        pump.originFinally();
+    }
+}

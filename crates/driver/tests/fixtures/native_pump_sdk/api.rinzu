@@ -1,0 +1,23 @@
+native {
+    fn reset() -> Unit symbol "pump_reset";
+
+    fn block(text: String, bytes: Bytes(4)) -> CInt symbol "pump_block";
+
+    fn delay() -> CInt symbol "pump_delay";
+
+    fn waitEntries() -> Unit symbol "pump_wait_entries";
+
+    fn stop() -> Unit symbol "pump_stop";
+
+    fn originFinally() -> Unit symbol "pump_origin_finally";
+
+    fn workerFinally(text: String, bytes: Bytes(4)) -> Unit symbol "pump_worker_finally";
+}
+
+export reset;
+export block;
+export delay;
+export waitEntries;
+export stop;
+export originFinally;
+export workerFinally;

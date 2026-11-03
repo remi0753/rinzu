@@ -1,0 +1,11 @@
+enum State {
+    ready,
+    stopped,
+}
+
+fn main() {
+    let state = State.ready();
+    switch state {
+        case State.ready: {}
+    }
+}

@@ -1,0 +1,7 @@
+import products;
+
+fn receipt(item: products.Item) -> String {
+    return f"{item.name} × {item.quantity} = {products.total(item)}円";
+}
+
+export receipt;

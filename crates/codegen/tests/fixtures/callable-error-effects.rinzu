@@ -1,0 +1,103 @@
+import rinzu.stdio;
+
+error A {
+    payload: Int
+}
+
+error B {}
+
+async fn a() {
+    throw A(message: "selected function", payload: 37);
+}
+
+async fn b() {
+    throw B(message: "unused function");
+}
+
+fn invoke(action: fn () -> Future<Unit>) -> Future<Unit> {
+    return action();
+}
+
+class Handler {
+    const action: fn () -> Future<Unit>
+}
+
+fn make(problem: Error) -> fn () -> Future<Unit> {
+    return async fn () {
+        throw problem;
+    };
+}
+
+fn run(handler: Handler) -> Future<Unit> {
+    return handler.action();
+}
+
+enum Choice {
+    First,
+    Second
+}
+
+fn choose(choice: Choice) -> Future<Unit> {
+    switch choice {
+        case Choice.First: {
+            return a();
+        }
+        case Choice.Second: {
+            return b();
+        }
+    }
+}
+
+async fn errorA() -> Error {
+    return A(message: "success value", payload: 43);
+}
+
+async fn errorB() -> Error {
+    return B(message: "unused success value");
+}
+
+fn call(action: fn () -> Future<Error>) -> Future<Error> {
+    return action();
+}
+
+async fn main() {
+    try {
+        let count = 41;
+        let action = async fn () {
+            throw A(message: "captured value", payload: count);
+        };
+        try {
+            await action();
+        }
+        catch [first: A] {
+            rinzu.stdio.writeLine(first.payload);
+        }
+        try {
+            await invoke(a);
+        }
+        catch [second: A] {
+            rinzu.stdio.writeLine(second.payload);
+        }
+        let handler = Handler(action: make(A(message: "captured Error", payload: 47)));
+        try {
+            await run(handler);
+        }
+        catch [third: A] {
+            rinzu.stdio.writeLine(third.payload);
+        }
+        try {
+            await choose(Choice.First());
+        }
+        catch [fourth: A] {
+            rinzu.stdio.writeLine(fourth.payload);
+        }
+        let problem = await call(errorA);
+        try {
+            throw problem;
+        }
+        catch [fifth: A] {
+            rinzu.stdio.writeLine(fifth.payload);
+        }
+    }
+    catch outputErrors {}
+}

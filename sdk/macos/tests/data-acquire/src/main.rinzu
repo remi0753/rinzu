@@ -1,0 +1,42 @@
+import rinzu.macos;
+import rinzu.process;
+import rinzu.stdio;
+
+async fn body(app: rinzu.macos.UiApplication) {
+    let scope = app.primary;
+    let list = scope.listView(rinzu.macos.Rect(x: 8.0, y: 8.0, width: 220.0, height: 120.0), 1);
+    let root = scope.window.contentView();
+    let attached = root.addSubview(list.view);
+    await list.setRows([rinzu.macos.DataRow(id: 1, parent: 0, cells: ["日本語 😀"])]);
+    let text = list.cell(1, 0);
+    panic("data acquisition cancellation did not fire");
+}
+
+async fn main() {
+    try {
+        try {
+            let displayed = await rinzu.macos.application("Data acquisition", 240.0, 140.0, body);
+        }
+        finally {
+            let closed = await rinzu.macos.closeOwnerSessions();
+            let stats = rinzu.macos.statistics();
+            if stats
+                .retainedControls
+                + stats
+                .dataRows
+                + stats
+                .dataBytes
+                + stats
+                .dataUpdates
+                + stats
+                .snapshotBytes
+                != 0 {
+                panic("unreceived data resource remained");
+            }
+            rinzu.stdio.writeLine("DATA:acquisition:closed");
+        }
+    }
+    catch errors {
+        panic(f"data acquisition failed: {errors}");
+    }
+}

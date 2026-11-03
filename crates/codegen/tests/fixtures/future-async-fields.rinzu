@@ -1,0 +1,105 @@
+import rinzu.stdio;
+
+error Failed {
+    payload: Int
+}
+
+async fn fail(number: Int) -> Int {
+    throw Failed(message: "failed", payload: number);
+}
+
+async fn safe() -> Int {
+    return 0;
+}
+
+class Cell {
+    future: Future<Int>
+}
+
+async fn assign(cell: Cell, value: Future<Int>) {
+    cell.future = value;
+}
+
+async fn assignThenFail(cell: Cell, value: Future<Int>) {
+    cell.future = value;
+    throw Failed(message: "writer failed", payload: 223);
+}
+
+async fn receive(value: Future<Int>) -> Int {
+    try {
+        return await value;
+    }
+    catch [problem: Failed] {
+        return problem.payload;
+    }
+    catch errors {
+        return -1;
+    }
+}
+
+type Pending = {
+    cell: Cell, writer: Future<Unit>
+};
+
+fn start(value: Future<Int>) -> Pending {
+    let cell = Cell(future: safe());
+    let writer = assign(cell, value);
+    return {
+        cell = cell, writer = writer
+    };
+}
+
+async fn nestedAssign(cell: Cell, value: Future<Int>) {
+    let writer = assign(cell, value);
+    await writer;
+}
+
+type Started = {
+    writer: Future<Unit>
+};
+
+async fn startChild(cell: Cell, value: Future<Int>) -> Started {
+    let writer = assign(cell, value);
+    return {
+        writer = writer
+    };
+}
+
+async fn main() {
+    try {
+        let cell = Cell(future: safe());
+        let writer = assign(cell, fail(211));
+        await writer;
+        let received = receive(cell.future);
+        rinzu.stdio.writeLine(await received);
+        let second = assignThenFail(cell, fail(227));
+        var writerCode = 0;
+        try {
+            await second;
+        }
+        catch [problem: Failed] {
+            writerCode = problem.payload;
+        }
+        catch errors {}
+        let afterFailure = receive(cell.future);
+        rinzu.stdio.writeLine(writerCode);
+        rinzu.stdio.writeLine(await afterFailure);
+        let result = start(fail(229));
+        await result.writer;
+        let escaped = receive(result.cell.future);
+        rinzu.stdio.writeLine(await escaped);
+        await result.writer;
+        let repeated = receive(result.cell.future);
+        rinzu.stdio.writeLine(await repeated);
+        let nested = nestedAssign(cell, fail(233));
+        await nested;
+        let nestedResult = receive(cell.future);
+        rinzu.stdio.writeLine(await nestedResult);
+        let parent = startChild(cell, fail(239));
+        let child = await parent;
+        await child.writer;
+        let childResult = receive(cell.future);
+        rinzu.stdio.writeLine(await childResult);
+    }
+    catch errors {}
+}

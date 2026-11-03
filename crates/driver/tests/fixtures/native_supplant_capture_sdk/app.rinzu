@@ -1,0 +1,13 @@
+import captures;
+
+async fn main() {
+    try {
+        let result = await captures.exercise(40);
+        if result != 43 {
+            panic("wrong capture result");
+        }
+    }
+    catch [error: Error, ...rest] {
+        panic(error.message);
+    }
+}

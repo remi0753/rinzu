@@ -1,0 +1,92 @@
+import objects;
+
+fn badSeed() -> Int {
+    let failed = CInt8(999);
+    return 42;
+}
+
+async fn failAsync() -> objects.Object {
+    return objects.failure();
+}
+
+async fn main() {
+    try {
+        if objects.measure(42) != 42 {
+            panic("wrongMain");
+        }
+        let first = spawn objects.measure(1);
+        let second = spawn objects.measure(2);
+        let third = spawn objects.measure(3);
+        let fourth = spawn objects.measure(4);
+        let fifth = spawn objects.measure(5);
+        let sixth = spawn objects.measure(6);
+        let seventh = spawn objects.measure(7);
+        let eighth = spawn objects.measure(8);
+        if await first != 1
+            || await second != 2
+            || await third != 3
+            || await fourth != 4
+            || await fifth != 5
+            || await sixth != 6
+            || await seventh != 7
+            || await eighth != 8 {
+            panic("wrongWorker");
+        }
+        var caught = 0;
+        try {
+            let skipped = objects.measure(badSeed());
+        }
+        catch argumentError {
+            caught = caught + 1;
+        }
+        var order = 0;
+        try {
+            try {
+                let missing = objects.failure();
+            }
+            finally {
+                order = order * 10 + 1;
+            }
+        }
+        catch [nullError: Error, ...nullErrorRest] {
+            order = order * 10 + 2;
+            caught = caught + 1;
+            if nullError.message != "native value is NULL" {
+                panic("wrongError");
+            }
+        }
+        finally {
+            order = order * 10 + 3;
+        }
+        if order != 123 {
+            panic("wrongFinally");
+        }
+        try {
+            let missingAsync = await failAsync();
+        }
+        catch asyncError {
+            caught = caught + 1;
+        }
+        let failedWorker = spawn objects.failWorker();
+        if await failedWorker != 1 {
+            panic("workerMissing");
+        }
+        caught = caught + 1;
+        if await failedWorker != 1 {
+            panic("workerMissingAgain");
+        }
+        caught = caught + 1;
+        if caught != 5
+            || objects.stats(0) != 9
+            || objects.stats(1) != 9
+            || objects.stats(2) != 9
+            || objects.stats(3) != 0
+            || objects.stats(4) != 12
+            || objects.stats(5) != 18 {
+            panic("wrongNativeLifetime");
+        }
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+    }
+}

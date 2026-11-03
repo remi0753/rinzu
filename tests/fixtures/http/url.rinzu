@@ -1,0 +1,141 @@
+// Owned values only. No pointer/view survives an await.
+error InputError {
+    payload: Int
+}
+
+fn invalid(message: String) -> InputError {
+    return InputError(message: message, payload: 400);
+}
+
+fn find(value: String, needle: String, start: Int) -> Int {
+    switch stringFind(value, needle, start) {
+        case Option.Some(position): {
+            return position;
+        }
+        case Option.None: {
+            return -1;
+        }
+    }
+}
+
+fn slice(value: String, start: Int, end: Int) -> String {
+    switch stringSlice(value, start, end) {
+        case Option.Some(part): {
+            return part;
+        }
+        case Option.None: {
+            throw invalid("invalid URL range");
+        }
+    }
+}
+
+fn byte(data: ByteArray, index: Int) -> Int {
+    switch bytesGet(data, index) {
+        case Option.Some(value): {
+            return Int(value);
+        }
+        case Option.None: {
+            throw invalid("truncated URL escape");
+        }
+    }
+}
+
+fn hex(value: Int) -> Int {
+    if value >= 48 && value <= 57 {
+        return value - 48;
+    }
+    if value >= 65 && value <= 70 {
+        return value - 55;
+    }
+    if value >= 97 && value <= 102 {
+        return value - 87;
+    }
+    throw invalid("invalid URL escape");
+}
+
+fn escapeMembers(plus: Bool) -> ByteArray {
+    if plus {
+        return byteArray(b"%+");
+    }
+    return byteArray(b"%");
+}
+
+fn decode(value: String, plus: Bool, path: Bool) -> String {
+    if find(value, "%", 0) < 0 && (!plus || find(value, "+", 0) < 0) {
+        return value;
+    }
+    let input = utf8Encode(value);
+    let length = bytesLength(input);
+    var output = byteArray(b"");
+    var members = output;
+    var membersReady = false;
+    var ordinary = 0;
+    var index = 0;
+    var run = 0;
+    while index < length {
+        let current = byte(input, index);
+        if current == 37 || (plus && current == 43) {
+            switch bytesSlice(input, run, index) {
+                case Option.Some(part): {
+                    output = bytesConcat(output, part);
+                }
+                case Option.None: {
+                    throw invalid("invalid URL range");
+                }
+            }
+            var decoded = 32;
+            if current == 37 {
+                decoded = hex(byte(input, index + 1)) * 16 + hex(byte(input, index + 2));
+                index = index + 2;
+            }
+            if decoded == 0 || (path && (decoded == 47 || decoded == 92)) {
+                throw invalid("encoded path separator or NUL");
+            }
+            output = bytesConcat(output, byteArray([CUInt8(decoded)]));
+            run = index + 1;
+            ordinary = 0;
+        }
+        else {
+            ordinary = ordinary + 1;
+            // Keep dense escapes and short runs on the cheap byte path. A
+            // longer unchanged run can be skipped by one native search.
+            if ordinary >= 8 && length - index > 8 {
+                if !membersReady {
+                    members = escapeMembers(plus);
+                    membersReady = true;
+                }
+                switch bytesFindAny(input, members, index + 1) {
+                    case Option.Some(next): {
+                        index = next;
+                    }
+                    case Option.None: {
+                        index = length;
+                    }
+                }
+                ordinary = 0;
+                continue;
+            }
+        }
+        index = index + 1;
+    }
+    switch bytesSlice(input, run, length) {
+        case Option.Some(part): {
+            output = bytesConcat(output, part);
+        }
+        case Option.None: {
+            throw invalid("invalid URL range");
+        }
+    }
+    try {
+        return utf8Decode(output);
+    }
+    catch problems {
+        throw invalid("invalid URL UTF-8");
+    }
+}
+
+export InputError;
+export invalid;
+export find;
+export slice;
+export decode;

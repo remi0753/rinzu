@@ -1,0 +1,84 @@
+import rinzu.timer;
+import rinzu.stdio;
+
+fn report(label: String, problem: Error) {
+    switch problem.source {
+        case Option.Some(at): {
+            rinzu.stdio.writeLine(f"{label}:{at.line}:{at.column}");
+        }
+        case Option.None: {
+            rinzu.stdio.writeLine("missing-source");
+        }
+    }
+}
+
+fn leaf() -> Int {
+    let text = "界🙂";
+    return Int(CInt8(301));
+}
+
+fn relay() -> Int {
+    return leaf();
+}
+
+fn harmless() -> Int {
+    return 7;
+}
+
+fn afterCall() -> Int {
+    let value = harmless();
+    return Int(CInt8(302));
+}
+
+async fn later() -> Int {
+    await rinzu.timer.sleep(1);
+    return Int(CInt8(303));
+}
+
+fn worker() -> Int {
+    try {
+        try {
+            let value = relay();
+        }
+        catch [problem: Error, ...rest] {
+            report("worker", problem);
+        }
+        return 7;
+    }
+    catch workerErrors {
+        return -1;
+    }
+}
+
+async fn main() {
+    try {
+        try {
+            let nestedValue = relay();
+        }
+        catch [nestedError: Error, ...nestedRest] {
+            report("nested", nestedError);
+        }
+        try {
+            let restoredValue = afterCall();
+        }
+        catch [restoredError: Error, ...restoredRest] {
+            report("restored", restoredError);
+        }
+        let pending = later();
+        try {
+            let firstValue = await pending;
+        }
+        catch [firstError: Error, ...firstRest] {
+            report("await-one", firstError);
+        }
+        try {
+            let secondValue = await pending;
+        }
+        catch [secondError: Error, ...secondRest] {
+            report("await-two", secondError);
+        }
+        let result = await spawn worker();
+        rinzu.stdio.writeLine(f"done:{result}");
+    }
+    catch unexpectedMainErrors {}
+}

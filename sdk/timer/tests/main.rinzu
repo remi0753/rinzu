@@ -1,0 +1,25 @@
+import rinzu.stdio;
+import rinzu.timer;
+
+async fn main() {
+    try {
+        let slow = rinzu.timer.sleep(10);
+        await rinzu.timer.sleep(0);
+        await slow;
+        await slow;
+        var caught = false;
+        try {
+            await rinzu.timer.sleep(-1);
+        }
+        catch [problem: Error, ...rest] {
+            caught = true;
+        }
+        if !caught {
+            panic("negative timer accepted");
+        }
+        rinzu.stdio.writeLine("timer library ok");
+    }
+    catch errors {
+        panic("timer failed");
+    }
+}

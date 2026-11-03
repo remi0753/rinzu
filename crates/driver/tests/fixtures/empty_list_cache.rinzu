@@ -1,0 +1,99 @@
+import rinzu.stdio;
+import rinzu.process;
+
+class Cell {
+    value: Int
+}
+
+fn check(value: Bool) {
+    if !value {
+        panic("emptyListFailure");
+    }
+}
+
+fn lists() -> List<Int> {
+    let original: List<Int> = [];
+    let held = original;
+    let populated = listAppend(original, 42);
+    var round = 0;
+    while round < 64 {
+        let numbers: List<Int> = [];
+        let texts: List<String> = [];
+        let cells: List<Cell> = [];
+        let problems: List<Error> = [];
+        let binary: List<ByteArray> = [];
+        check(
+            listLength(numbers) + listLength(texts) + listLength(cells) + listLength(problems) + listLength(binary) == 0
+        );
+        let firstCell = Cell(value: 1);
+        let secondCell = Cell(value: 2);
+        firstCell.value = 99;
+        check(secondCell.value == 2);
+        let expanded = listAppend(texts, "日本語\u{0}🙂");
+        check(listLength(expanded) == 1 && listLength(texts) == 0);
+        switch listRemove(populated, 0) {
+            case Option.Some(removed): {
+                check(removed == numbers && populated == [42]);
+            }
+            case Option.None: {
+                check(false);
+            }
+        }
+        round = round + 1;
+    }
+    check(held == original && listLength(original) == 0 && populated == [42]);
+    return held;
+}
+
+fn worker() -> List<Int> {
+    return lists();
+}
+
+async fn child() -> List<Int> {
+    return lists();
+}
+
+async fn main() {
+    try {
+        let environment = rinzu.process.environment("PATH");
+        let initial = lists();
+        let waiting = child();
+        let alias = waiting;
+        let returned = await waiting;
+        let kept = lists();
+        let repeated = await alias;
+        check(returned == initial && repeated == returned && kept == []);
+        let one = spawn worker();
+        let two = spawn worker();
+        let three = spawn worker();
+        let four = spawn worker();
+        let five = spawn worker();
+        let six = spawn worker();
+        let seven = spawn worker();
+        let eight = spawn worker();
+        let first = await one;
+        let second = await two;
+        let third = await three;
+        let fourth = await four;
+        let fifth = await five;
+        let sixth = await six;
+        let seventh = await seven;
+        let eighth = await eight;
+        let firstAgain = await one;
+        check(
+            first == []
+                && second == []
+                && third == []
+                && fourth == []
+                && fifth == []
+                && sixth == []
+                && seventh == []
+                && eighth == []
+                && firstAgain == first
+        );
+        rinzu.stdio.writeLine("R05:emptyList:types:alias:update:GC:8Worker:reawait:OK");
+    }
+    catch unexpected {
+        panic("failedEmptyList");
+    }
+}

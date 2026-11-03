@@ -1,0 +1,6 @@
+fn main() {
+    try {}
+    catch error {
+        let equal = error == error;
+    }
+}

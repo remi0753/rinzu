@@ -1,0 +1,64 @@
+import "common.rinzu" as bench;
+import rinzu.socket;
+import rinzu.io;
+import rinzu.stdio;
+
+async fn echo(stream: rinzu.socket.TcpStream) {
+    try {
+        var total = 0;
+        while true {
+            let chunk = bench.expect<rinzu.socket.ReadChunk>(await rinzu.socket.readWithTimeout(stream, 65536, 30000));
+            if chunk.eof {
+                break;
+            }
+            if !bench.verify(chunk.data, byteLength(chunk.data), total) {
+                let bad = CInt8(300);
+            }
+            total = total + bytesLength(chunk.data);
+            await bench.put(stream, chunk.data);
+        }
+        let half = bench.expect<Int>(await rinzu.socket.shutdownWrite(stream));
+    }
+    catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
+        panic("unexpectedBenchmarkFailure");
+    }
+}
+
+async fn main() {
+    try {
+        let connections = bench.integer("BENCH_CONNECTIONS", 1, 1, 4);
+        let listener = bench.expect<
+            rinzu.socket.Listener
+        >(await rinzu.socket.listen(rinzu.socket.Address(host: "127.0.0.1", port: 0), 16));
+        rinzu.stdio.writeLine(f"READY:{bench.expect<Int>(rinzu.socket.localPort(listener))}");
+        try all {
+            let stream0 = bench.expect<rinzu.socket.TcpStream>(await rinzu.socket.accept(listener));
+            let echo0 = echo(stream0);
+            if connections == 4 {
+                let stream1 = bench.expect<rinzu.socket.TcpStream>(await rinzu.socket.accept(listener));
+                let echo1 = echo(stream1);
+                let stream2 = bench.expect<rinzu.socket.TcpStream>(await rinzu.socket.accept(listener));
+                let echo2 = echo(stream2);
+                let stream3 = bench.expect<rinzu.socket.TcpStream>(await rinzu.socket.accept(listener));
+                let echo3 = echo(stream3);
+                await echo0;
+                await echo1;
+                await echo2;
+                await echo3;
+            }
+            else {
+                await echo0;
+            }
+            bench.report("server-active");
+            rinzu.stdio.writeLine("END");
+            await bench.gate(bench.setting("BENCH_SERVER_DONE"));
+        }
+        finally {
+            let cleanup = bench.expect<Int>(await rinzu.socket.closeOwnerSockets());
+        }
+        bench.report("server-cleanup");
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}

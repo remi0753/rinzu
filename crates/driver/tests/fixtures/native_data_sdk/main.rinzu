@@ -1,0 +1,97 @@
+import buffers;
+import rinzu.core;
+
+async fn failAsync(kind: CInt) -> String {
+    return buffers.failure(kind);
+}
+
+fn badKind() -> CInt {
+    return CInt(CInt8(999));
+}
+
+fn check(value: buffers.Sample) -> Bool {
+    return value.text == "日本語"
+        && value.bytes == b"\x00\xff\x07\x00"
+        && utf8ByteLength(value.longText) == 65536
+        && value.caught == 7;
+}
+
+async fn main() {
+    try {
+        if !check(buffers.exercise(b"A\xff", "日本語\u{0}🙂")) {
+            panic("wrongMain");
+        }
+        let first = spawn buffers.exercise(b"A\xff", "日本語\u{0}🙂");
+        let second = spawn buffers.exercise(b"A\xff", "日本語\u{0}🙂");
+        let third = spawn buffers.exercise(b"A\xff", "日本語\u{0}🙂");
+        let fourth = spawn buffers.exercise(b"A\xff", "日本語\u{0}🙂");
+        let fifth = spawn buffers.exercise(b"A\xff", "日本語\u{0}🙂");
+        let sixth = spawn buffers.exercise(b"A\xff", "日本語\u{0}🙂");
+        let seventh = spawn buffers.exercise(b"A\xff", "日本語\u{0}🙂");
+        let eighth = spawn buffers.exercise(b"A\xff", "日本語\u{0}🙂");
+        if !check(await eighth)
+            || !check(await third)
+            || !check(await sixth)
+            || !check(await first)
+            || !check(await seventh)
+            || !check(await fourth)
+            || !check(await second)
+            || !check(await fifth)
+            || !check(await eighth) {
+            panic("wrongWorker");
+        }
+        var caught = 0;
+        var order = 0;
+        try {
+            try {
+                let missing = await failAsync(0);
+            }
+            finally {
+                order = order * 10 + 1;
+            }
+        }
+        catch asyncNullError {
+            caught = caught + 1;
+            order = order * 10 + 2;
+        }
+        finally {
+            order = order * 10 + 3;
+        }
+        try {
+            let invalidAsync = await failAsync(3);
+        }
+        catch asyncUtf8Error {
+            caught = caught + 1;
+        }
+        let failedNull = spawn buffers.failWorker(0);
+        if await failedNull != 1 {
+            panic("workerNull");
+        }
+        caught = caught + 1;
+        let failedUtf8 = spawn buffers.failWorker(3);
+        if await failedUtf8 != 1 {
+            panic("workerUtf8");
+        }
+        caught = caught + 1;
+        if await failedNull != 1 {
+            panic("repeatedNull");
+        }
+        caught = caught + 1;
+        if await failedUtf8 != 1 {
+            panic("repeatedUtf8");
+        }
+        caught = caught + 1;
+        try {
+            let skippedEntry = buffers.failure(badKind());
+        }
+        catch argumentError {
+            caught = caught + 1;
+        }
+        if caught != 7 || order != 123 {
+            panic("wrongFailure");
+        }
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+    }
+}

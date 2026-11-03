@@ -1,0 +1,16 @@
+native {
+    fn consumeString(producer: fn (CSize) -> String, count: CSize) -> CSize symbol "rinzu_consume_string";
+
+    fn consumeBytes4(producer: fn (CSize) -> Bytes(4), count: CSize) -> CSize symbol "rinzu_consume_bytes4";
+}
+
+fn strings(producer: fn (CSize) -> String, count: CSize) -> CSize {
+    return consumeString(producer, count);
+}
+
+fn bytes4(producer: fn (CSize) -> Bytes(4), count: CSize) -> CSize {
+    return consumeBytes4(producer, count);
+}
+
+export strings;
+export bytes4;

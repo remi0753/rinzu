@@ -1,0 +1,114 @@
+import records;
+import rinzu.stdio;
+
+fn execute() -> Int {
+    let point = records.Packet(x: 1, valid: false);
+    let other = records.Packet(x: 2, valid: false);
+    let context: records.Context = {
+        id = 7
+    };
+    let read = records.invoke(
+        point,
+        fn () -> Int fallback -11 {
+            var index = 0;
+            while index < 40 {
+                let text = f"moving-{index}";
+                index = index + 1;
+            }
+            return point.x;
+        }
+    );
+    rinzu.stdio.writeLine(read);
+    rinzu.stdio.writeLine(point.x);
+    let format = records.invoke(
+        point,
+        fn () -> Int fallback -12 {
+            let held = {
+                point = point
+            };
+            let text = f"{held}";
+            return 0;
+        }
+    );
+    rinzu.stdio.writeLine(format);
+    let caught = records.invoke(
+        point,
+        fn () -> Int {
+            let held = {
+                point = point
+            };
+            let reference = held.point;
+            try {
+                return reference.x;
+            }
+            catch [error: Error, ...rest] {
+                return errorCode(error);
+            }
+        }
+    );
+    rinzu.stdio.writeLine(caught);
+    let same = records.visit(
+        point,
+        fn (value: records.Packet) -> Int fallback -33 {
+            return value.x;
+        }
+    );
+    rinzu.stdio.writeLine(same);
+    let reloan = records.invoke(
+        point,
+        fn () -> Int {
+            try {
+                return records.change(point, 100);
+            }
+            catch [error: Error, ...rest] {
+                return errorCode(error);
+            }
+        }
+    );
+    rinzu.stdio.writeLine(reloan);
+    let distinct = records.invoke(
+        point,
+        fn () -> Int fallback -90 {
+            let status = records.change(other, 3);
+            return other.x;
+        }
+    );
+    rinzu.stdio.writeLine(distinct);
+    let prepared = records.invoke(
+        point,
+        fn () -> Int {
+            var caught = 0;
+            var index = 0;
+            while index < 16 {
+                try {
+                    let impossible = records.probe(
+                        point,
+                        context,
+                        fn () -> Int {
+                            return 7;
+                        }
+                    );
+                }
+                catch [error: Error, ...rest] {
+                    caught = caught + errorCode(error);
+                }
+                index = index + 1;
+            }
+            return caught;
+        }
+    );
+    rinzu.stdio.writeLine(prepared);
+    rinzu.stdio.writeLine(records.probeEntries());
+    rinzu.stdio.writeLine(point.x);
+    rinzu.stdio.writeLine(other.x);
+    return 0;
+}
+
+fn main() {
+    try {
+        let result = execute();
+    }
+    catch errors {
+        panic("unexpected Busy failure");
+    }
+}

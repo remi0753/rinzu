@@ -1,0 +1,15 @@
+import rinzu.io;
+
+fn cpuScore(size: Int) -> Int {
+    return size * 2;
+}
+
+async fn main() {
+    try {
+        let size = await rinzu.io.readSize("data/input.txt");
+        let score = await spawn cpuScore(size);
+    }
+    catch unexpectedErrors {
+        panic("failed");
+    }
+}

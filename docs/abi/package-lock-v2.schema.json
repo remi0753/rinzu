@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rinzu.dev/schema/package-lock-v2.schema.json",
+  "title": "Rinzu current local package lock v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "version",
+    "root",
+    "context",
+    "packages"
+  ],
+  "properties": {
+    "schema": {
+      "const": "rinzu.package-lock"
+    },
+    "version": {
+      "const": 2
+    },
+    "root": {
+      "$ref": "#/$defs/manifest"
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "packages": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/package"
+      }
+    }
+  },
+  "$defs": {
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "language",
+        "kind",
+        "entry",
+        "exports",
+        "dependencies",
+        "native"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "application",
+            "sdk"
+          ]
+        },
+        "entry": {
+          "type": "string"
+        },
+        "exports": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dependencies": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "native": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "manifest",
+        "descriptor_digest",
+        "native_artifact_digest",
+        "build_inputs"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "manifest": {
+          "$ref": "#/$defs/manifest"
+        },
+        "descriptor_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "native_artifact_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "build_inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,4 @@
+fn main() {
+    let zero = 0;
+    let invalid = 1 / zero;
+}

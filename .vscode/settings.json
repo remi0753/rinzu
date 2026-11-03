@@ -1,0 +1,22 @@
+{
+  "rinzu.executable": "./target/debug/rinzu",
+  "[rinzu]": {
+    "editor.defaultFormatter": "rinzu-local.rinzu-source"
+  },
+  "clangd.path": "${workspaceFolder}/tools/clangd",
+  "clangd.useScriptAsExecutable": true,
+  "clangd.arguments": ["--background-index", "--clang-tidy", "--header-insertion=never"],
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "files.associations": {
+    "*.h": "c",
+    "**/appkit_interrupt/markers.c": "objective-c"
+  },
+  "[c]": {
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+    "editor.formatOnSave": true
+  },
+  "[objective-c]": {
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+    "editor.formatOnSave": true
+  }
+}

@@ -1,0 +1,17 @@
+---
+Checks: >-
+  -*,
+  clang-analyzer-core.*,
+  clang-analyzer-unix.*,
+  clang-analyzer-deadcode.DeadStores,
+  bugprone-sizeof-expression,
+  bugprone-suspicious-memset-usage,
+  bugprone-suspicious-semicolon,
+  bugprone-suspicious-string-compare,
+  bugprone-misplaced-widening-cast,
+  bugprone-macro-repeated-side-effects,
+  bugprone-multiple-statement-macro
+WarningsAsErrors: '*'
+HeaderFilterRegex: '.*'
+FormatStyle: file
+...

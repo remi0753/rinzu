@@ -1,0 +1,79 @@
+import rinzu.timer;
+import rinzu.io;
+import rinzu.stream;
+import rinzu.stdio;
+
+async fn consume(path: String, pause: Int) -> Int {
+    try {
+        let resultValue3 = await rinzu.stream.openFileWithLimit(path, 1024);
+        var total = 0;
+        try all {
+            var eof = false;
+            while !eof {
+                try {
+                    let resultValue2 = await rinzu.stream.next(resultValue3);
+                    switch resultValue2 {
+                        case Option.Some(data): {
+                            total = total + bytesLength(data);
+                        }
+                        case Option.None: {
+                            eof = true;
+                        }
+                    }
+                    await rinzu.timer.sleep(pause);
+                }
+                catch [resultError2: Error, ...resultRest2] {
+                    return -1;
+                }
+            }
+        }
+        finally {
+            try {
+                let resultValue1 = await rinzu.stream.close(resultValue3);
+            }
+            catch [resultError1: Error, ...resultRest1] {
+                panic("badClose");
+            }
+        }
+        return total;
+    }
+    catch [resultError3: Error, ...resultRest3] {
+        return -1;
+    }
+    return -1;
+}
+
+async fn main() {
+    try {
+        try all {
+            let first = consume("input.bin", 1);
+            let second = consume("input.bin", 0);
+            let third = consume("input.bin", 2);
+            let fourth = consume("input.bin", 0);
+            let missing = consume("missing.bin", 0);
+            if await first != 8192 {
+                panic("failure1");
+            }
+            if await second != 8192 {
+                panic("failure2");
+            }
+            if await third != 8192 {
+                panic("failure3");
+            }
+            if await fourth != 8192 {
+                panic("failure4");
+            }
+            if await missing != -1 {
+                panic("failure5");
+            }
+        }
+        finally {}
+        if rinzu.io.liveFiles() != 0 || rinzu.io.liveBuffers() != 0 {
+            panic("failure6");
+        }
+        rinzu.stdio.writeLine("stream-parallel-ok");
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}

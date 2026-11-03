@@ -1,0 +1,7 @@
+fn main() {
+    let value = await compute();
+}
+
+async fn compute() -> Int {
+    return 1;
+}

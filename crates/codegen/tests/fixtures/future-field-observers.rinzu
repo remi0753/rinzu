@@ -1,0 +1,74 @@
+import rinzu.stdio;
+
+error Failed {
+    payload: Int
+}
+
+async fn fail(number: Int) -> Int {
+    throw Failed(message: "failed", payload: number);
+}
+
+async fn safe() -> Int {
+    return 0;
+}
+
+class Cell {
+    future: Future<Int>
+}
+
+async fn receive(cell: Cell) -> Int {
+    try {
+        let value = await cell.future;
+        return value;
+    }
+    catch [problem: Failed] {
+        return problem.payload;
+    }
+    catch errors {
+        return -1;
+    }
+}
+
+type Pair = {
+    cell: Cell, receiver: Future<Int>
+};
+
+fn make() -> Pair {
+    let cell = Cell(future: fail(199));
+    let receiver = receive(cell);
+    return {
+        cell = cell, receiver = receiver
+    };
+}
+
+async fn main() {
+    try {
+        let cell = Cell(future: fail(193));
+        let receiver = receive(cell);
+        let first = await receiver;
+        cell.future = safe();
+        rinzu.stdio.writeLine(first);
+        let pending = fail(197);
+        let left = Cell(future: pending);
+        let right = Cell(future: pending);
+        let leftReceiver = receive(left);
+        let rightReceiver = receive(right);
+        left.future = safe();
+        let second = await rightReceiver;
+        rinzu.stdio.writeLine(second);
+        let ignored = await leftReceiver;
+        let pair = make();
+        let third = await pair.receiver;
+        pair.cell.future = safe();
+        rinzu.stdio.writeLine(third);
+        var index = 0;
+        while index < 2 {
+            let item = Cell(future: fail(203 + index));
+            let itemReceiver = receive(item);
+            let value = await itemReceiver;
+            rinzu.stdio.writeLine(value);
+            index = index + 1;
+        }
+    }
+    catch errors {}
+}

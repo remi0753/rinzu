@@ -1,0 +1,10 @@
+[package]
+name="rinzu.http"
+language="0.5"
+kind="sdk"
+entry="src/http.rinzu"
+[native]
+sources=["native/src/http.c"]
+headers=["native/include/rinzu_http.h"]
+include-dirs=["native/include"]
+libraries=["curl"]

@@ -1,0 +1,44 @@
+import rinzu.stdio;
+
+error Failed {
+    payload: Int
+}
+
+async fn safePrint(value: Int) {
+    try {
+        rinzu.stdio.writeLine(value);
+    }
+    catch errors {}
+}
+
+async fn fail(value: Int) {
+    throw Failed(message: "failure", payload: value);
+}
+
+async fn receive() {
+    try {
+        await fail(269);
+    }
+    catch [error: Failed] {
+        try {
+            rinzu.stdio.writeLine(error.payload);
+        }
+        catch errors {}
+    }
+    catch errors {}
+}
+
+fn launch() {
+    safePrint(263);
+}
+
+async fn main() {
+    safePrint(241);
+    safePrint(251);
+    try all {
+        safePrint(257);
+    }
+    catch errors {}
+    launch();
+    receive();
+}

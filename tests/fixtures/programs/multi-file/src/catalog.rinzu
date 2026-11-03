@@ -1,0 +1,12 @@
+class Item {
+    const name: String,
+    const unitPrice: Int,
+    const quantity: Int
+}
+
+fn notebook() -> Item {
+    return Item(name: "Rinzu notebook", unitPrice: 1200, quantity: 2);
+}
+
+export Item;
+export notebook;

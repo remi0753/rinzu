@@ -1,0 +1,96 @@
+import rinzu.stdio;
+
+class Editor {
+    text: String,
+    value: Int,
+    command: Option<fn (Int) -> Int>
+}
+
+class Commands {
+    const edit: fn (Int) -> Int,
+    const format: fn (Int) -> String,
+    const later: fn (Int) -> Future<Int>
+}
+
+fn identity(value: Int) -> Int {
+    return value;
+}
+
+fn edit(editor: Editor, value: Int) -> Int {
+    editor.value = value;
+    editor.text = "edited";
+    return editor.value;
+}
+
+fn decorate(prefix: String, value: Int) -> String {
+    return f"{prefix}:{value}";
+}
+
+fn makeFormat() -> fn (Int) -> String {
+    var prefix = "escaped";
+    let function = fn (argument0: Int) -> String {
+        return decorate(prefix, argument0);
+    };
+    prefix = "changed";
+    return function;
+}
+
+fn choose<T>(prefix: T, value: Int) -> T {
+    return prefix;
+}
+
+async fn later(editor: Editor, value: Int) -> Int {
+    let copied = await spawn identity(value);
+    editor.value = editor.value + copied;
+    return editor.value;
+}
+
+fn make() -> Editor {
+    let editor = Editor(text: "initial", value: 0, command: Option<fn (Int) -> Int>.None());
+    editor.command = Option<fn (Int) -> Int>.Some(
+        value: fn (argument0: Int) -> Int {
+            return edit(editor, argument0);
+        }
+    );
+    return editor;
+}
+
+async fn main() {
+    let editor = make();
+    switch editor.command {
+        case Option.None: {
+            panic("bad");
+        }
+        case Option.Some(command): {
+            let commands = Commands(
+                edit: command,
+                format: makeFormat(),
+                later: fn (argument0: Int) -> Future<Int> {
+                    return later(editor, argument0);
+                }
+            );
+            var i = 0;
+            while i < 300 {
+                let transient = f"gc-{i}";
+                i = i + 1;
+            }
+            rinzu.stdio.writeLine(commands.edit(42));
+            rinzu.stdio.writeLine(commands.format(7));
+            let generic = makeCaptured0("generic");
+            rinzu.stdio.writeLine(generic(0));
+            let pending = commands.later(1);
+            var j = 0;
+            while j < 300 {
+                let pendingTransient = f"pending-gc-{j}";
+                j = j + 1;
+            }
+            rinzu.stdio.writeLine(await pending);
+        }
+    }
+}
+
+fn makeCaptured0(captured0: String) -> fn (Int) -> String {
+    return fn (argument0: Int) -> String {
+        return choose<String>(captured0, argument0);
+    };
+}

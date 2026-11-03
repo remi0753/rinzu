@@ -1,0 +1,4 @@
+[package]
+name="socket.server"
+language="0.5"
+entry="src/main.rinzu"

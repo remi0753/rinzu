@@ -1,0 +1,62 @@
+import rinzu.stdio;
+
+error Failed {
+    payload: Int
+}
+
+async fn fail(value: Int) {
+    throw Failed(message: "failure", payload: value);
+}
+
+async fn receive(value: Future<Unit>) {
+    try {
+        await value;
+    }
+    catch [error: Failed] {
+        try {
+            rinzu.stdio.writeLine(error.payload);
+        }
+        catch errors {}
+    }
+    catch errors {}
+}
+
+fn make(count: Int) -> List<Future<Unit>> {
+    var jobs: List<Future<Unit>> = [];
+    var index = 0;
+    while index < count {
+        let pending = fail(331 + index * 6);
+        let job = receive(pending);
+        jobs = listAppend(jobs, job);
+        index = index + 1;
+    }
+    return jobs;
+}
+
+async fn waitAll(jobs: List<Future<Unit>>) {
+    var index = 0;
+    while index < listLength(jobs) {
+        switch listGet(jobs, index) {
+            case Option.Some(job): {
+                await job;
+            }
+            case Option.None: {}
+        }
+        index = index + 1;
+    }
+}
+
+fn start(jobs: List<Future<Unit>>) -> Future<Unit> {
+    return waitAll(jobs);
+}
+
+async fn main() {
+    let jobs = make(3);
+    await start(jobs);
+    switch listGet(jobs, 0) {
+        case Option.Some(job): {
+            let cancelled = cancelFuture(job);
+        }
+        case Option.None: {}
+    }
+}

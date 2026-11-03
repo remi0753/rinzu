@@ -1,0 +1,9 @@
+let ratePercent = 10;
+
+let percentBase = 100;
+
+fn add(amount: Int) -> Int {
+    return amount + amount * ratePercent / percentBase;
+}
+
+export add;

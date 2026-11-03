@@ -1,0 +1,64 @@
+native {
+    fn choose(first: Context, second: Context, handler: fn () -> Int, mode: Int) -> Context symbol "context_choose";
+
+    fn missing() -> Context symbol "context_missing";
+}
+
+fn churn() -> Int fallback -1 {
+    var index = 0;
+    while index < 48 {
+        let moved = f"returned-{index}";
+        index = index + 1;
+    }
+    return 0;
+}
+
+fn resultExercise() -> Int {
+    let firstEditor = Editor(value: 10);
+    let secondEditor = Editor(value: 20);
+    let first: Context = {
+        editor = firstEditor, point = Packet(x: 4), handle = make(), action = action
+    };
+    let second: Context = {
+        editor = secondEditor, point = Packet(x: 5), handle = make(), action = action
+    };
+    let selectedSecond = choose(first, second, churn, 1);
+    selectedSecond.editor.value = 31;
+    let selectedFirst = choose(first, second, churn, 0);
+    selectedFirst.editor.value = 41;
+    let changed = change(selectedSecond.point, 7);
+    if firstEditor.value != 41 || secondEditor.value != 31 || second.point.x != 12 {
+        panic("wrong returned context");
+    }
+    var caught = 0;
+    try {
+        let invalid = choose(first, second, churn, 2);
+    }
+    catch errors {
+        caught = caught + 1;
+    }
+    try {
+        let missingValue = missing();
+    }
+    catch errors {
+        caught = caught + 1;
+    }
+    if caught != 2 {
+        panic("NULL context did not raise Error");
+    }
+    let moved = churn();
+    return
+        firstEditor
+        .value
+        + secondEditor
+        .value
+        + selectedSecond
+        .point
+        .x
+        + caught
+        + check(selectedSecond.handle)
+        + selectedSecond
+        .action(2);
+}
+
+export resultExercise;

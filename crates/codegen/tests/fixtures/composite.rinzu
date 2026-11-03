@@ -1,0 +1,106 @@
+class Item {
+    const label: String,
+    const bits: CSize,
+    const number: CDouble
+}
+
+class Box {
+    const item: Item
+}
+
+enum Choice {
+    payload(item: Item),
+    number(value: Int),
+    empty
+}
+
+enum Key {
+    label(text: String),
+    empty
+}
+
+fn make(number: CDouble) -> Item {
+    return Item(number: number, bits: 18446744073709551615, label: "日本語\u{0}tail");
+}
+
+fn child() -> String {
+    let parent = Box(item: make(0.0));
+    return parent.item.label;
+}
+
+fn read(choice: Choice) -> Int {
+    switch choice {
+        case Choice.empty: {
+            return 3;
+        }
+        case Choice.number(value): {
+            return value;
+        }
+        case Choice.payload(item): {
+            let temporary = make(1.0);
+            if item.bits != 18446744073709551615 {
+                panic("bad_bits");
+            }
+            if item.label != "日本語\u{0}tail" {
+                panic("bad_payload");
+            }
+            return 7;
+        }
+    }
+    return 0;
+}
+
+fn verify() -> Int {
+    let kept = child();
+    var iteration = 0;
+    while iteration < 30 {
+        let left = make(0.0);
+        let right = make(-0.0);
+        if left != right {
+            panic("bad_zero");
+        }
+        let nan = make(0.0 / 0.0);
+        if nan == nan {
+            panic("bad_nan_self");
+        }
+        let items: List<Item> = [left, right];
+        let copies: List<Item> = [right, left];
+        if items != copies {
+            panic("bad_list");
+        }
+        let nans: List<Item> = [nan];
+        if nans == nans {
+            panic("bad_list_nan");
+        }
+        let table: Map<Key, Item> = {
+            Key.label(text: "a"): left, Key.empty(): right
+        };
+        let reversed: Map<Key, Item> = {
+            Key.empty(): left, Key.label(text: "a"): right
+        };
+        if table != reversed {
+            panic("bad_map");
+        }
+        let payload = Choice.payload(item: left);
+        if payload != Choice.payload(item: right) {
+            panic("bad_enum_equality");
+        }
+        if payload == Choice.empty() {
+            panic("bad_variant");
+        }
+        if read(payload) + read(Choice.number(value: 11)) + read(Choice.empty()) != 21 {
+            panic("bad_switch");
+        }
+        iteration = iteration + 1;
+    }
+    if kept != "日本語\u{0}tail" {
+        panic("bad_child_lifetime");
+    }
+    return 42;
+}
+
+fn main() {
+    if verify() != 42 {
+        panic("bad_result");
+    }
+}

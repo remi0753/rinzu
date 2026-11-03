@@ -1,0 +1,2 @@
+RZ0403|`await` is not allowed in `finally`
+RZ0403|callee `work` is not CleanupSafe

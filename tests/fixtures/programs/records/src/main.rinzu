@@ -1,0 +1,73 @@
+import rinzu.stdio;
+
+type Point = {
+    x: Int, y: Int
+};
+
+type Reordered = {
+    y: Int, x: Int
+};
+
+class Counter {
+    value: Int
+}
+
+fn mark(counter: Counter, value: Int) -> Int {
+    counter.value = counter.value * 10 + value;
+    return value;
+}
+
+fn snapshot(point: Point) -> Reordered {
+    return {
+        y = point.y, x = point.x
+    };
+}
+
+async fn main() {
+    try {
+        let counter = Counter(value: 0);
+        let point: Point = {
+            y = mark(counter, 2), x = mark(counter, 1)
+        };
+        let copy = point;
+        let same: Reordered = {
+            x = 1, y = 2
+        };
+        let changed: Point = {
+            x = point.x, y = 10
+        };
+        let index: Map<Reordered, String> = {
+            point: "found"
+        };
+        let holder = {
+            counter = counter
+        };
+        let holderCopy = holder;
+        holderCopy.counter.value = 3;
+        var i: Int = 0;
+        while i < 300 {
+            let garbage = f"record-gc-{i}";
+            i = i + 1;
+        }
+        let pending = spawn snapshot(copy);
+        let received = await pending;
+        rinzu.stdio.writeLine(copy == same);
+        rinzu.stdio.writeLine(received == point);
+        rinzu.stdio.writeLine(f"{point.x},{point.y}:{changed.x},{changed.y}");
+        rinzu.stdio.writeLine(holder.counter.value);
+        switch mapGet(index, received) {
+            case Option.Some(value): {
+                rinzu.stdio.writeLine(value);
+            }
+            case Option.None: {
+                rinzu.stdio.writeLine("missing");
+            }
+        }
+        let order: Point = {
+            y = mark(counter, 2), x = mark(counter, 1)
+        };
+        rinzu.stdio.writeLine(counter.value);
+        // 321: y then x, each exactly once
+    }
+    catch errors {}
+}

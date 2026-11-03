@@ -1,0 +1,78 @@
+import rinzu.stdio;
+
+fn countMatches<T: Equality>(values: List<T>, wanted: T) -> Int {
+    var count = 0;
+    var index = 0;
+    let length = listLength(values);
+    while index < length {
+        switch listGet(values, index) {
+            case Option.Some(value): {
+                if value == wanted {
+                    count = count + 1;
+                }
+            }
+            case Option.None: {}
+        }
+        index = index + 1;
+    }
+    return count;
+}
+
+fn sumMap<K: Key>(values: Map<K, Int>) -> Int {
+    let keys = mapKeys(values);
+    let length = listLength(keys);
+    var total = 0;
+    var index = 0;
+    while index < length {
+        switch listGet(keys, index) {
+            case Option.Some(key): {
+                switch mapGet(values, key) {
+                    case Option.Some(value): {
+                        total = total + value;
+                    }
+                    case Option.None: {}
+                }
+            }
+            case Option.None: {}
+        }
+        index = index + 1;
+    }
+    return total;
+}
+
+fn sumSnapshot(values: List<Int>) -> Int {
+    let snapshot = values;
+    var changed = values;
+    var total = 0;
+    var index = 0;
+    let count = listLength(snapshot);
+    while index < count {
+        changed = listAppend(changed, index);
+        switch listGet(snapshot, index) {
+            case Option.Some(value): {
+                total = total + value;
+            }
+            case Option.None: {}
+        }
+        index = index + 1;
+    }
+    if listLength(changed) != count + count {
+        panic("wrongSnapshot");
+    }
+    return total;
+}
+
+async fn main() {
+    try {
+        rinzu.stdio.writeLine(countMatches<Int>([3, -1, 3, 2], 3));
+        rinzu.stdio.writeLine(countMatches<String>(["日本語", "other", "日本語"], "日本語"));
+        rinzu.stdio.writeLine(sumSnapshot([3, -1, 3, 2]));
+        let table: Map<String, Int> = {
+            "first": 2, "second": 3, "first": 4
+        };
+        rinzu.stdio.writeLine(mapKeys(table));
+        let pending = spawn sumMap<String>(table);
+        rinzu.stdio.writeLine(await pending);
+    }
+    catch errors {}
+}

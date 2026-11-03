@@ -1,0 +1,136 @@
+import rinzu.core;
+
+class Packet {
+    const text: String,
+    const bytes: Bytes(4),
+    const high: CSize
+}
+
+enum Result {
+    packet(value: Packet),
+    empty
+}
+
+fn work(value: Int) -> Int {
+    return value + 1;
+}
+
+fn churn() {
+    var iteration = 0;
+    while iteration < 20 {
+        let temporary = Packet(text: "temporary", bytes: b"T", high: 0);
+        let collection: List<Packet> = [temporary];
+        iteration = iteration + 1;
+    }
+}
+
+fn make(text: String) -> Packet {
+    return Packet(high: 18446744073709551615, bytes: b"A\xff", text: text);
+}
+
+async fn ready(value: Packet) -> Result {
+    return Result.packet(value: value);
+}
+
+async fn text(value: Packet) -> String {
+    return value.text;
+}
+
+async fn bytes(value: Packet) -> Bytes(4) {
+    return value.bytes;
+}
+
+async fn list(value: Packet) -> List<Packet> {
+    return [value];
+}
+
+async fn map(value: Packet) -> Map<String, Packet> {
+    return {
+        "key": value
+    };
+}
+
+async fn error(value: Error) -> Error {
+    return value;
+}
+
+async fn pending(value: Packet) -> Packet {
+    let first = spawn work(10);
+    let temporary = make("callee prefix");
+    let copied = value.text;
+    let count = await first;
+    churn();
+    if count != 11 || copied != value.text {
+        panic("bad_suspend");
+    }
+    return value;
+}
+
+async fn close_before_return(value: Packet) -> Packet {
+    let dropped = spawn work(20);
+    return value;
+}
+
+async fn main() {
+    let original = make("日本語\u{0}retained");
+    let first = pending(original);
+    let second = pending(make("other"));
+    let complete = ready(original);
+    let closing = close_before_return(original);
+    let ready_text = text(original);
+    let ready_bytes = bytes(original);
+    let ready_list = list(original);
+    let ready_map = map(original);
+    churn();
+    let from_second = await second;
+    let from_first = await first;
+    let from_close = await closing;
+    let selected = await complete;
+    let received_text = await ready_text;
+    let received_bytes = await ready_bytes;
+    let received_list = await ready_list;
+    let received_map = await ready_map;
+    churn();
+    let expected_list: List<Packet> = [original];
+    let expected_map: Map<String, Packet> = {
+        "key": original
+    };
+    if received_text != original.text
+        || received_bytes != original.bytes
+        || received_list != expected_list
+        || received_map != expected_map {
+        panic("bad_ready_root");
+    }
+    try {
+        let invalid = CInt8(200);
+    }
+    catch [caught: Error, ...caughtRest] {
+        let ready_error = error(caught);
+        churn();
+        let received_error = await ready_error;
+        churn();
+        if received_error.message != "numeric conversion is out of range or loses required integer precision" {
+            panic("bad_error_root");
+        }
+    }
+    if from_first != original || from_close != original || from_second.text != "other" {
+        panic("bad_result");
+    }
+    if from_first.bytes != b"A\xff\x00\x00" || byteLength(from_first.bytes) != 4 {
+        panic("bad_bytes");
+    }
+    switch selected {
+        case Result.empty: {
+            panic("bad_case");
+        }
+        case Result.packet(packet): {
+            if packet != original || packet.high != 18446744073709551615 {
+                panic("bad_packet");
+            }
+        }
+    }
+    let again = await first;
+    if again != original {
+        panic("bad_alias");
+    }
+}

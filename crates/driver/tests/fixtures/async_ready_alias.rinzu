@@ -1,0 +1,56 @@
+class Trace {
+    values: List<Int>
+}
+
+async fn value() -> Int {
+    return 42;
+}
+
+async fn gate() -> Int {
+    return await value();
+}
+
+async fn observe(shared: Future<Int>, trace: Trace, index: Int) -> Int {
+    let result = await shared;
+    trace.values = listAppend(trace.values, index);
+    return result;
+}
+
+async fn main() {
+    let trace = Trace(values: []);
+    let shared = gate();
+    var futures: List<Future<Int>> = [];
+    var index = 0;
+    while index < 96 {
+        futures = listAppend(futures, observe(shared, trace, index));
+        index = index + 1;
+    }
+    if listLength(trace.values) != 0 {
+        panic("ranBeforeTurn");
+    }
+    index = 0;
+    while index < 96 {
+        switch listGet(futures, index) {
+            case Option.Some(future): {
+                let result = await future;
+                if result != 42 {
+                    panic("wrongResult");
+                }
+            }
+            case Option.None: {
+                panic("missingFuture");
+            }
+        }
+        switch listGet(trace.values, index) {
+            case Option.Some(value): {
+                if value != index {
+                    panic("changedOrder");
+                }
+            }
+            case Option.None: {
+                panic("missingTrace");
+            }
+        }
+        index = index + 1;
+    }
+}

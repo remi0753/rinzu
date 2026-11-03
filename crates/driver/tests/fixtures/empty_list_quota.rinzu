@@ -1,0 +1,8 @@
+fn main() {
+    var values: List<Int> = [];
+    var index = 0;
+    while index < 64 {
+        values = [];
+        index = index + 1;
+    }
+}

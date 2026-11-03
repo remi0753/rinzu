@@ -1,0 +1,50 @@
+{
+  "schema": "rinzu.event-trace",
+  "version": 1,
+  "producer": "i0-fixture",
+  "context": {
+    "backend": "semantic-model",
+    "target": "aarch64-apple-darwin"
+  },
+  "events": [
+    {
+      "sequence": 0,
+      "domain": "main",
+      "task": "root",
+      "source": { "file": "sample.rinzu", "line": 1, "column": 1 },
+      "kind": "task-start",
+      "observation": {
+        "monotonic_ns": 100,
+        "process_id": 42,
+        "os_thread_id": "0x1234",
+        "address": "0x1000"
+      }
+    },
+    {
+      "sequence": 1,
+      "domain": "main",
+      "task": "root",
+      "kind": "await-pending",
+      "operation": "file-read"
+    },
+    {
+      "sequence": 2,
+      "domain": "main",
+      "task": "root",
+      "kind": "await-ready",
+      "operation": "file-read",
+      "observation": {
+        "monotonic_ns": 250,
+        "os_thread_id": "0x1234"
+      }
+    },
+    {
+      "sequence": 3,
+      "domain": "main",
+      "task": "root",
+      "kind": "task-complete",
+      "outcome": "success"
+    }
+  ]
+}
+

@@ -1,0 +1,48 @@
+import rinzu.stdio;
+
+/// A recoverable test assertion failure, including the caller's message.
+error AssertionFailed {}
+
+/// Assert a condition using AssertionFailed on failure.
+/// Success returns Unit without output. A failed assertion prints the message.
+/// Let failures propagate from tests; use finally for fixture/Owner cleanup.
+///
+/// ```rinzu-test
+/// import rinzu.testing;
+///
+/// fn main() {
+///     rinzu.testing.assertTrue(true, "positive assertion");
+/// }
+/// ```
+fn assertTrue(condition: Bool, message: String) {
+    if !condition {
+        rinzu.stdio.writeLine(f"assertTrue failed: {message}");
+        throw AssertionFailed(message: message);
+    }
+}
+
+/// Compare actual and expected with the normal Equality marker rules.
+/// A mismatch prints the message and both values, then throws AssertionFailed.
+/// Observe native Owner handles separately; this helper does not close resources.
+///
+/// ```rinzu-test
+/// import rinzu.testing;
+///
+/// fn main() {
+///     rinzu.testing.assertEqual<ByteArray>(byteArray(b"\x00\xff"), byteArray(b"\x00\xff"), "binary equality");
+/// }
+/// ```
+fn assertEqual<T: Equality>(actual: T, expected: T, message: String) {
+    if actual != expected {
+        rinzu.stdio.writeLine(f"assertEqual failed: {message}");
+        rinzu.stdio.writeLine("actual:");
+        rinzu.stdio.writeLine(actual);
+        rinzu.stdio.writeLine("expected:");
+        rinzu.stdio.writeLine(expected);
+        throw AssertionFailed(message: message);
+    }
+}
+
+export assertTrue;
+export assertEqual;
+export AssertionFailed;

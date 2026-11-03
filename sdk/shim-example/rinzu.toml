@@ -1,0 +1,10 @@
+[package]
+name="rinzu.shim"
+language="0.5"
+kind="sdk"
+entry="src/api.rinzu"
+[native]
+sources=["native/src/api.cpp"]
+headers=["native/include/api.h"]
+include-dirs=["native/include"]
+libraries=["c++"]

@@ -1,0 +1,94 @@
+import rinzu.macos;
+import rinzu.testing;
+import rinzu.stdio;
+
+fn test_history_and_selection() {
+    let doc = rinzu.macos.Document.create("initial🙂", true);
+    let initial = doc.snapshot();
+    var index = 0;
+    while index < 8 {
+        let edited = doc.edit(f"日本語🙂:{index}", 3, 4);
+        index = index + 1;
+    }
+    index = 0;
+    while index < 8 {
+        let undone = doc.undoEdit();
+        index = index + 1;
+    }
+    rinzu.testing.assertEqual<String>(doc.text, initial.text, "undo restores original");
+    index = 0;
+    while index < 8 {
+        let redone = doc.redoEdit();
+        index = index + 1;
+    }
+    rinzu.testing.assertEqual<Int>(doc.version, 24, "monotonic version");
+    rinzu.testing.assertEqual<Int>(doc.start, 3, "scalar selection");
+    let older = doc.undoEdit();
+    let branched = doc.edit("branch🙂", 0, 1);
+    rinzu.testing.assertEqual<Int>(doc.redo.length(), 0, "new edit discards redo");
+    let saved = doc.snapshot();
+    let changed = doc.edit("later", 0, 0);
+    doc.markSaved(saved);
+    rinzu.testing.assertTrue(doc.dirty(), "saving an older version keeps current edit dirty");
+    rinzu.testing.assertTrue(!doc.accepts(saved), "stale analysis rejected");
+    doc.accepting = false;
+    let rejected = doc.edit("rejected", 0, 0);
+    rinzu.testing.assertTrue(!rejected && !doc.accepts(doc.snapshot()), "closing rejects edits and results");
+}
+
+fn test_count_and_byte_bounds() {
+    let doc = rinzu.macos.Document.withHistory("", true, 100, 256);
+    var index = 0;
+    while index < 240 {
+        let edited = doc.edit(f"{index}:🙂", 0, 0);
+        rinzu.testing.assertTrue(doc.undo.length() <= 100 && doc.undo.bytes <= 256, "bounded history");
+        index = index + 1;
+    }
+    let zero = rinzu.macos.Document.withHistory("", true, 0, 0);
+    let changed = zero.edit("no history", 0, 0);
+    rinzu.testing.assertEqual<Int>(zero.undo.length(), 0, "disabled undo");
+    var caught = false;
+    try {
+        zero.select(0, 100);
+    }
+    catch errors {
+        caught = true;
+    }
+    rinzu.testing.assertTrue(caught, "invalid selection rejected");
+}
+
+fn test_reset_identity_and_history() {
+    let doc = rinzu.macos.Document.create("old", true);
+    let edit = doc.edit("unsaved", 0, 2);
+    let old = doc.snapshot();
+    let loaded = doc.reset("Opened 日本🙂", true);
+    rinzu.testing.assertTrue(
+        loaded
+            && !doc.dirty()
+            && !doc.accepts(old)
+            && doc.version == old.version + 1
+            && doc.start == 0
+            && doc.end == 0
+            && doc.undo.length() == 0
+            && doc.redo.length() == 0,
+        "reset identity/history"
+    );
+    let same = doc.snapshot();
+    let reloaded = doc.reset(same.text, false);
+    rinzu.testing.assertTrue(reloaded && !doc.accepts(same) && doc.dirty(), "same text is a new document version");
+    doc.accepting = false;
+    let rejected = doc.reset("rejected", true);
+    rinzu.testing.assertTrue(!rejected && doc.text == same.text, "closed reset rejected");
+}
+
+fn main() {
+    try {
+        test_history_and_selection();
+        test_count_and_byte_bounds();
+        test_reset_identity_and_history();
+        rinzu.stdio.writeLine("DOCUMENT:model-ok");
+    }
+    catch errors {
+        panic(f"document test failed: {errors}");
+    }
+}

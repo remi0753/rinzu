@@ -1,0 +1,67 @@
+import rinzu.io;
+import rinzu.stdio;
+
+async fn transfer(input: rinzu.io.File, output: rinzu.io.File) -> Int {
+    var total = 0;
+    while true {
+        let chunk = await rinzu.io.read(input, 65536);
+        if chunk.eof {
+            return total;
+        }
+        total = total + await rinzu.io.writeAll(output, chunk.data);
+    }
+    return total;
+}
+
+async fn saveCopy(from: String, to: String, temp: String) -> Int {
+    var installed = false;
+    var created = false;
+    var count = 0;
+    try {
+        let input = await rinzu.io.openRead(from);
+        try {
+            let output = await rinzu.io.openWrite(temp);
+            created = true;
+            try {
+                count = await transfer(input, output);
+                let flushed = await rinzu.io.flush(output);
+            }
+            finally {
+                let outputClosed = await rinzu.io.close(output);
+            }
+        }
+        finally {
+            let inputClosed = await rinzu.io.close(input);
+        }
+        let renamed = await rinzu.io.rename(temp, to);
+        installed = true;
+        return count;
+    }
+    finally {
+        if created && !installed {
+            let removed = await rinzu.io.remove(temp);
+        }
+    }
+}
+
+async fn main() {
+    try {
+        try {
+            try {
+                rinzu.stdio.writeLine(await saveCopy("input.bin", "output.bin", "output.bin.tmp"));
+            }
+            catch [problem: Error, ...rest] {
+                rinzu.stdio.writeLine(errorMessage(problem));
+            }
+            if rinzu.io.liveFiles() != 0 || rinzu.io.liveBuffers() != 0 {
+                panic("invariant");
+            }
+        }
+        catch errors {
+            panic("unexpected");
+        }
+    }
+    catch unexpectedEntryErrors {
+        panic("unexpectedEntryFailure");
+    }
+}

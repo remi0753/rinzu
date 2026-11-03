@@ -1,0 +1,69 @@
+import rinzu.stdio;
+
+class Item {
+    const count: Int,
+    const label: String,
+    const bytes: ByteArray
+}
+
+class Box<T> {
+    const value: T,
+    const name: String
+}
+
+fn base(value: Item) -> Item {
+    rinzu.stdio.writeLine("base");
+    return value;
+}
+
+fn label() -> String {
+    rinzu.stdio.writeLine("label");
+    return "new";
+}
+
+fn count() -> Int {
+    rinzu.stdio.writeLine("count");
+    return 2;
+}
+
+fn rename<T>(value: Box<T>) -> Box<T> {
+    return Box<T>(value: value.value, name: "updated");
+}
+
+fn copy(value: Item) -> Item {
+    return value;
+}
+
+async fn main() {
+    try {
+        let original = Item(count: 1, label: "old", bytes: byteArray(b"A"));
+        let alias = original;
+        let source = base(original);
+        let updated = Item(label: label(), count: count(), bytes: source.bytes);
+        rinzu.stdio.writeLine(alias.label);
+        rinzu.stdio.writeLine(updated.label);
+        rinzu.stdio.writeLine(updated.count);
+        rinzu.stdio.writeLine(updated.bytes == original.bytes);
+        let copied = original;
+        rinzu.stdio.writeLine(copied == original);
+        let nested = Item(count: 3, label: "again", bytes: updated.bytes);
+        rinzu.stdio.writeLine(nested.count);
+        rinzu.stdio.writeLine(nested.label);
+        let boxed = rename<Item>(Box<Item>(value: updated, name: "initial"));
+        rinzu.stdio.writeLine(boxed.name);
+        rinzu.stdio.writeLine(boxed.value == updated);
+        let pending = spawn copy(nested);
+        rinzu.stdio.writeLine(await pending == nested);
+        try {
+            let failed = Item(count: Int(CInt8(300)), label: "safe", bytes: original.bytes);
+            rinzu.stdio.writeLine(failed.count);
+        }
+        catch [problem: Error, ...problemRest] {
+            rinzu.stdio.writeLine(errorCode(problem));
+        }
+        finally {
+            rinzu.stdio.writeLine("cleanup");
+        }
+    }
+    catch errors {}
+}

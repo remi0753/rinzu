@@ -1,0 +1,12 @@
+import spans;
+
+async fn main() {
+    if spans.exercise() != 65540 {
+        panic("wrongMain");
+    }
+    let first = spawn spans.exercise();
+    let second = spawn spans.exercise();
+    if await first != 65540 || await second != 65540 {
+        panic("wrongWorker");
+    }
+}

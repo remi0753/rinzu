@@ -1,0 +1,62 @@
+import rinzu.stdio;
+
+class Details {
+    const value: Int
+}
+
+error Failed {
+    payload: Details
+}
+
+error Cleanup {
+    payload: Int
+}
+
+fn fail(value: Int) -> Int {
+    throw Failed(message: "worker failure", payload: Details(value: value));
+}
+
+fn guarded() -> Int {
+    try {
+        return fail(347);
+    }
+    catch [error: Failed] {
+        return error.payload.value;
+    }
+}
+
+fn aggregated() -> Int {
+    try all {
+        let unused = fail(349);
+        throw Cleanup(message: "worker cleanup", payload: 353);
+    }
+    catch [first: Failed, last: Cleanup] {
+        return first.payload.value + last.payload;
+    }
+}
+
+fn clean() -> Int {
+    try {
+        try {
+            return fail(359);
+        }
+        finally {
+            throw Cleanup(message: "finally", payload: 367);
+        }
+    }
+    catch [first: Failed, last: Cleanup] {
+        return first.payload.value + last.payload;
+    }
+}
+
+async fn main() {
+    let first = await spawn guarded();
+    let second = await spawn aggregated();
+    let third = await spawn clean();
+    try {
+        rinzu.stdio.writeLine(first);
+        rinzu.stdio.writeLine(second);
+        rinzu.stdio.writeLine(third);
+    }
+    catch errors {}
+}

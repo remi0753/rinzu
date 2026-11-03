@@ -1,0 +1,14 @@
+{
+  "package": {
+    "package": "spike.math", "modules": ["spike.math"], "exports": ["spike.math.add"],
+    "language": "rinzu-0.2", "target": "aarch64-apple-darwin", "data_layout": "e-m:o-i64:64-i128:128-n32:64-S128",
+    "toolchain": "rinzu-r1-spike", "native_compiler": "clang-arm64",
+    "build_inputs": {"source:math.c": "int64_t add(int64_t a, int64_t b) { return a+b; }", "flags": "-O2"}
+  },
+  "types": [{"identity": "Int", "canonical": "Int", "c_type": "int64_t", "size": "8", "alignment": "8", "bytes_length": null, "fields": []}],
+  "functions": [{"identity": "spike.math.add", "source_type": "native(Int,Int)->Int", "kind": "native", "effects": [], "parameter_requirements": [], "symbol": "add", "service": null, "c_prototype": "int64_t add(int64_t a, int64_t b)", "conversion_plan": ["identity-i64"], "callbacks": []}],
+  "backend": {"native_data_contract": 1, "callback_rule": 1, "template_layout": 1, "service_registry": 1, "page_size": "16384", "entry_stride": "32", "control_stride": "32", "bridge_abi": "arm64-x16-v1", "owner_dispatcher": "macos-runloop-v1"},
+  "constants": {"large": "18446744073709551615"},
+  "constant_types": {"large": "CUInt64"},
+  "provided_header_digest": null
+}

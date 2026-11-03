@@ -1,0 +1,70 @@
+import rinzu.sdl2;
+import rinzu.io;
+
+fn onEvent(window: rinzu.sdl2.WindowHandle, event: rinzu.sdl2.Event) {
+    let retained = ["SDL immutable event", "poll snapshot"];
+    var index = 0;
+    while index < 32 {
+        let temporary = ["event GC", "retained snapshot"];
+        index = index + 1;
+    }
+    if event.sequence < 1 || retained != ["SDL immutable event", "poll snapshot"] {
+        panic("invalidEvent");
+    }
+    if event.shouldQuit {
+        let stopped = rinzu.sdl2.stop(window);
+        if stopped != 0 {
+            panic("failedQuit");
+        }
+    }
+}
+
+fn cpuScore(size: Int) -> Int {
+    return size * 2;
+}
+
+async fn completePreview() {
+    try {
+        let retained = ["SDL async child", "file and Worker roots"];
+        let size = await rinzu.io.readSize("data/input.txt");
+        let preview = await spawn cpuScore(size);
+        var index = 0;
+        while index < 256 {
+            let temporary = ["child GC", "await roots"];
+            index = index + 1;
+        }
+        if preview != 40 || retained != ["SDL async child", "file and Worker roots"] {
+            panic("invalidPreview");
+        }
+    }
+    catch unexpectedErrors {
+        panic("failed");
+    }
+}
+
+fn onFrame(window: rinzu.sdl2.WindowHandle, frame: Int) {
+    if !rinzu.sdl2.isRunning(window) {
+        panic("invalidWindow");
+    }
+    if frame == 1 {
+        let preview = completePreview();
+    }
+    if frame == 3 {
+        let stopped = rinzu.sdl2.stop(window);
+        if stopped != 0 {
+            panic("failedStop");
+        }
+    }
+}
+
+async fn main() {
+    try {
+        let frames = await rinzu.sdl2.run("Rinzu SDL source SDK", onEvent, onFrame, 16);
+        if frames != 3 {
+            panic("invalidFrames");
+        }
+    }
+    catch unexpectedErrors {
+        panic("failed");
+    }
+}

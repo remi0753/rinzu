@@ -1,0 +1,16 @@
+import rinzu.stdio;
+
+fn main() {
+    try {
+        let json = r#"{"path":"C:\tmp", "placeholder":"{name}"}"#;
+        let template = r##"header
+  日本語 "quoted"#
+footer"##;
+        rinzu.stdio.writeLine(json);
+        rinzu.stdio.writeLine(template);
+        rinzu.stdio.writeLine(r"literal \n {name}" == "literal \\n {name}");
+        rinzu.stdio.writeLine(stringLength(r"é"));
+        rinzu.stdio.writeLine(f"value={stringLength(r#"}"#)}");
+    }
+    catch errors {}
+}

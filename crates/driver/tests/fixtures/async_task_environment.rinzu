@@ -1,0 +1,121 @@
+import rinzu.stdio;
+
+class Kept {
+    value: Int,
+    label: String
+}
+
+fn check(condition: Bool) {
+    if !condition {
+        panic("bad");
+    }
+}
+
+fn plus(value: Int) -> Int {
+    return value + 1;
+}
+
+fn churn() {
+    var index = 0;
+    while index < 12 {
+        let moved = Kept(value: index, label: f"temporary {index}");
+        index = index + 1;
+    }
+}
+
+async fn zero() -> String {
+    return "zero";
+}
+
+async fn mixed(
+    a: Int,
+    kept: Kept,
+    high: CUInt64,
+    text: String,
+    flag: Bool,
+    data: ByteArray,
+    list: List<Kept>,
+    apply: fn (Int) -> Int,
+    ready: Future<String>
+) -> Kept {
+    let received = await ready;
+    churn();
+    check(a == 17 && kept.value == 18 && high == 18446744073709551615);
+    check(text == "日本語\u{0}kept" && flag && received == "zero" && apply(a) == 18);
+    check(bytesLength(data) == 3 && bytesGet(data, 2) == bytesGet(byteArray(b"\xff"), 0));
+    switch listGet(list, 0) {
+        case Option.Some(item): {
+            check(item.value == 18 && item.label == text);
+        }
+        case Option.None: {
+            check(false);
+        }
+    }
+    return kept;
+}
+
+async fn failed(kept: Kept) -> Int {
+    try {
+        let outOfRange = CInt8(300);
+    }
+    finally {
+        churn();
+        check(kept.value == 18 && kept.label == "日本語\u{0}kept");
+    }
+    return 0;
+}
+
+async fn main() {
+    try {
+        var scalar = 17;
+        let kept = Kept(value: 0, label: "日本語\u{0}kept");
+        let ready = zero();
+        try {
+            let pending = mixed(
+                scalar,
+                kept,
+                18446744073709551615,
+                kept.label,
+                true,
+                byteArray(b"\x00\x80\xff"),
+                [kept],
+                plus,
+                ready
+            );
+            scalar = 99;
+            kept.value = 18;
+            try {
+                let received = await pending;
+                churn();
+                let other = zero();
+                let text = await other;
+                let again = await pending;
+                check(received.value == 18 && again.label == kept.label && text == "zero" && scalar == 99);
+            }
+            finally {
+                let settledPending = await pending;
+            }
+        }
+        finally {
+            let settledReady = await ready;
+        }
+        let failure = failed(kept);
+        try {
+            let unexpected = await failure;
+            check(false);
+        }
+        catch [problem: Error, ...rest] {
+            check(problem.message == "numeric conversion is out of range or loses required integer precision");
+        }
+        finally {
+            try {
+                let observed = await failure;
+            }
+            catch errors {}
+        }
+        rinzu.stdio.writeLine("A01:queued-args:zero-nine:held-result:alias:cleanup:OK");
+    }
+    catch unexpectedErrors {
+        panic("unexpectedFailure");
+    }
+}
