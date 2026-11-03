@@ -41,6 +41,7 @@ fn collect(ty: &Type, out: &mut HashSet<FunctionReferenceType>) {
 pub(crate) fn convert(
     checked: &CheckedModule,
 ) -> Result<Option<(Module, FileId)>, Vec<Diagnostic>> {
+    let _timing = crate::timing::span("frontend.closures");
     let mut selected = HashSet::new();
     for schema in checked.source_types.values() {
         for (_, ty) in schema

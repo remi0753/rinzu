@@ -343,6 +343,9 @@ fn fresh(
         .context_inputs
         .get("clang.sysroot")
         .map_or(Path::new(""), |path| Path::new(path));
+    if let Some(context) = &built.input_snapshot {
+        input_snapshot.merge(context)?;
+    }
     input_snapshot.recorded(&root.root, sysroot, &built.context_inputs)?;
     input_snapshot.verify()?;
     let lock = snapshot(

@@ -61,6 +61,14 @@ impl BuiltNativePackages {
             &artifact.checked_inputs,
             &artifact.module_graph,
         )?;
+        if let Some(previous) = &self.input_snapshot {
+            snapshot.merge(previous)?;
+        }
+        for package in self.source_packages.iter().chain(own) {
+            if let Some(previous) = &package.input_snapshot {
+                snapshot.merge(previous)?;
+            }
+        }
         snapshot.native(manifest, &artifact.native_inputs)?;
         let mut inputs = if !self.source_packages.is_empty()
             || own.is_some()
@@ -89,10 +97,8 @@ impl BuiltNativePackages {
         }
         inputs.insert(
             "rinzu.compiler-binary".into(),
-            rinzu_bindgen::source_package::sha256(
-                &std::fs::read(std::env::current_exe().map_err(|error| error.to_string())?)
-                    .map_err(|error| error.to_string())?,
-            ),
+            snapshot
+                .captured_digest(&std::env::current_exe().map_err(|error| error.to_string())?)?,
         );
         crate::source_receipt::fingerprint(
             manifest,
@@ -231,6 +237,9 @@ pub fn build_artifact(
         .context_inputs
         .get("clang.sysroot")
         .map_or(Path::new(""), |path| Path::new(path));
+    if let Some(context) = &built.input_snapshot {
+        snapshot.merge(context)?;
+    }
     snapshot.recorded(&manifest.root, sysroot, &built.context_inputs)?;
     snapshot.verify()?;
     built.input_snapshot = Some(snapshot);

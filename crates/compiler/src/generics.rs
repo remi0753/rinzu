@@ -15,6 +15,7 @@ pub(crate) fn expand(
     module: &Module,
     _is_library: bool,
 ) -> Result<(Module, Vec<Requirement>), Vec<Diagnostic>> {
+    let _timing = crate::timing::span("frontend.generics");
     Expander::new(module).run().map_err(|error| vec![error])
 }
 

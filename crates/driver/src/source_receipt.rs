@@ -18,34 +18,61 @@ impl InputSnapshot {
         let _timing = rinzu_compiler::timing::span("native.inputs.verify_group");
         let mut combined = Self::default();
         for snapshot in snapshots {
-            for (path, expected) in &snapshot.files {
-                if combined
-                    .files
-                    .get(path)
-                    .is_some_and(|value| value != expected)
-                {
-                    return Err(format!(
-                        "input changed before publication: {}; check again",
-                        path.display()
-                    ));
-                }
-                combined.files.insert(path.clone(), expected.clone());
-            }
-            for (path, target) in &snapshot.resolutions {
-                if combined
-                    .resolutions
-                    .get(path)
-                    .is_some_and(|value| value != target)
-                {
-                    return Err(format!(
-                        "module resolution changed after checking: {}; check again",
-                        path.display()
-                    ));
-                }
-                combined.resolutions.insert(path.clone(), target.clone());
-            }
+            combined.merge(snapshot)?;
         }
         combined.verify()
+    }
+
+    /// Combine captured expectations; a fresh verify is still required at the
+    /// publication boundary. Conflicting byte or resolution claims never merge.
+    pub fn merge(&mut self, other: &Self) -> Result<(), String> {
+        for (path, expected) in &other.files {
+            if self.files.get(path).is_some_and(|value| value != expected) {
+                return Err(format!(
+                    "input changed before publication: {}; check again",
+                    path.display()
+                ));
+            }
+            self.files.insert(path.clone(), expected.clone());
+        }
+        for (path, target) in &other.resolutions {
+            if self
+                .resolutions
+                .get(path)
+                .is_some_and(|value| value != target)
+            {
+                return Err(format!(
+                    "module resolution changed after checking: {}; check again",
+                    path.display()
+                ));
+            }
+            self.resolutions.insert(path.clone(), target.clone());
+        }
+        Ok(())
+    }
+
+    /// Capture content once within this build. This is an expected digest, not
+    /// a statement that the file has remained unchanged since capture.
+    pub fn captured_digest(&mut self, path: &Path) -> Result<String, String> {
+        if !self.files.contains_key(path) {
+            self.add(path, None)?;
+        }
+        Ok(self.files[path].3.clone())
+    }
+
+    fn recorded_file(&mut self, path: &Path, expected: Option<&str>) -> Result<(), String> {
+        if let Some((_, _, _, digest)) = self.files.get(path)
+            && let Some(expected) = expected
+        {
+            if digest != expected {
+                return Err(format!(
+                    "conflicting recorded input: {}; check again",
+                    path.display()
+                ));
+            }
+            return Ok(());
+        }
+        self.add(path, expected)
     }
 
     pub fn checked(
@@ -130,10 +157,10 @@ impl InputSnapshot {
     ) -> Result<(), String> {
         let _timing = rinzu_compiler::timing::span("native.inputs.capture.recorded");
         if let Some(digest) = inputs.get("clang.sdk") {
-            self.add(&sysroot.join("SDKSettings.json"), Some(digest))?;
+            self.recorded_file(&sysroot.join("SDKSettings.json"), Some(digest))?;
         }
         if let Some(digest) = inputs.get("rinzu.compiler-binary") {
-            self.add(
+            self.recorded_file(
                 &std::env::current_exe().map_err(|error| error.to_string())?,
                 Some(digest),
             )?;
@@ -141,7 +168,7 @@ impl InputSnapshot {
         if let Some(root) = inputs.get("rinzu.toolchain-resource-root") {
             let root = Path::new(root);
             rinzu_compiler::standard_library::verify(root)?;
-            self.add(
+            self.recorded_file(
                 &root.join("registry.json"),
                 Some(&rinzu_compiler::standard_library::sha256(
                     &rinzu_compiler::standard_library::registry_bytes(),
@@ -152,7 +179,7 @@ impl InputSnapshot {
                     || relative.starts_with("runtime/")
                     || relative == "license-inventory.json"
                 {
-                    self.add(
+                    self.recorded_file(
                         &root.join(relative),
                         Some(&rinzu_compiler::standard_library::sha256(bytes)),
                     )?;
@@ -164,7 +191,7 @@ impl InputSnapshot {
             ("rinzu.completion-header", "native_completion.h"),
         ] {
             if let Some(digest) = inputs.get(key) {
-                self.add(
+                self.recorded_file(
                     &rinzu_compiler::standard_library::resource_root()?
                         .join("include/rinzu")
                         .join(name),
@@ -175,17 +202,17 @@ impl InputSnapshot {
         if let (Some(path), Some(digest)) =
             (inputs.get("clang.identity"), inputs.get("clang.binary"))
         {
-            self.add(Path::new(path), Some(digest))?;
+            self.recorded_file(Path::new(path), Some(digest))?;
         }
         if let (Some(path), Some(digest)) = (
             inputs.get("config.tool"),
             inputs.get("config.identity-version-digest"),
         ) {
-            self.add(Path::new(path), Some(digest))?;
+            self.recorded_file(Path::new(path), Some(digest))?;
         }
         for (key, path) in inputs {
             if let Some(name) = key.strip_prefix("tool.identity:") {
-                self.add(
+                self.recorded_file(
                     Path::new(path),
                     inputs
                         .get(&format!("tool.binary:{name}"))
@@ -211,10 +238,10 @@ impl InputSnapshot {
                     }
                 });
             if let Some(path) = path {
-                self.add(&path, Some(digest))?;
+                self.recorded_file(&path, Some(digest))?;
             }
             if let Some(path) = key.strip_prefix("native.file:") {
-                self.add(Path::new(path), Some(digest))?;
+                self.recorded_file(Path::new(path), Some(digest))?;
             }
         }
         Ok(())
@@ -506,6 +533,22 @@ mod tests {
         after.add(&path, None).unwrap();
         assert!(InputSnapshot::verify_all([&after, &before]).is_err());
         assert!(InputSnapshot::verify_all([&before, &after]).is_err());
+    }
+
+    #[test]
+    fn reused_recorded_captures_still_require_fresh_bytes_before_publication() {
+        let temporary = fixture("snapshot-reuse");
+        let path = temporary.0.join("one.rinzu");
+        let mut first = InputSnapshot::default();
+        let digest = first.captured_digest(&path).unwrap();
+        first.recorded_file(&path, Some(&digest)).unwrap();
+        let mut second = InputSnapshot::default();
+        second.merge(&first).unwrap();
+        second.recorded_file(&path, Some(&digest)).unwrap();
+        assert!(second.recorded_file(&path, Some(&"0".repeat(64))).is_err());
+        std::fs::write(&path, "changed after capture").unwrap();
+        assert!(second.verify().is_err());
+        assert!(InputSnapshot::verify_all([&first, &second]).is_err());
     }
 
     #[test]

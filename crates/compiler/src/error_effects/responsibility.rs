@@ -135,6 +135,7 @@ pub(super) fn validate(
     bound: usize,
     entry: bool,
 ) -> Vec<Diagnostic> {
+    let _timing = crate::timing::span("frontend.responsibility");
     let graph = super::function_graph(checked);
     let recursive = recursive_functions(&graph);
     let order = super::function_order(&graph);

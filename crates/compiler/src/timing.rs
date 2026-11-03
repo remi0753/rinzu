@@ -23,6 +23,7 @@ struct ActiveSpan {
     parent: Option<u64>,
     started: Instant,
     duration: Option<std::time::Duration>,
+    counters: std::collections::BTreeMap<String, u64>,
 }
 
 /// Set `RINZU_COMPILE_TIMINGS=1` to emit nested JSON records to stderr.
@@ -38,6 +39,7 @@ pub fn span(phase: &'static str) -> Span {
             parent: PARENT.with(|parent| parent.replace(Some(id))),
             started: Instant::now(),
             duration: None,
+            counters: std::collections::BTreeMap::new(),
         })
     } else {
         None
@@ -49,6 +51,11 @@ pub fn span(phase: &'static str) -> Span {
 }
 
 impl Span {
+    pub fn set_counter(&mut self, name: &str, value: u64) {
+        if let Some(active) = &mut self.active {
+            active.counters.insert(name.to_owned(), value);
+        }
+    }
     pub fn is_active(&self) -> bool {
         self.active.is_some()
     }
@@ -80,6 +87,7 @@ impl Drop for Span {
                 "phase": active.phase, "detail": active.detail,
                 "id": active.id, "parent": active.parent, "elapsed_ns": elapsed_ns,
                 "thread": format!("{:?}", std::thread::current().id()),
+                "counters": active.counters,
             });
             let _ = writeln!(std::io::stderr().lock(), "RINZU_COMPILE_TIMING={record}");
         }

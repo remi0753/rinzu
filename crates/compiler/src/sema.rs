@@ -321,6 +321,7 @@ pub fn check_module_with_options(
     module: &Module,
     options: &CompilerOptions,
 ) -> Result<CheckedModule, Vec<Diagnostic>> {
+    let _timing = crate::timing::span("frontend.check");
     let module = crate::methods::expand_exports(module)?;
     crate::package::validate_public_signatures(
         &module,
@@ -477,6 +478,7 @@ impl<'a> Checker<'a> {
     }
 
     fn run(mut self) -> Result<CheckedModule, Vec<Diagnostic>> {
+        let _timing = crate::timing::span("frontend.typecheck");
         self.collect_declarations();
         match evaluate_module_constants(self.module) {
             Ok(values) => self.constants = values,

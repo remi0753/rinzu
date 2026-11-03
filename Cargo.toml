@@ -55,6 +55,11 @@ dbg_macro = "deny"
 todo = "deny"
 undocumented_unsafe_blocks = "deny"
 
+# Input publication checks hash the compiler and native images repeatedly.
+# Keep the checker debuggable while using the optimized SHA-256 implementation.
+[profile.dev.package.sha2]
+opt-level = 3
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

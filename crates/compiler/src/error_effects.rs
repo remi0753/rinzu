@@ -24,6 +24,7 @@ pub(crate) fn analyze(
     checked: &CheckedModule,
     entry: bool,
 ) -> Result<BTreeMap<String, Summary>, Vec<Diagnostic>> {
+    let _timing = crate::timing::span("frontend.effects");
     struct Bound(usize);
     impl Visitor for Bound {
         fn enter_statement(&mut self, statement: &Statement) {
@@ -48,9 +49,14 @@ pub(crate) fn analyze(
         .map(|name| (name.clone(), Summary::default()))
         .collect::<BTreeMap<_, _>>();
     let order = function_order(&function_graph(checked));
+    let mut timing = crate::timing::span("frontend.effects.summaries");
+    let mut evaluated = 0;
+    let mut rounds = 0;
     loop {
+        rounds += 1;
         let mut changed = false;
         for name in &order {
+            evaluated += 1;
             let next = flow::Analyzer::new(checked, &summaries, bound.0, false)
                 .function(functions[name])
                 .0;
@@ -63,6 +69,10 @@ pub(crate) fn analyze(
             break;
         }
     }
+    timing.set_counter("functions", functions.len() as u64);
+    timing.set_counter("evaluated", evaluated);
+    timing.set_counter("rounds", rounds);
+    drop(timing);
     let mut diagnostics = Vec::new();
     for function in functions.values() {
         diagnostics.extend(
