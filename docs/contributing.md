@@ -43,8 +43,10 @@ cargo xtask differential
 
 Sanitizer fixtures are under `tests/fixtures/c-abi`. The standalone runtime model is under `tests/runtime-model` and is excluded from the main workspace; `cargo xtask model` runs it explicitly. GUI tests need a real desktop session. Run platform-dependent checks in the environment their fixtures require.
 
-## Fuzzing and CI
+## Fuzzing and extended checks
 
 The `fuzz/` package contains trace-schema and source-formatter fuzz targets. Install nightly Rust and cargo-fuzz for sanitizer instrumentation. `cargo xtask fuzz-build` builds the configured trace target; use cargo-fuzz in `fuzz/` to select the formatter target.
 
-`cargo xtask ci --artifacts artifacts/ci` runs the repository's combined checks and stores local reports. Build output, diagnostic captures, benchmark results, task notes, and progress records are not publication inputs. Keep them outside tracked source. The root ignore rules cover conventional local artifact directories.
+`cargo xtask ci --artifacts artifacts/ci` runs extended conformance checks and stores local reports. These checks have platform-specific SDK and fixture requirements. GitHub Actions is not configured; run the relevant build, formatting, and test commands locally for each change.
+
+Build output, diagnostic captures, benchmark results, task notes, and progress records are not publication inputs. Keep them outside tracked source. The root ignore rules cover conventional local artifact directories.
