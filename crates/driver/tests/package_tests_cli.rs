@@ -303,10 +303,15 @@ fn main(){}"#,
 fn source_sdk_document_imports_its_own_public_api() {
     let fixture = Fixture::new("fn main() {}\n");
     fixture.dependency("testing");
+    std::fs::write(
+        fixture.0.join("testing/OWN_API.md"),
+        "```rinzu-test\nimport rinzu.testing;\nfn main(){try{rinzu.testing.assertEqual<Int>(20+22,42,\"own API\");}catch errors{panic(\"own API failed\");}}\n```\n",
+    )
+    .unwrap();
     let output = Command::new(frozen_cli::path())
         .arg("test")
         .arg(fixture.0.join("testing"))
-        .args(["--doc", "README.md", "--format", "json"])
+        .args(["--doc", "OWN_API.md", "--format", "json"])
         .env("RINZU_CACHE_DIR", fixture.0.join("user-cache"))
         .output()
         .unwrap();

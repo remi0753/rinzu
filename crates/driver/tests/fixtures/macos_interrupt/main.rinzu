@@ -1,6 +1,7 @@
 import rinzu.macos;
 
-fn onEvent(session: rinzu.macos.Session, event: rinzu.macos.Event) fallback () {
+fn onEvent(context: rinzu.macos.RunContext, event: rinzu.macos.Event) fallback () {
+    let session = context.session;
     if event.kind == rinzu.macos.eventStarted {
         if !session.isRunning() {
             panic("invalidEvent");

@@ -10,6 +10,22 @@ mod context_fixture {
 
 #[test]
 fn supplant_context_results_settle_before_cancellation_and_shutdown() {
+    const CHILD: &str = "RINZU_CONTEXT_SETTLEMENT_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        // This case asserts process-wide counters. Other test threads may own
+        // live userdata, so keep every zero-baseline assertion in a child.
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "source_native_userdata_tests::supplant_context_results_settle_before_cancellation_and_shutdown",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        return;
+    }
     let root = std::env::temp_dir().join(format!("rinzu-context-supplant-{}", std::process::id()));
     for mode in ["normal", "queued-cancel", "active-cancel", "shutdown"] {
         context_fixture::create_supplant(&root, mode == "queued-cancel");

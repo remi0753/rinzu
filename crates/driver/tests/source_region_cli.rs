@@ -101,6 +101,7 @@ fn compiled_source_traces_preserve_frontend_ranges_without_source_files() {
     }
     let root = std::env::temp_dir().join(format!("rinzu-source-traces-{}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
+    let root = root.canonicalize().unwrap();
     let entry = root.join("位置.rinzu");
     // An ordinary native declaration forces the compiled C JIT. Pure source
     // async and closed stdio/timer services can use the Rust reference engine.

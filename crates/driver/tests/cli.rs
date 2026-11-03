@@ -1074,28 +1074,64 @@ fn source_sdk_cache_reuses_verified_facade_and_regenerates_corrupt_or_changed_in
         )
         .unwrap()
     };
-    assert_eq!(build()["hit"], false);
-    assert_eq!(build()["hit"], true);
+    let first = build();
+    assert_eq!(first["hit"], false);
+    let reused = build();
+    assert_eq!(reused["hit"], true);
+    assert_eq!(reused["completed"], true);
     assert!(!root.join(".rinzu").exists());
-    let entries: Vec<_> = std::fs::read_dir(root.join("user-cache/source-v4"))
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .collect();
-    assert_eq!(entries.len(), 1);
-    std::fs::write(entries[0].join("facade.dylib"), b"corrupt facade").unwrap();
-    assert_eq!(build()["hit"], false);
-    assert_eq!(build()["hit"], true);
-    std::fs::write(entries[0].join("source-package-v2.json"), b"{}").unwrap();
-    assert_eq!(build()["hit"], false);
-    std::fs::write(root.join("api.c"), "int answer(void) { return 43; }\n").unwrap();
-    assert_eq!(build()["hit"], false);
-    assert_eq!(build()["hit"], true);
-    assert_eq!(
+    // Inspect the generation selected by the report. The cache also contains
+    // independent facade and native-image-path entries.
+    let matching_entries = |digest: &serde_json::Value| {
         std::fs::read_dir(root.join("user-cache/source-v4"))
             .unwrap()
-            .count(),
-        2
-    );
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                std::fs::read(path.join("source-package-v2.json"))
+                    .ok()
+                    .is_some_and(|bytes| {
+                        rinzu_bindgen::source_package::sha256(&bytes) == digest.as_str().unwrap()
+                    })
+            })
+            .collect::<Vec<_>>()
+    };
+    let entries = matching_entries(&first["descriptorDigest"]);
+    let completed = entries
+        .iter()
+        .find(|path| !path.join("facade.dylib").exists())
+        .unwrap();
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(completed.join("receipt.json")).unwrap()).unwrap();
+    let library = receipt["files"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .find(|name| name.starts_with("source-") && name.ends_with(".dylib"))
+        .unwrap();
+    std::fs::write(completed.join(library), b"corrupt completed image").unwrap();
+    assert_ne!(build()["completed"], true);
+    assert_eq!(build()["completed"], true);
+    std::fs::write(completed.join("source-package-v2.json"), b"{}").unwrap();
+    assert_ne!(build()["completed"], true);
+    assert_eq!(build()["completed"], true);
+    // Force both tiers to regenerate instead of damaging an unused facade
+    // while a valid completed generation can satisfy the build.
+    std::fs::write(completed.join(library), b"corrupt completed image").unwrap();
+    let facade = entries
+        .iter()
+        .find(|path| path.join("facade.dylib").exists())
+        .unwrap();
+    std::fs::write(facade.join("facade.dylib"), b"corrupt facade").unwrap();
+    assert_eq!(build()["hit"], false);
+    assert_eq!(build()["completed"], true);
+    std::fs::write(root.join("api.c"), "int answer(void) { return 43; }\n").unwrap();
+    let changed = build();
+    assert_eq!(changed["hit"], false);
+    assert_ne!(changed["inputFingerprint"], first["inputFingerprint"]);
+    assert_ne!(changed["descriptorDigest"], first["descriptorDigest"]);
+    assert_eq!(build()["completed"], true);
+    assert!(entries.iter().all(|entry| entry.is_dir()));
+    assert!(!matching_entries(&changed["descriptorDigest"]).is_empty());
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -1754,7 +1790,7 @@ async fn failed() -> CInt8 { return bad(); }
         ),
         (
             "let dropped = failed(); try { panic(\"failure\"); } finally { let cleanup = CInt8(400); }",
-            "rejected:RZ0406",
+            "failure",
         ),
         (
             "let dropped = spawn forever(); try { panic(\"failure\"); } finally { let cleanup = CInt8(400); }",
@@ -1848,7 +1884,7 @@ async fn trappedChild() -> Int { let child = trapped(); return 8; }
         ),
         (
             "let ignored = primary(); let outer_failure = CInt8(600);",
-            "rejected:RZ0406",
+            "failure",
         ),
     ] {
         std::fs::write(
@@ -1970,11 +2006,11 @@ async fn nestedRead(path: String) -> Int { return await read(path); }
         ),
         (
             "let dropped = rinzu.io.readSize(\"../outside.txt\"); panic(\"failure\");",
-            "rejected:RZ0406",
+            "failure",
         ),
         (
             "let dropped = rinzu.io.readSize(\"data/missing.txt\"); panic(\"failure\");",
-            "rejected:RZ0406",
+            "failure",
         ),
         (
             "let dropped = nestedRead(\"data/data.txt\");",
