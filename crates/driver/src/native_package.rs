@@ -25,6 +25,30 @@ impl Drop for Scratch {
     }
 }
 
+fn create_native_directory() -> Result<PathBuf, String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    loop {
+        let directory = std::env::temp_dir().join(format!(
+            "rinzu-native-packages-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed),
+        ));
+        // Exclusive creation also handles stale directories after PID reuse.
+        // A clock reading and create_dir_all cannot establish ownership.
+        match std::fs::create_dir(&directory) {
+            Ok(()) => return Ok(directory),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!(
+                    "create native package output {}: {error}",
+                    directory.display()
+                ));
+            }
+        }
+    }
+}
+
 impl BuiltNativePackages {
     pub fn load_source_packages(
         &self,
@@ -268,20 +292,7 @@ pub fn build_unlocked(
     application_root: &Path,
     inputs: &rinzu_compiler::NativeCliInputs,
 ) -> Result<BuiltNativePackages, String> {
-    let directory = std::env::temp_dir().join(format!(
-        "rinzu-native-packages-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|error| format!("read system clock: {error}"))?
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&directory).map_err(|error| {
-        format!(
-            "create native package output {}: {error}",
-            directory.display()
-        )
-    })?;
+    let directory = create_native_directory()?;
     let mut scratch = Scratch {
         path: directory.clone(),
         keep: false,
@@ -357,4 +368,45 @@ pub fn build_unlocked(
         context_inputs: Default::default(),
         input_snapshot: None,
     })
+}
+
+#[cfg(test)]
+mod scratch_tests {
+    use super::create_native_directory;
+
+    #[test]
+    fn parallel_builds_own_independent_scratch_outputs_and_cleanup() {
+        let barrier = std::sync::Barrier::new(16);
+        let directories = std::thread::scope(|scope| {
+            (0..16)
+                .map(|index| {
+                    let barrier = &barrier;
+                    scope.spawn(move || {
+                        barrier.wait();
+                        let directory = create_native_directory().unwrap();
+                        std::fs::write(directory.join("source-0.o"), index.to_string()).unwrap();
+                        (index, directory)
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(|thread| thread.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(
+            directories
+                .iter()
+                .map(|(_, path)| path)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            directories.len()
+        );
+        for (index, directory) in directories {
+            assert_eq!(
+                std::fs::read_to_string(directory.join("source-0.o")).unwrap(),
+                index.to_string()
+            );
+            std::fs::remove_dir_all(directory).unwrap();
+        }
+    }
 }
