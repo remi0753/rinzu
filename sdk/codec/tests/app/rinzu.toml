@@ -1,0 +1,7 @@
+[package]
+name = "codec_contracts"
+language = "0.5"
+entry = "src/main.rinzu"
+
+[dependencies]
+"rinzu.codec" = { path = "../.." }

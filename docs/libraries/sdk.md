@@ -25,7 +25,7 @@ A synchronous query can block Main. For CPU-intensive queries, open, query, and 
 
 ## Typed binary codecs
 
-[rinzu.codec](../../sdk/codec/README.md) encodes and decodes Document, Settings, and Message values. Each format is flat and versioned, with strict framing, UTF-8, length, and range checks. Document data is bounded to 1 MiB and messages to 64 KiB. These are specific typed formats, not a general JSON or recursive serialization framework.
+[rinzu.codec](../../sdk/codec/README.md) encodes and decodes Document, Settings, and Message values. These classes implement Encodable; call `rinzu.codec.encode(value)` or `value.encode()` to encode them through the shared contract. Each format is flat and versioned, with strict framing, UTF-8, length, and range checks. Document data is bounded to 1 MiB and messages to 64 KiB. These are specific typed formats, not a general JSON or recursive serialization framework.
 
 Public operations are `encodeDocument/decodeDocument`, `encodeSettings/decodeSettings`, and `encodeMessage/decodeMessage`. Encoding produces ByteArray; decoding returns the corresponding const class or throws Error. Generate signature documentation with `rinzu api`.
 

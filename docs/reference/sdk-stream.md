@@ -2,7 +2,9 @@
 
 Generated from checked public exports and captured source comments.
 
-Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r76`.
+Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r78`.
+
+[Machine-readable API v4 snapshot](../../sdk/stream/build/package-api-v4.json).
 
 ## rinzu.stream.FileStream
 
@@ -56,38 +58,46 @@ failure: Option<Error>
 
 Checked type: `async(FileStream)->Int`.
 
+Error contract: `throws Error` (declared).
+
 function · [source](../../sdk/stream/src/stream.rinzu#L66).
 
 ```rinzu
-async fn close(stream: FileStream) -> Int
+async fn close(stream: FileStream) -> Int throws Error
 ```
 
 ## rinzu.stream.next
 
 Checked type: `async(FileStream)->Option<ByteArray>`.
 
+Error contract: `throws Error` (declared).
+
 function · [source](../../sdk/stream/src/stream.rinzu#L28).
 
 ```rinzu
-async fn next(stream: FileStream) -> Option<ByteArray>
+async fn next(stream: FileStream) -> Option<ByteArray> throws Error
 ```
 
 ## rinzu.stream.openFile
 
 Checked type: `async(String)->FileStream`.
 
+Error contract: `throws Error` (declared).
+
 function · [source](../../sdk/stream/src/stream.rinzu#L15).
 
 ```rinzu
-async fn openFile(path: String) -> FileStream
+async fn openFile(path: String) -> FileStream throws Error
 ```
 
 ## rinzu.stream.openFileWithLimit
 
 Checked type: `async(String,Int)->FileStream`.
 
+Error contract: `throws Error` (declared).
+
 function · [source](../../sdk/stream/src/stream.rinzu#L19).
 
 ```rinzu
-async fn openFileWithLimit(path: String, maximum: Int) -> FileStream
+async fn openFileWithLimit(path: String, maximum: Int) -> FileStream throws Error
 ```

@@ -1,17 +1,25 @@
-class Box<T> {
+interface Getter<T> {
+    fn get(self: Self) -> T nothrow;
+}
+
+class Box<T> interface Getter<T> {
     private const item: T
 
-    fn create(value: T) -> Box<T> {
+    fn create(value: T) -> Box<T> nothrow {
         return Box<T>(item: value);
     }
 
-    fn get(self: Box<T>) -> T {
+    fn get(self: Box<T>) -> T nothrow {
         return self.item;
     }
 
     fn map<U>(self: Box<T>, transform: fn (T) -> U) -> Box<U> {
         return Box<U>.create(transform(self.item));
     }
+}
+
+fn unbox<T, B interface Getter<T>>(box: B, otherwise: T) -> T nothrow {
+    return box.get();
 }
 
 type Pair = {
@@ -43,12 +51,12 @@ fn synchronous() -> Int {
             return value + 6;
         }
     );
-    let get = Box<Int>.get;
+    let get = unbox<Int, Box<Int>>;
     let before: Pair = {
         x = 1, y = 2
     };
     let after = {
-        ...before, x = get(next)
+        ...before, x = get(next, 0)
     };
     if after.y != 2 || before.x != 1 {
         panic("record update mutated its base");
@@ -71,11 +79,11 @@ fn synchronous() -> Int {
 // async scenarios
 error Failed {}
 
-async fn fail() -> Int {
+async fn fail() -> Int throws Failed {
     throw Failed(message: "expected failure");
 }
 
-async fn ready() -> Int {
+async fn ready() -> Int nothrow {
     return 7;
 }
 
