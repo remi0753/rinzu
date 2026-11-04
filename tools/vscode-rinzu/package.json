@@ -1,15 +1,15 @@
 {
   "name": "rinzu-source",
   "displayName": "Rinzu Source",
-  "description": "Rinzu diagnostics, navigation, completion and formatting through the versioned source protocol.",
+  "description": "Rinzu syntax highlighting, diagnostics, navigation, completion and formatting.",
   "publisher": "rinzu-local",
   "version": "0.1.0",
   "engines": { "vscode": "^1.95.0" },
   "main": "./extension.js",
-  "activationEvents": ["onLanguage:rinzu"],
   "capabilities": { "untrustedWorkspaces": { "supported": false } },
   "contributes": {
     "languages": [{ "id": "rinzu", "aliases": ["Rinzu"], "extensions": [".rinzu"], "configuration": "./language-configuration.json" }],
+    "grammars": [{ "language": "rinzu", "scopeName": "source.rinzu", "path": "./syntaxes/rinzu.tmLanguage.json" }],
     "commands": [
       { "command": "rinzu.refresh", "title": "Rinzu: Refresh Diagnostics" },
       { "command": "rinzu.organizeImports", "title": "Rinzu: Organize Imports" }

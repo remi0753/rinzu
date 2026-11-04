@@ -1,0 +1,142 @@
+{
+  "name": "Rinzu",
+  "scopeName": "source.rinzu",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#numbers" },
+    { "include": "#operators" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.documentation.rinzu",
+          "begin": "///(?!/)",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.rinzu" } },
+          "end": "$"
+        },
+        {
+          "name": "comment.line.double-slash.rinzu",
+          "begin": "//",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.rinzu" } },
+          "end": "$"
+        },
+        {
+          "name": "comment.block.rinzu",
+          "begin": "/\\*",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.begin.rinzu" } },
+          "end": "\\*/",
+          "endCaptures": { "0": { "name": "punctuation.definition.comment.end.rinzu" } }
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.raw.rinzu",
+          "begin": "\\br(#{0,16})\"",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.rinzu" } },
+          "end": "\"\\1",
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.rinzu" } }
+        },
+        {
+          "name": "string.quoted.double.interpolated.rinzu",
+          "begin": "\\bf\"",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.rinzu" } },
+          "end": "\"|$",
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.rinzu" } },
+          "patterns": [
+            { "name": "constant.character.escape.rinzu", "match": "\\\\[{}]" },
+            { "include": "#string-escapes" },
+            { "include": "#interpolation" }
+          ]
+        },
+        {
+          "name": "string.quoted.double.bytes.rinzu",
+          "begin": "\\bb\"",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.rinzu" } },
+          "end": "\"|$",
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.rinzu" } },
+          "patterns": [
+            { "name": "constant.character.escape.rinzu", "match": "\\\\(?:[\\\\\"nrt]|x[0-9A-Fa-f]{2})" },
+            { "include": "#invalid-escape" }
+          ]
+        },
+        {
+          "name": "string.quoted.double.rinzu",
+          "begin": "\"",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.rinzu" } },
+          "end": "\"|$",
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.rinzu" } },
+          "patterns": [{ "include": "#string-escapes" }]
+        }
+      ]
+    },
+    "string-escapes": {
+      "patterns": [
+        { "name": "constant.character.escape.rinzu", "match": "\\\\(?:[\\\\\"nrt]|u\\{[0-9A-Fa-f]{1,6}\\})" },
+        { "include": "#invalid-escape" }
+      ]
+    },
+    "invalid-escape": {
+      "name": "invalid.illegal.escape.rinzu",
+      "match": "\\\\."
+    },
+    "interpolation": {
+      "name": "meta.interpolation.rinzu",
+      "contentName": "meta.embedded.inline.rinzu",
+      "begin": "\\{",
+      "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.rinzu" } },
+      "end": "\\}|$",
+      "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.rinzu" } },
+      "patterns": [
+        { "include": "#interpolation-braces" },
+        { "include": "$self" }
+      ]
+    },
+    "interpolation-braces": {
+      "name": "meta.braces.rinzu",
+      "begin": "\\{",
+      "beginCaptures": { "0": { "name": "punctuation.section.block.begin.rinzu" } },
+      "end": "\\}|$",
+      "endCaptures": { "0": { "name": "punctuation.section.block.end.rinzu" } },
+      "patterns": [
+        { "include": "#interpolation-braces" },
+        { "include": "$self" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        { "name": "keyword.control.rinzu", "match": "\\b(?:if|else|switch|case|while|break|continue|return|throw|try|catch|finally|fallback|await|spawn|taskScope|with|all)\\b" },
+        { "name": "keyword.control.import.rinzu", "match": "\\b(?:import|export|as)\\b" },
+        { "name": "storage.type.rinzu", "match": "\\b(?:fn|class|interface|enum|record|type|error|native|opaque|userdata|payload|let|var)\\b" },
+        { "name": "storage.modifier.rinzu", "match": "\\b(?:async|supplant|private|const|throws|nothrow)\\b" },
+        { "name": "keyword.operator.type.rinzu", "match": "\\bis\\b" },
+        { "name": "constant.language.boolean.rinzu", "match": "\\b(?:true|false)\\b" },
+        { "name": "variable.language.rinzu", "match": "\\bself\\b" }
+      ]
+    },
+    "types": {
+      "name": "support.type.rinzu",
+      "match": "\\b(?:Unit|Bool|Int|Float|CInt(?:8|16|32|64)?|CUInt(?:8|16|32|64)?|CSize|CFloat|CDouble|CBool|String|Bytes|ByteArray|List|Map|Option|Future|Error|Equality|Key|Transferable)\\b"
+    },
+    "numbers": {
+      "name": "constant.numeric.rinzu",
+      "match": "\\b(?:0[xX][0-9A-Fa-f](?:_?[0-9A-Fa-f])*|0[bB][01](?:_?[01])*|[0-9](?:_?[0-9])*(?:\\.[0-9](?:_?[0-9])*)?(?:[eE][+-]?[0-9](?:_?[0-9])*)?)\\b"
+    },
+    "operators": {
+      "name": "keyword.operator.rinzu",
+      "match": "->|==|!=|<=|>=|&&|\\|\\||[-+*/%<>=!]"
+    },
+    "punctuation": {
+      "patterns": [
+        { "name": "punctuation.bracket.rinzu", "match": "[{}()\\[\\]]" },
+        { "name": "punctuation.separator.rinzu", "match": "[.,;:?]" }
+      ]
+    }
+  }
+}

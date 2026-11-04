@@ -36,7 +36,9 @@ Configure the extension in workspace settings:
 
 Use `rinzu.entry` for an explicit standalone source file; it takes precedence over the package workspace. Relative workspace/entry paths resolve against the opened folder. `rinzu.executable` is one executable path, not a shell command with arguments. Reload the window after changing the service configuration.
 
-The extension supports diagnostics for open buffers, definition/reference navigation, completion, formatting, and import organization. Use **Rinzu: Refresh Diagnostics** after external SDK changes. Import organization sorts/deduplicates eligible groups without guessing which imports are unused. It does not provide complete member completion or general recovery from arbitrary invalid syntax.
+The extension provides syntax highlighting for keywords, built-in types, numbers, comments, and String/Bytes literals, including raw Strings and formatted String expressions. Colors follow the selected VS Code theme. Highlighting does not require the Rinzu executable. After updating a linked local extension, run **Developer: Reload Window** to reload its grammar.
+
+The extension also supports diagnostics for open buffers, definition/reference navigation, completion, formatting, and import organization. Use **Rinzu: Refresh Diagnostics** after external SDK changes. Import organization sorts/deduplicates eligible groups without guessing which imports are unused. It does not provide complete member completion or general recovery from arbitrary invalid syntax.
 
 This is a local development extension, not an automatically installed Marketplace package. The editor service is a versioned JSON-lines protocol; it is not a claim of full LSP compatibility. It supports one folder/service and file documents. Native provider/header/receipt validation still requires CLI check/build with actual inputs.
 
