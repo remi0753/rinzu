@@ -26,14 +26,14 @@ async fn testNotepad(notepad: Notepad, scope: rinzu.macos.UiScope) {
     let edited = notepad.binding.replace("Edited 日本 e\u{301} 😀\n", 0, 2);
     expect(edited && notepad.binding.document.dirty(), "initial dirty document");
     if mode == "cancel-discard" {
-        let cancel = scope.window.testSheetReply(3, "");
+        let cancel = rinzu.macos.testSheetReply(scope.window, 3, "");
         await testAction(notepad, scope, closeAction);
         expect(
             !notepad.closing && notepad.binding.document.accepting && notepad.binding.input.view.isEnabled(),
             "Cancel resumes Window and input"
         );
         expect(notepad.binding.document.dirty() && notepad.saves == 0, "Cancel preserves unsaved edits");
-        let discard = scope.window.testSheetReply(2, "");
+        let discard = rinzu.macos.testSheetReply(scope.window, 2, "");
         await testAction(notepad, scope, closeAction);
         expect(
             notepad.closing && notepad.saves == 0 && await rinzu.macos.readDocument(originalPath) == original,
@@ -41,14 +41,14 @@ async fn testNotepad(notepad: Notepad, scope: rinzu.macos.UiScope) {
         );
     }
     else if mode == "save-close" {
-        let save = scope.window.testSheetReply(1, "");
+        let save = rinzu.macos.testSheetReply(scope.window, 1, "");
         await testAction(notepad, scope, closeAction);
         expect(notepad.closing && notepad.saves == 1 && !notepad.binding.document.dirty(), "Save then close");
         expect(await rinzu.macos.readDocument(originalPath) == notepad.binding.document.text, "saved file bytes");
     }
     else if mode == "save-failure" {
         notepad.path = f"{originalPath}/missing/child";
-        let fail = scope.window.testSheetReply(1, "");
+        let fail = rinzu.macos.testSheetReply(scope.window, 1, "");
         await testAction(notepad, scope, closeAction);
         expect(
             !notepad.closing
@@ -60,13 +60,13 @@ async fn testNotepad(notepad: Notepad, scope: rinzu.macos.UiScope) {
             "failed Save reopens input"
         );
         notepad.path = originalPath;
-        let retry = scope.window.testSheetReply(1, "");
+        let retry = rinzu.macos.testSheetReply(scope.window, 1, "");
         await testAction(notepad, scope, closeAction);
         expect(notepad.closing && notepad.saves == 1 && !notepad.binding.document.dirty(), "retry succeeds");
     }
     else if mode == "save-as" {
         let destination = f"{originalPath}.new";
-        let choose = scope.window.testSheetReply(1, destination);
+        let choose = rinzu.macos.testSheetReply(scope.window, 1, destination);
         await testAction(notepad, scope, saveAsAction);
         expect(
             notepad.path == destination && notepad.saves == 1 && !notepad.binding.document.dirty(),
@@ -76,7 +76,7 @@ async fn testNotepad(notepad: Notepad, scope: rinzu.macos.UiScope) {
         expect(await rinzu.macos.readDocument(destination) == notepad.binding.document.text, "Save As file bytes");
     }
     else if mode == "save-as-cancel" {
-        let cancelSave = scope.window.testSheetReply(0, "");
+        let cancelSave = rinzu.macos.testSheetReply(scope.window, 0, "");
         await testAction(notepad, scope, saveAsAction);
         expect(
             notepad.path == originalPath && notepad.saves == 0 && notepad.binding.document.dirty(),
@@ -84,8 +84,8 @@ async fn testNotepad(notepad: Notepad, scope: rinzu.macos.UiScope) {
         );
     }
     else if mode == "open-cancel" {
-        let discardOld = scope.window.testSheetReply(2, "");
-        let cancelOpen = scope.window.testSheetReply(0, "");
+        let discardOld = rinzu.macos.testSheetReply(scope.window, 2, "");
+        let cancelOpen = rinzu.macos.testSheetReply(scope.window, 0, "");
         await testAction(notepad, scope, openAction);
         expect(
             notepad.loads == 0

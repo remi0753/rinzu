@@ -6,9 +6,65 @@ use std::path::Path;
 
 #[path = "dependencies.rs"]
 mod dependencies;
+// Share the actual native regression contexts, including generated entry points
+// and private declarations, rather than assuming every SDK has main.rinzu.
+#[path = "../../../driver/tests/fixtures/native_context_records_sdk/setup.rs"]
+mod context_records;
+#[path = "../../../driver/tests/fixtures/native_record_qualifiers_sdk/setup.rs"]
+mod record_qualifiers;
+#[path = "../../../driver/tests/fixtures/native_record_writeback_sdk/setup.rs"]
+mod record_writeback;
+#[path = "../../../driver/tests/fixtures/native_supplant_capture_sdk/setup.rs"]
+mod supplant_capture;
 
 pub fn check(root: &Path, path: &Path, text: &str, temporary: &Path) -> Option<Result<(), String>> {
     let name = path.to_string_lossy();
+    let context = path
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|n| n.to_str());
+    if matches!(
+        context,
+        Some(
+            "native_context_records_sdk"
+                | "native_record_qualifiers_sdk"
+                | "native_record_writeback_sdk"
+                | "native_supplant_capture_sdk"
+        )
+    ) {
+        return Some((|| {
+            let work = temporary.join(name.replace(['/', '.'], "_"));
+            match context.unwrap() {
+                "native_context_records_sdk" if path.ends_with("results.rinzu") => {
+                    context_records::create_results(&work)
+                }
+                "native_context_records_sdk" if path.ends_with("supplant.rinzu") => {
+                    context_records::create_supplant(&work, false)
+                }
+                "native_context_records_sdk" => context_records::create(&work),
+                "native_record_qualifiers_sdk" => record_qualifiers::create(&work),
+                "native_record_writeback_sdk" => {
+                    if path.ends_with("busy.rinzu") {
+                        record_writeback::create_sdk_callbacks(&work);
+                    } else {
+                        record_writeback::create(&work);
+                    }
+                    if path.file_name().is_some_and(|n| n != "api.rinzu") {
+                        std::fs::write(
+                            work.join("app/src/main.rinzu"),
+                            text.replace("EARLY", "false"),
+                        )
+                        .map_err(|e| e.to_string())?;
+                    }
+                }
+                "native_supplant_capture_sdk" => supplant_capture::create(&work),
+                _ => unreachable!(),
+            }
+            check_input(&work.join("app"), &options(), &NativeCliInputs::default())
+                .map(|_| ())
+                .map_err(|errors| diagnostics(path, errors))
+        })());
+    }
     if name == "crates/codegen/tests/fixtures/m2_closures.rinzu" {
         // Match the backend test's explicit compile_library context.
         return Some(

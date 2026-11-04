@@ -10,11 +10,11 @@ fn require(value: Bool, message: String) {
 
 async fn shown(window: rinzu.macos.Window) {
     var attempts = 0;
-    while !window.testSheetVisible() && attempts < 5000 {
+    while !rinzu.macos.testSheetVisible(window) && attempts < 5000 {
         await rinzu.timer.sleep(1);
         attempts = attempts + 1;
     }
-    require(window.testSheetVisible(), "panel is physically shown before cancellation");
+    require(rinzu.macos.testSheetVisible(window), "panel is physically shown before cancellation");
 }
 
 // Observe failures independently of the display wait. A UI wait must not put
@@ -77,20 +77,20 @@ async fn pendingSheet(app: rinzu.macos.UiApplication) {
 async fn results(app: rinzu.macos.UiApplication) {
     let window = app.primary.window;
     let path = rinzu.process.setting("RINZU_SHEET_PATH", "");
-    let first = window.testSheetReply(1, "");
+    let first = rinzu.macos.testSheetReply(window, 1, "");
     require(await window.alert("日本😀", "Save / Discard / Cancel", "Save", "Discard", "Cancel") == 1, "first button");
-    let second = window.testSheetReply(2, "");
+    let second = rinzu.macos.testSheetReply(window, 2, "");
     require(await window.alert("Unsaved", "Choose discard", "Save", "Discard", "Cancel") == 2, "second button");
-    let third = window.testSheetReply(3, "");
+    let third = rinzu.macos.testSheetReply(window, 3, "");
     require(await window.alert("Unsaved", "Choose cancel", "Save", "Discard", "Cancel") == 3, "third button");
-    let cancelled = window.testSheetReply(0, "");
+    let cancelled = rinzu.macos.testSheetReply(window, 0, "");
     switch await window.openFile("Open cancel", "") {
         case Option.None: {}
         case Option.Some(unexpected): {
             panic("cancel returned path");
         }
     }
-    let chosen = window.testSheetReply(1, path);
+    let chosen = rinzu.macos.testSheetReply(window, 1, path);
     // Closing an Open panel with OK without selecting a row must fail, rather
     // than manufacture a file path from its directory/name configuration.
     var missingSelection = false;
@@ -102,7 +102,7 @@ async fn results(app: rinzu.macos.UiApplication) {
     }
     require(missingSelection, "missing Open selection is an Error");
     let savePath = f"{path}.saved";
-    let destination = window.testSheetReply(1, savePath);
+    let destination = rinzu.macos.testSheetReply(window, 1, savePath);
     let directory = rinzu.process.setting("RINZU_SHEET_DIRECTORY", "");
     let parts = stringSplit(savePath, "/");
     var name = "document.txt";

@@ -112,7 +112,7 @@ pub fn check(
             )
         } else if path.ends_with("binding/src/main.rinzu") || path.ends_with("ime.rinzu.in") {
             (
-                "native {fn testInput(view:View,mode:CInt)->CInt symbol \"rinzu_macos_test_input\";} export testInput;",
+                "native {fn rawTestInput(view:ViewHandle,mode:CInt)->CInt symbol \"rinzu_macos_test_input\";} fn testInput(view:View,mode:CInt)->CInt nothrow{return rawTestInput(view.handle,mode);} export testInput;",
                 "rinzu_macos.h",
                 "int32_t rinzu_macos_test_input(void *, int32_t);",
             )
