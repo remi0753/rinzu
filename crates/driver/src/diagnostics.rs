@@ -219,6 +219,8 @@ fn parse_packet(text: &str) -> Result<Option<Value>, String> {
             "12" => F::Error(E::Io),
             "13" => F::Error(E::SupplantBusy),
             "14" => F::Error(E::UnboundValue),
+            "15" => F::Error(E::User),
+            "16" => F::Panic,
             _ => return Err("unknown private failure cause".into()),
         };
         diagnostics.push(json!({

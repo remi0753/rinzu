@@ -110,15 +110,12 @@ fn captured_bom_crlf_unicode_failure_does_not_read_changed_source() {
     let captured = fixture.read("run.json");
     assert_eq!(captured["phase"], "finished");
     assert_eq!(captured["sources"][0]["text"], source);
-    assert_eq!(
-        captured["outcome"]["failure"]["primary"]["cause"],
-        "ArithmeticTrap"
-    );
+    assert_eq!(captured["outcome"]["failure"]["primary"]["cause"], "Panic");
     std::fs::write(fixture.0.join("src/main.rinzu"), "fn main() {\n}\n").unwrap();
     let analysis = fixture.analysis(&[]);
     let failure = &analysis["outcome"]["failure"]["primary"];
     assert_eq!(failure["location"]["line"], 3);
-    assert_eq!(failure["location"]["column"], 18);
+    assert_eq!(failure["location"]["column"], 5);
     assert_eq!(failure["location"]["strength"], "captured");
     assert_eq!(analysis["resources"]["recordedRunEndSeen"], true);
     assert!(
@@ -311,10 +308,7 @@ fn compiled_private_failure_and_native_activity_use_runtime_source_mapping() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(
-        report["outcome"]["failure"]["primary"]["cause"],
-        "ArithmeticTrap"
-    );
+    assert_eq!(report["outcome"]["failure"]["primary"]["cause"], "Panic");
     assert_eq!(report["outcome"]["traceSummary"]["eventCount"], 0);
     let main = &report["sources"][0];
     assert_eq!(main["path"], "diagnostic_app/src/main.rinzu");
@@ -327,7 +321,12 @@ fn compiled_private_failure_and_native_activity_use_runtime_source_mapping() {
     );
     assert_eq!(
         analysis["outcome"]["failure"]["primary"]["location"]["line"],
-        4
+        std::fs::read_to_string(fixture.0.join("src/main.rinzu"))
+            .unwrap()
+            .lines()
+            .position(|line| line.contains("panic(\"failed\")"))
+            .unwrap()
+            + 1
     );
     assert_eq!(analysis["resources"]["recordedRunEndSeen"], true);
     let events = analysis["native"]["events"].as_array().unwrap();
@@ -364,7 +363,10 @@ fn primary_cleanup_and_async_failures_keep_their_source_and_exit_status() {
                 .unwrap()
                 + 1
         };
-        assert_eq!(failure["primary"]["location"]["line"], line("let primary"));
+        assert_eq!(
+            failure["primary"]["location"]["line"],
+            line("panic(\"primary\")")
+        );
         assert_eq!(
             failure["cleanup"][0]["location"]["line"],
             line("let cleanup")
