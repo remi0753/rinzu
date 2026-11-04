@@ -63,8 +63,8 @@ uint64_t result=0;
     );
     source = replace(
         source,
-        "free(call->callbacks);\n  free(call->buffers);\n  free(call->words);\n  free(call);\n}\n#ifdef RINZU_AOT_HAS_SUPPLANT",
-        "free(call->callbacks); free(call->buffers); free(call->words); free(call);rinzu_test_budget=-1;\n}\n#ifdef RINZU_AOT_HAS_SUPPLANT",
+        "free(call);\n}\n#ifdef RINZU_AOT_HAS_SUPPLANT",
+        "free(call);rinzu_test_budget=-1;\n}\n#ifdef RINZU_AOT_HAS_SUPPLANT",
     );
     source = replace(
         source,

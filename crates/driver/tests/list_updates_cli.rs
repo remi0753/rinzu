@@ -37,6 +37,10 @@ fn list_updates_preserve_guards_gc_and_remove_scratch_allocation() {
     let direct = source.contains("rinzu_managed_list_update_owned(data, value,");
     assert_eq!(source.matches("int main(").count(), 1);
     let prelude = r#"
+/* Measure the update's allocations independently of metadata/enum reuse.
+   The same controls also keep each OOM probe tied to a physical allocation. */
+#define RINZU_MANAGED_METADATA_CACHE_CAPACITY 0
+#define RINZU_MANAGED_SMALL_ENUM_MODE 0
 #include <stdlib.h>
 #include <string.h>
 static size_t list_allocations, list_copy_bytes, list_fail_at;
@@ -102,12 +106,26 @@ static inline void *list_memmove(void *out, const void *in, size_t n) {
                 .output()
                 .unwrap();
             let valid = ["normal", "scalar-tags", "references"].contains(&mode);
+            let oom = mode.starts_with("oom-");
             assert_eq!(
                 output.status.code(),
-                Some(if valid { 0 } else { 70 }),
+                Some(if valid {
+                    0
+                } else if oom {
+                    71
+                } else {
+                    70
+                }),
                 "{mode}, sanitized={sanitized}: {output:?}"
             );
-            assert!(output.stderr.is_empty(), "{output:?}");
+            if oom {
+                assert_eq!(
+                    output.stderr, b"rinzu: required runtime resource unavailable (71)\n",
+                    "{mode}, sanitized={sanitized}: {output:?}"
+                );
+            } else {
+                assert!(output.stderr.is_empty(), "{output:?}");
+            }
         }
     }
     fs::remove_dir_all(root).unwrap();

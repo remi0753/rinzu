@@ -114,6 +114,8 @@ fn generated_slice_payloads_preserve_owner_oom_and_moving_gc_guards() {
                 .unwrap();
             let expected = if matches!(mode, "normal" | "oom3") {
                 0
+            } else if mode.starts_with("oom") || mode.starts_with("legacy-oom") {
+                71
             } else {
                 70
             };

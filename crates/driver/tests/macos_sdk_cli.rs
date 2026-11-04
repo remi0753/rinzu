@@ -20,7 +20,9 @@ fn macos_source_packages_use_existing_language_and_native_boundaries() {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&cache).unwrap();
-        let result = platform::bounded(
+        // This child checks fourteen packages and populates a cold SDK cache.
+        // Use the tool deadline rather than the individual runtime deadline.
+        let result = platform::bounded_tool(
             Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",

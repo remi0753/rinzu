@@ -17,9 +17,17 @@ typedef struct Task {
   struct { int running, started; } continuation;
   rinzu_async_future_t *future, *waiting;
   struct Task *next;
+  struct Task *ready_previous, *ready_next;
+  int ready_queued;
 } RinzuAsyncTask;
-typedef struct { int unused; } Runtime;
-typedef struct { Runtime runtime; RinzuAsyncTask *tasks; } RinzuAsyncState;
+typedef struct { size_t live_main_tasks; } Runtime;
+typedef struct {
+  Runtime runtime;
+  RinzuAsyncTask *tasks, *ready_head, *ready_tail;
+  size_t ready_count;
+  unsigned ready_order;
+} RinzuAsyncState;
+#define RINZU_TASK_READY_DESCENDING 2
 typedef struct { RinzuAsyncState *state; } RinzuContext;
 static RinzuAsyncTask tasks[4098];
 static rinzu_async_future_t futures[4098];
@@ -40,17 +48,43 @@ static rinzu_async_future_t *rinzu_async_lookup(Runtime *r, uint64_t id) {
 static RinzuAsyncTask *rinzu_aot_async_task(RinzuAsyncState *s, rinzu_async_future_t *f) {
   (void)s; return &tasks[f->identity];
 }
+static int rinzu_aot_async_runnable(RinzuAsyncTask *t) {
+  return !t->continuation.running && !t->continuation.started && !t->future->settled && !t->waiting;
+}
+static void enqueue(RinzuAsyncState *s, RinzuAsyncTask *t) {
+  assert(!t->ready_queued);
+  t->ready_previous = s->ready_tail; t->ready_next = NULL;
+  if (s->ready_tail) s->ready_tail->ready_next = t;
+  else s->ready_head = t;
+  s->ready_tail = t; t->ready_queued = 1; s->ready_count++;
+}
+static void unlink_ready(RinzuAsyncState *s, RinzuAsyncTask *t) {
+  assert(t->ready_queued && s->ready_count);
+  if (t->ready_previous) t->ready_previous->ready_next = t->ready_next;
+  else s->ready_head = t->ready_next;
+  if (t->ready_next) t->ready_next->ready_previous = t->ready_previous;
+  else s->ready_tail = t->ready_previous;
+  t->ready_previous = t->ready_next = NULL;
+  t->ready_queued = 0; s->ready_count--;
+}
 static void rinzu_aot_async_resume_ready(RinzuContext *c);
 static void append(RinzuAsyncState *s) {
   total++; futures[total] = (rinzu_async_future_t){.identity = total};
   tasks[total] = (RinzuAsyncTask){.future = &futures[total], .next = s->tasks};
   s->tasks = &tasks[total];
+  s->runtime.live_main_tasks++;
+  enqueue(s, &tasks[total]);
 }
 static void rinzu_aot_async_resume(RinzuContext *c, RinzuAsyncTask *t) {
+  unlink_ready(c->state, t);
   t->continuation.running = t->continuation.started = 1;
   if (verify) visits[visited++] = t->future->identity;
   if (t->future->identity == 1) {
-    if (mode == 1) { tasks[2].continuation.started = 1; append(c->state); }
+    if (mode == 1) {
+      tasks[2].continuation.started = 1;
+      unlink_ready(c->state, &tasks[2]);
+      append(c->state);
+    }
     if (mode == 2) rinzu_aot_async_resume_ready(c);
   }
   t->continuation.running = 0;
@@ -89,7 +123,9 @@ int main(int argc, char **argv) {
     size_t n = sizes[i], rounds = 200000;
     setup(&s, n); size_t count = 0; uint64_t start = tick();
     for (size_t j = 0; j < rounds; ++j) {
-      for (size_t k = 1; k <= n; ++k) tasks[k].continuation.started = 0;
+      for (size_t k = 1; k <= n; ++k) {
+        tasks[k].continuation.started = 0; enqueue(&s, &tasks[k]);
+      }
       rinzu_aot_async_resume_ready(&c); count += n;
     }
     uint64_t cpu = tick() - start;
