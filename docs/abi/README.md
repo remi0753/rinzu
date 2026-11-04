@@ -16,7 +16,8 @@ Native source declarations are validated against supported scalar/record mapping
 | --- | --- |
 | [event-trace.schema.json](event-trace.schema.json) | Versioned runtime trace events |
 | [resource-report-v1.schema.json](resource-report-v1.schema.json) | Resource accounting records |
-| [package-api-v3.schema.json](package-api-v3.schema.json) | Public API snapshots with visibility and owner/method parameter groups |
+| [package-api-v4.schema.json](package-api-v4.schema.json) | Public API snapshots with visibility, interface constraints and declared/inferred Error contracts |
+| [package-api-v3.schema.json](package-api-v3.schema.json) | Previous snapshots with visibility and owner/method parameter groups |
 | [package-api-v2.schema.json](package-api-v2.schema.json) | Older snapshots; comparison cannot prove the missing visibility contracts |
 | [package-lock-v2.schema.json](package-lock-v2.schema.json) | Checked package/dependency locks |
 | [package-exports-v1.schema.json](package-exports-v1.schema.json) | Export descriptor wire format |

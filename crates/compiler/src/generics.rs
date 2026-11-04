@@ -23,6 +23,7 @@ pub(crate) fn expand(
 
 fn parameters(declaration: &Declaration) -> &[TypeParameter] {
     match declaration {
+        Declaration::Interface(_) => &[],
         Declaration::Function(value) => &value.type_parameters,
         Declaration::Record(value) => &value.type_parameters,
         Declaration::Enum(value) => &value.type_parameters,
@@ -66,10 +67,12 @@ impl Expander {
             }
             let range = module.range;
             module.declarations.push(Declaration::Enum(EnumDecl {
+                interfaces: Vec::new(),
                 name: name.to_owned(),
                 type_parameters: params
                     .into_iter()
                     .map(|name| TypeParameter {
+                        interfaces: Vec::new(),
                         name: name.to_owned(),
                         constraints: Vec::new(),
                         range,
@@ -154,9 +157,13 @@ impl Expander {
                     .insert(declaration.name().to_owned(), declaration.clone());
             }
         }
-        self.module
-            .exports
-            .retain(|export| !self.templates.contains_key(&export.path.join(".")));
+        self.module.exports.retain(|export| {
+            !self.templates.contains_key(&export.path.join("."))
+                && !matches!(
+                    self.known.get(&export.path.join(".")),
+                    Some(Declaration::Interface(_))
+                )
+        });
         let mut native = std::mem::take(&mut self.module.native_blocks);
         for block in &mut native {
             for member in &mut block.members {
@@ -184,8 +191,18 @@ impl Expander {
         }
         self.module.native_blocks = native;
         for mut declaration in declarations {
+            if matches!(declaration, Declaration::Interface(_)) {
+                continue;
+            }
             if parameters(&declaration).is_empty() {
-                self.declaration(&mut declaration, &HashMap::new(), 0)?;
+                let instance = if declaration.name().contains(".$interface_") {
+                    let id = self.next_instance;
+                    self.next_instance += 1;
+                    id
+                } else {
+                    0
+                };
+                self.declaration(&mut declaration, &HashMap::new(), instance)?;
                 self.output.push(declaration);
             }
         }
@@ -269,11 +286,19 @@ impl Expander {
         {
             self.instantiate(owner, &args[..f.owner_type_parameter_count], range)?;
         }
-        let substitution = parameters
+        let substitution: HashMap<String, TypeRef> = parameters
             .iter()
             .zip(args)
             .map(|(p, ty)| (p.name.clone(), ty.clone()))
             .collect();
+        for (parameter, ty) in parameters.iter().zip(args) {
+            for source in &parameter.interfaces {
+                let mut expected = source.clone();
+                crate::interfaces::substitute(&mut expected, &substitution);
+                self.interface_application(&mut expected, &HashMap::new(), 0, &mut HashSet::new())?;
+                self.require_interface(ty, &expected, range)?;
+            }
+        }
         let instance = self.next_instance;
         self.next_instance += 1;
         for (parameter, ty) in parameters.iter().zip(args) {
@@ -287,6 +312,9 @@ impl Expander {
             }
         }
         match &mut declaration {
+            Declaration::Interface(_) => {
+                unreachable!("interfaces are contracts, not concrete types")
+            }
             Declaration::Function(value) => {
                 value.name = identity.clone();
                 value.type_parameters.clear();
@@ -313,6 +341,46 @@ impl Expander {
         self.depth -= 1;
         result?;
         self.output.push(declaration);
+        // A constructed generic owner must satisfy all of its interface
+        // contracts, even if no constrained call happens to use that method.
+        let required: Vec<_> = match self.known.get(name) {
+            Some(Declaration::Record(r)) => r.interfaces.clone(),
+            Some(Declaration::Enum(e)) => e.interfaces.clone(),
+            _ => Vec::new(),
+        };
+        if !required.is_empty() {
+            let mut members = HashSet::new();
+            for bound in required {
+                let path = match bound.kind {
+                    TypeRefKind::Named(p) | TypeRefKind::Generic { path: p, .. } => p.join("."),
+                    _ => continue,
+                };
+                if let Some(Declaration::Interface(i)) = self.known.get(&path) {
+                    members.extend(i.methods.iter().map(|m| m.name.clone()));
+                }
+            }
+            let methods = self
+                .known
+                .values()
+                .filter_map(|d| match d {
+                    Declaration::Function(f)
+                        if f.owner_type_parameter_count == args.len()
+                            && f.type_parameters.len() == args.len()
+                            && crate::methods::parts(&f.name).is_some_and(|(owner, member)| {
+                                owner == name
+                                    && (members.contains(member)
+                                        || member.starts_with("$interface_"))
+                            }) =>
+                    {
+                        Some(f.name.clone())
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            for method in methods {
+                self.instantiate(&method, args, range)?;
+            }
+        }
         Ok(identity)
     }
 
@@ -441,6 +509,9 @@ impl Expander {
         let saved_owner = self.lexical_owner.take();
         let saved_active = self.inference_active;
         match declaration {
+            Declaration::Interface(_) => {
+                unreachable!("interface declarations do not enter specialization")
+            }
             Declaration::TypeAlias(alias) => self.ty(&mut alias.ty, substitution, instance)?,
             Declaration::Error(error) => {
                 error.range.instance = instance;
@@ -464,6 +535,12 @@ impl Expander {
                         .insert(parameter.name.clone(), parameter.ty.clone());
                 }
                 self.ty(&mut value.result, substitution, instance)?;
+                if let Some(contract) = &mut value.error_contract {
+                    contract.range.instance = instance;
+                    for ty in &mut contract.types {
+                        self.ty(ty, substitution, instance)?;
+                    }
+                }
                 self.expected_result = Some(value.result.clone());
                 self.known
                     .insert(value.name.clone(), Declaration::Function(value.clone()));
@@ -474,6 +551,14 @@ impl Expander {
             }
             Declaration::Record(value) => {
                 value.range.instance = instance;
+                for source in &mut value.interfaces {
+                    self.interface_application(
+                        source,
+                        substitution,
+                        instance,
+                        &mut HashSet::new(),
+                    )?;
+                }
                 for field in &mut value.fields {
                     field.range.instance = instance;
                     self.ty(&mut field.ty, substitution, instance)?;
@@ -481,6 +566,14 @@ impl Expander {
             }
             Declaration::Enum(value) => {
                 value.range.instance = instance;
+                for source in &mut value.interfaces {
+                    self.interface_application(
+                        source,
+                        substitution,
+                        instance,
+                        &mut HashSet::new(),
+                    )?;
+                }
                 for variant in &mut value.variants {
                     variant.range.instance = instance;
                     for field in &mut variant.fields {
@@ -502,6 +595,97 @@ impl Expander {
         self.expected_result = saved_result;
         self.lexical_owner = saved_owner;
         self.inference_active = saved_active;
+        Ok(())
+    }
+
+    fn require_interface(
+        &self,
+        ty: &TypeRef,
+        expected: &TypeRef,
+        range: SourceRange,
+    ) -> Result<(), Diagnostic> {
+        let (base, args) = match &ty.kind {
+            TypeRefKind::Named(path) => self
+                .instance_types
+                .get(&path.join("."))
+                .cloned()
+                .unwrap_or((path.join("."), Vec::new())),
+            TypeRefKind::Generic { path, arguments } => (path.join("."), arguments.clone()),
+            _ => (String::new(), Vec::new()),
+        };
+        if self
+            .known
+            .get(&base)
+            .is_some_and(|owner| crate::interfaces::satisfies(owner, &args, expected))
+        {
+            return Ok(());
+        }
+        Err(Diagnostic::error(
+            DiagnosticCode::InvalidInterface,
+            range,
+            format!(
+                "type `{}` does not declare conformance to `{}`",
+                spelling(ty),
+                spelling(expected)
+            ),
+            "declare the interface on the concrete class or enum; matching methods alone do not imply conformance",
+        ))
+    }
+
+    fn interface_application(
+        &mut self,
+        source: &mut TypeRef,
+        substitution: &HashMap<String, TypeRef>,
+        instance: u32,
+        visited: &mut HashSet<String>,
+    ) -> Result<(), Diagnostic> {
+        let (name, args) = match &mut source.kind {
+            TypeRefKind::Named(path) => (path.join("."), &mut Vec::new()),
+            TypeRefKind::Generic { path, arguments } => (path.join("."), arguments),
+            _ => {
+                return Err(error(
+                    source.range,
+                    "an interface constraint requires an interface name",
+                ));
+            }
+        };
+        for a in args.iter_mut() {
+            self.ty(a, substitution, instance)?;
+        }
+        let Some(Declaration::Interface(interface)) = self.known.get(&name).cloned() else {
+            return Err(error(source.range, "unknown interface constraint"));
+        };
+        let identity = format!(
+            "{name}<{}>",
+            args.iter().map(spelling).collect::<Vec<_>>().join(",")
+        );
+        if !visited.insert(identity.clone()) {
+            return Ok(());
+        }
+        if args.len() != interface.type_parameters.len() {
+            return Err(error(source.range, "interface argument count mismatch"));
+        }
+        let values = interface
+            .type_parameters
+            .iter()
+            .zip(args.iter())
+            .map(|(p, t)| (p.name.clone(), t.clone()))
+            .collect();
+        for (p, arg) in interface.type_parameters.iter().zip(args.iter()) {
+            for marker in &p.constraints {
+                self.requirements.push(Requirement {
+                    ty: arg.clone(),
+                    marker: marker.clone(),
+                    range: source.range,
+                    instance: identity.clone(),
+                });
+            }
+            for bound in &p.interfaces {
+                let mut bound = bound.clone();
+                self.interface_application(&mut bound, &values, instance, visited)?;
+                self.require_interface(arg, &bound, source.range)?;
+            }
+        }
         Ok(())
     }
 
@@ -778,6 +962,50 @@ impl Expander {
         expected: Option<&TypeRef>,
     ) -> Result<(), Diagnostic> {
         expression.range.instance = instance;
+        // Unbound requirements such as R.read retain their interface contract
+        // just like receiver calls. Resolve the owner after selecting R.
+        let path = match &expression.kind {
+            ExpressionKind::Name(path) | ExpressionKind::Call { target: path, .. } => Some(path),
+            _ => None,
+        };
+        if let Some(path) = path
+            && path.len() == 2
+            && path[1].starts_with("$interface_")
+            && let Some(ty) = substitution.get(&path[0])
+        {
+            let member = path[1].clone();
+            let mut ty = ty.clone();
+            self.ty(&mut ty, substitution, instance)?;
+            if let TypeRefKind::Named(owner) = ty.kind {
+                let owner = owner.join(".");
+                if let Some((base, args)) = self.instance_types.get(&owner).cloned() {
+                    expression.kind = match &expression.kind {
+                        ExpressionKind::Name(_) => ExpressionKind::GenericReference {
+                            target: vec![base],
+                            type_arguments: args,
+                            member: Some(member),
+                            member_type_arguments: vec![],
+                        },
+                        ExpressionKind::Call { arguments, .. } => ExpressionKind::GenericCall {
+                            target: vec![base],
+                            type_arguments: args,
+                            variant: Some(member),
+                            member_type_arguments: vec![],
+                            arguments: arguments.clone(),
+                            spawn: false,
+                        },
+                        _ => unreachable!(),
+                    };
+                } else {
+                    match &mut expression.kind {
+                        ExpressionKind::Name(path) | ExpressionKind::Call { target: path, .. } => {
+                            path[0] = owner
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+        }
         if self.method_expression(expression, substitution, instance, expected)? {
             return Ok(());
         }
@@ -834,6 +1062,12 @@ impl Expander {
                     self.type_locals.insert(p.name.clone(), p.ty.clone());
                 }
                 self.ty(&mut f.result, substitution, instance)?;
+                if let Some(contract) = &mut f.error_contract {
+                    contract.range.instance = instance;
+                    for ty in &mut contract.types {
+                        self.ty(ty, substitution, instance)?;
+                    }
+                }
                 self.expected_result = Some(f.result.clone());
                 self.block(&mut f.body, substitution, instance)?;
                 if let Some(e) = &mut f.fallback {
@@ -1061,7 +1295,7 @@ impl Expander {
     }
 }
 
-fn spelling(ty: &TypeRef) -> String {
+pub(crate) fn spelling(ty: &TypeRef) -> String {
     match &ty.kind {
         TypeRefKind::Record(fields) => {
             let mut fields = fields
@@ -1095,7 +1329,11 @@ fn spelling(ty: &TypeRef) -> String {
                 .join(","),
             spelling(result)
         ),
-        TypeRefKind::Generic { .. } => unreachable!("type arguments expanded first"),
+        TypeRefKind::Generic { path, arguments } => format!(
+            "{}<{}>",
+            path.join("."),
+            arguments.iter().map(spelling).collect::<Vec<_>>().join(",")
+        ),
     }
 }
 

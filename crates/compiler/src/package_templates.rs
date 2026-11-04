@@ -9,6 +9,11 @@ pub struct SourceTemplateSchema {
     pub kind: String,
     pub type_parameters: Vec<(String, Vec<String>)>,
     pub owner_type_parameters: Vec<(String, Vec<String>)>,
+    pub interface_constraints: std::collections::BTreeMap<String, Vec<String>>,
+    pub interfaces: Vec<String>,
+    /// None means inference; Some([]) is an explicit nothrow contract.
+    pub error_contract: Option<Vec<String>>,
+    pub methods: Vec<(String, String)>,
     pub signature: String,
     pub const_fields: Vec<u32>,
     pub private_fields: Vec<u32>,
@@ -34,49 +39,62 @@ fn type_parameters(values: &[TypeParameter]) -> Vec<(String, Vec<String>)> {
         .collect()
 }
 pub(crate) fn schema(declaration: &Declaration) -> Option<SourceTemplateSchema> {
+    let mut interfaces = Vec::new();
+    let mut error_contract = None;
+    let mut methods = Vec::new();
     let (parameters, kind, signature, members, variants) = match declaration {
-        Declaration::Function(function) => (
-            &function.type_parameters,
-            "function",
-            format!(
-                "{}({})->{}{}",
-                if function.is_async { "async" } else { "fn" },
-                function
-                    .parameters
-                    .iter()
-                    .map(|p| ty(&p.ty))
-                    .collect::<Vec<_>>()
-                    .join(","),
-                ty(&function.result),
-                function
-                    .fallback
-                    .as_ref()
-                    .map_or_else(String::new, |value| format!(
-                        " fallback {}",
-                        expression(value)
-                    ))
-            ),
-            vec![],
-            vec![],
-        ),
-        Declaration::Record(record) => (
-            &record.type_parameters,
-            "class",
-            String::new(),
-            record.fields.clone(),
-            vec![],
-        ),
-        Declaration::Enum(enumeration) => (
-            &enumeration.type_parameters,
-            "enum",
-            String::new(),
-            vec![],
-            enumeration
-                .variants
+        Declaration::Function(function) => {
+            error_contract = function
+                .error_contract
+                .as_ref()
+                .map(|c| canonical_types(&c.types));
+            (
+                &function.type_parameters,
+                "function",
+                signature(function),
+                vec![],
+                vec![],
+            )
+        }
+        Declaration::Interface(interface) => {
+            methods = interface
+                .methods
                 .iter()
-                .map(|v| (v.name.clone(), fields(&v.fields)))
-                .collect(),
-        ),
+                .map(|m| (m.name.clone(), signature(m)))
+                .collect();
+            methods.sort();
+            (
+                &interface.type_parameters,
+                "interface",
+                String::new(),
+                vec![],
+                vec![],
+            )
+        }
+        Declaration::Record(record) => {
+            interfaces = canonical_types(&record.interfaces);
+            (
+                &record.type_parameters,
+                "class",
+                String::new(),
+                record.fields.clone(),
+                vec![],
+            )
+        }
+        Declaration::Enum(enumeration) => {
+            interfaces = canonical_types(&enumeration.interfaces);
+            (
+                &enumeration.type_parameters,
+                "enum",
+                String::new(),
+                vec![],
+                enumeration
+                    .variants
+                    .iter()
+                    .map(|v| (v.name.clone(), fields(&v.fields)))
+                    .collect(),
+            )
+        }
         Declaration::Error(error) => {
             if error.type_parameters.is_empty() {
                 return None;
@@ -106,6 +124,10 @@ pub(crate) fn schema(declaration: &Declaration) -> Option<SourceTemplateSchema> 
             };
             return Some(SourceTemplateSchema {
                 owner_type_parameters: Vec::new(),
+                interface_constraints: interface_constraints(&error.type_parameters),
+                interfaces: vec![],
+                error_contract: None,
+                methods: vec![],
                 private_fields: Vec::new(),
                 kind: "error".into(),
                 type_parameters: type_parameters(&error.type_parameters),
@@ -117,7 +139,11 @@ pub(crate) fn schema(declaration: &Declaration) -> Option<SourceTemplateSchema> 
         }
         _ => return None,
     };
-    if parameters.is_empty() {
+    if parameters.is_empty()
+        && kind != "interface"
+        && interfaces.is_empty()
+        && error_contract.is_none()
+    {
         return None;
     }
     let owner_count = if let Declaration::Function(f) = declaration {
@@ -127,6 +153,10 @@ pub(crate) fn schema(declaration: &Declaration) -> Option<SourceTemplateSchema> 
     };
     Some(SourceTemplateSchema {
         owner_type_parameters: type_parameters(&parameters[..owner_count]),
+        interface_constraints: interface_constraints(parameters),
+        interfaces,
+        error_contract,
+        methods,
         private_fields: members
             .iter()
             .enumerate()
@@ -145,6 +175,47 @@ pub(crate) fn schema(declaration: &Declaration) -> Option<SourceTemplateSchema> 
         fields: fields(&members),
         variants,
     })
+}
+
+fn canonical_types(values: &[TypeRef]) -> Vec<String> {
+    let mut values: Vec<_> = values.iter().map(ty).collect();
+    values.sort();
+    values.dedup();
+    values
+}
+
+fn interface_constraints(
+    parameters: &[TypeParameter],
+) -> std::collections::BTreeMap<String, Vec<String>> {
+    parameters
+        .iter()
+        .filter(|p| !p.interfaces.is_empty())
+        .map(|p| (p.name.clone(), canonical_types(&p.interfaces)))
+        .collect()
+}
+
+fn signature(f: &crate::ast::FunctionDecl) -> String {
+    let mut result = format!(
+        "{}({})->{}{}",
+        if f.is_async { "async" } else { "fn" },
+        f.parameters
+            .iter()
+            .map(|p| ty(&p.ty))
+            .collect::<Vec<_>>()
+            .join(","),
+        ty(&f.result),
+        f.fallback
+            .as_ref()
+            .map_or_else(String::new, |e| format!(" fallback {}", expression(e)))
+    );
+    if let Some(c) = &f.error_contract {
+        if c.types.is_empty() {
+            result.push_str(" nothrow");
+        } else {
+            result.push_str(&format!(" throws {}", canonical_types(&c.types).join(",")));
+        }
+    }
+    result
 }
 
 fn ty(value: &TypeRef) -> String {

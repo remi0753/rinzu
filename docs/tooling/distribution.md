@@ -16,7 +16,7 @@ An executable can have `.source-packages`, `.resources`, and native library side
 
 Custom dylib load/re-export dependencies are bundled and use relative loader paths. Startup validates selected native images, descriptors, hashes, UUIDs, and ABI context. Source directories and SDK caches are not required at application runtime, but native OS image compatibility still applies. Building on one macOS version does not establish compatibility with arbitrary other OS builds.
 
-After changing toolchain, ABI, or source packages, rebuild generated artifacts and refresh intended package locks. Current source-package descriptors are version 2.5, and the checked SDK cache format is v4. API snapshots use v3 to describe private storage and generic method owners; regenerate older snapshots before treating an API comparison as definitive.
+After changing toolchain, ABI, or source packages, rebuild generated artifacts and refresh intended package locks. Current source-package descriptors are version 2.6, and the checked SDK cache format is v4. API snapshots use v4 to describe private storage, generic method owners, interfaces and Error contracts; regenerate older snapshots before treating an API comparison as definitive.
 
 ## Build a macOS application
 

@@ -32,6 +32,8 @@ fn main() {
 
 Separate fields with commas. A comma before the first method is optional. An instance method starts with `self: Owner`; a static method has no self parameter. Functions inside a class follow ordinary result, async, and Error rules.
 
+A class can declare [interface conformance](interfaces.md) with `class Counter interface I + J`. Its public instance methods must satisfy every requirement.
+
 ## Visibility
 
 Exporting a class exposes its public fields and non-private methods. Fields remain public by default. Write `export Counter;` at module scope. Individual method exports such as `export Counter.increase;` are rejected.

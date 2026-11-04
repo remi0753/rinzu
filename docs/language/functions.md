@@ -21,6 +21,8 @@ fn main() {
 
 All arguments are required. Ordinary calls use positional arguments. Class and enum constructors use named arguments. Overloads, default arguments and partial application are unavailable. Methods can have generic owner and method parameters.
 
+A function or function expression can put `throws E1, E2` or `nothrow` after its result and optional `fallback`. Omission keeps inference. See [Error contracts](errors.md#declare-an-error-upper-bound).
+
 ## Capture values at creation
 
 A `fn` expression creates a function value. It captures only the free variables it uses, when the expression is evaluated. Captured scalar and immutable values are snapshots; a captured class refers to the same instance in the same Domain. The example captures `40`, even though `base` changes later.

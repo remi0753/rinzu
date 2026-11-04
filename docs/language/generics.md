@@ -1,4 +1,4 @@
-# Generics and markers
+# Generics and constraints
 
 Functions, classes, enums, and type aliases can have type parameters. Type arguments can be explicit or inferred from arguments and an expected result type. All omitted parameters must have a unique solution; partial type-argument lists are unsupported.
 
@@ -46,6 +46,12 @@ Markers describe compiler-controlled capabilities. They are not user-implemented
 Combine constraints with `+`, for example `fn compare<T: Transferable + Equality>(value: T) -> Bool`. Omitting a marker adds no declaration constraint, but operations still check their own requirements when the function is instantiated.
 
 Integer, Boolean, text, byte, record, enum, and const-class capabilities depend on their concrete type graphs. Floats are not map keys. Lists and maps are not themselves map keys. Function values, mutable class graphs, and native handles cannot be transferred as ordinary immutable snapshots. Error and Future values cannot cross Worker boundaries.
+
+## Interface constraints
+
+Use `<T interface Reader>` for a user-defined interface constraint, `<T interface Reader + Named>` for several, and `<T: Transferable interface Reader + Named>` to combine sealed markers and interfaces. The colon introduces compiler-owned markers; the word `interface` introduces nominal behavior requirements. Type inference still selects concrete types from arguments and the expected result, then checks their declared conformance.
+
+A constrained method call uses its interface's declared Error bound, including after specialization. A concrete receiver uses its ordinary method's Error bound. See [Interfaces](interfaces.md) for declarations, enum conformance and Self.
 
 ## Public generic APIs
 

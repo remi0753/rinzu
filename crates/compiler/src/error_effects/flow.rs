@@ -123,7 +123,7 @@ impl<'a> Analyzer<'a> {
         }
         (
             Summary {
-                errors: flow.errors,
+                errors: language::normalize(flow.errors),
                 success,
                 returned: returned.finite(),
             },
@@ -560,7 +560,7 @@ impl<'a> Analyzer<'a> {
                 flow.join(caught);
                 join_env(env, &catch_env);
             }
-            remaining.retain(|word| pattern.matches(word) != Match::All);
+            remaining = language::subtract(&remaining, &pattern);
             previous.push(pattern);
         }
         if self.diagnose

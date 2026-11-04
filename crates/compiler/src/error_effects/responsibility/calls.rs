@@ -284,6 +284,11 @@ impl Engine<'_> {
                                     .functions
                                     .iter()
                                     .find(|function| function.declaration.name == name)
+                                && function
+                                    .declaration
+                                    .error_contract
+                                    .as_ref()
+                                    .is_none_or(|c| c.types.is_empty())
                                 && (values.iter().any(Tracked::contains_iteration)
                                     || contract.disrupts_observers
                                     || (!self.can_use_data_contract(&name)
@@ -420,6 +425,7 @@ impl Engine<'_> {
         }
         for exit in &contract.exits {
             let conditions = Language::from([language::Word {
+                tail: BTreeSet::new(),
                 prefix: Vec::new(),
                 longer: false,
                 guards: exit.guards.clone(),
@@ -712,7 +718,7 @@ impl Engine<'_> {
                     }
                     Err(Stop::Error(word, _)) => {
                         for word in substitution::language(
-                            &Language::from([word.clone()]),
+                            &Language::from([word.as_ref().clone()]),
                             name,
                             &effects,
                             self.bound,
@@ -1043,6 +1049,7 @@ impl Engine<'_> {
             };
             if substitution::language(
                 &Language::from([language::Word {
+                    tail: BTreeSet::new(),
                     prefix: Vec::new(),
                     longer: false,
                     guards,
@@ -1498,6 +1505,7 @@ impl Engine<'_> {
                 for case in cases {
                     let conditions = substitution::language(
                         &Language::from([language::Word {
+                            tail: BTreeSet::new(),
                             prefix: Vec::new(),
                             longer: false,
                             guards: case.guards.clone(),

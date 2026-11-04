@@ -96,9 +96,9 @@ typedef const rinzu_native_package_descriptor_v1_t *(RINZU_CALL *rinzu_native_pa
 /* Separate source-package ABI. Never reinterpret the v1 descriptor. */
 #define RINZU_SOURCE_PACKAGE_ENTRY_V2 "rinzu_source_package_v2"
 #define RINZU_SOURCE_PACKAGE_MAJOR UINT16_C(2)
-#define RINZU_SOURCE_PACKAGE_MINOR UINT16_C(5)
+#define RINZU_SOURCE_PACKAGE_MINOR UINT16_C(6)
 #define RINZU_CALLBACK_RULE_VERSION UINT32_C(1)
-#define RINZU_TEMPLATE_LAYOUT_VERSION UINT32_C(2)
+#define RINZU_TEMPLATE_LAYOUT_VERSION UINT32_C(3)
 #define RINZU_CLOSED_SERVICE_REGISTRY_VERSION UINT32_C(2)
 
 typedef struct rinzu_source_import_v2 {

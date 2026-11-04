@@ -187,6 +187,8 @@ pub struct CheckedFunction {
     pub result_type: Type,
     pub callback_fallback: Option<crate::FallbackConstant>,
     pub facts: FunctionFacts,
+    /// Published ordinary Error bound after inference or explicit annotation.
+    pub error_types: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -350,6 +352,7 @@ pub(crate) fn probe_expression_type(
             .collect();
     }
     let function = FunctionDecl {
+        error_contract: None,
         name: "$type_probe".into(),
         is_private: false,
         lexical_owner: lexical_owner.map(str::to_owned),
@@ -458,14 +461,16 @@ pub fn check_module_with_options(
         .map(|d| d.name().to_owned())
         .collect();
     let module = crate::records::expand_aliases(&module)?;
-    let module = crate::value_constants::expand(&module)?;
+    let mut module = crate::value_constants::expand(&module)?;
+    crate::error_effects::validate_annotations(&mut module)?;
+    let module = crate::interfaces::prepare(&module)?;
     crate::methods::validate(&module)?;
     let (module, requirements) = crate::generics::expand(&module, options.is_library)?;
     let mut checker = Checker::new(&module, options);
     checker.generic_requirements = requirements;
     checker.prelude_shadows = prelude_shadows;
     let checked = checker.run()?;
-    let checked = if let Some((converted, file)) = crate::closures::convert(&checked)? {
+    let mut checked = if let Some((converted, file)) = crate::closures::convert(&checked)? {
         let mut checker = Checker::new(&converted, options);
         checker.source_indirect_fields = checked.indirect_fields.clone();
         checker.closure_conversion = true;
@@ -482,7 +487,11 @@ pub fn check_module_with_options(
     } else {
         checked
     };
-    crate::error_effects::analyze(&checked, !options.is_library)?;
+    let summaries = crate::error_effects::analyze(&checked, !options.is_library)?;
+    for function in &mut checked.functions {
+        function.error_types =
+            crate::error_effects::public_types(&summaries[&function.declaration.name]);
+    }
     Ok(checked)
 }
 
@@ -747,6 +756,7 @@ impl<'a> Checker<'a> {
                 };
                 let signature = self.functions.get(&function.name)?;
                 Some(CheckedFunction {
+                    error_types: Vec::new(),
                     declaration: function.clone(),
                     parameter_types: signature.parameters.clone(),
                     result_type: signature.result.clone(),
@@ -831,13 +841,30 @@ impl<'a> Checker<'a> {
     fn validate_type_declarations(&mut self) {
         for declaration in &self.module.declarations {
             match declaration {
+                Declaration::Interface(_) => {
+                    unreachable!("interfaces are erased before type checking")
+                }
                 Declaration::Record(record) => {
+                    for i in &record.interfaces {
+                        if let TypeRefKind::Generic { arguments, .. } = &i.kind {
+                            for a in arguments {
+                                self.resolve_type(a);
+                            }
+                        }
+                    }
                     self.check_unique_fields(&record.fields, &record.name);
                     for field in &record.fields {
                         self.resolve_type(&field.ty);
                     }
                 }
                 Declaration::Enum(enum_decl) => {
+                    for i in &enum_decl.interfaces {
+                        if let TypeRefKind::Generic { arguments, .. } = &i.kind {
+                            for a in arguments {
+                                self.resolve_type(a);
+                            }
+                        }
+                    }
                     let mut variants = HashMap::new();
                     for variant in &enum_decl.variants {
                         if let Some(previous) = variants.insert(&variant.name, variant.range) {
@@ -1077,6 +1104,40 @@ impl<'a> Checker<'a> {
             else {
                 continue;
             };
+            if let Some(contract) = &function.error_contract {
+                let mut seen = HashSet::new();
+                let mut any = false;
+                for source in &contract.types {
+                    if let Some(ty) = self.resolve_type_with_constants(source, &signature_constants)
+                    {
+                        if !self.is_error_type(&ty) {
+                            self.diagnostics.push(Diagnostic::error(
+                                DiagnosticCode::InvalidErrorContract,
+                                source.range,
+                                format!("`{ty}` is not an Error type"),
+                                "list concrete Error types, Error, or use nothrow",
+                            ));
+                        }
+                        any |= ty == Type::Error;
+                        if !seen.insert(ty.to_string()) {
+                            self.diagnostics.push(Diagnostic::error(
+                                DiagnosticCode::InvalidErrorContract,
+                                source.range,
+                                "duplicate Error type in throws contract",
+                                "remove the duplicate type",
+                            ));
+                        }
+                    }
+                }
+                if any && contract.types.len() > 1 {
+                    self.diagnostics.push(Diagnostic::error(
+                        DiagnosticCode::InvalidErrorContract,
+                        contract.range,
+                        "throws Error already includes every ordinary Error",
+                        "write throws Error without additional types",
+                    ));
+                }
+            }
             if function.is_async && matches!(result, Type::Future(_)) {
                 self.diagnostics.push(Diagnostic::error(
                     DiagnosticCode::TypeMismatch,
@@ -2414,6 +2475,7 @@ impl<'a> Checker<'a> {
             self.declarations.insert(
                 name.clone(),
                 Declaration::Enum(EnumDecl {
+                    interfaces: Vec::new(),
                     name: name.clone(),
                     type_parameters: Vec::new(),
                     range,
@@ -2466,7 +2528,10 @@ impl<'a> Checker<'a> {
         context: &FunctionContext<'_>,
     ) -> bool {
         // Generated dispatch code only references targets checked in the source pass.
-        if self.closure_conversion {
+        if self.closure_conversion
+            || crate::methods::parts(name)
+                .is_some_and(|(_, member)| member.starts_with("$interface_"))
+        {
             return true;
         }
         if let Some(Declaration::Function(function)) = self.declarations.get(name)
@@ -3757,6 +3822,7 @@ impl<'a> Checker<'a> {
             self.declarations.insert(
                 identity.clone(),
                 Declaration::Record(crate::ast::RecordDecl {
+                    interfaces: Vec::new(),
                     name: identity.clone(),
                     mutable: false,
                     type_parameters: Vec::new(),
@@ -4196,7 +4262,7 @@ impl<'a> Checker<'a> {
                 name.clone(),
                 FunctionFacts {
                     is_async: signature.is_async,
-                    may_fail: direct.may_fail,
+                    may_fail: direct.may_fail || matches!(self.declarations.get(name), Some(Declaration::Function(f)) if f.error_contract.as_ref().is_some_and(|c| !c.types.is_empty())),
                     may_await: direct.may_await,
                     may_spawn: direct.may_spawn,
                     requires_owner: direct.requires_owner,

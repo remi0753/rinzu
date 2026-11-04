@@ -1172,6 +1172,7 @@ fn interface(
             .collect();
         functions.push(FunctionRecord {
             identity: signature.name.clone(),
+            error_contract: None,
             source_type,
             kind: if signature.is_async {
                 FunctionKind::Async
@@ -1215,6 +1216,10 @@ fn interface(
         .collect();
         functions.push(FunctionRecord {
             identity: function.declaration.name.clone(),
+            error_contract: Some(rinzu_bindgen::source_package::ErrorContractRecord {
+                declared: function.declaration.error_contract.is_some(),
+                types: function.error_types.clone(),
+            }),
             source_type: format!(
                 "{}({})->{}",
                 if facts.is_async { "async" } else { "fn" },
@@ -1434,6 +1439,10 @@ fn interface(
                 (
                     name.clone(),
                     SourceTemplateRecord {
+                        interface_constraints: schema.interface_constraints.clone(),
+                        interfaces: schema.interfaces.clone(),
+                        error_contract: schema.error_contract.clone(),
+                        methods: schema.methods.clone(),
                         owner_type_parameters: schema.owner_type_parameters.clone(),
                         private_fields: schema.private_fields.clone(),
                         kind: schema.kind.clone(),
@@ -1755,7 +1764,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(descriptor.interface.package.language, "rinzu-0.5");
-        assert_eq!((descriptor.major, descriptor.minor), (2, 5));
+        assert_eq!((descriptor.major, descriptor.minor), (2, 6));
         let inputs = &descriptor.interface.package.build_inputs;
         assert_eq!(
             inputs["rinzu.language-semantics"],

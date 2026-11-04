@@ -131,7 +131,10 @@ impl Parser<'_> {
     }
 
     fn declaration(&mut self) -> Result<Declaration, Diagnostic> {
-        if self.at(&TokenKind::Async) || self.at(&TokenKind::Fn) || self.at_private_method() {
+        if self.at_identifier("interface") {
+            self.interface().map(Declaration::Interface)
+        } else if self.at(&TokenKind::Async) || self.at(&TokenKind::Fn) || self.at_private_method()
+        {
             self.function().map(Declaration::Function)
         } else if self.at(&TokenKind::Record)
             || matches!(&self.current().kind,TokenKind::Identifier(name) if name=="state")
@@ -156,6 +159,10 @@ impl Parser<'_> {
     }
 
     fn function(&mut self) -> Result<FunctionDecl, Diagnostic> {
+        self.function_declaration(false)
+    }
+
+    fn function_declaration(&mut self, requirement: bool) -> Result<FunctionDecl, Diagnostic> {
         let start = self.current().range;
         let is_private = self.at_identifier("private");
         if is_private {
@@ -187,7 +194,24 @@ impl Parser<'_> {
         } else {
             None
         };
-        let body = self.block()?;
+        let error_contract = self.error_contract()?;
+        if requirement
+            && (error_contract.is_none()
+                || fallback.is_some()
+                || is_private
+                || !type_parameters.is_empty())
+        {
+            return Err(self.unexpected("a public, non-generic interface method with an explicit throws or nothrow contract"));
+        }
+        let body = if requirement {
+            let range = self.take(&TokenKind::Semicolon)?.range;
+            Block {
+                statements: Vec::new(),
+                range,
+            }
+        } else {
+            self.block()?
+        };
         let range = start.join(body.range);
         Ok(FunctionDecl {
             name,
@@ -198,10 +222,61 @@ impl Parser<'_> {
             is_async,
             parameters,
             result,
+            error_contract,
             body,
             fallback,
             range,
         })
+    }
+
+    fn error_contract(&mut self) -> Result<Option<crate::ast::ErrorContract>, Diagnostic> {
+        if self.at_identifier("nothrow") {
+            let range = self.advance().range;
+            return Ok(Some(crate::ast::ErrorContract {
+                types: Vec::new(),
+                range,
+            }));
+        }
+        if !self.at_identifier("throws") {
+            return Ok(None);
+        }
+        let start = self.advance().range;
+        let mut types = vec![self.type_ref()?];
+        while self.consume(&TokenKind::Comma).is_some() {
+            types.push(self.type_ref()?);
+        }
+        let range = start.join(types.last().unwrap().range);
+        Ok(Some(crate::ast::ErrorContract { types, range }))
+    }
+
+    fn interface(&mut self) -> Result<crate::ast::InterfaceDecl, Diagnostic> {
+        let start = self.advance().range;
+        let (name, _) = self.identifier()?;
+        let type_parameters = self.type_parameters()?;
+        self.take(&TokenKind::LeftBrace)?;
+        let mut methods = Vec::new();
+        while !self.at(&TokenKind::RightBrace) {
+            methods.push(self.function_declaration(true)?);
+        }
+        let end = self.take(&TokenKind::RightBrace)?.range;
+        Ok(crate::ast::InterfaceDecl {
+            name,
+            type_parameters,
+            methods,
+            range: start.join(end),
+        })
+    }
+
+    fn interfaces(&mut self) -> Result<Vec<TypeRef>, Diagnostic> {
+        if !self.at_identifier("interface") {
+            return Ok(Vec::new());
+        }
+        self.advance();
+        let mut values = vec![self.type_ref()?];
+        while self.consume(&TokenKind::Plus).is_some() {
+            values.push(self.type_ref()?);
+        }
+        Ok(values)
     }
 
     fn parameter(&mut self) -> Result<Parameter, Diagnostic> {
@@ -223,6 +298,7 @@ impl Parser<'_> {
         let fields = self.comma_list(TokenKind::RightBrace, Self::field)?;
         let end = self.take(&TokenKind::RightBrace)?.range;
         Ok(RecordDecl {
+            interfaces: Vec::new(),
             mutable: false,
             name,
             type_parameters,
@@ -256,6 +332,7 @@ impl Parser<'_> {
         let start = self.advance().range;
         let (name, _) = self.identifier()?;
         let type_parameters = self.type_parameters()?;
+        let interfaces = self.interfaces()?;
         self.take(&TokenKind::LeftBrace)?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();
@@ -300,6 +377,7 @@ impl Parser<'_> {
             mutable: true,
             name,
             type_parameters,
+            interfaces,
             fields,
             range: start.join(end),
         })];
@@ -311,6 +389,7 @@ impl Parser<'_> {
         let start = self.take(&TokenKind::Enum)?.range;
         let (name, _) = self.identifier()?;
         let type_parameters = self.type_parameters()?;
+        let interfaces = self.interfaces()?;
         self.take(&TokenKind::LeftBrace)?;
         if self.at(&TokenKind::RightBrace) {
             return Err(self.unexpected("at least one enum variant"));
@@ -320,6 +399,7 @@ impl Parser<'_> {
         Ok(EnumDecl {
             name,
             type_parameters,
+            interfaces,
             variants,
             range: start.join(end),
         })
@@ -352,6 +432,7 @@ impl Parser<'_> {
         let start = self.take(&TokenKind::Enum)?.range;
         let (name, _) = self.identifier()?;
         let type_parameters = self.type_parameters()?;
+        let interfaces = self.interfaces()?;
         self.take(&TokenKind::LeftBrace)?;
         let mut variants = Vec::new();
         let mut methods = Vec::new();
@@ -384,6 +465,7 @@ impl Parser<'_> {
         let mut declarations = vec![Declaration::Enum(EnumDecl {
             name,
             type_parameters,
+            interfaces,
             variants,
             range: start.join(end),
         })];
@@ -433,9 +515,12 @@ impl Parser<'_> {
                     constraints.push(parser.identifier()?.0);
                 }
             }
+            let interfaces = parser.interfaces()?;
+            let range = range.join(parser.tokens[parser.cursor - 1].range);
             Ok(crate::ast::TypeParameter {
                 name,
                 constraints,
+                interfaces,
                 range,
             })
         })?;
@@ -1232,6 +1317,7 @@ impl Parser<'_> {
         } else {
             None
         };
+        let error_contract = self.error_contract()?;
         let body = self.block()?;
         let range = start.join(body.range);
         Ok(Expression {
@@ -1245,6 +1331,7 @@ impl Parser<'_> {
                 is_async,
                 parameters,
                 result,
+                error_contract,
                 body,
                 fallback,
                 range,

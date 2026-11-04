@@ -21,12 +21,13 @@ Start with the introduction and follow the language chapters in order. A `rinzu-
 7. [Records and type aliases](language/records.md)
 8. [Classes and methods](language/classes.md)
 9. [Enums and Option](language/enums.md)
-10. [Generics and markers](language/generics.md)
-11. [Lists and maps](language/collections.md)
-12. [Strings and bytes](language/strings-and-bytes.md)
-13. [Errors and recovery](language/errors.md)
-14. [Asynchronous tasks and Workers](language/async.md)
-15. [Native interoperability](language/native-interop.md)
+10. [Generics and constraints](language/generics.md)
+11. [Interfaces](language/interfaces.md)
+12. [Lists and maps](language/collections.md)
+13. [Strings and bytes](language/strings-and-bytes.md)
+14. [Errors and recovery](language/errors.md)
+15. [Asynchronous tasks and Workers](language/async.md)
+16. [Native interoperability](language/native-interop.md)
 
 ## Use libraries
 

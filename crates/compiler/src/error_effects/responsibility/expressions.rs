@@ -14,7 +14,7 @@ impl Evaluation {
     pub fn failed(state: State, word: language::Word, token: Option<Token>) -> Self {
         Self {
             state,
-            result: Err(Stop::Error(word, token)),
+            result: Err(Stop::Error(Box::new(word), token)),
         }
     }
     pub fn path(self) -> Path {
@@ -598,7 +598,7 @@ fn coalesce(engine: &Engine<'_>, values: Vec<Evaluation>) -> Vec<Evaluation> {
             state: path.state,
             result: match path.control {
                 Control::Return(value) => Ok(value),
-                Control::Error(word, token) => Err(Stop::Error(word, token)),
+                Control::Error(word, token) => Err(Stop::Error(Box::new(word), token)),
                 Control::Diverges => Err(Stop::Diverges),
                 Control::Panic => Err(Stop::Panic),
                 Control::Recurse(held) => Err(Stop::Recurse(held)),

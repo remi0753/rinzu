@@ -34,6 +34,12 @@ pub fn format_source(file: &SourceFile) -> Result<String, Vec<Diagnostic>> {
     }
     for declaration in &syntax.declarations {
         match declaration {
+            Declaration::Interface(interface) => {
+                hints.parameters(&interface.type_parameters);
+                for method in &interface.methods {
+                    hints.member_end(method.range);
+                }
+            }
             Declaration::Record(record) => {
                 hints.parameters(&record.type_parameters);
                 for field in &record.fields {

@@ -10,6 +10,50 @@ use rinzu_compiler::{
 struct Fixture(PathBuf);
 
 #[test]
+fn interface_constraints_and_error_contracts_navigate_to_source_declarations() {
+    let fixture = Fixture::new();
+    let text = "error Failed{}interface Getter<T>{fn get(self:Self)->T throws Failed;}class Value interface Getter<Int>{fn get(self:Value)->Int nothrow{return 42;}}fn read<V interface Getter<Int>>(v:V)->Int throws Failed{return v.get();}fn main(){try{let result=read(Value());}catch problems{}}";
+    let entry = fixture.source("main.rinzu", text);
+    let source = SourceFile::new(FileId(902), &entry, text);
+    let artifact = rinzu_compiler::compile_source(&source).unwrap();
+    let sources = BTreeMap::from([(entry, source.clone())]);
+    let index = rinzu_compiler::build_editor_index(
+        &sources,
+        &[(source.clone(), artifact.syntax.clone())],
+        &[&artifact.syntax, &artifact.checked.syntax],
+    );
+    for (usage, definition) in [
+        ("interface Getter<Int>", "interface Getter<T>"),
+        ("throws Failed", "error Failed"),
+    ] {
+        let name = if usage.starts_with("interface") {
+            "Getter"
+        } else {
+            "Failed"
+        };
+        let at = text.find(usage).unwrap() + usage.find(name).unwrap();
+        let expected = text.find(definition).unwrap() + definition.find(name).unwrap();
+        assert_eq!(
+            index
+                .definition_at(SourceRange::empty(source.id(), at))
+                .unwrap()
+                .start_byte as usize,
+            expected
+        );
+    }
+    assert!(
+        index
+            .visible_symbols(SourceRange::empty(source.id(), text.len()))
+            .iter()
+            .any(|s| s.name == "Getter" && s.kind == "interface")
+    );
+    let docs = rinzu_compiler::source_documentation(&source).unwrap();
+    let interface = docs.iter().find(|d| d.name == "Getter").unwrap();
+    assert_eq!(interface.kind, "interface");
+    assert!(interface.members[0].signature.ends_with("throws Failed;"));
+}
+
+#[test]
 fn native_roles_navigate_and_invalid_unsaved_members_are_rejected() {
     let fixture = Fixture::new();
     let text = "native{opaque Handle;record Packet{value:Int}}class Owner{const handle:Handle,const packet:Packet fn read(self:Owner)->Int{return self.packet.value;}}type Context={owner:Owner};fn main(){}";

@@ -1,6 +1,6 @@
 # Errors and recovery
 
-Ordinary failure uses Error. An API returns its successful value directly and throws on failure. Normal absence uses Option. Error effects are inferred; no `throws` declaration is needed.
+Ordinary failure uses Error. An API returns its successful value directly and throws on failure. Normal absence uses Option. Error effects are inferred by default. Functions can declare a public upper bound with `throws` or `nothrow`.
 
 ## Declare and throw an Error
 
@@ -32,6 +32,39 @@ fn main() {
 An `error` declaration creates a nominal Error type. A constructor requires `message`. The declaration name supplies `name`. `payload: T` is required; `payload?: T` is optional and reads as `Option<T>`; an empty body has no payload. Generic Error constructors and catch patterns specify concrete type arguments.
 
 Error retains its concrete type when stored as Error. `name`, `message`, and payload bindings are read-only. A class payload still refers to its original instance. A payload cannot contain a Future, directly or indirectly.
+
+## Declare an Error upper bound
+
+Place the contract after the result and any callback `fallback`, before the body:
+
+```rinzu-test
+error ReadFailed {}
+
+fn read() -> String throws ReadFailed {
+    return "ready";
+}
+
+fn recover() -> String nothrow {
+    try {
+        return read();
+    }
+    catch problems {
+        return "unavailable";
+    }
+}
+
+fn main() nothrow {
+    let text = recover();
+}
+```
+
+`throws ReadFailed` permits escaping ReadFailed values; it does not require a failure path. Callers use the declared bound even when the current body always succeeds. They must recover the possible Error, propagate it through their own `throws` contract, or let inference propagate it. Local try/catch is optional; leaking an Error from main, a Worker, or a native callback remains forbidden.
+
+Use `throws First, Second` for several concrete Error types, `throws Error` for any ordinary Error, and `nothrow` for an empty bound. The compiler checks the body, catch handlers and finally against the bound. Duplicate types, redundant `Error` plus concrete types, non-Error types and bare type parameters are rejected. Generic nominal Errors such as `Failure<T>` are allowed. A declared set does not promise an exact failure count or ordering: typed catches generally need a rest pattern or an exhaustive final binding.
+
+Named functions, methods and `fn` expressions support these contracts. Omitting the annotation retains inference. Interface requirements have no body and must explicitly declare `throws` or `nothrow`. Function types have no effect annotation; function values retain their checked target and capture provenance.
+
+For an async function, the bound describes the ordinary Errors observed from that task's body and cleanup. Argument evaluation occurs before the call, and returned or captured Futures retain their separate observation responsibilities. A nothrow factory can return a failing Future. `nothrow` does not cover panic, cancellation, traps, OOM or fatal native faults.
 
 ## Catch an entire failure list
 

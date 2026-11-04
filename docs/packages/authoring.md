@@ -41,7 +41,7 @@ rinzu api ./values --output ./values-api.json --markdown ./values-api.md
 rinzu api ./values --output ./values-api-next.json --compare ./values-api.json
 ```
 
-The JSON snapshot records exported types, signatures, constants, effects, and native boundary information. Comparison reports additions and conservative breaking candidates. Review semantics yourself: the tool does not automatically assign a semantic version or prove behavior unchanged.
+The JSON snapshot records exported types, signatures, constants, effects, interface requirements/conformance/constraints, declared versus inferred Error bounds, and native boundary information. An explicit nothrow contract is distinct from an inferred empty bound. Removing conformance, changing requirements, or widening an Error bound produces a conservative breaking candidate. Comparison reports additions and conservative breaking candidates. Review semantics yourself: the tool does not automatically assign a semantic version or prove behavior unchanged.
 
 Adjacent `///` comments attach to checked public declarations. Re-exports retain their original source identity. Comments can contain complete `rinzu-test` programs, which the generated Markdown keeps available to the documentation test runner.
 

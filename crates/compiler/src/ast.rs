@@ -36,6 +36,7 @@ pub struct FileImport {
 
 #[derive(Clone, Debug)]
 pub enum Declaration {
+    Interface(InterfaceDecl),
     Function(FunctionDecl),
     Record(RecordDecl),
     Enum(EnumDecl),
@@ -48,6 +49,7 @@ impl Declaration {
     #[must_use]
     pub fn name(&self) -> &str {
         match self {
+            Self::Interface(value) => &value.name,
             Self::Function(value) => &value.name,
             Self::Record(value) => &value.name,
             Self::Enum(value) => &value.name,
@@ -60,6 +62,7 @@ impl Declaration {
     #[must_use]
     pub const fn range(&self) -> SourceRange {
         match self {
+            Self::Interface(value) => value.range,
             Self::Function(value) => value.range,
             Self::Record(value) => value.range,
             Self::Enum(value) => value.range,
@@ -82,8 +85,24 @@ pub struct FunctionDecl {
     pub is_async: bool,
     pub parameters: Vec<Parameter>,
     pub result: TypeRef,
+    pub error_contract: Option<ErrorContract>,
     pub body: Block,
     pub fallback: Option<Expression>,
+    pub range: SourceRange,
+}
+
+/// A declared upper bound on escaping ordinary Errors. An empty list is nothrow.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ErrorContract {
+    pub types: Vec<TypeRef>,
+    pub range: SourceRange,
+}
+
+#[derive(Clone, Debug)]
+pub struct InterfaceDecl {
+    pub name: String,
+    pub type_parameters: Vec<TypeParameter>,
+    pub methods: Vec<FunctionDecl>,
     pub range: SourceRange,
 }
 
@@ -99,6 +118,7 @@ pub struct RecordDecl {
     pub mutable: bool,
     pub name: String,
     pub type_parameters: Vec<TypeParameter>,
+    pub interfaces: Vec<TypeRef>,
     pub fields: Vec<FieldDecl>,
     pub range: SourceRange,
 }
@@ -107,6 +127,7 @@ pub struct RecordDecl {
 pub struct EnumDecl {
     pub name: String,
     pub type_parameters: Vec<TypeParameter>,
+    pub interfaces: Vec<TypeRef>,
     pub variants: Vec<EnumVariant>,
     pub range: SourceRange,
 }
@@ -147,6 +168,7 @@ pub struct FieldDecl {
 pub struct TypeParameter {
     pub name: String,
     pub constraints: Vec<String>,
+    pub interfaces: Vec<TypeRef>,
     pub range: SourceRange,
 }
 

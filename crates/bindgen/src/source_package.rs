@@ -121,6 +121,8 @@ pub struct FunctionRecord {
     pub source_type: String,
     pub kind: FunctionKind,
     pub effects: Vec<String>,
+    #[serde(default)]
+    pub error_contract: Option<ErrorContractRecord>,
     pub parameter_requirements: Vec<String>,
     pub symbol: Option<String>,
     pub service: Option<String>,
@@ -132,6 +134,13 @@ pub struct FunctionRecord {
     pub callback_sites: Vec<CallbackSiteRecord>,
     #[serde(default)]
     pub code: Option<CodeRecord>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ErrorContractRecord {
+    pub declared: bool,
+    pub types: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,6 +177,14 @@ pub struct SourceTemplateRecord {
     pub type_parameters: Vec<(String, Vec<String>)>,
     #[serde(default)]
     pub owner_type_parameters: Vec<(String, Vec<String>)>,
+    #[serde(default)]
+    pub interface_constraints: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub interfaces: Vec<String>,
+    #[serde(default)]
+    pub error_contract: Option<Vec<String>>,
+    #[serde(default)]
+    pub methods: Vec<(String, String)>,
     pub signature: String,
     pub const_fields: Vec<u32>,
     #[serde(default)]
@@ -677,7 +694,11 @@ impl SourceInterface {
                         == fields.len()
             };
             if identity.is_empty()
-                || schema.type_parameters.is_empty() && schema.owner_type_parameters.is_empty()
+                || schema.type_parameters.is_empty()
+                    && schema.owner_type_parameters.is_empty()
+                    && schema.kind != "interface"
+                    && schema.interfaces.is_empty()
+                    && schema.error_contract.is_none()
                 || !schema.owner_type_parameters.is_empty() && schema.kind != "function"
                 || schema
                     .type_parameters
@@ -698,6 +719,25 @@ impl SourceInterface {
                     .len()
                     != schema.type_parameters.len() + schema.owner_type_parameters.len()
                 || !fields_valid(&schema.fields)
+                || !fields_valid(&schema.methods)
+                || !schema.methods.is_empty() && schema.kind != "interface"
+                || !schema.interfaces.is_empty()
+                    && !matches!(schema.kind.as_str(), "class" | "enum")
+                || schema.error_contract.is_some() && schema.kind != "function"
+                || schema.interfaces.iter().any(String::is_empty)
+                || schema
+                    .error_contract
+                    .as_ref()
+                    .is_some_and(|types| types.iter().any(String::is_empty))
+                || schema.interface_constraints.iter().any(|(p, bounds)| {
+                    bounds.is_empty()
+                        || bounds.iter().any(String::is_empty)
+                        || !schema
+                            .type_parameters
+                            .iter()
+                            .chain(&schema.owner_type_parameters)
+                            .any(|(name, _)| name == p)
+                })
                 || schema
                     .private_fields
                     .iter()
@@ -729,6 +769,12 @@ impl SourceInterface {
                     }
                     "class" => schema.signature.is_empty() && schema.variants.is_empty(),
                     "enum" => schema.signature.is_empty() && schema.fields.is_empty(),
+                    "interface" => {
+                        schema.signature.is_empty()
+                            && schema.fields.is_empty()
+                            && schema.variants.is_empty()
+                            && schema.const_fields.is_empty()
+                    }
                     "error" => {
                         schema.variants.is_empty()
                             && (4..=5).contains(&schema.fields.len())

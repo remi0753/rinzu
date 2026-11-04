@@ -45,7 +45,7 @@ impl Engine<'_> {
                         if token.as_ref().is_none_or(|token| {
                             !token.observable() || group.observed.insert(token.clone())
                         }) {
-                            group.errors = language::concatenate(
+                            group.errors = concatenate(
                                 &group.errors,
                                 &Language::from([word.clone()]),
                                 self.bound,
@@ -596,60 +596,71 @@ impl Engine<'_> {
                 result.push(path);
                 continue;
             };
-            let mut remaining = true;
+            let mut remaining = Language::from([word.clone()]);
             for handler in handlers {
-                let matched = pattern(self.checked, &handler.pattern).matches(word);
-                if matched == Match::Never {
-                    continue;
-                }
-                let mut state = path.state.clone();
-                let outer: BTreeSet<_> = state.env.keys().cloned().collect();
-                match &handler.pattern {
-                    CatchPattern::Binding(binding) => {
-                        state
-                            .env
-                            .insert(binding.name.clone(), Tracked::data(Value::Plain));
+                let catch_pattern = pattern(self.checked, &handler.pattern);
+                for word in remaining.clone() {
+                    let matched = catch_pattern.matches(&word);
+                    if matched == Match::Never {
+                        continue;
                     }
-                    CatchPattern::List { elements, rest, .. } => {
-                        for (index, element) in elements.iter().enumerate() {
-                            if let Some(binding) = &element.binding {
-                                let tag = word.prefix.get(index).cloned().unwrap_or(Tag::Any);
-                                state.env.insert(
-                                    binding.name.clone(),
-                                    Tracked::data(Value::Error(BTreeSet::from([tag]))),
-                                );
-                            }
-                        }
-                        if let Some(rest) = rest {
+                    let mut state = path.state.clone();
+                    let outer: BTreeSet<_> = state.env.keys().cloned().collect();
+                    match &handler.pattern {
+                        CatchPattern::Binding(binding) => {
                             state
                                 .env
-                                .insert(rest.name.clone(), Tracked::data(Value::Plain));
+                                .insert(binding.name.clone(), Tracked::data(Value::Plain));
+                        }
+                        CatchPattern::List { elements, rest, .. } => {
+                            for (index, element) in elements.iter().enumerate() {
+                                if let Some(binding) = &element.binding {
+                                    let tag = if catch_pattern.prefix[index] == Tag::Any {
+                                        word.prefix.get(index).cloned().unwrap_or(Tag::Any)
+                                    } else {
+                                        catch_pattern.prefix[index].clone()
+                                    };
+                                    state.env.insert(
+                                        binding.name.clone(),
+                                        Tracked::data(Value::Error(BTreeSet::from([tag]))),
+                                    );
+                                }
+                            }
+                            if let Some(rest) = rest {
+                                state
+                                    .env
+                                    .insert(rest.name.clone(), Tracked::data(Value::Plain));
+                            }
                         }
                     }
-                }
-                for mut caught in self.block(
-                    &handler.body,
-                    vec![Path {
-                        state,
-                        control: Control::Normal,
-                    }],
-                    false,
-                ) {
-                    caught.state.env.retain(|name, _| outer.contains(name));
-                    if caught.control == Control::Normal
-                        && let Some(saved) = &saved
-                    {
-                        caught.control = saved.clone();
+                    for mut caught in self.block(
+                        &handler.body,
+                        vec![Path {
+                            state,
+                            control: Control::Normal,
+                        }],
+                        false,
+                    ) {
+                        caught.state.env.retain(|name, _| outer.contains(name));
+                        if caught.control == Control::Normal
+                            && let Some(saved) = &saved
+                        {
+                            caught.control = saved.clone();
+                        }
+                        result.push(caught);
                     }
-                    result.push(caught);
                 }
-                if matched == Match::All {
-                    remaining = false;
+                remaining = language::subtract(&remaining, &catch_pattern);
+                if remaining.is_empty() {
                     break;
                 }
             }
-            if remaining {
-                result.push(path);
+            for word in remaining {
+                let mut residual = path.clone();
+                if let Control::Error(_, token) = &path.control {
+                    residual.control = Control::Error(word, token.clone());
+                }
+                result.push(residual);
             }
         }
         let Some(cleanup) = cleanup else {
@@ -674,7 +685,7 @@ impl Engine<'_> {
                     (Control::Panic, _) => path.control = Control::Panic,
                     (_, Control::Normal) => path.control = incoming.control.clone(),
                     (Control::Error(first, _), Control::Error(second, _)) => {
-                        let errors = language::concatenate(
+                        let errors = concatenate(
                             &Language::from([first.clone()]),
                             &Language::from([second.clone()]),
                             self.bound,
@@ -875,6 +886,7 @@ mod tests {
     #[test]
     fn indexed_paths_keep_pending_obligations_when_hashes_collide() {
         let word = |name: &str| language::Word {
+            tail: BTreeSet::new(),
             prefix: vec![Tag::Named(name.into())],
             longer: false,
             guards: BTreeMap::new(),

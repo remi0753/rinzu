@@ -169,7 +169,7 @@ function activate(context) {
     vscode.languages.registerCompletionItemProvider(selector, { provideCompletionItems: (document, position, token) => safe(async () => {
       const response = await client.query('completion', document, { position }, token);
       const prefix = document.lineAt(position.line).text.slice(0, position.character).match(/[A-Za-z_][A-Za-z0-9_.]*$/)?.[0] || '';
-      const kinds = { function: vscode.CompletionItemKind.Function, variable: vscode.CompletionItemKind.Variable, parameter: vscode.CompletionItemKind.Variable, class: vscode.CompletionItemKind.Class, enum: vscode.CompletionItemKind.Enum, type: vscode.CompletionItemKind.TypeParameter, typeParameter: vscode.CompletionItemKind.TypeParameter, constant: vscode.CompletionItemKind.Constant, import: vscode.CompletionItemKind.Module, keyword: vscode.CompletionItemKind.Keyword };
+      const kinds = { function: vscode.CompletionItemKind.Function, variable: vscode.CompletionItemKind.Variable, parameter: vscode.CompletionItemKind.Variable, interface: vscode.CompletionItemKind.Interface, class: vscode.CompletionItemKind.Class, enum: vscode.CompletionItemKind.Enum, type: vscode.CompletionItemKind.TypeParameter, typeParameter: vscode.CompletionItemKind.TypeParameter, constant: vscode.CompletionItemKind.Constant, import: vscode.CompletionItemKind.Module, keyword: vscode.CompletionItemKind.Keyword };
       return response.result.items.filter(item => item.label.startsWith(prefix)).map(item => {
         const completion = new vscode.CompletionItem(item.label, kinds[item.kind]);
         completion.range = new vscode.Range(position.line, position.character - prefix.length, position.line, position.character);

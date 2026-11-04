@@ -30,6 +30,8 @@ fn tag_value(tag: &Tag, name: &str, arguments: &[Value], bound: usize) -> Value 
                 if let Some(tag) = word.prefix.get(*index) {
                     result
                         .join(Value::Error(BTreeSet::from([tag.clone()])).conditioned(word.guards));
+                } else if *index >= bound && word.longer {
+                    result.join(Value::Error(word.tail).conditioned(word.guards));
                 }
             }
             result
@@ -166,15 +168,38 @@ pub(super) fn language(
                 prefixes = expanded;
             }
             for (prefix, guards) in prefixes {
+                let mut tail = BTreeSet::new();
+                for tag in &word.tail {
+                    if let Tag::FutureElement(input, index) = tag
+                        && input.owner == name
+                        && !language::element_input(input)
+                    {
+                        if let Some(actual) = selected.get(input) {
+                            if let Some(tag) = actual.prefix.get(*index) {
+                                tail.insert(tag.clone());
+                            } else {
+                                tail.extend(actual.tail.iter().cloned());
+                            }
+                        }
+                    } else {
+                        for replacement in tag_value(tag, name, arguments, bound).thrown_errors() {
+                            if language::merge_guards(&guards, &replacement.guards).is_some() {
+                                tail.extend(replacement.prefix);
+                                tail.extend(replacement.tail);
+                            }
+                        }
+                    }
+                }
                 result.insert(language::Word {
                     prefix,
+                    tail,
                     longer: word.longer,
                     guards,
                 });
             }
         }
     }
-    result
+    language::normalize(result)
 }
 pub(super) fn value(input: &Value, name: &str, arguments: &[Value], bound: usize) -> Value {
     match input {

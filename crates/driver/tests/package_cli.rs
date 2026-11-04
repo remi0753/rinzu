@@ -9,7 +9,74 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 struct Fixture(PathBuf);
 
 #[test]
-fn api_v3_hides_private_storage_and_preserves_generic_owner_groups() {
+fn interfaces_and_error_contracts_survive_sdk_cache_api_and_aot() {
+    let f = Fixture::new();
+    let source = "error ReadFailed{}interface Reader{fn read(self:Self)->String throws ReadFailed;}class Memory interface Reader{const text:String fn read(self:Memory)->String nothrow{return self.text;}}enum Input interface Reader{Text(text:String),fn read(self:Input)->String nothrow{switch self{case Input.Text(text):{return text;}}}}fn read<R interface Reader>(reader:R)->String throws ReadFailed{return reader.read();}export Reader;export ReadFailed;export Memory;export Input;export read;";
+    std::fs::write(f.path("sdk/src/model.rinzu"), source).unwrap();
+    std::fs::write(f.path("app/src/main.rinzu"),"import model;fn main(){let memory=model.Memory(text:\"ok\");if memory.read()!=\"ok\"{panic(\"direct\");}try{if model.read(memory)!=model.read(model.Input.Text(text:\"ok\")){panic(\"generic\");}}catch errors{panic(\"unexpected\");}}").unwrap();
+    for _ in 0..2 {
+        success(f.cli("check", "app", &[]));
+    }
+    success(f.cli("run", "app", &[]));
+    success(f.cli("verify-aot", "app", &[]));
+    let api_path = f.path("contracts.json");
+    let markdown_path = f.path("contracts.md");
+    success(f.cli(
+        "api",
+        "sdk",
+        &[
+            "--output",
+            api_path.to_str().unwrap(),
+            "--markdown",
+            markdown_path.to_str().unwrap(),
+        ],
+    ));
+    let api = json(&api_path);
+    assert!(
+        std::fs::read_to_string(&markdown_path)
+            .unwrap()
+            .contains("Error contract: `nothrow` (declared)")
+    );
+    assert_eq!(api["version"], 4);
+    assert_eq!(
+        api["exports"]["model.Reader"]["source_template"]["kind"],
+        "interface"
+    );
+    assert_eq!(
+        api["exports"]["model.read"]["source_template"]["interface_constraints"]["R"],
+        serde_json::json!(["Reader"])
+    );
+    assert_eq!(
+        api["exports"]["model.Memory.read"]["function"]["error_contract"],
+        serde_json::json!({"declared":true,"types":[]})
+    );
+    std::fs::write(
+        f.path("sdk/src/model.rinzu"),
+        source.replace(
+            "fn read(self:Memory)->String nothrow",
+            "fn read(self:Memory)->String throws ReadFailed",
+        ),
+    )
+    .unwrap();
+    success(f.cli("api", "sdk", &["--compare", api_path.to_str().unwrap()]));
+    let report = json(&f.path("sdk/build/package-api-v4.report.json"));
+    assert!(
+        report["breaking_candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v.as_str().unwrap().contains("model.Memory.read"))
+    );
+    std::fs::write(
+        f.path("app/src/main.rinzu"),
+        "import model;fn main(){let memory=model.Memory(text:\"ok\");let text=memory.read();}",
+    )
+    .unwrap();
+    rejected(f.cli("check", "app", &[]), "RZ0413");
+}
+
+#[test]
+fn api_v4_hides_private_storage_and_preserves_generic_owner_groups() {
     let f = Fixture::new();
     std::fs::write(f.path("sdk/src/model.rinzu"),"class Internal{value:Int}class Counter{private const hiddenValue:Internal fn create()->Counter{return Counter(hiddenValue:Internal(value:3));}fn read(self:Counter)->Int{return self.hiddenValue.value;}}class Box<T>{private const item:T fn create(value:T)->Box<T>{return Box<T>(item:value);}fn get(self:Box<T>)->T{return self.item;}}export Counter;export Box;").unwrap();
     let snapshot = f.path("privacy-api.json");
@@ -25,7 +92,7 @@ fn api_v3_hides_private_storage_and_preserves_generic_owner_groups() {
         ],
     ));
     let api = json(&snapshot);
-    assert_eq!(api["version"], 3);
+    assert_eq!(api["version"], 4);
     assert_eq!(
         api["exports"]["model.Counter"]["constructor_visibility"],
         "owner"
@@ -321,7 +388,7 @@ fn markdown_reference_filters_private_exports_and_runs_captured_doc_examples() {
     assert!(first.contains("Kept value."));
     assert!(!first.contains("SECRET_PRIVATE_DOCUMENTATION"));
     assert!(first.contains("sdk/src/model.rinzu#L2"));
-    assert_eq!(json(&snapshot)["version"], 3);
+    assert_eq!(json(&snapshot)["version"], 4);
     success(f.cli(
         "test",
         "sdk",
@@ -516,7 +583,7 @@ fn public_templates_lock_refresh_api_report_and_all_backends() {
     std::fs::write(main, format!("{body}\n// application-only change\n")).unwrap();
     success(f.cli("lock", "app", &["--check"]));
     success(f.cli("api", "sdk", &[]));
-    let api = f.path("sdk/build/package-api-v3.json");
+    let api = f.path("sdk/build/package-api-v4.json");
     let baseline = f.path("old-api.json");
     std::fs::copy(&api, &baseline).unwrap();
     let value = json(&api);
@@ -543,7 +610,7 @@ fn public_templates_lock_refresh_api_report_and_all_backends() {
     rejected(f.cli("lock", "app", &["--check"]), "package lock mismatch");
     assert_eq!(lock, std::fs::read(&lock_path).unwrap());
     success(f.cli("api", "sdk", &["--compare", baseline.to_str().unwrap()]));
-    let report = f.path("sdk/build/package-api-v3.report.json");
+    let report = f.path("sdk/build/package-api-v4.report.json");
     assert_eq!(json(&report)["breaking_candidates"], serde_json::json!([]));
     assert_eq!(json(&report)["behavior_equivalence"], false);
     std::fs::write(
@@ -609,12 +676,12 @@ fn diamond_reexports_file_moves_deletion_and_cycles_recheck() {
     success(f.cli("run", "app", &[]));
     success(f.cli("api", "left", &[]));
     assert_eq!(
-        json(&f.path("left/build/package-api-v3.json"))["exports"]["left.Box"]["identity"],
+        json(&f.path("left/build/package-api-v4.json"))["exports"]["left.Box"]["identity"],
         "model::Box"
     );
     success(f.cli("api", "sdk", &[]));
     let baseline = f.path("before-move.json");
-    std::fs::copy(f.path("sdk/build/package-api-v3.json"), &baseline).unwrap();
+    std::fs::copy(f.path("sdk/build/package-api-v4.json"), &baseline).unwrap();
     std::fs::rename(f.path("sdk/src/model.rinzu"), f.path("sdk/src/moved.rinzu")).unwrap();
     let manifest = f.path("sdk/rinzu.toml");
     std::fs::write(
@@ -627,7 +694,7 @@ fn diamond_reexports_file_moves_deletion_and_cycles_recheck() {
     rejected(f.cli("lock", "app", &["--check"]), "package lock mismatch");
     success(f.cli("api", "sdk", &["--compare", baseline.to_str().unwrap()]));
     assert_eq!(
-        json(&f.path("sdk/build/package-api-v3.report.json"))["breaking_candidates"],
+        json(&f.path("sdk/build/package-api-v4.report.json"))["breaking_candidates"],
         serde_json::json!([])
     );
     let source = f.path("sdk/src/moved.rinzu");
@@ -640,7 +707,7 @@ fn diamond_reexports_file_moves_deletion_and_cycles_recheck() {
     .unwrap();
     success(f.cli("api", "sdk", &["--compare", baseline.to_str().unwrap()]));
     assert!(
-        json(&f.path("sdk/build/package-api-v3.report.json"))["breaking_candidates"]
+        json(&f.path("sdk/build/package-api-v4.report.json"))["breaking_candidates"]
             .as_array()
             .unwrap()
             .iter()
@@ -754,7 +821,7 @@ fn actual_header_source_archive_and_corrupt_native_cache_are_revalidated() {
 }
 
 #[test]
-fn native_data_lock_requires_explicit_refresh_and_regenerates_v25_bundles() {
+fn native_data_lock_requires_explicit_refresh_and_regenerates_v26_bundles() {
     let f = Fixture::new();
     std::fs::write(f.path("sdk/rinzu.toml"), "[package]\nname=\"model\"\nlanguage=\"0.5\"\nkind=\"sdk\"\nentry=\"src/model.rinzu\"\n[native]\nheaders=[\"api.h\"]\nsources=[\"api.c\"]\n").unwrap();
     std::fs::write(
@@ -808,7 +875,7 @@ fn native_data_lock_requires_explicit_refresh_and_regenerates_v25_bundles() {
     let bundle = f.path("app/build/consumer.source-packages");
     let manifest = json(&bundle.join("manifest.json"));
     let descriptor = json(&bundle.join(manifest["packages"][0]["descriptor"].as_str().unwrap()));
-    assert_eq!(descriptor["minor"], 5);
+    assert_eq!(descriptor["minor"], 6);
     assert_eq!(
         descriptor["interface"]["backend"]["native_data_contract"],
         1

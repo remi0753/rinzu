@@ -47,6 +47,24 @@ fn declarations_have_one_blank_line_while_imports_and_exports_stay_grouped() {
 }
 
 #[test]
+fn interface_bounds_self_and_error_clauses_keep_generic_delimiters_and_comments() {
+    let text = formatted(
+        "// requirements\ninterface Reader<T interface Codec<Map<String,Int>>>{// instance\nfn read(self:Self,values:List<Self>)->Map<String,List<T>> throws ParseFailed<String,Int>,ReadFailed;async fn close(self:Self)nothrow;}class Buffer<T:Transferable interface Codec<Int>+Named> interface Reader<T>+Named{const value:T fn value(self:Buffer<T>)->T nothrow{return self.value;}}fn main()nothrow{}",
+    );
+    within_width_or_preserved(&file(&text));
+    assert!(text.contains("interface Reader<"), "{text}");
+    assert!(
+        text.contains("throws ParseFailed<String, Int>, ReadFailed;"),
+        "{text}"
+    );
+    assert!(
+        text.contains("async fn close(self: Self) nothrow;"),
+        "{text}"
+    );
+    assert!(text.contains("// instance"));
+}
+
+#[test]
 fn class_and_native_functions_are_separated_without_splitting_fields() {
     let text = formatted(
         "class Counter{const label:String,value:Int fn read(self:Counter)->Int{return self.value;}private async fn reset(self:Counter){self.value=0;}}native{opaque Handle;fn first(handle:Handle) symbol \"first\";fn second(handle:Handle) symbol \"second\";}",

@@ -85,6 +85,7 @@ pub(crate) fn entry(case: Option<&PackageTestCase>, range: SourceRange) -> Decla
         })
         .unwrap_or_default();
     Declaration::Function(FunctionDecl {
+        error_contract: None,
         name: "main".into(),
         is_private: false,
         lexical_owner: None,

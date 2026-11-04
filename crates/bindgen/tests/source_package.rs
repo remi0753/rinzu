@@ -87,6 +87,10 @@ fn public_templates_are_closed_and_change_source_identity() {
     value.source_templates.insert(
         "generic::id".into(),
         SourceTemplateRecord {
+            interface_constraints: Default::default(),
+            interfaces: vec![],
+            error_contract: None,
+            methods: vec![],
             owner_type_parameters: Vec::new(),
             private_fields: Vec::new(),
             kind: "function".into(),
@@ -103,7 +107,7 @@ fn public_templates_are_closed_and_change_source_identity() {
     let template = generate_source_package(value.clone(), b"native").unwrap();
     assert_eq!(
         (template.descriptor.major, template.descriptor.minor),
-        (2, 5)
+        (2, 6)
     );
     assert_ne!(base.descriptor.import_keys, template.descriptor.import_keys);
     value
@@ -136,6 +140,10 @@ fn generic_error_templates_are_readonly_and_distinguish_optional_constructors() 
         ("payload".into(), "Option<T>".into()),
     ];
     let schema = SourceTemplateRecord {
+        interface_constraints: Default::default(),
+        interfaces: vec![],
+        error_contract: None,
+        methods: vec![],
         owner_type_parameters: Vec::new(),
         private_fields: Vec::new(),
         kind: "error".into(),
@@ -664,7 +672,7 @@ fn const_field_schema_changes_keys_and_rejects_invalid_indices() {
     let original = generate_source_package(model.clone(), b"native").unwrap();
     assert_eq!(
         (original.descriptor.major, original.descriptor.minor),
-        (2, 5)
+        (2, 6)
     );
     model
         .source_types

@@ -334,6 +334,7 @@ impl Converter<'_> {
     }
     fn declarations(&mut self, shape: &Shape) -> Vec<Declaration> {
         let environment = Declaration::Enum(EnumDecl {
+            interfaces: Vec::new(),
             name: shape.environment.clone(),
             type_parameters: Vec::new(),
             variants: shape
@@ -353,6 +354,7 @@ impl Converter<'_> {
             range: self.range(),
         });
         let function = Declaration::Record(RecordDecl {
+            interfaces: Vec::new(),
             mutable: true,
             name: shape.name.clone(),
             type_parameters: Vec::new(),
@@ -418,6 +420,7 @@ impl Converter<'_> {
             })
             .collect();
         let dispatch = Declaration::Function(FunctionDecl {
+            error_contract: None,
             name: shape.dispatch.clone(),
             is_private: false,
             lexical_owner: None,
@@ -475,6 +478,7 @@ impl Converter<'_> {
                     .find(|f| f.declaration.name == variant.target)
                     .and_then(|f| f.declaration.fallback.clone());
                 declarations.push(Declaration::Function(FunctionDecl {
+                    error_contract: None,
                     name: format!("{}_callback_{index}", shape.name),
                     is_private: false,
                     lexical_owner: None,

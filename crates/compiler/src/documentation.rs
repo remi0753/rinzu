@@ -161,6 +161,27 @@ pub fn source_documentation(
     let mut docs = Vec::new();
     for declaration in &module.declarations {
         let entry = match declaration {
+            Declaration::Interface(interface) => collector.declaration(
+                &interface.name,
+                "interface",
+                interface.range,
+                collector.header_end(interface.range),
+                interface
+                    .methods
+                    .iter()
+                    .map(|method| SourceMemberDocumentation {
+                        name: method.name.clone(),
+                        is_private: false,
+                        kind: "method",
+                        range: method.range,
+                        line: source.line_column(method.range.start_byte as usize).0,
+                        signature: collector
+                            .slice(method.range.start_byte, method.range.end_byte)
+                            .to_owned(),
+                        documentation: collector.before(method.range.start_byte),
+                    })
+                    .collect(),
+            ),
             Declaration::Function(function) => collector.declaration(
                 &function.name,
                 if function.name.contains('.') {

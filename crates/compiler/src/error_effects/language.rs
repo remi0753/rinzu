@@ -30,6 +30,7 @@ pub(super) type Guards = BTreeMap<Input, Guard>;
 pub(crate) enum Tag {
     Any,
     Named(String),
+    Set(BTreeSet<String>),
     Parameter(Input),
     FutureElement(Input, usize),
 }
@@ -37,6 +38,9 @@ pub(crate) enum Tag {
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub(crate) struct Word {
     pub prefix: Vec<Tag>,
+    /// All possible tags beyond the observable prefix. Count/order are erased,
+    /// but declared Error bounds must still check every cleanup/collected Error.
+    pub tail: BTreeSet<Tag>,
     pub longer: bool,
     pub(super) guards: Guards,
 }
@@ -92,6 +96,18 @@ pub(super) fn independent_elements(errors: &Language) -> Language {
                 .collect();
             Word {
                 prefix,
+                tail: word
+                    .tail
+                    .iter()
+                    .map(|tag| match tag {
+                        Tag::FutureElement(input, _) | Tag::Parameter(input)
+                            if element_input(input) =>
+                        {
+                            Tag::Any
+                        }
+                        tag => tag.clone(),
+                    })
+                    .collect(),
                 longer: word.longer,
                 guards,
             }
@@ -101,6 +117,7 @@ pub(super) fn independent_elements(errors: &Language) -> Language {
 
 pub(crate) fn empty_word() -> Language {
     BTreeSet::from([Word {
+        tail: BTreeSet::new(),
         prefix: Vec::new(),
         longer: false,
         guards: Guards::new(),
@@ -114,6 +131,7 @@ impl Word {
             .iter()
             .map(|tag| match tag {
                 Tag::Named(name) => name.clone(),
+                Tag::Set(names) => names.iter().cloned().collect::<Vec<_>>().join(" | "),
                 Tag::Any | Tag::Parameter(..) | Tag::FutureElement(..) => "Error".into(),
             })
             .collect::<Vec<_>>();
@@ -131,6 +149,7 @@ pub(crate) fn one(tag: Tag) -> Language {
         Guards::new()
     };
     BTreeSet::from([Word {
+        tail: BTreeSet::new(),
         prefix: vec![tag],
         longer: false,
         guards,
@@ -140,12 +159,14 @@ pub(crate) fn one(tag: Tag) -> Language {
 pub(crate) fn unknown(bound: usize) -> Language {
     let mut result = (1..=bound)
         .map(|len| Word {
+            tail: BTreeSet::new(),
             prefix: vec![Tag::Any; len],
             longer: false,
             guards: Guards::new(),
         })
         .collect::<Language>();
     result.insert(Word {
+        tail: BTreeSet::from([Tag::Any]),
         prefix: vec![Tag::Any; bound],
         longer: true,
         guards: Guards::new(),
@@ -153,10 +174,56 @@ pub(crate) fn unknown(bound: usize) -> Language {
     result
 }
 
+/// Subtract a catch without enumerating the Cartesian product of finite Error
+/// sets at every position. Open Error/parameter positions remain conservative.
+pub(super) fn subtract(errors: &Language, pattern: &Pattern) -> Language {
+    let mut result = Language::new();
+    for word in errors {
+        if pattern.matches(word) == Match::Never {
+            result.insert(word.clone());
+            continue;
+        }
+        let mut inside = word.clone();
+        let mut open = false;
+        for (index, expected) in pattern.prefix.iter().enumerate() {
+            if *expected == Tag::Any {
+                continue;
+            }
+            match (&inside.prefix[index], expected) {
+                (Tag::Set(names), Tag::Named(name)) if names.contains(name) => {
+                    let mut rest = names.clone();
+                    rest.remove(name);
+                    if !rest.is_empty() {
+                        let mut outside = inside.clone();
+                        outside.prefix[index] = if rest.len() == 1 {
+                            Tag::Named(rest.into_iter().next().unwrap())
+                        } else {
+                            Tag::Set(rest)
+                        };
+                        result.insert(outside);
+                    }
+                    inside.prefix[index] = expected.clone();
+                }
+                (actual, _) if actual == expected => {}
+                _ => {
+                    open = true;
+                }
+            }
+        }
+        if open {
+            result.insert(inside);
+        }
+    }
+    result
+}
+
 pub(super) fn future(input: Input, bound: usize) -> Language {
     unknown(bound)
         .into_iter()
         .map(|mut word| {
+            if word.longer {
+                word.tail = BTreeSet::from([Tag::FutureElement(input.clone(), bound)]);
+            }
             word.prefix = (0..word.prefix.len())
                 .map(|index| Tag::FutureElement(input.clone(), index))
                 .collect();
@@ -209,6 +276,7 @@ pub(super) fn restricted(errors: &Language, conditions: &Guards) -> Language {
         .iter()
         .filter_map(|word| {
             Some(Word {
+                tail: word.tail.clone(),
                 prefix: word.prefix.clone(),
                 longer: word.longer,
                 guards: merge_guards(&word.guards, conditions)?,
@@ -222,6 +290,7 @@ pub(super) fn conditioned(errors: &Language, paths: &Language) -> Language {
         for path in paths {
             if let Some(guards) = merge_guards(&error.guards, &path.guards) {
                 result.insert(Word {
+                    tail: error.tail.clone(),
                     prefix: error.prefix.clone(),
                     longer: error.longer,
                     guards,
@@ -240,6 +309,14 @@ pub(crate) fn concatenate(left: &Language, right: &Language, bound: usize) -> La
                 continue;
             };
             let mut prefix = a.prefix.clone();
+            let mut tail = a.tail.clone();
+            tail.extend(b.tail.iter().cloned());
+            let available = if a.longer {
+                0
+            } else {
+                bound.saturating_sub(prefix.len())
+            };
+            tail.extend(b.prefix.iter().skip(available).cloned());
             if !a.longer {
                 prefix.extend(
                     b.prefix
@@ -250,12 +327,34 @@ pub(crate) fn concatenate(left: &Language, right: &Language, bound: usize) -> La
             }
             result.insert(Word {
                 prefix,
+                tail,
                 longer: a.longer || b.longer || a.prefix.len() + b.prefix.len() > bound,
                 guards,
             });
         }
     }
-    result
+    normalize(result)
+}
+
+/// Tail order is unobservable. Merge its type sets for identical shape/guards
+/// so collecting many optional failures does not enumerate all suffix subsets.
+pub(super) fn normalize(errors: Language) -> Language {
+    let mut words = BTreeMap::<(Vec<Tag>, bool, Guards), BTreeSet<Tag>>::new();
+    for word in errors {
+        words
+            .entry((word.prefix, word.longer, word.guards))
+            .or_default()
+            .extend(word.tail);
+    }
+    words
+        .into_iter()
+        .map(|((prefix, longer, guards), tail)| Word {
+            prefix,
+            longer,
+            guards,
+            tail,
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug)]
@@ -290,6 +389,18 @@ impl Pattern {
                 continue;
             }
             match actual {
+                Tag::Set(names) => {
+                    if let Tag::Named(name) = expected {
+                        if !names.contains(name) {
+                            return Match::Never;
+                        }
+                        if names.len() > 1 {
+                            result = Match::Some;
+                        }
+                    } else {
+                        result = Match::Some;
+                    }
+                }
                 Tag::Any | Tag::Parameter(..) | Tag::FutureElement(..) => result = Match::Some,
                 Tag::Named(_) => return Match::Never,
             }
@@ -307,6 +418,7 @@ impl Pattern {
                 prefix.resize(len, Tag::Any);
                 witnesses.insert(Word {
                     prefix,
+                    tail: BTreeSet::new(),
                     longer: false,
                     guards: Guards::new(),
                 });
@@ -315,11 +427,13 @@ impl Pattern {
             prefix.resize(bound, Tag::Any);
             witnesses.insert(Word {
                 prefix,
+                tail: BTreeSet::from([Tag::Any]),
                 longer: true,
                 guards: Guards::new(),
             });
         } else {
             witnesses.insert(Word {
+                tail: BTreeSet::new(),
                 prefix: self.prefix.clone(),
                 longer: false,
                 guards: Guards::new(),
@@ -339,6 +453,11 @@ mod tests {
 
     fn word(names: &[&str], bound: usize) -> Word {
         Word {
+            tail: names
+                .iter()
+                .skip(bound)
+                .map(|name| Tag::Named((*name).into()))
+                .collect(),
             prefix: names
                 .iter()
                 .take(bound)

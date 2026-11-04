@@ -101,6 +101,7 @@ pub(crate) fn expand(module: &Module) -> Result<Module, Vec<Diagnostic>> {
         output
             .declarations
             .push(Declaration::Function(FunctionDecl {
+                error_contract: None,
                 name: accessor(name),
                 is_private: false,
                 lexical_owner: None,

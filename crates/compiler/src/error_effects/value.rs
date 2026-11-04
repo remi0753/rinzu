@@ -312,6 +312,7 @@ impl Value {
                 },
             ) => {
                 errors.extend(rhs);
+                *errors = language::normalize(std::mem::take(errors));
                 *success |= ok;
                 value.join(*ret);
             }

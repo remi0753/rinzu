@@ -49,10 +49,10 @@ pub(crate) fn expand_aliases(module: &Module) -> Result<Module, Vec<Diagnostic>>
             if !names.insert(&p.name) {
                 return Err(vec![error(p.range, "duplicate alias type parameter")]);
             }
-            if !p.constraints.is_empty() {
+            if !p.constraints.is_empty() || !p.interfaces.is_empty() {
                 return Err(vec![error(
                     p.range,
-                    "transparent aliases do not declare marker constraints; constrain the consuming function or class",
+                    "transparent aliases do not declare constraints; constrain the consuming function or class",
                 )]);
             }
         }
@@ -98,6 +98,7 @@ pub(crate) fn expand_aliases(module: &Module) -> Result<Module, Vec<Diagnostic>>
     };
     for declaration in &mut output.declarations {
         let parameters = match declaration {
+            Declaration::Interface(i) => &i.type_parameters,
             Declaration::Function(f) => &f.type_parameters,
             Declaration::Record(r) => &r.type_parameters,
             Declaration::Enum(e) => &e.type_parameters,

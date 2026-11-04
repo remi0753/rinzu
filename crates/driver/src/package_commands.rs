@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 const LOCK_SCHEMA: &str = "rinzu.package-lock";
 const API_SCHEMA: &str = "rinzu.package-api";
 const VERSION: u32 = 2;
-const API_VERSION: u32 = 3;
+const API_VERSION: u32 = 4;
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -455,7 +455,7 @@ fn api(descriptor: &SourceDescriptor) -> Result<PackageApi, String> {
 
 fn compare(previous: &PackageApi, current: &PackageApi) -> Result<ApiReport, String> {
     if previous.schema != API_SCHEMA
-        || !matches!(previous.version, 2 | API_VERSION)
+        || !matches!(previous.version, 2 | 3 | API_VERSION)
         || current.schema != API_SCHEMA
         || current.version != API_VERSION
     {
@@ -466,8 +466,7 @@ fn compare(previous: &PackageApi, current: &PackageApi) -> Result<ApiReport, Str
     }
     let mut breaking_candidates = Vec::new();
     if previous.version != API_VERSION {
-        breaking_candidates
-            .push("baseline v2 has no visibility contracts; compatibility is unknown".into());
+        breaking_candidates.push(format!("baseline v{} has incomplete visibility, interface or Error contracts; compatibility is unknown",previous.version));
     }
     if previous.language != current.language
         || previous.target != current.target
@@ -625,7 +624,7 @@ pub fn run(command: &str, mut arguments: impl Iterator<Item = String>) -> Result
             .transpose()?;
         let output = parsed
             .output
-            .unwrap_or_else(|| manifest.root.join("build/package-api-v3.json"));
+            .unwrap_or_else(|| manifest.root.join("build/package-api-v4.json"));
         let rendered = markdown
             .as_ref()
             .map(|path| {

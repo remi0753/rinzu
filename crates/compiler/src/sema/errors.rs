@@ -184,6 +184,7 @@ impl Checker<'_> {
             self.declarations.insert(
                 SOURCE_LOCATION.to_owned(),
                 Declaration::Record(RecordDecl {
+                    interfaces: Vec::new(),
                     mutable: false,
                     name: SOURCE_LOCATION.to_owned(),
                     type_parameters: Vec::new(),

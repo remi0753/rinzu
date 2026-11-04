@@ -58,4 +58,6 @@ Lookup and slicing APIs return Option for ordinary absence or an invalid index. 
 
 Enums can be generic, can contain methods, and derive capabilities from all variant payloads. Export and private-method rules match [classes](classes.md).
 
-Next: [Generics and markers](generics.md).
+An enum can declare [interface conformance](interfaces.md) with `enum Entry<T> interface I + J`. The requirements apply to the whole enum; implement variant-specific behavior with an exhaustive switch in an ordinary enum method.
+
+Next: [Generics and constraints](generics.md).

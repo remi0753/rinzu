@@ -543,6 +543,7 @@ impl Engine<'_> {
                                 exit.receiver_scope_control
                                     && !substitution::language(
                                         &Language::from([language::Word {
+                                            tail: BTreeSet::new(),
                                             prefix: Vec::new(),
                                             longer: false,
                                             guards: exit.guards.clone(),
@@ -581,6 +582,7 @@ mod tests {
         let old = Token::Local(at, 0, true);
         let owner = Token::Local((1, 30, 40, 0, 0), 0, false);
         let errors = Language::from([language::Word {
+            tail: BTreeSet::new(),
             prefix: vec![Tag::Named("Failed".into())],
             longer: false,
             guards: BTreeMap::new(),

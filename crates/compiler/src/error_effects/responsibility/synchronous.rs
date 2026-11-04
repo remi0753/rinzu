@@ -100,7 +100,7 @@ impl Engine<'_> {
                     result: match path.control {
                         Control::Normal => Ok(Tracked::data(Value::Plain)),
                         Control::Return(value) => Ok(value),
-                        Control::Error(word, token) => Err(Stop::Error(word, token)),
+                        Control::Error(word, token) => Err(Stop::Error(Box::new(word), token)),
                         Control::Recurse(held) => Err(Stop::Recurse(held)),
                         Control::Diverges => Err(Stop::Diverges),
                         Control::Panic => Err(Stop::Panic),

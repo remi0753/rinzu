@@ -55,6 +55,7 @@ impl EditorIndex {
                             && matches!(
                                 symbol.kind,
                                 "function"
+                                    | "interface"
                                     | "type"
                                     | "class"
                                     | "enum"
@@ -203,6 +204,7 @@ pub fn build_editor_index(
                 }
             }
             let parameters = match declaration {
+                Declaration::Interface(value) => &value.type_parameters,
                 Declaration::Record(record) => &record.type_parameters,
                 Declaration::Enum(value) => &value.type_parameters,
                 Declaration::Error(value) => &value.type_parameters,
@@ -227,6 +229,15 @@ pub fn build_editor_index(
         for declaration in &module.declarations {
             if let Some(span) = names.span(declaration.range(), declaration.name()) {
                 index.targets.insert(declaration.name().to_owned(), span);
+            }
+            if let Declaration::Interface(interface) = declaration {
+                for method in &interface.methods {
+                    if let Some(span) = names.span(method.range, &method.name) {
+                        index
+                            .targets
+                            .insert(format!("{}.{}", interface.name, method.name), span);
+                    }
+                }
             }
         }
         for block in &module.native_blocks {
@@ -257,6 +268,7 @@ pub fn build_editor_index(
 }
 fn declaration_kind(declaration: &Declaration) -> &'static str {
     match declaration {
+        Declaration::Interface(_) => "interface",
         Declaration::Function(_) => "function",
         Declaration::Record(_) => "class",
         Declaration::Enum(_) => "enum",

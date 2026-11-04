@@ -177,6 +177,34 @@ pub(super) fn render(
         if let Some(ty) = checked_type(entry) {
             result.push_str(&format!("Checked type: `{}`.\n\n", ty.replace('`', "\\`")));
         }
+        let contract = entry
+            .function
+            .as_ref()
+            .and_then(|f| f.error_contract.as_ref())
+            .map(|c| (c.declared, Some(c.types.as_slice())))
+            .or_else(|| {
+                entry
+                    .source_template
+                    .as_ref()
+                    .filter(|s| s.kind == "function")
+                    .map(|s| (s.error_contract.is_some(), s.error_contract.as_deref()))
+            });
+        if let Some((declared, types)) = contract {
+            if let Some(types) = types {
+                let bound = if types.is_empty() {
+                    "nothrow".into()
+                } else {
+                    format!("throws {}", types.join(", "))
+                };
+                result.push_str(&format!(
+                    "Error contract: `{}` ({}).\n\n",
+                    bound.replace('`', "\\`"),
+                    if declared { "declared" } else { "inferred" }
+                ));
+            } else {
+                result.push_str("Error contract: inferred for each specialization.\n\n");
+            }
+        }
         if let Some(origin) = public_origins
             .get(alias)
             .and_then(|target| docs.get(*target))

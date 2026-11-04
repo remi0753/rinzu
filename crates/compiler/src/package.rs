@@ -1049,6 +1049,7 @@ pub(crate) fn validate_public_signatures(
         .iter()
         .map(|declaration| {
             let parameters = match declaration {
+                Declaration::Interface(value) => &value.type_parameters,
                 Declaration::Function(value) => &value.type_parameters,
                 Declaration::Record(value) => &value.type_parameters,
                 Declaration::Enum(value) => &value.type_parameters,
@@ -1070,7 +1071,41 @@ pub(crate) fn validate_public_signatures(
         if external_files.contains(&declaration.range().file_id) {
             continue;
         }
+        let (parameters, interfaces) = match declaration {
+            Declaration::Interface(v) => (v.type_parameters.as_slice(), &[][..]),
+            Declaration::Function(v) => (v.type_parameters.as_slice(), &[][..]),
+            Declaration::Record(v) => (v.type_parameters.as_slice(), v.interfaces.as_slice()),
+            Declaration::Enum(v) => (v.type_parameters.as_slice(), v.interfaces.as_slice()),
+            Declaration::Error(v) => (v.type_parameters.as_slice(), &[][..]),
+            Declaration::TypeAlias(v) => (v.type_parameters.as_slice(), &[][..]),
+            Declaration::Constant(_) => (&[][..], &[][..]),
+        };
+        signatures.push((
+            declaration.name(),
+            interfaces
+                .iter()
+                .chain(parameters.iter().flat_map(|p| &p.interfaces))
+                .collect(),
+        ));
         match declaration {
+            Declaration::Interface(interface) => {
+                types.insert(interface.name.clone());
+                signatures.push((
+                    &interface.name,
+                    interface
+                        .methods
+                        .iter()
+                        .flat_map(|method| {
+                            method
+                                .parameters
+                                .iter()
+                                .map(|p| &p.ty)
+                                .chain(std::iter::once(&method.result))
+                                .chain(method.error_contract.iter().flat_map(|c| &c.types))
+                        })
+                        .collect(),
+                ));
+            }
             Declaration::Function(function) => signatures.push((
                 &function.name,
                 function
@@ -1078,6 +1113,7 @@ pub(crate) fn validate_public_signatures(
                     .iter()
                     .map(|parameter| &parameter.ty)
                     .chain(std::iter::once(&function.result))
+                    .chain(function.error_contract.iter().flat_map(|c| &c.types))
                     .collect(),
             )),
             Declaration::Record(record) => {
@@ -2508,7 +2544,42 @@ impl RewriteContext<'_> {
 }
 
 fn rewrite_declaration(declaration: &mut Declaration, context: &RewriteContext<'_>) {
+    let type_parameters = match declaration {
+        Declaration::Interface(i) => &mut i.type_parameters,
+        Declaration::Function(f) => &mut f.type_parameters,
+        Declaration::Record(r) => &mut r.type_parameters,
+        Declaration::Enum(e) => &mut e.type_parameters,
+        Declaration::Error(e) => &mut e.type_parameters,
+        Declaration::TypeAlias(a) => &mut a.type_parameters,
+        Declaration::Constant(_) => &mut Vec::new(),
+    };
+    let locals = type_parameters.iter().map(|p| p.name.clone()).collect();
+    for p in type_parameters {
+        for ty in &mut p.interfaces {
+            rewrite_type(ty, context, &locals);
+        }
+    }
     match declaration {
+        Declaration::Interface(interface) => {
+            let mut locals: HashSet<_> = interface
+                .type_parameters
+                .iter()
+                .map(|p| p.name.clone())
+                .collect();
+            locals.insert("Self".into());
+            for method in &mut interface.methods {
+                for p in &mut method.parameters {
+                    rewrite_type(&mut p.ty, context, &locals);
+                }
+                rewrite_type(&mut method.result, context, &locals);
+                if let Some(contract) = &mut method.error_contract {
+                    for ty in &mut contract.types {
+                        rewrite_type(ty, context, &locals);
+                    }
+                }
+            }
+            interface.name = context.internal(context.module, &interface.name);
+        }
         Declaration::Error(error) => {
             let parameters = error
                 .type_parameters
@@ -2543,6 +2614,11 @@ fn rewrite_declaration(declaration: &mut Declaration, context: &RewriteContext<'
                 rewrite_type(&mut parameter.ty, context, &locals);
             }
             rewrite_type(&mut function.result, context, &locals);
+            if let Some(contract) = &mut function.error_contract {
+                for ty in &mut contract.types {
+                    rewrite_type(ty, context, &locals);
+                }
+            }
             rewrite_block(&mut function.body, context, &locals);
             if let Some(fallback) = &mut function.fallback {
                 rewrite_expression(fallback, context, &HashSet::new());
@@ -2565,6 +2641,9 @@ fn rewrite_declaration(declaration: &mut Declaration, context: &RewriteContext<'
             for field in &mut record.fields {
                 rewrite_type(&mut field.ty, context, &parameters);
             }
+            for ty in &mut record.interfaces {
+                rewrite_type(ty, context, &parameters);
+            }
             record.name = context.internal(context.module, &record.name);
         }
         Declaration::Enum(enum_decl) => {
@@ -2577,6 +2656,9 @@ fn rewrite_declaration(declaration: &mut Declaration, context: &RewriteContext<'
                 for field in &mut variant.fields {
                     rewrite_type(&mut field.ty, context, &parameters);
                 }
+            }
+            for ty in &mut enum_decl.interfaces {
+                rewrite_type(ty, context, &parameters);
             }
             enum_decl.name = context.internal(context.module, &enum_decl.name);
         }
@@ -2779,6 +2861,11 @@ fn rewrite_expression(
                 rewrite_type(&mut p.ty, context, &local);
             }
             rewrite_type(&mut f.result, context, &local);
+            if let Some(contract) = &mut f.error_contract {
+                for ty in &mut contract.types {
+                    rewrite_type(ty, context, &local);
+                }
+            }
             rewrite_block(&mut f.body, context, &local);
             if let Some(e) = &mut f.fallback {
                 rewrite_expression(e, context, &local);

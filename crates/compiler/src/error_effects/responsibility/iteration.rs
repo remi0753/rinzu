@@ -522,14 +522,14 @@ impl Engine<'_> {
             let mut closure = language::empty_word();
             loop {
                 let mut next = closure.clone();
-                next.extend(language::concatenate(&closure, &delta, self.bound));
+                next.extend(concatenate(&closure, &delta, self.bound));
                 if next == closure {
                     break;
                 }
                 closure = next;
             }
             exit.groups[index].errors =
-                language::concatenate(&state.groups[index].errors, &closure, self.bound);
+                concatenate(&state.groups[index].errors, &closure, self.bound);
             exit.groups[index]
                 .observed
                 .retain(|token| !matches!(token,Token::Iteration(owner,_) if *owner==at));

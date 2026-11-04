@@ -84,7 +84,7 @@ impl Engine<'_> {
                         for exit in &contract.exits {
                             if let Err(Stop::Error(word, _)) = &exit.result {
                                 let words = language::restricted(
-                                    &Language::from([word.clone()]),
+                                    &Language::from([word.as_ref().clone()]),
                                     &exit.guards,
                                 );
                                 errors.extend(substitution::language(

@@ -147,6 +147,73 @@ fn value_constants_cross_application_modules_with_nominal_identity() {
 struct Package(PathBuf);
 
 #[test]
+fn interface_and_error_contracts_keep_canonical_identities_across_sdk_reexports() {
+    let sdk = Package::new(
+        "sdk",
+        "api",
+        &[
+            (
+                "api",
+                "import model;export model.Reader;export model.ReadFailed;export model.Memory;export model.read;",
+            ),
+            (
+                "model",
+                "error ReadFailed{}interface Reader{fn read(self:Self)->String throws ReadFailed;}class Memory interface Reader{const text:String fn read(self:Memory)->String nothrow{return self.text;}}fn read<R interface Reader>(reader:R)->String throws ReadFailed{return reader.read();}export Reader;export ReadFailed;export Memory;export read;",
+            ),
+        ],
+    );
+    sdk.name("readers");
+    let (_, artifact) = check_package(&sdk.0).unwrap();
+    let source = artifact.source_interface.unwrap();
+    assert_eq!(source.templates["model::Reader"].kind, "interface");
+    assert_eq!(
+        source.templates["model::Reader"].methods[0].1,
+        "fn(Self)->String throws model::ReadFailed"
+    );
+    assert_eq!(
+        source.templates["model::Memory"].interfaces,
+        vec!["model::Reader"]
+    );
+    assert_eq!(
+        source.templates["model::read"].interface_constraints["R"],
+        vec!["model::Reader"]
+    );
+    assert_eq!(
+        source.templates["model::Memory.read"].error_contract,
+        Some(vec![])
+    );
+    let app = Package::new(
+        "application",
+        "main",
+        &[(
+            "main",
+            "import readers;fn main(){let memory=readers.Memory(text:\"ok\");let direct=memory.read();try{let text=readers.read(memory);}catch [error:readers.ReadFailed,...rest]{}}",
+        )],
+    );
+    app.depend("readers", &sdk);
+    check_package(&app.0).unwrap();
+    std::fs::write(
+        app.0.join("src/main.rinzu"),
+        "import readers;fn main(){let text=readers.read(readers.Memory(text:\"ok\"));}",
+    )
+    .unwrap();
+    assert!(check_package(&app.0).is_err());
+}
+
+#[test]
+fn exported_interfaces_owners_bounds_and_error_contracts_cannot_expose_private_types() {
+    for source in [
+        "error Hidden{}interface I{fn read(self:Self)throws Hidden;}export I;",
+        "interface Hidden{}class C interface Hidden{}export C;",
+        "interface Hidden{}fn use<T interface Hidden>(value:T){}export use;",
+        "error Hidden{}fn f()throws Hidden{}export f;",
+    ] {
+        let sdk = Package::new("sdk", "api", &[("api", source)]);
+        assert!(check_package(&sdk.0).is_err(), "{source}");
+    }
+}
+
+#[test]
 fn supplant_facades_retain_dependency_contracts_without_publishing_them() {
     let base = Package::new(
         "sdk",

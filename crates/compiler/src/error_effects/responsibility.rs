@@ -87,7 +87,7 @@ enum Control {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Stop {
-    Error(language::Word, Option<Token>),
+    Error(Box<language::Word>, Option<Token>),
     Diverges,
     Panic,
     Recurse(BTreeSet<Token>),
@@ -95,7 +95,7 @@ enum Stop {
 impl Stop {
     fn control(self) -> Control {
         match self {
-            Self::Error(word, token) => Control::Error(word, token),
+            Self::Error(word, token) => Control::Error(*word, token),
             Self::Diverges => Control::Diverges,
             Self::Panic => Control::Panic,
             Self::Recurse(held) => Control::Recurse(held),
@@ -129,6 +129,19 @@ struct Contract {
     mutates_async: bool,
     exports_residual_mutations: bool,
     disrupts_observers: bool,
+}
+
+// Error contracts are checked by the type-effect analysis. Responsibility
+// observes bounded list shapes, not suffix types. Erase that extra metadata
+// here so independent optional failures retain the existing finite state space.
+fn concatenate(left: &Language, right: &Language, bound: usize) -> Language {
+    language::concatenate(left, right, bound)
+        .into_iter()
+        .map(|mut word| {
+            word.tail.clear();
+            word
+        })
+        .collect()
 }
 
 pub(super) fn validate(
@@ -189,7 +202,20 @@ pub(super) fn validate(
                 .iter()
                 .chain(std::iter::once(&function.result_type))
                 .any(|ty| engine.contains_mutable_class(ty, &mut BTreeSet::new()));
-            let next = engine.function(function);
+            let mut next = engine.function(function);
+            if let Some(errors) = super::contracts::declared(checked, &function.declaration, bound)
+            {
+                let origins = next.exits.clone();
+                for exit in origins {
+                    for word in &errors {
+                        let mut exit = exit.clone();
+                        exit.result = Err(Stop::Error(Box::new(word.clone()), None));
+                        if !next.exits.contains(&exit) {
+                            next.exits.push(exit);
+                        }
+                    }
+                }
+            }
             if contracts.update(name, next) {
                 changed = true;
             }
@@ -440,7 +466,7 @@ impl Engine<'_> {
             let (mut returned, error) = match path.control {
                 Control::Normal => (Some(Tracked::data(Value::Plain)), None),
                 Control::Return(value) => (Some(value), None),
-                Control::Error(word, token) => (None, Some(Stop::Error(word, token))),
+                Control::Error(word, token) => (None, Some(Stop::Error(Box::new(word), token))),
                 Control::Diverges => (None, Some(Stop::Diverges)),
                 Control::Panic => (None, Some(Stop::Panic)),
                 Control::Recurse(held) => (None, Some(Stop::Recurse(held))),

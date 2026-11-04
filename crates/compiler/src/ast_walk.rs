@@ -16,25 +16,39 @@ pub(crate) fn module(module: &mut Module, visitor: &mut impl Visitor) {
     }
 }
 pub(crate) fn declaration(declaration: &mut Declaration, visitor: &mut impl Visitor) {
-    match declaration {
-        Declaration::Function(f) => {
-            visitor.enter_function(f);
-            for p in &mut f.parameters {
-                ty(&mut p.ty, visitor);
-            }
-            ty(&mut f.result, visitor);
-            block(&mut f.body, visitor);
-            if let Some(e) = &mut f.fallback {
-                expression(e, visitor);
-            }
-            visitor.leave_function(f);
+    let parameters: &mut [TypeParameter] = match declaration {
+        Declaration::Interface(value) => &mut value.type_parameters,
+        Declaration::Function(value) => &mut value.type_parameters,
+        Declaration::Record(value) => &mut value.type_parameters,
+        Declaration::Enum(value) => &mut value.type_parameters,
+        Declaration::Error(value) => &mut value.type_parameters,
+        Declaration::TypeAlias(value) => &mut value.type_parameters,
+        Declaration::Constant(_) => &mut [],
+    };
+    for parameter in parameters {
+        for bound in &mut parameter.interfaces {
+            ty(bound, visitor);
         }
+    }
+    match declaration {
+        Declaration::Interface(interface) => {
+            for method in &mut interface.methods {
+                function(method, visitor);
+            }
+        }
+        Declaration::Function(f) => function(f, visitor),
         Declaration::Record(r) => {
+            for interface in &mut r.interfaces {
+                ty(interface, visitor);
+            }
             for f in &mut r.fields {
                 ty(&mut f.ty, visitor);
             }
         }
         Declaration::Enum(e) => {
+            for interface in &mut e.interfaces {
+                ty(interface, visitor);
+            }
             for v in &mut e.variants {
                 for f in &mut v.fields {
                     ty(&mut f.ty, visitor);
@@ -54,6 +68,23 @@ pub(crate) fn declaration(declaration: &mut Declaration, visitor: &mut impl Visi
         }
         Declaration::TypeAlias(alias) => ty(&mut alias.ty, visitor),
     }
+}
+pub(crate) fn function(f: &mut FunctionDecl, visitor: &mut impl Visitor) {
+    visitor.enter_function(f);
+    for p in &mut f.parameters {
+        ty(&mut p.ty, visitor);
+    }
+    ty(&mut f.result, visitor);
+    if let Some(contract) = &mut f.error_contract {
+        for value in &mut contract.types {
+            ty(value, visitor);
+        }
+    }
+    block(&mut f.body, visitor);
+    if let Some(e) = &mut f.fallback {
+        expression(e, visitor);
+    }
+    visitor.leave_function(f);
 }
 pub(crate) fn ty(t: &mut TypeRef, v: &mut impl Visitor) {
     match &mut t.kind {
@@ -218,6 +249,11 @@ pub(crate) fn expression(e: &mut Expression, v: &mut impl Visitor) {
                 ty(&mut p.ty, v);
             }
             ty(&mut f.result, v);
+            if let Some(contract) = &mut f.error_contract {
+                for value in &mut contract.types {
+                    ty(value, v);
+                }
+            }
             block(&mut f.body, v);
             if let Some(fallback) = &mut f.fallback {
                 expression(fallback, v);
