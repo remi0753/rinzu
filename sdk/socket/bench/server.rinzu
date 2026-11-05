@@ -27,9 +27,9 @@ async fn echo(stream: rinzu.socket.TcpStream) {
 async fn main() {
     try {
         let connections = bench.integer("BENCH_CONNECTIONS", 1, 1, 4);
-        let listener = bench.expect<
-            rinzu.socket.Listener
-        >(await rinzu.socket.listen(rinzu.socket.Address(host: "127.0.0.1", port: 0), 16));
+        let listener = bench.expect<rinzu.socket.Listener>(
+            await rinzu.socket.listen(rinzu.socket.Address(host: "127.0.0.1", port: 0), 16)
+        );
         rinzu.stdio.writeLine(f"READY:{bench.expect<Int>(rinzu.socket.localPort(listener))}");
         try all {
             let stream0 = bench.expect<rinzu.socket.TcpStream>(await rinzu.socket.accept(listener));

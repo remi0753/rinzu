@@ -44,9 +44,11 @@ fn main() {
         state.flag = false || choose(state, true);
         let apply = keep;
         let data = apply(utf8Encode("日本語\u{0}tail"), true && allocate(true));
-        rinzu.testing.assertEqual<
-            ByteArray
-        >(data, utf8Encode("日本語\u{0}tail"), "managed argument across expression edges/GC");
+        rinzu.testing.assertEqual<ByteArray>(
+            data,
+            utf8Encode("日本語\u{0}tail"),
+            "managed argument across expression edges/GC"
+        );
         let nested = (false || choose(state, true)) && (true || unsafeDigit(-5));
         rinzu.testing.assertTrue(state.flag && nested, "nested expressions / field receiver");
         rinzu.testing.assertEqual<Int>(state.calls, 4, "nested call count");

@@ -1,21 +1,20 @@
 import rinzu.core;
 
 type State = {
-    id: Int, text: String, bytes: Bytes(4), numbers: List<Int>
+    id: Int,
+    text: String,
+    bytes: Bytes(4),
+    numbers: List<Int>
 };
 
-type Other = {
-    id: Int
-};
+type Other = { id: Int };
 
 enum EventValue {
     state(value: State),
     empty
 }
 
-type Event = {
-    value: EventValue
-};
+type Event = { value: EventValue };
 
 native {
     opaque Handle;
@@ -72,13 +71,19 @@ native {
 
 fn original() -> State {
     return {
-        id = 41, text = "日本語\u{0}tail", bytes = b"\x00\xff\x07\x00", numbers = [1, 2, 3]
+        id = 41,
+        text = "日本語\u{0}tail",
+        bytes = b"\x00\xff\x07\x00",
+        numbers = [1, 2, 3]
     };
 }
 
 fn innerBody(data: State, text: String) -> CSize fallback 0 {
     let moved: State = {
-        id = 1, text = "nested moving collection", bytes = b"", numbers = [7, 8]
+        id = 1,
+        text = "nested moving collection",
+        bytes = b"",
+        numbers = [7, 8]
     };
     if text != "inner" || data.id != 42 || data.text != "second" {
         panic("wrongNestedData");
@@ -114,8 +119,7 @@ fn receive(
     bodyEntered();
     if first.id != 42 || first.text != "second" || same != original() || second != same || event != {
         value = EventValue.state(value: same)
-    }
-    || other.id != 7 {
+    } || other.id != 7 {
         panic("positionalToken");
     }
     if bytes != b"\x00\xff\x07\x00" || text != "日本語😀" || byteLength(bytes) != 4 || utf8ByteLength(text) != 13 {
@@ -192,9 +196,7 @@ fn invoke(
         {
             value = EventValue.state(value: first)
         },
-        {
-            id = 7
-        },
+        { id = 7 },
         handler,
         mode
     );
@@ -203,7 +205,10 @@ fn invoke(
 fn exercise() -> State {
     let first = original();
     let second: State = {
-        id = 42, text = "second", bytes = b"\x00\xff\x07\x00", numbers = [4, 5]
+        id = 42,
+        text = "second",
+        bytes = b"\x00\xff\x07\x00",
+        numbers = [4, 5]
     };
     let alias = receive;
     var selected = alias;

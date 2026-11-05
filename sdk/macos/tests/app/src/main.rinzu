@@ -69,9 +69,11 @@ fn core() {
         let cycle = child.addSubview(view);
     }
     catch [problem: Error, ...rest] {
-        rinzu.testing.assertEqual<
-            Option<Int>
-        >(errorNativeStatus(problem), Option<Int>.Some(value: -7804), "cycle status");
+        rinzu.testing.assertEqual<Option<Int>>(
+            errorNativeStatus(problem),
+            Option<Int>.Some(value: -7804),
+            "cycle status"
+        );
         caught = true;
     }
     rinzu.testing.assertTrue(caught, "cycle rejected");
@@ -81,9 +83,11 @@ fn core() {
         let stale = child.identity();
     }
     catch [problem: Error, ...rest] {
-        rinzu.testing.assertEqual<
-            Option<Int>
-        >(errorNativeStatus(problem), Option<Int>.Some(value: -7802), "closed alias status");
+        rinzu.testing.assertEqual<Option<Int>>(
+            errorNativeStatus(problem),
+            Option<Int>.Some(value: -7802),
+            "closed alias status"
+        );
         caught = true;
     }
     rinzu.testing.assertTrue(caught, "closed alias rejected");
@@ -93,11 +97,13 @@ fn core() {
 async fn gpu(cancelled: Bool, recording: Bool, closing: Bool) {
     let session = rinzu.macos.open();
     let device = session.device();
-    let library = device.library(r#"
+    let library = device.library(
+        r#"
 #include <metal_stdlib>
 using namespace metal;
 kernel void increment(device uchar *data [[buffer(0)]], uint i [[thread_position_in_grid]]) { data[i] += 1; }
-"#);
+"#
+    );
     let pipeline = library.computePipeline("increment");
     let buffer = device.buffer(byteArray(b"\x00\xff\x40\x7f"));
     let command = device.command();
@@ -127,9 +133,11 @@ kernel void increment(device uchar *data [[buffer(0)]], uint i [[thread_position
     }
     let copied = buffer.read(0, 4);
     let destroyed = buffer.destroy();
-    rinzu
-        .testing
-        .assertEqual<ByteArray>(copied, byteArray(b"\x03\x02\x43\x82"), "owned GPU bytes after buffer destroy");
+    rinzu.testing.assertEqual<ByteArray>(
+        copied,
+        byteArray(b"\x03\x02\x43\x82"),
+        "owned GPU bytes after buffer destroy"
+    );
     let abandoned = command.beginCompute(pipeline);
     let released = command.abandon();
     let stats = rinzu.macos.statistics();
@@ -154,9 +162,7 @@ async fn application() {
     finally {
         let closed = await rinzu.macos.closeOwnerSessions();
         let stats = rinzu.macos.statistics();
-        rinzu.testing.assertEqual<
-            Int
-        >(
+        rinzu.testing.assertEqual<Int>(
             stats
                 .sessions
                 + stats

@@ -142,9 +142,11 @@ fn checkResponses() {
     catch [resultError2: Error, ...resultRest2] {
         if resultError2 is wire.Failure {
             support.assertEqual<Int>(errorCode(resultError2.payload.cause), 7804, "EOF cause");
-            support.assertEqual<
-                ByteArray
-            >(resultError2.payload.partialBody, byteArray(b"\x00\xff"), "bounded partial body");
+            support.assertEqual<ByteArray>(
+                resultError2.payload.partialBody,
+                byteArray(b"\x00\xff"),
+                "bounded partial body"
+            );
         }
         else {
             throw resultError2;
@@ -181,9 +183,9 @@ fn checkEncoding() {
         support.assertTrue(false, "reserved custom field");
     }
     catch [resultError1: Error, ...resultRest1] {}
-    let encoded = support.expect<
-        wire.Encoded
-    >(wire.encodeResponse(wire.Response(status: 200, headers: [], body: support.payload(65536))));
+    let encoded = support.expect<wire.Encoded>(
+        wire.encodeResponse(wire.Response(status: 200, headers: [], body: support.payload(65536)))
+    );
     support.assertEqual<Int>(bytesLength(encoded.body), 65536, "body separate from head");
     support.assertTrue(bytesLength(encoded.head) < 65536, "head within socket write cap");
 }

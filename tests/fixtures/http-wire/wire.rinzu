@@ -687,8 +687,9 @@ fn encodeRequest(method: String, endpoint: Endpoint, headers: List<Header>, body
         let resultValue3 = authority(endpoint.authority);
     }
     let start = utf8Encode(f"{method} {endpoint.target} HTTP/1.1\r\n");
-    let base =
-        utf8Encode(f"Host: {endpoint.authority}\r\nContent-Length: {bytesLength(body)}\r\nConnection: close\r\n");
+    let base = utf8Encode(
+        f"Host: {endpoint.authority}\r\nContent-Length: {bytesLength(body)}\r\nConnection: close\r\n"
+    );
     {
         let resultValue2 = appendHeaders(base, headers, 3);
         return (Encoded(head: bytesConcat(start, resultValue2), body: body));

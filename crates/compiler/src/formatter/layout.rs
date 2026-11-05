@@ -38,12 +38,15 @@ impl<'a> Doc<'a> {
         }
     }
 
-    fn has_hard_line(&self) -> bool {
+    pub(super) fn remaining_after_flat(&self, remaining: usize) -> Option<usize> {
         match self {
-            Self::HardLine | Self::BlankLine => true,
-            Self::Concat(parts) => parts.iter().any(Self::has_hard_line),
-            Self::Nest(_, body) | Self::Group { body, .. } => body.has_hard_line(),
-            Self::Text(_) | Self::Line { .. } => false,
+            Self::Text(text) if !text.contains('\n') => remaining.checked_sub(text.chars().count()),
+            Self::Line { flat, .. } => remaining.checked_sub(flat.len()),
+            Self::Concat(parts) => parts.iter().try_fold(remaining, |remaining, part| {
+                part.remaining_after_flat(remaining)
+            }),
+            Self::Nest(_, body) | Self::Group { body, .. } => body.remaining_after_flat(remaining),
+            Self::Text(_) | Self::HardLine | Self::BlankLine => None,
         }
     }
 }
@@ -51,13 +54,21 @@ impl<'a> Doc<'a> {
 #[derive(Clone, Copy)]
 enum Mode {
     Flat,
+    // Recheck continuation points after rendering nested groups.
+    Flexible,
     Broken,
+}
+
+// Breaks available to the first-line fit check, in addition to mandatory breaks.
+enum Breaks {
+    Fixed,
+    Delimiters,
+    Continuations,
 }
 
 type Command<'a, 'doc> = (usize, Mode, &'doc Doc<'a>);
 
-fn fits<'a>(remaining: usize, mut commands: Vec<Command<'a, '_>>, nested_can_break: bool) -> bool {
-    let mut remaining = remaining;
+fn fits<'a>(mut remaining: usize, mut commands: Vec<Command<'a, '_>>, breaks: Breaks) -> bool {
     while let Some((indent, mode, document)) = commands.pop() {
         match document {
             Doc::Text(text) => {
@@ -71,8 +82,12 @@ fn fits<'a>(remaining: usize, mut commands: Vec<Command<'a, '_>>, nested_can_bre
                     return true;
                 }
             }
-            Doc::Line { flat, .. } => {
-                if matches!(mode, Mode::Broken) {
+            Doc::Line { flat, extra_indent } => {
+                if matches!(mode, Mode::Broken)
+                    || matches!(mode, Mode::Flexible)
+                        && *extra_indent != 0
+                        && matches!(breaks, Breaks::Continuations)
+                {
                     return true;
                 }
                 if flat.len() > remaining {
@@ -86,15 +101,14 @@ fn fits<'a>(remaining: usize, mut commands: Vec<Command<'a, '_>>, nested_can_bre
             }
             Doc::Nest(extra, body) => commands.push((indent + extra, mode, body)),
             Doc::Group { body, anchored, .. } => {
-                if nested_can_break && *anchored {
-                    let probe = vec![(indent, Mode::Flat, body.as_ref())];
-                    if !fits(remaining, probe, false) {
-                        let mut probe = commands;
-                        probe.push((indent, Mode::Broken, body));
-                        return fits(remaining, probe, false);
-                    }
-                }
-                commands.push((indent, Mode::Flat, body));
+                let mode = if matches!(mode, Mode::Flat) {
+                    Mode::Flat
+                } else if *anchored && !matches!(breaks, Breaks::Fixed) {
+                    Mode::Broken
+                } else {
+                    Mode::Flexible
+                };
+                commands.push((indent, mode, body));
             }
         }
     }
@@ -126,16 +140,22 @@ pub(super) fn render(document: &Doc<'_>, width: usize) -> String {
                 }
             }
             Doc::Line { flat, extra_indent } => {
-                // A nested delimiter may break while its enclosing expression stays flat.
-                // Recheck the suffix on the delimiter's closing line before keeping an operator.
-                let fits_suffix = *extra_indent == 0
-                    || flat.len() <= width.saturating_sub(column)
-                        && fits(
-                            width.saturating_sub(column + flat.len()),
-                            commands.clone(),
-                            true,
-                        );
-                if matches!(mode, Mode::Flat) && fits_suffix {
+                // A nested group may have wrapped. Measure the remaining space
+                // on its closing line before keeping a continuation point inline.
+                let keep_inline = match mode {
+                    Mode::Flat => true,
+                    Mode::Flexible => {
+                        *extra_indent == 0
+                            || flat.len() <= width.saturating_sub(column)
+                                && fits(
+                                    width.saturating_sub(column + flat.len()),
+                                    commands.clone(),
+                                    Breaks::Delimiters,
+                                )
+                    }
+                    Mode::Broken => false,
+                };
+                if keep_inline {
                     output.push_str(flat);
                     column += flat.len();
                 } else {
@@ -166,6 +186,10 @@ pub(super) fn render(document: &Doc<'_>, width: usize) -> String {
                 anchored,
                 break_nested,
             } => {
+                if matches!(mode, Mode::Flat) {
+                    commands.push((indent, mode, body));
+                    continue;
+                }
                 let indent = if *anchored {
                     indent.max(if output.is_empty() || output.ends_with('\n') {
                         pending_indent
@@ -175,14 +199,34 @@ pub(super) fn render(document: &Doc<'_>, width: usize) -> String {
                 } else {
                     indent
                 };
-                let mut probe = commands.clone();
-                probe.push((indent, Mode::Flat, body));
-                let mode = if !(*anchored && body.has_hard_line())
-                    && fits(width.saturating_sub(column), probe, *break_nested)
-                {
-                    Mode::Flat
+                let remaining = width.saturating_sub(column);
+                let mode = if *anchored {
+                    // Keep the whole group on one line or break its own delimiters.
+                    // Leave later delimiters and continuation points available
+                    // so an overflowing suffix can wrap independently.
+                    if body
+                        .remaining_after_flat(remaining)
+                        .is_some_and(|remaining| {
+                            fits(remaining, commands.clone(), Breaks::Continuations)
+                        })
+                    {
+                        Mode::Flat
+                    } else {
+                        Mode::Broken
+                    }
                 } else {
-                    Mode::Broken
+                    let mut probe = commands.clone();
+                    probe.push((indent, Mode::Flexible, body));
+                    let breaks = if *break_nested {
+                        Breaks::Delimiters
+                    } else {
+                        Breaks::Fixed
+                    };
+                    if fits(remaining, probe, breaks) {
+                        Mode::Flexible
+                    } else {
+                        Mode::Broken
+                    }
                 };
                 commands.push((indent, mode, body));
             }

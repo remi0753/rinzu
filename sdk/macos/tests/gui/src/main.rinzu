@@ -79,9 +79,7 @@ async fn exercise() {
     finally {
         let closed = await rinzu.macos.closeOwnerSessions();
         let stats = rinzu.macos.statistics();
-        rinzu.testing.assertEqual<
-            Int
-        >(
+        rinzu.testing.assertEqual<Int>(
             stats
                 .sessions
                 + stats
@@ -264,9 +262,7 @@ async fn cancelBody(app: rinzu.macos.UiApplication) {
 
 fn settled() {
     let stats = rinzu.macos.statistics();
-    rinzu.testing.assertEqual<
-        Int
-    >(
+    rinzu.testing.assertEqual<Int>(
         stats
             .sessions
             + stats
@@ -321,9 +317,11 @@ async fn main() {
                     catch errors {
                         switch rinzu.List.get(errors, 0) {
                             case Option.Some(problem): {
-                                rinzu.testing.assertEqual<
-                                    String
-                                >(errorMessage(problem), "job failed", "scope reports child failure");
+                                rinzu.testing.assertEqual<String>(
+                                    errorMessage(problem),
+                                    "job failed",
+                                    "scope reports child failure"
+                                );
                                 observed = true;
                             }
                             case Option.None: {}

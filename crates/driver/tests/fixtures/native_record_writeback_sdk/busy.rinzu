@@ -4,9 +4,7 @@ import rinzu.stdio;
 fn execute() -> Int {
     let point = records.Packet(x: 1, valid: false);
     let other = records.Packet(x: 2, valid: false);
-    let context: records.Context = {
-        id = 7
-    };
+    let context: records.Context = { id = 7 };
     let read = records.invoke(
         point,
         fn () -> Int fallback -11 {
@@ -23,9 +21,7 @@ fn execute() -> Int {
     let format = records.invoke(
         point,
         fn () -> Int fallback -12 {
-            let held = {
-                point = point
-            };
+            let held = { point = point };
             let text = f"{held}";
             return 0;
         }
@@ -34,9 +30,7 @@ fn execute() -> Int {
     let caught = records.invoke(
         point,
         fn () -> Int {
-            let held = {
-                point = point
-            };
+            let held = { point = point };
             let reference = held.point;
             try {
                 return reference.x;

@@ -41,9 +41,9 @@ async fn session(index: Int, progress: Progress) {
         let slow = bench.integer("BENCH_SLOW_MS", 0, 0, 20);
         let mode = bench.setting("BENCH_MODE");
         let port = bench.integer("BENCH_PORT", 0, 1, 65535);
-        let stream = bench.expect<
-            rinzu.socket.TcpStream
-        >(await rinzu.socket.connectWithTimeout(rinzu.socket.Address(host: "127.0.0.1", port: port), 30000));
+        let stream = bench.expect<rinzu.socket.TcpStream>(
+            await rinzu.socket.connectWithTimeout(rinzu.socket.Address(host: "127.0.0.1", port: port), 30000)
+        );
         let data = bench.payload(size);
         var warmed = 0;
         while warmed < warm {

@@ -25,22 +25,13 @@ async fn raise(value: Future<Error>) {
     throw problem;
 }
 
-async fn makeRow() -> {
-    problem: Error
-}
-{
+async fn makeRow() -> { problem: Error } {
     return {
         problem = A(message: "field", payload: 31)
     };
 }
 
-async fn raiseRow(
-    value: Future<
-        {
-            problem: Error
-        }
-    >
-) {
+async fn raiseRow(value: Future<{ problem: Error }>) {
     let row = await value;
     throw row.problem;
 }

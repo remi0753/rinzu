@@ -27,44 +27,32 @@ native {
 }
 
 type Snapshot = {
-    a: CInt8, b: CInt16, c: CInt32, d: Int, e: CUInt8, f: CUInt16, g: CUInt32, h: CUInt64, i: CFloat, j: Float, k: CBool
+    a: CInt8,
+    b: CInt16,
+    c: CInt32,
+    d: Int,
+    e: CUInt8,
+    f: CUInt16,
+    g: CUInt32,
+    h: CUInt64,
+    i: CFloat,
+    j: Float,
+    k: CBool
 };
 
 fn packetSnapshot(value: Packet) -> Snapshot {
     return {
-        a =
-            value
-            .a,
-        b =
-            value
-            .b,
-        c =
-            value
-            .c,
-        d =
-            value
-            .d,
-        e =
-            value
-            .e,
-        f =
-            value
-            .f,
-        g =
-            value
-            .g,
-        h =
-            value
-            .h,
-        i =
-            value
-            .i,
-        j =
-            value
-            .j,
-        k =
-            value
-            .k
+        a = value.a,
+        b = value.b,
+        c = value.c,
+        d = value.d,
+        e = value.e,
+        f = value.f,
+        g = value.g,
+        h = value.h,
+        i = value.i,
+        j = value.j,
+        k = value.k
     };
 }
 

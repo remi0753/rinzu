@@ -222,9 +222,7 @@ async fn main() {
                         assertTrue(false, "deadline should fail");
                     }
                     catch [resultError3: Error, ...resultRest3] {
-                        assertEqual<
-                            Option<Int>
-                        >(
+                        assertEqual<Option<Int>>(
                             errorNativeStatus(resultError3),
                             Option<Int>.Some(value: -7509),
                             "socket deadline distinct from cancel"

@@ -44,30 +44,16 @@ fn action(value: Int) -> Int {
 async fn main() {
     try {
         let first: contexts.Context = {
-            editor =
-                contexts
-                .Editor(value: 10),
-            point =
-                contexts
-                .Packet(x: 4),
-            handle =
-                contexts
-                .make(),
-            action =
-                action
+            editor = contexts.Editor(value: 10),
+            point = contexts.Packet(x: 4),
+            handle = contexts.make(),
+            action = action
         };
         let second: contexts.Context = {
-            editor =
-                contexts
-                .Editor(value: 20),
-            point =
-                contexts
-                .Packet(x: 1),
-            handle =
-                contexts
-                .make(),
-            action =
-                action
+            editor = contexts.Editor(value: 20),
+            point = contexts.Packet(x: 1),
+            handle = contexts.make(),
+            action = action
         };
         contexts.resetSelectEntries();
         try {

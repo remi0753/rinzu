@@ -147,9 +147,9 @@ async fn main() {
         );
         let accepting = rinzu.socket.accept(listener);
         try {
-            let client = unwrap<
-                rinzu.socket.TcpStream
-            >(await rinzu.socket.connectWithTimeout(rinzu.socket.Address(host: "127.0.0.1", port: port), 10000));
+            let client = unwrap<rinzu.socket.TcpStream>(
+                await rinzu.socket.connectWithTimeout(rinzu.socket.Address(host: "127.0.0.1", port: port), 10000)
+            );
             let server = unwrap<rinzu.socket.TcpStream>(await accepting);
             let closedListener = unwrap<Int>(await rinzu.socket.closeListener(listener));
             await invalid<Int>(

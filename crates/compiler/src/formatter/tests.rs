@@ -194,6 +194,135 @@ fn empty_braces_stay_inline_in_declarations_and_control_flow() {
 }
 
 #[test]
+fn short_record_types_literals_and_updates_stay_inline() {
+    let text = formatted(
+        "fn main(){let input:List<{\nkey:Int,value:Future<Int>\n}> = [\n{key=7,value=pending}\n];\n\
+         let wrapped=({key:Int=7,value=pending,});let updated=({...(wrapped),key=8});\n\
+         let nested={a={x=1,y=2},b=3};}",
+    );
+    assert_eq!(
+        text,
+        concat!(
+            "fn main() {\n",
+            "    let input: List<{ key: Int, value: Future<Int> }> = [{ key = 7, value = pending }];\n",
+            "    let wrapped = ({ key: Int = 7, value = pending, });\n",
+            "    let updated = ({ ...(wrapped), key = 8 });\n",
+            "    let nested = { a = { x = 1, y = 2 }, b = 3 };\n",
+            "}\n",
+        )
+    );
+}
+
+#[test]
+fn two_item_records_expand_past_forty_characters() {
+    let prefix = "{ key = 7, value = \"";
+    let suffix = "\" }";
+    for width in [40, 41] {
+        let value = "界".repeat(width - prefix.len() - suffix.len());
+        let text = formatted(&format!(
+            "fn main(){{let entry={{key=7,value=\"{value}\"}};}}"
+        ));
+        let expected = if width == 40 {
+            format!("fn main() {{\n    let entry = {prefix}{value}{suffix};\n}}\n")
+        } else {
+            format!(
+                "fn main() {{\n    let entry = {{\n        key = 7,\n        value = \"{value}\"\n    }};\n}}\n"
+            )
+        };
+        assert_eq!(text, expected);
+        within_width(&text);
+    }
+}
+
+#[test]
+fn short_records_with_three_items_break_at_each_comma() {
+    let text = formatted(
+        "type Point={x:Int,y:Int,z:Int};\n\
+         fn main(){let point:Point={x=1,y=2,z=3};let moved={...point,x=4,y=5};}",
+    );
+    assert_eq!(
+        text,
+        "type Point = {
+    x: Int,
+    y: Int,
+    z: Int
+};
+
+fn main() {
+    let point: Point = {
+        x = 1,
+        y = 2,
+        z = 3
+    };
+    let moved = {
+        ...point,
+        x = 4,
+        y = 5
+    };
+}
+"
+    );
+    within_width(&text);
+}
+
+#[test]
+fn wrapping_outer_groups_and_later_continuations_keeps_short_records_inline() {
+    let binding = "input".repeat(8);
+    let prefix =
+        format!("    let {binding}: List<{{ key: Int, value: String }}> = [{{ key = 7, value = \"");
+    let suffix = "\" }];";
+    let value = "x".repeat(MAX_WIDTH + 1 - prefix.len() - suffix.len());
+    let ty = "Type".repeat(23);
+    let name = "entry".repeat(20);
+    let text = formatted(&format!(
+        "type Wrapped = Map<{ty},{{name:Int}}>;\n\
+         fn main(){{\n{prefix}{value}{suffix}\nlet next:{{key:Int,value:String}}={name};\n}}"
+    ));
+    assert_eq!(
+        text,
+        format!(
+            r#"type Wrapped = Map<
+    {ty},
+    {{ name: Int }}
+>;
+
+fn main() {{
+    let {binding}: List<{{ key: Int, value: String }}> = [
+        {{ key = 7, value = "{value}" }}
+    ];
+    let next: {{ key: Int, value: String }} =
+        {name};
+}}
+"#
+        )
+    );
+    within_width(&text);
+}
+
+#[test]
+fn comments_and_multiline_literals_force_record_field_breaks() {
+    let text = formatted(
+        "fn main(){let commented={one=1,// keep\ntwo=2,};let raw={text=r#\"first\n  second\"#,ready=true};}",
+    );
+    assert_eq!(
+        text,
+        r##"fn main() {
+    let commented = {
+        one = 1,
+        // keep
+        two = 2,
+    };
+    let raw = {
+        text = r#"first
+  second"#,
+        ready = true
+    };
+}
+"##
+    );
+}
+
+#[test]
 fn braces_with_comments_keep_their_contents_on_separate_lines() {
     let text = formatted(
         "error E {/* explanation */}\nfn main(){if true {// keep\n} else {\n/* keep too */\n}}",

@@ -17,10 +17,16 @@ fn resultExercise() -> Int {
     let firstEditor = Editor(value: 10);
     let secondEditor = Editor(value: 20);
     let first: Context = {
-        editor = firstEditor, point = Packet(x: 4), handle = make(), action = action
+        editor = firstEditor,
+        point = Packet(x: 4),
+        handle = make(),
+        action = action
     };
     let second: Context = {
-        editor = secondEditor, point = Packet(x: 5), handle = make(), action = action
+        editor = secondEditor,
+        point = Packet(x: 5),
+        handle = make(),
+        action = action
     };
     let selectedSecond = choose(first, second, churn, 1);
     selectedSecond.editor.value = 31;
@@ -47,18 +53,8 @@ fn resultExercise() -> Int {
         panic("NULL context did not raise Error");
     }
     let moved = churn();
-    return
-        firstEditor
-        .value
-        + secondEditor
-        .value
-        + selectedSecond
-        .point
-        .x
-        + caught
-        + check(selectedSecond.handle)
-        + selectedSecond
-        .action(2);
+    return firstEditor.value + secondEditor.value + selectedSecond.point.x + caught + check(selectedSecond.handle)
+        + selectedSecond.action(2);
 }
 
 export resultExercise;

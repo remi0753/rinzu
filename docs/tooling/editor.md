@@ -13,6 +13,14 @@ Without a mode, one file or stdin is formatted to stdout. `--check` is read-only
 
 Formatting requires valid syntax but no manifest or main. Comments and literal spellings are retained, including raw-string content. Whitespace outside literals uses four-space indentation and LF. Separate declarations and functions, including class methods, with one blank line. Consecutive imports and consecutive exports stay together; leave one blank line between either group and the next declaration. The formatter aims at 120 Unicode code points per line, without splitting literal/comment tokens. Run check after formatting to validate types.
 
+### Line wrapping
+
+1. Keep a delimited group on one line if it fits at its current indentation and column. Count punctuation that stays on that line. Keep earlier groups inline when a later group or continuation point can take the break.
+2. If a group needs to wrap, break after its opening delimiter, at each top-level comma, and before its closing delimiter. Indent the items by four spaces and align the closing delimiter with the line that opened the group.
+3. Apply the same fit check to each item at its new indentation. If an item still needs to wrap, use its own delimiters or an expression or type continuation point, such as after `=` or `:`.
+
+Structural record types, literals, and updates also wrap when they have three or more items or their inline form exceeds 40 Unicode code points. The width includes both braces and the spaces inside them. Count the items directly inside each record, including the base expression of a record update as one item. Each item in a wrapped record starts on its own line. Comments and multiline literals inside a record force the wrapped form.
+
 ## Use the local VS Code extension
 
 The repository contains a development extension at `tools/vscode-rinzu`. Build a debug driver, then launch VS Code with it:

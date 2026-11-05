@@ -169,9 +169,7 @@ async fn main() {
         finally {
             let closed = await rinzu.macos.closeOwnerSessions();
             let stats = rinzu.macos.statistics();
-            rinzu.testing.assertEqual<
-                Int
-            >(
+            rinzu.testing.assertEqual<Int>(
                 stats.retainedControls + stats.dataRows + stats.dataBytes + stats.dataUpdates + stats.snapshotBytes,
                 0,
                 "all data resources reclaimed"

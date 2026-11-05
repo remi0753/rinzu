@@ -61,21 +61,20 @@ async fn main() {
         require(rinzu.Map.keys(binary) == [empty, data] && rinzu.Map.length(binary) == 2);
         require(rinzu.Map.get(binary, bytesCopy(data)) == Option<Int>.Some(value: 2));
         require(rinzu.Map.get(binary, byteArray(b"missing")) == Option<Int>.None());
-        let original = Key<
-            Int
-        >(inner: Inner(flag: true, bytes: data), fixed: first, tag: Tag.Packet(value: data), value: 1);
-        let copy = Key<
-            Int
-        >(
+        let original = Key<Int>(
+            inner: Inner(flag: true, bytes: data),
+            fixed: first,
+            tag: Tag.Packet(value: data),
+            value: 1
+        );
+        let copy = Key<Int>(
             inner: Inner(flag: true, bytes: bytesCopy(data)),
             fixed: b"A",
             tag: Tag.Packet(value: bytesCopy(data)),
             value: 1
         );
         let changed = Key<Int>(inner: original.inner, fixed: original.fixed, tag: original.tag, value: 2);
-        let changedChild = Key<
-            Int
-        >(
+        let changedChild = Key<Int>(
             inner: Inner(flag: false, bytes: original.inner.bytes),
             fixed: original.fixed,
             tag: original.tag,
@@ -94,7 +93,9 @@ async fn main() {
         let tags: Map<Tag, Int> = {
             Tag.Empty(): 1, Tag.Flag(value: false): 2, Tag.Flag(value: true): 3
         };
-        require(rinzu.Map.length(tags) == 3 && rinzu.Map.get(tags, Tag.Flag(value: true)) == Option<Int>.Some(value: 3));
+        require(
+            rinzu.Map.length(tags) == 3 && rinzu.Map.get(tags, Tag.Flag(value: true)) == Option<Int>.Some(value: 3)
+        );
         let zero: Map<Bytes(0), Int> = {
             b"": 1, b"": 2
         };
@@ -102,7 +103,9 @@ async fn main() {
             Empty(): 1, Empty(): 2
         };
         require(rinzu.Map.length(zero) == 1 && rinzu.Map.get(zero, b"") == Option<Int>.Some(value: 2));
-        require(rinzu.Map.length(emptyRecords) == 1 && rinzu.Map.get(emptyRecords, Empty()) == Option<Int>.Some(value: 2));
+        require(
+            rinzu.Map.length(emptyRecords) == 1 && rinzu.Map.get(emptyRecords, Empty()) == Option<Int>.Some(value: 2)
+        );
         var many: Map<ByteArray, Int> = {};
         var index = 0;
         while index < 64 {

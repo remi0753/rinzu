@@ -86,16 +86,14 @@ fn byteAt(data: ByteArray, index: Int) -> Int throws Error {
 }
 
 fn uint32(data: ByteArray, index: Int) -> Int {
-    return byteAt(
+    return byteAt(data, index) + byteAt(data, index + 1) * 256 + byteAt(data, index + 2) * 65536 + byteAt(
         data,
-        index
-    ) + byteAt(data, index + 1) * 256 + byteAt(data, index + 2) * 65536 + byteAt(data, index + 3) * 16777216;
+        index + 3
+    ) * 16777216;
 }
 
 fn uint32Bytes(value: Int) -> ByteArray {
-    let data: List<
-        CUInt8
-    > = [
+    let data: List<CUInt8> = [
         CUInt8(value % 256),
         CUInt8((value / 256) % 256),
         CUInt8((value / 65536) % 256),

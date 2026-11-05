@@ -24,7 +24,9 @@ fn lists() -> List<Int> {
         let problems: List<Error> = [];
         let binary: List<ByteArray> = [];
         check(
-            rinzu.List.length(numbers) + rinzu.List.length(texts) + rinzu.List.length(cells) + rinzu.List.length(problems) + rinzu.List.length(binary) == 0
+            rinzu.List.length(numbers) + rinzu.List.length(texts) + rinzu.List.length(cells) + rinzu.List.length(
+                problems
+            ) + rinzu.List.length(binary) == 0
         );
         let firstCell = Cell(value: 1);
         let secondCell = Cell(value: 2);

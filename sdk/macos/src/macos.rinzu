@@ -132,8 +132,10 @@ class Command {
     }
 
     fn setFragmentTexture(self: Command, index: Int, texture: Texture) -> Int {
-        return
-            checked(Int(rawSetTexture(self.handle, texture.handle, index, CInt(2))), "macos.command.fragmentTexture");
+        return checked(
+            Int(rawSetTexture(self.handle, texture.handle, index, CInt(2))),
+            "macos.command.fragmentTexture"
+        );
     }
 
     fn setComputeSampler(self: Command, index: Int, sampler: Sampler) -> Int {
@@ -145,8 +147,10 @@ class Command {
     }
 
     fn setFragmentSampler(self: Command, index: Int, sampler: Sampler) -> Int {
-        return
-            checked(Int(rawSetSampler(self.handle, sampler.handle, index, CInt(2))), "macos.command.fragmentSampler");
+        return checked(
+            Int(rawSetSampler(self.handle, sampler.handle, index, CInt(2))),
+            "macos.command.fragmentSampler"
+        );
     }
 }
 
@@ -831,8 +835,9 @@ class Window {
 
     fn menu(self: Window, title: String) -> Menu {
         let bytes = utf8Encode(title);
-        return
-            Menu(handle: rawMenu(checked(rawMenuCreate(self.handle, bytes, byteLength(bytes)), "macos.menu.create")));
+        return Menu(
+            handle: rawMenu(checked(rawMenuCreate(self.handle, bytes, byteLength(bytes)), "macos.menu.create"))
+        );
     }
 
     fn setMenu(self: Window, menu: Menu) -> Int {
@@ -932,9 +937,7 @@ class Window {
     }
 }
 
-type RunContext = {
-    session: Session
-};
+type RunContext = { session: Session };
 
 native {
     opaque SessionHandle;
@@ -1136,12 +1139,10 @@ native {
     }
 
     fn rawWidgetCreate(session: SessionHandle, kind: CInt, text: ByteArray, length: CSize, frame: Rect, action: Int)
-        -> Int
-        symbol "rinzu_macos_widget_create";
+        -> Int symbol "rinzu_macos_widget_create";
 
     fn rawWidgetScoped(window: WindowHandle, kind: CInt, text: ByteArray, length: CSize, frame: Rect, action: Int)
-        -> Int
-        symbol "rinzu_macos_widget_scoped";
+        -> Int symbol "rinzu_macos_widget_scoped";
 
     fn rawWidgetSetText(view: ViewHandle, text: ByteArray, length: CSize) -> CInt symbol "rinzu_macos_widget_set_text";
 
@@ -1191,8 +1192,7 @@ native {
     fn rawMenuSeparator(menu: MenuHandle) -> CInt symbol "rinzu_macos_menu_separator";
 
     fn rawMenuState(menu: MenuHandle, action: Int, enabled: CBool, checked: CBool)
-        -> CInt
-        symbol "rinzu_macos_menu_state";
+        -> CInt symbol "rinzu_macos_menu_state";
 
     fn rawMenuDestroy(menu: MenuHandle) -> CInt symbol "rinzu_macos_menu_destroy";
 
@@ -1201,8 +1201,7 @@ native {
     fn rawWindowCommand(window: WindowHandle, command: CInt) -> CInt symbol "rinzu_macos_window_command";
 
     fn rawClipboardWrite(session: SessionHandle, text: ByteArray, length: CSize)
-        -> CInt
-        symbol "rinzu_macos_clipboard_write";
+        -> CInt symbol "rinzu_macos_clipboard_write";
 
     fn rawClipboardSnapshot(session: SessionHandle, token: Int) -> CInt symbol "rinzu_macos_clipboard_snapshot";
 
@@ -1235,8 +1234,7 @@ native {
     fn rawStatistics(output: Statistics) -> CInt symbol "rinzu_macos_statistics";
 
     supplant fn rawRun(session: SessionHandle, context: RunContext, handler: fn (RunContext, Event) -> Unit)
-        -> CInt
-        symbol "rinzu_macos_run";
+        -> CInt symbol "rinzu_macos_run";
 
     supplant fn rawRunEvents(session: SessionHandle) -> CInt symbol "rinzu_macos_run_events";
 
@@ -1277,26 +1275,22 @@ native {
     fn rawEventSequence(session: SessionHandle) -> Int symbol "rinzu_macos_event_sequence";
 
     fn rawWindowScoped(session: SessionHandle, token: Int, title: ByteArray, length: CSize, width: Float, height: Float)
-        -> Int
-        symbol "rinzu_macos_window_scoped";
+        -> Int symbol "rinzu_macos_window_scoped";
 
     fn rawWindowScopeClose(session: SessionHandle, token: Int) -> CInt symbol "rinzu_macos_window_scope_close";
 
     fn rawWindowScopePrepare(session: SessionHandle, token: Int) -> CInt symbol "rinzu_macos_window_scope_prepare";
 
     fn rawWindowScopeHasCommand(session: SessionHandle, token: Int)
-        -> CBool
-        symbol "rinzu_macos_window_scope_has_command";
+        -> CBool symbol "rinzu_macos_window_scope_has_command";
 
     fn rawWindowScopeCommand(session: SessionHandle, token: Int)
-        -> CommandHandle
-        symbol "rinzu_macos_window_scope_command";
+        -> CommandHandle symbol "rinzu_macos_window_scope_command";
 
     fn rawStop(session: SessionHandle) -> CInt symbol "rinzu_macos_stop";
 
     fn rawWindowCreate(session: SessionHandle, title: ByteArray, length: CSize, width: Float, height: Float)
-        -> Int
-        symbol "rinzu_macos_window_create";
+        -> Int symbol "rinzu_macos_window_create";
 
     fn rawWindow(id: Int) -> WindowHandle symbol "rinzu_macos_window";
 
@@ -1400,8 +1394,7 @@ native {
     fn rawBuffer(id: Int) -> BufferHandle symbol "rinzu_macos_buffer";
 
     fn rawBufferWrite(buffer: BufferHandle, offset: Int, bytes: ByteArray, length: CSize)
-        -> CInt
-        symbol "rinzu_macos_buffer_write";
+        -> CInt symbol "rinzu_macos_buffer_write";
 
     fn rawBufferRead(buffer: BufferHandle, offset: Int, length: Int) -> CInt symbol "rinzu_macos_buffer_read";
 
@@ -1410,16 +1403,14 @@ native {
     fn rawBufferDestroy(buffer: BufferHandle) -> CInt symbol "rinzu_macos_buffer_destroy";
 
     fn rawSurfaceScoped(device: DeviceHandle, window: WindowHandle, rect: Rect)
-        -> Int
-        symbol "rinzu_macos_surface_scoped";
+        -> Int symbol "rinzu_macos_surface_scoped";
 
     fn rawFrameCreate(view: ViewHandle, fps: Int) -> Int symbol "rinzu_macos_frame_create";
 
     fn rawFrame(id: Int) -> FrameClockHandle symbol "rinzu_macos_frame";
 
     fn rawWindowMinimumSize(window: WindowHandle, width: Float, height: Float)
-        -> CInt
-        symbol "rinzu_macos_window_minimum_size";
+        -> CInt symbol "rinzu_macos_window_minimum_size";
 
     fn rawFrameState(clock: FrameClockHandle) -> CInt symbol "rinzu_macos_frame_state";
 
@@ -1432,8 +1423,7 @@ native {
     fn rawFramePresented(clock: FrameClockHandle) -> CInt symbol "rinzu_macos_frame_presented";
 
     fn rawFrameStatistics(clock: FrameClockHandle, output: FrameStatistics)
-        -> CInt
-        symbol "rinzu_macos_frame_statistics";
+        -> CInt symbol "rinzu_macos_frame_statistics";
 
     fn rawFrameBegin(clock: FrameClockHandle, token: Int) -> CInt symbol "rinzu_macos_frame_wait_begin";
 
@@ -1454,30 +1444,26 @@ native {
     fn rawFrameStopWindow(window: WindowHandle) -> CInt symbol "rinzu_macos_frame_stop_window";
 
     fn rawFontCreate(session: SessionHandle, name: ByteArray, length: CSize, size: Float, bold: CBool)
-        -> Int
-        symbol "rinzu_macos_font_create";
+        -> Int symbol "rinzu_macos_font_create";
 
     fn rawFont(id: Int) -> FontHandle symbol "rinzu_macos_font";
 
     fn rawFontDestroy(font: FontHandle) -> CInt symbol "rinzu_macos_font_destroy";
 
     fn rawTextCreate(font: FontHandle, text: ByteArray, length: CSize, width: Float, alignment: Int)
-        -> Int
-        symbol "rinzu_macos_text_layout";
+        -> Int symbol "rinzu_macos_text_layout";
 
     fn rawText(id: Int) -> TextLayoutHandle symbol "rinzu_macos_text";
 
     fn rawTextMetrics(text: TextLayoutHandle, output: TextMetrics) -> CInt symbol "rinzu_macos_text_metrics";
 
     fn rawTextTexture(device: DeviceHandle, text: TextLayoutHandle, scale: Float)
-        -> Int
-        symbol "rinzu_macos_text_texture";
+        -> Int symbol "rinzu_macos_text_texture";
 
     fn rawTextDestroy(text: TextLayoutHandle) -> CInt symbol "rinzu_macos_text_destroy";
 
     fn rawTextureCreate(device: DeviceHandle, width: Int, height: Int, format: Int, usage: Int)
-        -> Int
-        symbol "rinzu_macos_texture_create";
+        -> Int symbol "rinzu_macos_texture_create";
 
     fn rawTextureImage(device: DeviceHandle, bytes: ByteArray, length: CSize) -> Int symbol "rinzu_macos_texture_image";
 
@@ -1488,8 +1474,7 @@ native {
     fn rawTextureInfo(texture: TextureHandle, output: TextureInfo) -> CInt symbol "rinzu_macos_texture_info";
 
     fn rawTextureWrite(texture: TextureHandle, region: Scissor, rowBytes: Int, bytes: ByteArray, length: CSize)
-        -> CInt
-        symbol "rinzu_macos_texture_write";
+        -> CInt symbol "rinzu_macos_texture_write";
 
     fn rawTextureRead(texture: TextureHandle, region: Scissor) -> CInt symbol "rinzu_macos_texture_read";
 
@@ -1524,32 +1509,27 @@ native {
     ) -> Int symbol "rinzu_macos_render_pipeline_options";
 
     fn rawRenderTexture(command: CommandHandle, texture: TextureHandle, clear: Color)
-        -> CInt
-        symbol "rinzu_macos_command_render_texture";
+        -> CInt symbol "rinzu_macos_command_render_texture";
 
     fn rawViewport(command: CommandHandle, viewport: Rect) -> CInt symbol "rinzu_macos_command_viewport";
 
     fn rawScissor(command: CommandHandle, scissor: Scissor) -> CInt symbol "rinzu_macos_command_scissor";
 
     fn rawSetTexture(command: CommandHandle, texture: TextureHandle, index: Int, stage: CInt)
-        -> CInt
-        symbol "rinzu_macos_command_texture";
+        -> CInt symbol "rinzu_macos_command_texture";
 
     fn rawSetSampler(command: CommandHandle, sampler: SamplerHandle, index: Int, stage: CInt)
-        -> CInt
-        symbol "rinzu_macos_command_sampler";
+        -> CInt symbol "rinzu_macos_command_sampler";
 
     fn rawLibraryCreate(device: DeviceHandle, source: ByteArray, length: CSize, file: CBool)
-        -> Int
-        symbol "rinzu_macos_library_create";
+        -> Int symbol "rinzu_macos_library_create";
 
     fn rawLibrary(id: Int) -> LibraryHandle symbol "rinzu_macos_library";
 
     fn rawLibraryDestroy(library: LibraryHandle) -> CInt symbol "rinzu_macos_library_destroy";
 
     fn rawComputeCreate(library: LibraryHandle, name: ByteArray, length: CSize)
-        -> Int
-        symbol "rinzu_macos_compute_pipeline";
+        -> Int symbol "rinzu_macos_compute_pipeline";
 
     fn rawCompute(id: Int) -> ComputePipelineHandle symbol "rinzu_macos_compute";
 
@@ -1576,24 +1556,19 @@ native {
     fn rawCommandDestroy(command: CommandHandle) -> CInt symbol "rinzu_macos_command_destroy";
 
     fn rawBeginCompute(command: CommandHandle, pipeline: ComputePipelineHandle)
-        -> CInt
-        symbol "rinzu_macos_command_compute";
+        -> CInt symbol "rinzu_macos_command_compute";
 
     fn rawBeginRender(command: CommandHandle, view: ViewHandle, clear: Color)
-        -> CInt
-        symbol "rinzu_macos_command_render";
+        -> CInt symbol "rinzu_macos_command_render";
 
     fn rawSetPipeline(command: CommandHandle, pipeline: RenderPipelineHandle)
-        -> CInt
-        symbol "rinzu_macos_command_pipeline";
+        -> CInt symbol "rinzu_macos_command_pipeline";
 
     fn rawSetBuffer(command: CommandHandle, buffer: BufferHandle, offset: Int, index: Int, stage: CInt)
-        -> CInt
-        symbol "rinzu_macos_command_buffer";
+        -> CInt symbol "rinzu_macos_command_buffer";
 
     fn rawDispatch(command: CommandHandle, x: Int, y: Int, z: Int, tx: Int, ty: Int, tz: Int)
-        -> CInt
-        symbol "rinzu_macos_command_dispatch";
+        -> CInt symbol "rinzu_macos_command_dispatch";
 
     fn rawDraw(command: CommandHandle, start: Int, count: Int) -> CInt symbol "rinzu_macos_command_draw";
 
@@ -1733,13 +1708,7 @@ fn statistics() -> Statistics {
 
 /// Run NSApplication on Main. The handler is synchronous and valid only during run.
 async fn run(session: Session, handler: fn (RunContext, Event) -> Unit) -> Int {
-    let status = await rawRun(
-        session.handle,
-        {
-            session = session
-        },
-        handler
-    );
+    let status = await rawRun(session.handle, { session = session }, handler);
     return checked(Int(status), "macos.run");
 }
 
@@ -3874,20 +3843,17 @@ native {
     }
 
     fn rawDataCreate(window: WindowHandle, kind: Int, columns: Int, frame: Rect, action: Int)
-        -> Int
-        symbol "rinzu_macos_data_create";
+        -> Int symbol "rinzu_macos_data_create";
 
     fn rawDataColumn(view: ViewHandle, column: Int, title: ByteArray, length: CSize, width: Float, sortable: CBool)
-        -> CInt
-        symbol "rinzu_macos_data_column";
+        -> CInt symbol "rinzu_macos_data_column";
 
     fn rawDataBegin(view: ViewHandle, token: Int) -> CInt symbol "rinzu_macos_data_begin";
 
     fn rawDataOwned(view: ViewHandle, token: Int) -> CBool symbol "rinzu_macos_data_owned";
 
     fn rawDataAppend(view: ViewHandle, token: Int, id: Int, parent: Int, cells: ByteArray, length: CSize)
-        -> CInt
-        symbol "rinzu_macos_data_append";
+        -> CInt symbol "rinzu_macos_data_append";
 
     fn rawDataCommit(view: ViewHandle, token: Int) -> CInt symbol "rinzu_macos_data_commit";
 

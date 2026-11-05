@@ -37,16 +37,12 @@ async fn receive(value: Future<Int>) -> Int {
     }
 }
 
-type Pending = {
-    cell: Cell, writer: Future<Unit>
-};
+type Pending = { cell: Cell, writer: Future<Unit> };
 
 fn start(value: Future<Int>) -> Pending {
     let cell = Cell(future: safe());
     let writer = assign(cell, value);
-    return {
-        cell = cell, writer = writer
-    };
+    return { cell = cell, writer = writer };
 }
 
 async fn nestedAssign(cell: Cell, value: Future<Int>) {
@@ -54,15 +50,11 @@ async fn nestedAssign(cell: Cell, value: Future<Int>) {
     await writer;
 }
 
-type Started = {
-    writer: Future<Unit>
-};
+type Started = { writer: Future<Unit> };
 
 async fn startChild(cell: Cell, value: Future<Int>) -> Started {
     let writer = assign(cell, value);
-    return {
-        writer = writer
-    };
+    return { writer = writer };
 }
 
 async fn main() {

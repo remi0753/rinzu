@@ -16,8 +16,7 @@ native {
     fn forever(input: String, data: Bytes(4)) -> CInt symbol "termination_forever";
 
     supplant fn runForever(callback: fn () -> Unit, input: String, data: Bytes(4))
-        -> CInt
-        symbol "termination_run_forever";
+        -> CInt symbol "termination_run_forever";
 }
 
 fn missingScalar(value: CInt) -> CInt {

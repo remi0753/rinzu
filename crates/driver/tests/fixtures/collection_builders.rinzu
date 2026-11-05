@@ -114,20 +114,10 @@ fn main() {
             }
         );
         require(growList(20) == rinzu.List.concatAll([growList(20), empty]));
-        let duplicate: List<
-            {
-                key: String, value: Int
-            }
-        > = [
-            {
-                key = "日本", value = 1
-            },
-            {
-                key = "x", value = 2
-            },
-            {
-                key = "日本", value = 3
-            }
+        let duplicate: List<{ key: String, value: Int }> = [
+            { key = "日本", value = 1 },
+            { key = "x", value = 2 },
+            { key = "日本", value = 3 }
         ];
         try {
             let failedEntries = rinzu.Map.fromEntries(duplicate);

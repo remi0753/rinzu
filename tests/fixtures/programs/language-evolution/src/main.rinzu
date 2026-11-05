@@ -25,9 +25,7 @@ fn unbox<T, B interface Getter<T>>(box: B, otherwise: T) -> T nothrow {
     return box.get();
 }
 
-type Pair = {
-    x: Int, y: Int
-};
+type Pair = { x: Int, y: Int };
 
 fn synchronous() -> Int {
     var source = [1, 2, 3];
@@ -55,12 +53,8 @@ fn synchronous() -> Int {
         }
     );
     let get = unbox<Int, Box<Int>>;
-    let before: Pair = {
-        x = 1, y = 2
-    };
-    let after = {
-        ...before, x = get(next, 0)
-    };
+    let before: Pair = { x = 1, y = 2 };
+    let after = { ...before, x = get(next, 0) };
     if after.y != 2 || before.x != 1 {
         panic("record update mutated its base");
     }

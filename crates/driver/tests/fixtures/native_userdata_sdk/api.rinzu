@@ -1,21 +1,20 @@
 import rinzu.core;
 
 type State = {
-    id: Int, text: String, bytes: Bytes(4), numbers: List<Int>
+    id: Int,
+    text: String,
+    bytes: Bytes(4),
+    numbers: List<Int>
 };
 
-type Other = {
-    id: Int
-};
+type Other = { id: Int };
 
 enum EventValue {
     state(value: State),
     empty
 }
 
-type Event = {
-    value: EventValue
-};
+type Event = { value: EventValue };
 
 native {
     fn probe(
@@ -33,33 +32,27 @@ native {
 
 fn original() -> State {
     return {
-        id = 41, text = "日本語\u{0}tail", bytes = b"\x00\xff\x07\x00", numbers = [1, 2, 3]
+        id = 41,
+        text = "日本語\u{0}tail",
+        bytes = b"\x00\xff\x07\x00",
+        numbers = [1, 2, 3]
     };
 }
 
 fn exercise() -> State {
     let first = original();
     let second: State = {
-        id = 42, text = "second", bytes = b"\x00\xff\x07\x00", numbers = [4, 5]
+        id = 42,
+        text = "second",
+        bytes = b"\x00\xff\x07\x00",
+        numbers = [4, 5]
     };
     let event = {
         value = EventValue.state(value: first)
     };
-    let other: Other = {
-        id = 7
-    };
+    let other: Other = { id = 7 };
     let status = probe(first, first, second, event, other, byteLength, 0);
-    let swapped = probe(
-        second,
-        second,
-        first,
-        {
-            value = EventValue.empty()
-        },
-        other,
-        byteLength,
-        1
-    );
+    let swapped = probe(second, second, first, { value = EventValue.empty() }, other, byteLength, 1);
     if status != 0 || swapped != 17 {
         panic("wrongTokens");
     }
@@ -73,8 +66,7 @@ fn exercise() -> State {
     }
     if first != original() || second.id != 42 || event != {
         value = EventValue.state(value: first)
-    }
-    || other.id != 7 {
+    } || other.id != 7 {
         panic("lostData");
     }
     return first;
@@ -93,9 +85,7 @@ fn returning() -> State {
             {
                 value = EventValue.state(value: value)
             },
-            {
-                id = 7
-            },
+            { id = 7 },
             byteLength,
             0
         );
@@ -114,12 +104,8 @@ fn preEntryError() -> Int {
             value,
             value,
             value,
-            {
-                value = EventValue.empty()
-            },
-            {
-                id = 7
-            },
+            { value = EventValue.empty() },
+            { id = 7 },
             byteLength,
             CInt(2147483648)
         );
@@ -137,19 +123,7 @@ fn preEntryError() -> Int {
 fn failed() -> Int {
     let value = original();
     try {
-        let status = probe(
-            value,
-            value,
-            value,
-            {
-                value = EventValue.empty()
-            },
-            {
-                id = 7
-            },
-            byteLength,
-            0
-        );
+        let status = probe(value, value, value, { value = EventValue.empty() }, { id = 7 }, byteLength, 0);
         let invalid = CInt8(300);
         return 0;
     }
@@ -161,9 +135,7 @@ fn failed() -> Int {
             {
                 value = EventValue.state(value: value)
             },
-            {
-                id = 7
-            },
+            { id = 7 },
             byteLength,
             1
         );
@@ -193,19 +165,7 @@ fn work() -> Int {
 
 async fn pending() -> State {
     let value = original();
-    let initial = probe(
-        value,
-        value,
-        value,
-        {
-            value = EventValue.empty()
-        },
-        {
-            id = 7
-        },
-        byteLength,
-        0
-    );
+    let initial = probe(value, value, value, { value = EventValue.empty() }, { id = 7 }, byteLength, 0);
     try {
         let count = await spawn work();
         let next = probe(
@@ -215,9 +175,7 @@ async fn pending() -> State {
             {
                 value = EventValue.state(value: value)
             },
-            {
-                id = 7
-            },
+            { id = 7 },
             byteLength,
             0
         );
@@ -227,19 +185,7 @@ async fn pending() -> State {
         return value;
     }
     finally {
-        let finalStatus = probe(
-            value,
-            value,
-            value,
-            {
-                value = EventValue.empty()
-            },
-            {
-                id = 7
-            },
-            byteLength,
-            0
-        );
+        let finalStatus = probe(value, value, value, { value = EventValue.empty() }, { id = 7 }, byteLength, 0);
         if finalStatus != 0 {
             panic("lostCleanup");
         }
@@ -264,9 +210,7 @@ fn leaks() -> Int {
             {
                 value = EventValue.state(value: value)
             },
-            {
-                id = 7
-            },
+            { id = 7 },
             byteLength,
             0
         );

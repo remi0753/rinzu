@@ -1,8 +1,6 @@
 import rinzu.stdio;
 
-type Context = {
-    id: Int
-};
+type Context = { id: Int };
 
 native {
     record Packet {
@@ -46,9 +44,7 @@ fn replace(cursor: Cursor, next: Packet) -> Int {
 
 fn exercise() {
     let point = Packet(x: 1, valid: false);
-    let box = {
-        point = point
-    };
+    let box = { point = point };
     rinzu.stdio.writeLine(change(point, 10));
     rinzu.stdio.writeLine(point.x);
     rinzu.stdio.writeLine(aliases(point, box.point));

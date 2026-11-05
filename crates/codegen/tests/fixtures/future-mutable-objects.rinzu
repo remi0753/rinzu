@@ -12,9 +12,7 @@ class Cell {
     future: Future<Int>
 }
 
-type Pair = {
-    left: Cell, right: Cell
-};
+type Pair = { left: Cell, right: Cell };
 
 fn build(number: Int) -> Cell {
     return Cell(future: fail(number));
@@ -26,9 +24,7 @@ fn read(cell: Cell) -> Future<Int> {
 
 fn pair() -> Pair {
     let cell = build(149);
-    return {
-        left = cell, right = cell
-    };
+    return { left = cell, right = cell };
 }
 
 async fn observe(value: Future<Int>) {

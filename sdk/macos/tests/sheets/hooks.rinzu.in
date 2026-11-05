@@ -1,7 +1,6 @@
 native {
     fn rawTestSheetReply(window: WindowHandle, choice: CInt, path: ByteArray, length: CSize)
-        -> CInt
-        symbol "rinzu_macos_test_sheet_reply";
+        -> CInt symbol "rinzu_macos_test_sheet_reply";
 
     fn rawTestSheetVisible(window: WindowHandle) -> CInt symbol "rinzu_macos_test_sheet_visible";
 }

@@ -42,8 +42,7 @@ native {
     fn workerFinally(input: String, bytes: Bytes(4)) symbol "supplant_worker_finally";
 
     supplant fn checkRun(callback: fn (CInt) -> CInt, input: String, bytes: Bytes(4), mode: CInt)
-        -> String
-        symbol "supplant_check_run";
+        -> String symbol "supplant_check_run";
 }
 
 export reset;

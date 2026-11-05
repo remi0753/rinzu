@@ -1,13 +1,9 @@
 import rinzu.Map;
 import rinzu.stdio;
 
-type Point = {
-    x: Int, y: Int
-};
+type Point = { x: Int, y: Int };
 
-type Reordered = {
-    y: Int, x: Int
-};
+type Reordered = { y: Int, x: Int };
 
 class Counter {
     value: Int
@@ -19,30 +15,23 @@ fn mark(counter: Counter, value: Int) -> Int {
 }
 
 fn snapshot(point: Point) -> Reordered {
-    return {
-        y = point.y, x = point.x
-    };
+    return { y = point.y, x = point.x };
 }
 
 async fn main() {
     try {
         let counter = Counter(value: 0);
         let point: Point = {
-            y = mark(counter, 2), x = mark(counter, 1)
+            y = mark(counter, 2),
+            x = mark(counter, 1)
         };
         let copy = point;
-        let same: Reordered = {
-            x = 1, y = 2
-        };
-        let changed: Point = {
-            x = point.x, y = 10
-        };
+        let same: Reordered = { x = 1, y = 2 };
+        let changed: Point = { x = point.x, y = 10 };
         let index: Map<Reordered, String> = {
             point: "found"
         };
-        let holder = {
-            counter = counter
-        };
+        let holder = { counter = counter };
         let holderCopy = holder;
         holderCopy.counter.value = 3;
         var i: Int = 0;
@@ -65,7 +54,8 @@ async fn main() {
             }
         }
         let order: Point = {
-            y = mark(counter, 2), x = mark(counter, 1)
+            y = mark(counter, 2),
+            x = mark(counter, 1)
         };
         rinzu.stdio.writeLine(counter.value);
         // 321: y then x, each exactly once

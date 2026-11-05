@@ -27,15 +27,7 @@ async fn main() {
         panic("missing map futures");
     }
     let pending = fail(7);
-    let input: List<
-        {
-            key: Int, value: Future<Int>
-        }
-    > = [
-        {
-            key = 7, value = pending
-        }
-    ];
+    let input: List<{ key: Int, value: Future<Int> }> = [{ key = 7, value = pending }];
     try {
         let table = rinzu.Map.fromEntries(input);
         for entry in rinzu.Map.entries(table) {

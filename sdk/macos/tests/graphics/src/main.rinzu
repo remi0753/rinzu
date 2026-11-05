@@ -124,10 +124,10 @@ async fn recording(device: rinzu.macos.Device) {
         rinzu.macos.Rect(x: 0.0, y: 0.0, width: 4.0, height: 4.0),
         rinzu.macos.Color(red: 1.0, green: 0.0, blue: 0.0, alpha: 1.0)
     );
-    let begun =
-        batch
-        .command
-        .beginRenderTexture(target, rinzu.macos.Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0));
+    let begun = batch.command.beginRenderTexture(
+        target,
+        rinzu.macos.Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0)
+    );
     let encoded = batch.encode(batch.command, rinzu.macos.pixelBGRA8);
     var rejected = false;
     try {

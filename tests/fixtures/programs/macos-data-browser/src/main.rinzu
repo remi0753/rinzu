@@ -193,18 +193,19 @@ async fn screen(app: rinzu.macos.UiApplication) {
         "Select with arrow keys; Return shows details",
         "browser-records"
     );
-    let groupsAX =
-        groups
-        .view
-        .setAccessibility("Record groups", "Expand groups with the right arrow", "browser-groups");
-    let detailsAX =
-        details
-        .view
-        .setAccessibility("Record details", "Details of the selected record", "browser-details");
-    let reloadHelp =
-        reload
-        .view
-        .setTooltip("Rebuild the selected group without replacing the current rows until ready");
+    let groupsAX = groups.view.setAccessibility(
+        "Record groups",
+        "Expand groups with the right arrow",
+        "browser-groups"
+    );
+    let detailsAX = details.view.setAccessibility(
+        "Record details",
+        "Details of the selected record",
+        "browser-details"
+    );
+    let reloadHelp = reload.view.setTooltip(
+        "Rebuild the selected group without replacing the current rows until ready"
+    );
     let state = Browser(
         records: records,
         groups: groups,

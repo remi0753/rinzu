@@ -3,7 +3,10 @@ class Editor {
 }
 
 type Context = {
-    editor: Editor, point: Packet, handle: Handle, action: fn (Int) -> Int
+    editor: Editor,
+    point: Packet,
+    handle: Handle,
+    action: fn (Int) -> Int
 };
 
 native {
@@ -42,7 +45,10 @@ fn exercise() -> Int {
     let editor = Editor(value: 10);
     let point = Packet(x: 4);
     let context: Context = {
-        editor = editor, point = point, handle = make(), action = action
+        editor = editor,
+        point = point,
+        handle = make(),
+        action = action
     };
     let result = invoke(context, read);
     if result != 25 || editor.value != 11 || point.x != 7 {

@@ -76,9 +76,7 @@ class Statement {
     }
 }
 
-type ObserverContext = {
-    connection: Connection
-};
+type ObserverContext = { connection: Connection };
 
 native {
     opaque ConnectionHandle;
@@ -146,8 +144,7 @@ native {
     fn rawTransactionState(connection: ConnectionHandle) -> CInt symbol "rinzu_sqlite_transaction_state";
 
     fn rawOwnedRowsBegin(connection: ConnectionHandle, sql: String, maximumRows: Int)
-        -> CInt
-        symbol "rinzu_sqlite_owned_rows_begin";
+        -> CInt symbol "rinzu_sqlite_owned_rows_begin";
 
     fn rawOwnedRows(connection: ConnectionHandle) -> Int symbol "rinzu_sqlite_owned_rows";
 
@@ -258,16 +255,7 @@ fn isStatementOpen(statement: Statement) -> Bool {
 
 fn executeWithObserver(connection: Connection, sql: String, handler: fn (ObserverContext) -> CInt) -> Int {
     return nativeStatus(
-        Int(
-            rawObserve(
-                connection.handle,
-                sql,
-                {
-                    connection = connection
-                },
-                handler
-            )
-        ),
+        Int(rawObserve(connection.handle, sql, { connection = connection }, handler)),
         "sqlite.executeWithObserver"
     );
 }

@@ -25,9 +25,11 @@ fn payload(size: Int) -> ByteArray {
 async fn cleanup() {
     let count = expect<Int>(await rinzu.socket.closeOwnerSockets());
     let s = rinzu.socket.statistics();
-    rinzu.testing.assertEqual<
-        Int
-    >(s.handleSlots + s.operations + s.bufferBytes + s.eventThreads, 0, "HTTP socket cleanup");
+    rinzu.testing.assertEqual<Int>(
+        s.handleSlots + s.operations + s.bufferBytes + s.eventThreads,
+        0,
+        "HTTP socket cleanup"
+    );
     rinzu.stdio.writeLine(f"CLEANUP:{s.handleSlots}:{s.operations}:{s.bufferBytes}:{s.eventThreads}");
 }
 
@@ -36,9 +38,11 @@ async fn closeResult(result: Future<Int>) {
         let closed = await result;
     }
     catch [problem: Error, ...rest] {
-        assertEqual<
-            Option<Int>
-        >(errorNativeStatus(problem), Option<Int>.Some(value: -7502), "cleanup may see an already closed handle");
+        assertEqual<Option<Int>>(
+            errorNativeStatus(problem),
+            Option<Int>.Some(value: -7502),
+            "cleanup may see an already closed handle"
+        );
         try {
             rinzu.stdio.writeLine("CLOSE:ALREADY:CLOSED");
         }

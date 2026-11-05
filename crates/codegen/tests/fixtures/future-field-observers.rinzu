@@ -29,16 +29,12 @@ async fn receive(cell: Cell) -> Int {
     }
 }
 
-type Pair = {
-    cell: Cell, receiver: Future<Int>
-};
+type Pair = { cell: Cell, receiver: Future<Int> };
 
 fn make() -> Pair {
     let cell = Cell(future: fail(199));
     let receiver = receive(cell);
-    return {
-        cell = cell, receiver = receiver
-    };
+    return { cell = cell, receiver = receiver };
 }
 
 async fn main() {

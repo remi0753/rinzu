@@ -14,8 +14,7 @@ native {
     fn rawReady(client: Client) -> CInt symbol "rinzu_http_ready";
 
     fn rawRequest(client: Client, url: String, body: ByteArray, length: CSize, post: CBool, timeout: Int)
-        -> CInt
-        symbol "rinzu_http_request";
+        -> CInt symbol "rinzu_http_request";
 
     fn rawClose(client: Client) -> CInt symbol "rinzu_http_close";
 

@@ -1,7 +1,9 @@
 import rinzu.stdio;
 
 type Commands = {
-    edit: fn (Int) -> Int, format: fn (Int) -> String, later: fn (Int) -> Future<Int>
+    edit: fn (Int) -> Int,
+    format: fn (Int) -> String,
+    later: fn (Int) -> Future<Int>
 };
 
 class Editor {
@@ -30,7 +32,9 @@ fn make() -> Editor {
             editor.value = value;
             editor.text = "edited";
             return editor.value;
-        }, format = makeFormat(), later = async fn (value: Int) -> Int {
+        },
+        format = makeFormat(),
+        later = async fn (value: Int) -> Int {
             rinzu.stdio.writeLine("started");
             let copied = await spawn identity(value);
             editor.value = editor.value + copied;

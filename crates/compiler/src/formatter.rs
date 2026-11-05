@@ -13,6 +13,8 @@ use layout::Doc;
 
 /// Maximum code-point width, except indivisible tokens and preserved comments/literals.
 const MAX_WIDTH: usize = 120;
+const MAX_INLINE_RECORD_WIDTH: usize = 40;
+const MAX_INLINE_RECORD_ITEMS: usize = 2;
 const INDENT: usize = 4;
 
 pub fn format_source(file: &SourceFile) -> Result<String, Vec<Diagnostic>> {
@@ -97,6 +99,7 @@ pub fn format_source(file: &SourceFile) -> Result<String, Vec<Diagnostic>> {
 struct Hints<'a> {
     tokens: &'a [Token],
     generic: Vec<bool>,
+    record_items: Vec<Option<usize>>,
     break_after: Vec<bool>,
     binary: Vec<bool>,
     binding: Vec<bool>,
@@ -109,6 +112,7 @@ impl<'a> Hints<'a> {
         Self {
             tokens,
             generic: vec![false; tokens.len()],
+            record_items: vec![None; tokens.len()],
             break_after: vec![false; tokens.len()],
             binary: vec![false; tokens.len()],
             binding: vec![false; tokens.len()],
@@ -314,6 +318,16 @@ impl<'a> Hints<'a> {
             self.binding[index] = true;
         }
     }
+
+    fn mark_record(&mut self, start: SourceRange, preceding_tokens: usize, items: usize) {
+        if let Some(open) = self
+            .at_byte(start.start_byte)
+            .and_then(|index| index.checked_sub(preceding_tokens))
+            .filter(|&index| matches!(self.tokens[index].kind, TokenKind::LeftBrace))
+        {
+            self.record_items[open] = Some(items);
+        }
+    }
 }
 
 impl Visitor for Hints<'_> {
@@ -322,6 +336,10 @@ impl Visitor for Hints<'_> {
     }
 
     fn ty(&mut self, ty: &mut TypeRef) {
+        if let TypeRefKind::Record(fields) = &ty.kind {
+            self.mark_record(ty.range, 0, fields.len());
+            return;
+        }
         if !matches!(
             ty.kind,
             TypeRefKind::Generic { .. }
@@ -355,6 +373,16 @@ impl Visitor for Hints<'_> {
 
     fn expression(&mut self, expression: &mut Expression) {
         match &expression.kind {
+            ExpressionKind::Record(fields) => {
+                // Parentheses can extend the expression range beyond the braces.
+                if let Some(first) = fields.first() {
+                    self.mark_record(first.range, 1, fields.len());
+                }
+            }
+            ExpressionKind::RecordUpdate { base, fields } => {
+                // The brace and ellipsis precede the base expression.
+                self.mark_record(base.range, 2, 1 + fields.len());
+            }
             ExpressionKind::Bind { type_arguments, .. } => self.arguments(type_arguments),
             ExpressionKind::GenericCall {
                 type_arguments,
@@ -538,7 +566,7 @@ impl<'a> Builder<'a> {
                     ));
                     self.cursor += 1;
                 }
-                TokenKind::LeftBrace => {
+                TokenKind::LeftBrace if self.hints.record_items[index].is_none() => {
                     current.push(Doc::Text(self.text(index)));
                     let empty = matches!(self.tokens[self.cursor].kind, TokenKind::RightBrace)
                         && self.trivia(self.cursor).is_empty();
@@ -566,25 +594,44 @@ impl<'a> Builder<'a> {
                         output.push(Doc::HardLine);
                     }
                 }
-                TokenKind::LeftParen | TokenKind::LeftBracket | TokenKind::Less
+                TokenKind::LeftBrace
+                | TokenKind::LeftParen
+                | TokenKind::LeftBracket
+                | TokenKind::Less
                     if !matches!(token.kind, TokenKind::Less) || self.hints.generic[index] =>
                 {
-                    let close = match token.kind {
-                        TokenKind::LeftParen => TokenKind::RightParen,
-                        TokenKind::LeftBracket => TokenKind::RightBracket,
-                        _ => TokenKind::Greater,
+                    let (close, padding) = match token.kind {
+                        TokenKind::LeftBrace => (TokenKind::RightBrace, " "),
+                        TokenKind::LeftParen => (TokenKind::RightParen, ""),
+                        TokenKind::LeftBracket => (TokenKind::RightBracket, ""),
+                        _ => (TokenKind::Greater, ""),
                     };
                     let body = self.sequence(Some(close), true);
                     let empty = matches!(&body, Doc::Concat(parts) if parts.is_empty());
-                    let mut parts = vec![Doc::Text(self.text(index))];
+                    let open = self.text(index);
+                    let close = self.text(self.cursor);
+                    let mut parts = vec![Doc::Text(open)];
                     if !empty {
+                        let expand = self.hints.record_items[index].is_some_and(|items| {
+                            let body_width = MAX_INLINE_RECORD_WIDTH
+                                - open.len()
+                                - close.len()
+                                - 2 * padding.len();
+                            items > MAX_INLINE_RECORD_ITEMS
+                                || body.remaining_after_flat(body_width).is_none()
+                        });
+                        let opening_line = if expand {
+                            Doc::HardLine
+                        } else {
+                            Doc::line(padding, 0)
+                        };
                         parts.push(Doc::Nest(
                             INDENT,
-                            Box::new(Doc::Concat(vec![Doc::line("", 0), body])),
+                            Box::new(Doc::Concat(vec![opening_line, body])),
                         ));
-                        parts.push(Doc::line("", 0));
+                        parts.push(Doc::line(padding, 0));
                     }
-                    parts.push(Doc::Text(self.text(self.cursor)));
+                    parts.push(Doc::Text(close));
                     current.push(Doc::group(parts, true));
                     self.cursor += 1;
                 }
