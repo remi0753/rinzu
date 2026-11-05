@@ -1,3 +1,4 @@
+pub(crate) mod collection_buffers;
 mod dead_roots;
 mod proven_owner;
 pub use proven_owner::proven_data_owner_operations;
@@ -530,7 +531,7 @@ pub enum Terminator {
 }
 
 pub(crate) fn lower(checked: &CheckedModule) -> IrModule {
-    IrModule {
+    let mut ir = IrModule {
         source_locations: Default::default(),
         source_files: checked
             .closure_source
@@ -569,7 +570,18 @@ pub(crate) fn lower(checked: &CheckedModule) -> IrModule {
             .iter()
             .map(|function| Builder::new(checked, function).lower())
             .collect(),
+    };
+    let collections = crate::collections::source_file();
+    if ir
+        .functions
+        .iter()
+        .any(|function| function.range.file_id == collections.id())
+    {
+        ir.source_files
+            .insert(collections.id().0, collections.path().display().to_string());
+        ir.embed_source_locations([collections]);
     }
+    ir
 }
 
 struct Builder<'a> {
@@ -599,6 +611,7 @@ struct Builder<'a> {
     value_definitions: HashMap<ValueId, (BlockId, Type, Option<SourceRange>)>,
     expression_spills: HashMap<ValueId, String>,
     expression_reloads: HashMap<(BlockId, ValueId), ValueId>,
+    buffered_updates: HashSet<SourceRange>,
 }
 
 impl<'a> Builder<'a> {
@@ -645,6 +658,7 @@ impl<'a> Builder<'a> {
             value_definitions: HashMap::new(),
             expression_spills: HashMap::new(),
             expression_reloads: HashMap::new(),
+            buffered_updates: HashSet::new(),
         }
     }
 
@@ -788,11 +802,29 @@ impl<'a> Builder<'a> {
         if let Some((scope, handlers)) = self.all_dispatch.get(&block.range).cloned() {
             self.lower_all_dispatch(scope, &handlers, block.range);
         }
+        let buffers = if self.all_scope.is_none() {
+            collection_buffers::loops(self.checked, block)
+        } else {
+            HashMap::new()
+        };
         for statement in &block.statements {
             if !self.is_open(self.current) {
                 self.current = self.new_block(statement.range);
             }
-            self.lower_continuing_statement(statement);
+            if let Some(buffers) = buffers.get(&statement.range) {
+                for buffer in buffers {
+                    self.buffered_updates.extend(&buffer.updates);
+                }
+                self.lower_continuing_statement(statement);
+                for buffer in buffers {
+                    self.finish_collection(&buffer.local, statement.range);
+                    for update in &buffer.updates {
+                        self.buffered_updates.remove(update);
+                    }
+                }
+            } else {
+                self.lower_continuing_statement(statement);
+            }
         }
         if let Some(epilogue) = epilogue {
             self.control_epilogues.pop();
@@ -897,6 +929,31 @@ impl<'a> Builder<'a> {
         );
         self.goto_if_open(next, ExitReason::Normal);
         self.current = next;
+    }
+
+    fn finish_collection(&mut self, name: &str, range: SourceRange) {
+        let ty = self.local_types[name].clone();
+        let name = name.to_owned();
+        let buffer = self.emit_value(
+            OperationKind::LoadLocal { name: name.clone() },
+            ty.clone(),
+            range,
+        );
+        // The runtime cannot yield or collect while publishing a finished
+        // buffer. Keep the same cancellation points as the source loop.
+        let value = self.emit_value(
+            OperationKind::DataOperation {
+                kind: crate::DataOperation::CollectionFinish,
+                arguments: vec![buffer],
+                argument_types: vec![ty.clone()],
+                error: self.error_edge(),
+                failure: self.failure,
+                cleanup_chain: self.cleanup_chain(),
+            },
+            ty,
+            range,
+        );
+        self.emit(OperationKind::StoreLocal { name, value }, None, range);
     }
     fn store_scoped_local(&mut self, name: String, ty: Type, value: ValueId, range: SourceRange) {
         self.local_types.insert(name.clone(), ty);
@@ -1764,13 +1821,25 @@ impl<'a> Builder<'a> {
                     self.emit_poll(PollReason::ManagedCall, expression.range);
                     return result;
                 }
-                if let Some(kind) = self.checked.data_operations.get(&expression.range).copied() {
+                if let Some(mut kind) = self.checked.data_operations.get(&expression.range).copied()
+                {
                     let Arguments::Positional(values) = arguments else {
                         unreachable!("checked data operation")
                     };
                     let arguments = values.iter().map(|v| self.lower_expression(v)).collect();
                     self.emit_poll(PollReason::Allocation, expression.range);
                     let argument_types = values.iter().map(|v| self.type_of(v)).collect();
+                    if self.buffered_updates.contains(&expression.range) {
+                        kind = match kind {
+                            crate::DataOperation::ListAppend => {
+                                crate::DataOperation::ListBufferAppend
+                            }
+                            crate::DataOperation::MapInsert => {
+                                crate::DataOperation::MapBufferInsert
+                            }
+                            _ => unreachable!("checked collection update"),
+                        };
+                    }
                     return self.emit_value(
                         OperationKind::DataOperation {
                             kind,
@@ -3323,7 +3392,8 @@ fn verify_function(module: &IrModule, function: &IrFunction, diagnostics: &mut V
                             actual.as_ref() == Some(&parameters)
                                 && operation.result.as_ref().map(|v| &v.ty) == Some(&result)
                         })
-                        || !has_poll_before(block, index, PollReason::Allocation)
+                        || (*kind != crate::DataOperation::CollectionFinish
+                            && !has_poll_before(block, index, PollReason::Allocation))
                     {
                         diagnostics.push(ir_error(
                             operation.range,

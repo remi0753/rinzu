@@ -2,8 +2,6 @@
 //! never a source value; receiving a pointer neither reads nor retains its target.
 use super::*;
 
-pub(super) const OPAQUE_TYPE: u32 = 0xffff_ff05;
-
 #[derive(Debug)]
 pub struct OpaqueReservation {
     handle: Option<ManagedHandle>,

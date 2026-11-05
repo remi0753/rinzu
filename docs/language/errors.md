@@ -91,6 +91,8 @@ Only the first matching catch runs. Catch does not dispatch each element separat
 A normal `try` leaves its body at the first Error. `try all` continues at the next statement and collects failures in observation order.
 
 ```rinzu-test
+import rinzu.List;
+
 error Rejected {}
 
 fn reject() {
@@ -103,7 +105,7 @@ fn main() {
         reject();
     }
     catch problems {
-        if listLength(problems) != 2 {
+        if rinzu.List.length(problems) != 2 {
             panic("wrong failure count");
         }
     }

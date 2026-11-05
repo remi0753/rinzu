@@ -737,6 +737,9 @@ static inline __attribute__((always_inline)) int64_t rinzu_aot_data_operation_ow
       return rinzu_bytes_concat_all(context, data, result, types, resolved[0]);
     return rinzu_byte_operation(context, data, operation, result, types, bits, resolved);
   }
+  if (operation >= RINZU_DATA_LIST_CONCAT_ALL && operation <= RINZU_DATA_COLLECTION_FINISH)
+    return rinzu_aot_collection_construction(context, data, operation, result, types, bits,
+                                              (size_t)count, resolved[0]);
   if (operation >= RINZU_DATA_BIT_AND)
     return rinzu_numeric_operation(context, operation, types, bits);
   if (operation >= RINZU_DATA_STRING_LENGTH)
@@ -755,7 +758,7 @@ static inline __attribute__((always_inline)) int64_t rinzu_aot_data_operation_ow
       rinzu_failure_fatal();
     return (int64_t)length;
   }
-  if (value->count > SIZE_MAX / sizeof(rinzu_managed_slot_t) - 2)
+  if (value->collection_building)
     rinzu_failure_fatal();
   if (operation == RINZU_DATA_MAP_GET || operation == RINZU_DATA_MAP_INSERT ||
       operation == RINZU_DATA_MAP_REMOVE) {
@@ -773,6 +776,9 @@ static inline __attribute__((always_inline)) int64_t rinzu_aot_data_operation_ow
                                         selected != SIZE_MAX, &output))
         rinzu_failure_fatal();
     } else {
+      if (operation == RINZU_DATA_MAP_INSERT && selected == SIZE_MAX &&
+          !rinzu_collection_length_fits(length, 1))
+        return rinzu_aot_collection_overflow(context, rinzu_map_length_overflow, length, 1);
       rinzu_managed_slot_t replacement =
           operation == RINZU_DATA_MAP_INSERT
               ? (rinzu_managed_slot_t){bits[2], rinzu_program_slot_references[types[2]]}
@@ -796,6 +802,8 @@ static inline __attribute__((always_inline)) int64_t rinzu_aot_data_operation_ow
                   data->schema->types[types[1]].scalar_kind != RINZU_SCALAR_I64 ||
                   (!remove && types[2] != layout->element)))
       rinzu_failure_fatal();
+    if (append && !rinzu_collection_length_fits(length, 1))
+      return rinzu_aot_collection_overflow(context, rinzu_list_length_overflow, length, 1);
     size_t selected = SIZE_MAX;
     int found = !append && (int64_t)bits[1] >= 0 && bits[1] < length;
     if (found)
@@ -818,6 +826,8 @@ static inline __attribute__((always_inline)) int64_t rinzu_aot_data_operation_ow
     }
     return (int64_t)output;
   }
+  if (value->count > SIZE_MAX / sizeof(rinzu_managed_slot_t) - 2)
+    rinzu_failure_fatal();
   int reading = operation == RINZU_DATA_LIST_GET || operation == RINZU_DATA_MAP_GET;
   /* Reads inspect the owned immutable slots directly; only updates copy them. */
   rinzu_managed_slot_t *slots =

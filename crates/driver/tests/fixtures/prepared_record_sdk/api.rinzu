@@ -1,3 +1,4 @@
+import rinzu.List;
 import rinzu.core;
 
 native {
@@ -53,7 +54,7 @@ fn exercise() -> Int {
             let missing = wide(-1, callback);
         }
         catch [problem: Error, ...rest] {
-            if problem.message != "native value is NULL" || listLength(rest) != 0 {
+            if problem.message != "native value is NULL" || rinzu.List.length(rest) != 0 {
                 panic("unexpected failure");
                 return 0;
             }
@@ -64,7 +65,7 @@ fn exercise() -> Int {
         }
         catch [problem: Error, ...rest] {
             if problem.message != "numeric conversion is out of range or loses required integer precision"
-                || listLength(rest) != 0 {
+                || rinzu.List.length(rest) != 0 {
                 panic("unexpected failure");
                 return 0;
             }

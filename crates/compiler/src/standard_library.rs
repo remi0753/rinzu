@@ -7,9 +7,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use sha2::{Digest, Sha256};
 
 pub const TARGET: &str = "aarch64-apple-darwin";
-pub const REVISION: u32 = 3;
+pub const REVISION: u32 = 4;
 /// Shared by the embedded registry and its distribution fingerprint.
-pub const RUNTIME_CODEGEN_REVISION: u32 = 181;
+pub const RUNTIME_CODEGEN_REVISION: u32 = 182;
 pub const SOURCE_PACKAGES: [&str; 8] = [
     "rinzu.io",
     "rinzu.process",
@@ -21,14 +21,24 @@ pub const SOURCE_PACKAGES: [&str; 8] = [
     "rinzu.socket",
 ];
 
+const BUILTIN_PACKAGES: [&str; 5] = [
+    "rinzu.core",
+    "rinzu.stdio",
+    "rinzu.timer",
+    "rinzu.List",
+    "rinzu.Map",
+];
+
+pub(crate) fn builtin(name: &str) -> bool {
+    BUILTIN_PACKAGES.contains(&name)
+}
+
 pub fn registered(name: &str) -> bool {
-    matches!(name, "rinzu.core" | "rinzu.stdio" | "rinzu.timer") || SOURCE_PACKAGES.contains(&name)
+    builtin(name) || SOURCE_PACKAGES.contains(&name)
 }
 
 pub fn names() -> impl Iterator<Item = &'static str> {
-    ["rinzu.core", "rinzu.stdio", "rinzu.timer"]
-        .into_iter()
-        .chain(SOURCE_PACKAGES)
+    BUILTIN_PACKAGES.into_iter().chain(SOURCE_PACKAGES)
 }
 
 pub fn dependencies(name: &str) -> &'static [&'static str] {

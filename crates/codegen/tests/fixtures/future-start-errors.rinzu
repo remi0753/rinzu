@@ -1,3 +1,4 @@
+import rinzu.List;
 import rinzu.stdio;
 import rinzu.timer;
 
@@ -69,7 +70,7 @@ async fn main() {
         }
         catch errors {
             rinzu.stdio.writeLine(continued);
-            rinzu.stdio.writeLine(listLength(errors));
+            rinzu.stdio.writeLine(rinzu.List.length(errors));
         }
     }
     catch errors {}

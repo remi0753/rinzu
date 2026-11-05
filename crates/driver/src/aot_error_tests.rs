@@ -743,7 +743,8 @@ fn dedicated_errors_match_rust_jit_and_aot_with_payload_gc_and_repeated_await() 
         "[package]\nname=\"error_backends\"\nlanguage=\"0.5\"\n",
     )
     .unwrap();
-    let synchronous = r#"
+    let synchronous = r#"import rinzu.List;
+
         import rinzu.stdio;
         class Document { value: Int }
         error A { payload: Document }
@@ -760,7 +761,7 @@ fn dedicated_errors_match_rust_jit_and_aot_with_payload_gc_and_repeated_await() 
         }
         fn chosen()->Int {
             try all {throw B(message:"choice",payload:7);return 19;}
-            catch errors {rinzu.stdio.writeLine(listLength(errors));}
+            catch errors {rinzu.stdio.writeLine(rinzu.List.length(errors));}
             finally {rinzu.stdio.writeLine("all-finally");}
             return 0;
         }
@@ -773,20 +774,21 @@ fn dedicated_errors_match_rust_jit_and_aot_with_payload_gc_and_repeated_await() 
                 first.payload.value=43;
                 rinzu.stdio.writeLine(document.value);
                 rinzu.stdio.writeLine(second.payload);
-                rinzu.stdio.writeLine(listLength(rest));
+                rinzu.stdio.writeLine(rinzu.List.length(rest));
             }
             let optional=Optional<Int>(message:"optional",payload:23);
             rinzu.stdio.writeLine(optional.name);
             rinzu.stdio.writeLine(optional.payload);
             rinzu.stdio.writeLine(inspect(A(message:"check",payload:document),document));
             try {try {fail(document);}finally {throw B(message:"list",payload:5);}}
-            catch errors {rinzu.stdio.writeLine(listLength(errors));}
+            catch errors {rinzu.stdio.writeLine(rinzu.List.length(errors));}
             try all {throw A(message:"first",payload:document);throw B(message:"second",payload:23);}
             catch [first:A,second:B] {rinzu.stdio.writeLine(first.payload.value);rinzu.stdio.writeLine(second.payload);}
             rinzu.stdio.writeLine(chosen());
         }
     "#;
-    let asynchronous = r#"
+    let asynchronous = r#"import rinzu.List;
+
         import rinzu.stdio;
         error Failed { payload: Int }
         async fn work() -> Int { throw Failed(message:"failed",payload:11); }
@@ -797,7 +799,7 @@ fn dedicated_errors_match_rust_jit_and_aot_with_payload_gc_and_repeated_await() 
             try {let value=await pending;}
             catch [error: Failed] {rinzu.stdio.writeLine(error.payload);}
             try all {let one=await pending;let two=await pending;}
-            catch errors {rinzu.stdio.writeLine(listLength(errors));}
+            catch errors {rinzu.stdio.writeLine(rinzu.List.length(errors));}
             try {try all {} finally {let cleanupValue=await pending;}}
             catch [error:Failed] {rinzu.stdio.writeLine("cleanup outside");}
         }
@@ -859,7 +861,8 @@ fn compiled_async_jit_observes_managed_future_errors() {
     .unwrap();
     fs::write(
         root.join("src/main.rinzu"),
-        guard_main_errors(r#"
+        guard_main_errors(r#"import rinzu.List;
+
         import rinzu.stdio;
         error Failed { payload: Int }
         async fn work() -> Int { throw Failed(message:"failed",payload:11); }
@@ -869,7 +872,7 @@ fn compiled_async_jit_observes_managed_future_errors() {
             try {let first=await pending;}
             catch [error: Failed] {inspect(error);}
             try all {let one=await pending;let two=await pending;}
-            catch errors {rinzu.stdio.writeLine(listLength(errors));}
+            catch errors {rinzu.stdio.writeLine(rinzu.List.length(errors));}
             try {let second=await pending;}
             catch [error: Failed] {inspect(error);}
             try {try all {} finally {let cleanupValue=await pending;}}

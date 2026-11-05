@@ -277,7 +277,7 @@ impl Engine<'_> {
                                     .iter()
                                     .find(|function| function.declaration.name == name)
                                     .is_some_and(|function| function.declaration.is_async);
-                            if !asynchronous
+                            let calls = if !asynchronous
                                 && !self.stack.contains(&name)
                                 && let Some(function) = self
                                     .checked
@@ -303,19 +303,26 @@ impl Engine<'_> {
                                                 )
                                             })))
                             {
-                                result.extend(
-                                    self.inline_synchronous(expression, function, &values, state),
-                                );
-                                continue;
-                            }
-                            result.extend(self.invoke_contract(
-                                expression,
-                                &name,
-                                contract,
-                                &values,
-                                state,
-                                asynchronous,
-                            ));
+                                self.inline_synchronous(expression, function, &values, state)
+                            } else {
+                                self.invoke_contract(
+                                    expression,
+                                    &name,
+                                    contract,
+                                    &values,
+                                    state,
+                                    asynchronous,
+                                )
+                            };
+                            result.extend(calls.into_iter().map(|mut evaluated| {
+                                if let Ok(value) = &mut evaluated.result
+                                    && let Some(map) =
+                                        self.constructed_map(expression, &name, &values, value)
+                                {
+                                    *value = map;
+                                }
+                                evaluated
+                            }));
                         } else {
                             result.extend(self.unknown_call(
                                 expression, target, arguments, state, &values, &name,
@@ -344,6 +351,67 @@ impl Engine<'_> {
             }
         }
         result
+    }
+
+    fn constructed_map(
+        &self,
+        expression: &Expression,
+        name: &str,
+        values: &[Tracked],
+        result: &Tracked,
+    ) -> Option<Tracked> {
+        let from_entries = name.starts_with("rinzu.Map::fromEntries<");
+        if !from_entries && !name.starts_with("rinzu.Map::fromList<") {
+            return None;
+        }
+        let Type::Map(key, value) = self.type_at(expression.range) else {
+            return None;
+        };
+        let first = values.first()?;
+        let future = matches!(value.as_ref(), Type::Future(_));
+        let elements = if from_entries {
+            let entry = crate::records::identity(&crate::collections::entry_fields(&key, &value));
+            let field = |name: &str| Access::Field(entry.clone(), name.into());
+            if let Tracked::List(entries) = first {
+                let mut keys = BTreeSet::new();
+                let known = entries
+                    .iter()
+                    .map(|entry| {
+                        let key = entry.project(field("key"), self.typed(&key), false).key()?;
+                        keys.insert(key.clone()).then(|| {
+                            (
+                                Some(key),
+                                entry.project(field("value"), self.typed(&value), future),
+                            )
+                        })
+                    })
+                    .collect::<Option<Vec<_>>>();
+                if let Some(entries) = known {
+                    return Some(Tracked::Map(entries));
+                }
+            }
+            first
+                .project(
+                    Access::Each(self.call_input_type(expression)),
+                    Value::Opaque(entry.clone()),
+                    false,
+                )
+                .project(field("value"), self.typed(&value), future)
+        } else {
+            if matches!(result, Tracked::Map(entries) if !entries.is_empty() && entries.iter().all(|(key, _)| key.is_some()))
+            {
+                return None;
+            }
+            first.project(
+                Access::Each(self.call_input_type(expression)),
+                self.typed(&value),
+                future,
+            )
+        };
+        // A successful construction has exactly one output value for every
+        // input, including when the key was not known to the checker. Keep
+        // the ordinary Error exit and its independent observation obligations.
+        Some(Tracked::CollectionView(Box::new(elements)))
     }
     fn invoke_contract(
         &self,
@@ -1433,6 +1501,17 @@ impl Engine<'_> {
                     })
                     .collect(),
             ),
+            Tracked::CollectionView(elements) => Tracked::CollectionView(Box::new(
+                self.instantiate(elements, name, values, effects, state, at, offset, slots),
+            )),
+            Tracked::Batch(elements) => Tracked::Batch(
+                elements
+                    .iter()
+                    .map(|value| {
+                        self.instantiate(value, name, values, effects, state, at, offset, slots)
+                    })
+                    .collect(),
+            ),
             Tracked::Map(entries) => Tracked::Map(
                 entries
                     .iter()
@@ -2043,6 +2122,95 @@ impl Engine<'_> {
         };
         match operation {
             MapKeys => vec![Tracked::Keys(Box::new(first.clone()))],
+            MapBufferIndex => {
+                let key = values[1].key();
+                let selected = match (first, key) {
+                    (Tracked::Map(entries), _) if entries.is_empty() => Some(-1),
+                    (Tracked::Map(entries), Some(key))
+                        if entries.iter().all(|(key, _)| key.is_some()) =>
+                    {
+                        Some(
+                            entries
+                                .iter()
+                                .position(|(candidate, _)| candidate.as_ref() == Some(&key))
+                                .map_or(-1, |position| position as i64),
+                        )
+                    }
+                    _ => None,
+                };
+                vec![Tracked::Data {
+                    effect: Value::Plain,
+                    key: selected.map(Key::Int),
+                }]
+            }
+            MapEntries => {
+                let Type::List(entry) = self.type_at(expression.range) else {
+                    unreachable!("checked entries result");
+                };
+                let entry = entry.to_string();
+                let fields = &self.checked.source_types[&entry].fields;
+                let key_effect = self.typed(&fields[0].1);
+                let record = |key, value| Tracked::Record {
+                    ty: entry.clone(),
+                    fields: BTreeMap::from([("key".into(), key), ("value".into(), value)]),
+                };
+                if let Tracked::Map(entries) = first
+                    && entries.iter().all(|(key, _)| key.is_some())
+                {
+                    return vec![Tracked::List(
+                        entries
+                            .iter()
+                            .map(|(key, value)| {
+                                record(
+                                    Tracked::Data {
+                                        effect: key_effect.clone(),
+                                        key: key.clone(),
+                                    },
+                                    value.clone(),
+                                )
+                            })
+                            .collect(),
+                    )];
+                }
+                let value = &fields[1].1;
+                let values = first.project(
+                    Access::Each(self.call_input_type(expression)),
+                    self.typed(value),
+                    matches!(value, Type::Future(_)),
+                );
+                vec![Tracked::CollectionView(Box::new(record(
+                    Tracked::data(key_effect),
+                    values,
+                )))]
+            }
+            ListConcatAll => {
+                if let Tracked::List(parts) = first
+                    && parts.iter().all(|part| matches!(part, Tracked::List(_)))
+                {
+                    let mut joined = Vec::new();
+                    for part in parts {
+                        if let Tracked::List(elements) = part {
+                            joined.extend(elements.iter().cloned());
+                        }
+                    }
+                    return vec![Tracked::List(joined)];
+                }
+                let Type::List(element) = self.type_at(expression.range) else {
+                    unreachable!("checked concatAll result");
+                };
+                let part = Type::List(element.clone());
+                let parts = first.project(
+                    Access::Each(self.call_input_type(expression)),
+                    self.typed(&part),
+                    false,
+                );
+                let elements = parts.project(
+                    Access::Each(part.to_string()),
+                    self.typed(&element),
+                    matches!(element.as_ref(), Type::Future(_)),
+                );
+                vec![Tracked::CollectionView(Box::new(elements))]
+            }
             ListLength => {
                 let name = match &expression.kind {
                     ExpressionKind::Call {
@@ -2155,7 +2323,7 @@ impl Engine<'_> {
                 result.push(none());
                 result
             }
-            ListAppend => {
+            ListAppend | ListBufferAppend => {
                 if let Tracked::Members(members) = first {
                     let mut members = members.clone();
                     if members.append(&values[1]) {
@@ -2191,7 +2359,7 @@ impl Engine<'_> {
                     vec![some(self.unknown_collection(expression, values)), none()]
                 }
             }
-            MapInsert => {
+            MapInsert | MapBufferInsert => {
                 if let Tracked::Members(members) = first
                     && members.map_origin == Some(self.at(expression.range))
                     && state.map_appends.contains(&self.at(expression.range))
@@ -2225,6 +2393,7 @@ impl Engine<'_> {
                     vec![self.unknown_collection(expression, values)]
                 }
             }
+            ListBufferReserve | CollectionFinish => vec![first.clone()],
             _ => vec![self.pure(expression.range)],
         }
     }

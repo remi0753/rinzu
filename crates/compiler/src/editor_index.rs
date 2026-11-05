@@ -167,6 +167,23 @@ pub fn build_editor_index(
             source.original_offset(0),
             source.original_offset(source.text().len()),
         );
+        for import in &module.imports {
+            let qualifier = import.path.join(".");
+            let symbols = match qualifier.as_str() {
+                "rinzu.List" => crate::collections::LIST_SYMBOLS,
+                "rinzu.Map" => crate::collections::MAP_SYMBOLS,
+                _ => continue,
+            };
+            for symbol in symbols {
+                index.symbols.push(EditorSymbol {
+                    name: format!("{qualifier}.{symbol}"),
+                    kind: "import",
+                    definition: import.range,
+                    scope: file_scope,
+                    visible_from: file_scope.start_byte,
+                });
+            }
+        }
         let mut builder = Lexical {
             names: &names,
             index: &mut index,

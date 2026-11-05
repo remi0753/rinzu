@@ -178,7 +178,7 @@ fn caught_case(
         let handled = format!(
             r#"fn handled()->Int {{
             try {{let failed={expression};}}
-            catch [problem:Error,...rest] {{if problem.message!="{message}"||listLength(rest)!=0{{panic("wrongError");}}return 1;}}
+            catch [problem:Error,...rest] {{if problem.message!="{message}"||rinzu.List.length(rest)!=0{{panic("wrongError");}}return 1;}}
             return 999;
         }}"#
         );

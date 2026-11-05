@@ -193,7 +193,7 @@ impl Engine<'_> {
         if counter.len() != 1
             || self.type_at(left.range) != Type::Int
             || state.env.get(&counter[0]).and_then(Tracked::key) != Some(Key::Int(0))
-            || !self.bounded_counter(condition, body)
+            || !crate::collections::bounded_counter(self.checked, condition, body)
         {
             return Vec::new();
         }
@@ -286,7 +286,7 @@ impl Engine<'_> {
         };
         if counter.len() != 1
             || state.env.get(&counter[0]).and_then(Tracked::key) != Some(Key::Int(0))
-            || !self.bounded_counter(condition, body)
+            || !crate::collections::bounded_counter(self.checked, condition, body)
         {
             return None;
         }
@@ -316,7 +316,7 @@ impl Engine<'_> {
                 **right = Expression {
                     range: range(*at),
                     kind: ExpressionKind::Call {
-                        target: vec!["listLength".into()],
+                        target: vec![crate::DataOperation::ListLength.name().into()],
                         arguments: Arguments::Positional(vec![Expression {
                             range: range(*at),
                             kind: ExpressionKind::Name(vec![name.clone()]),

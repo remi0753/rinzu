@@ -88,6 +88,8 @@ pub(crate) fn check_with_sources(
 fn builtin_symbols() -> HashMap<String, HashMap<String, String>> {
     [
         ("rinzu.core", crate::core::FUNCTIONS.as_slice()),
+        ("rinzu.List", crate::collections::LIST_SYMBOLS),
+        ("rinzu.Map", crate::collections::MAP_SYMBOLS),
         ("rinzu.stdio", crate::stdio::FUNCTIONS.as_slice()),
         (
             "rinzu.timer",
@@ -689,7 +691,7 @@ fn check_request(
     let lower_timing = crate::timing::span("frontend.lower").detail(&manifest.name);
     let mut ir = crate::ir::lower(&checked);
     drop(lower_timing);
-    ir.source_files = source_files;
+    ir.source_files.extend(source_files);
     for package in &sdk_packages {
         if let Some(source) = &package.source {
             ir.source_files.extend(source.source_files.clone());
@@ -2047,10 +2049,7 @@ fn resolved_graph(
                             requested_path,
                             kind: if import.file.is_some() {
                                 "file"
-                            } else if matches!(
-                                target.as_str(),
-                                "rinzu.core" | "rinzu.stdio" | "rinzu.timer"
-                            ) {
+                            } else if crate::standard_library::builtin(target) {
                                 "builtin"
                             } else if local.is_some() {
                                 "dotted"

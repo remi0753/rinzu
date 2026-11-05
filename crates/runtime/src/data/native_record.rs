@@ -1,5 +1,4 @@
 //! Target-validated C layouts, independent of managed heap and wire layouts.
-use super::composite::COMPOSITE_TYPE;
 use super::*;
 use crate::scalar::{ScalarKind, ScalarValue};
 use crate::value::{ValueSchema, ValueType};

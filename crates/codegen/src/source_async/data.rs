@@ -1245,6 +1245,20 @@ impl OwnerValues {
                         let handle = checked(self.data.create_error_value(&mut self.heap, &value))?;
                         return Err(self.thrown_error(frame, operation, handle)?);
                     }
+                    Err(DataError::CollectionOverflow {
+                        operation: kind,
+                        current,
+                        added,
+                    }) => {
+                        let handle = checked(self.schema.collection_overflow(
+                            &mut self.data,
+                            &mut self.heap,
+                            kind,
+                            current,
+                            added,
+                        ))?;
+                        return Err(self.thrown_error(frame, operation, handle)?);
+                    }
                     other => checked(other)?,
                 };
                 match slot {

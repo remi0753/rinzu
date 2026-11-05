@@ -261,6 +261,8 @@ pub struct DomainHeap {
     next_handle_generation: u64,
     accounting: bool,
     gc: crate::gc::GcPolicy,
+    #[cfg(test)]
+    pub(crate) copied_fields: usize,
 }
 
 impl DomainHeap {
@@ -302,6 +304,8 @@ impl DomainHeap {
             next_handle_generation: 1,
             accounting: crate::resource_accounting::enabled(),
             gc: crate::gc::GcPolicy::default(),
+            #[cfg(test)]
+            copied_fields: 0,
         }
     }
 
@@ -361,6 +365,56 @@ impl DomainHeap {
         }
         self.finish_allocation(reference, size_bytes);
         Ok(reference)
+    }
+
+    /// Reserve fields for a private result. Null tags keep unwritten slots
+    /// inert. The caller fills the result before its next safepoint.
+    pub(crate) fn allocate_null_fields(
+        &mut self,
+        type_id: u32,
+        count: usize,
+    ) -> Result<HeapRef, HeapError> {
+        self.require_owner()?;
+        let (reference, size) = self.begin_allocation(type_id, count, FinalizerPolicy::None)?;
+        self.words
+            .resize(reference.offset_words + size as usize / size_of::<u64>(), 0);
+        self.finish_allocation(reference, size);
+        Ok(reference)
+    }
+
+    /// Copy already checked fields within this Domain. As with write_field,
+    /// the collector sees these edges by tracing the complete rooted graph.
+    pub(crate) fn copy_fields(
+        &mut self,
+        source: HeapRef,
+        start: usize,
+        target: HeapRef,
+        offset: usize,
+        count: usize,
+    ) -> Result<(), HeapError> {
+        let end = start
+            .checked_add(count)
+            .ok_or(HeapError::AddressSpaceExhausted)?;
+        if end > self.header(source)?.field_count as usize {
+            return Err(HeapError::InvalidObject(source));
+        }
+        let target_end = offset
+            .checked_add(count)
+            .ok_or(HeapError::AddressSpaceExhausted)?;
+        if target_end > self.header(target)?.field_count as usize {
+            return Err(HeapError::InvalidObject(target));
+        }
+        let source_start = source.offset_words + HEADER_WORDS;
+        let target_start = target.offset_words + HEADER_WORDS;
+        self.words.copy_within(
+            source_start + start * FIELD_WORDS..source_start + end * FIELD_WORDS,
+            target_start + offset * FIELD_WORDS,
+        );
+        #[cfg(test)]
+        {
+            self.copied_fields += count;
+        }
+        Ok(())
     }
 
     /// Packed String/Bytes words cannot contain references. Stream them into

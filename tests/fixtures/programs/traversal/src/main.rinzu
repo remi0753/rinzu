@@ -1,11 +1,13 @@
+import rinzu.List;
+import rinzu.Map;
 import rinzu.stdio;
 
 fn countMatches<T: Equality>(values: List<T>, wanted: T) -> Int {
     var count = 0;
     var index = 0;
-    let length = listLength(values);
+    let length = rinzu.List.length(values);
     while index < length {
-        switch listGet(values, index) {
+        switch rinzu.List.get(values, index) {
             case Option.Some(value): {
                 if value == wanted {
                     count = count + 1;
@@ -19,14 +21,14 @@ fn countMatches<T: Equality>(values: List<T>, wanted: T) -> Int {
 }
 
 fn sumMap<K: Key>(values: Map<K, Int>) -> Int {
-    let keys = mapKeys(values);
-    let length = listLength(keys);
+    let keys = rinzu.Map.keys(values);
+    let length = rinzu.List.length(keys);
     var total = 0;
     var index = 0;
     while index < length {
-        switch listGet(keys, index) {
+        switch rinzu.List.get(keys, index) {
             case Option.Some(key): {
-                switch mapGet(values, key) {
+                switch rinzu.Map.get(values, key) {
                     case Option.Some(value): {
                         total = total + value;
                     }
@@ -45,10 +47,10 @@ fn sumSnapshot(values: List<Int>) -> Int {
     var changed = values;
     var total = 0;
     var index = 0;
-    let count = listLength(snapshot);
+    let count = rinzu.List.length(snapshot);
     while index < count {
-        changed = listAppend(changed, index);
-        switch listGet(snapshot, index) {
+        changed = rinzu.List.append(changed, index);
+        switch rinzu.List.get(snapshot, index) {
             case Option.Some(value): {
                 total = total + value;
             }
@@ -56,7 +58,7 @@ fn sumSnapshot(values: List<Int>) -> Int {
         }
         index = index + 1;
     }
-    if listLength(changed) != count + count {
+    if rinzu.List.length(changed) != count + count {
         panic("wrongSnapshot");
     }
     return total;
@@ -70,7 +72,7 @@ async fn main() {
         let table: Map<String, Int> = {
             "first": 2, "second": 3, "first": 4
         };
-        rinzu.stdio.writeLine(mapKeys(table));
+        rinzu.stdio.writeLine(rinzu.Map.keys(table));
         let pending = spawn sumMap<String>(table);
         rinzu.stdio.writeLine(await pending);
     }

@@ -2,8 +2,9 @@
 use anyhow::{Result, anyhow, bail};
 use rinzu_compiler::{IrModule, Type};
 use rinzu_runtime::data::display::{DisplaySchema, DisplayType};
-use rinzu_runtime::data::{DataError, ManagedHandle, ManagedSlot};
-use rinzu_runtime::scalar::ScalarValue;
+use rinzu_runtime::data::{DataError, ManagedData, ManagedHandle, ManagedSlot};
+use rinzu_runtime::heap::DomainHeap;
+use rinzu_runtime::scalar::{ScalarKind, ScalarValue};
 use rinzu_runtime::value::{ValueSchema, ValueType};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -82,6 +83,44 @@ fn display_type_name(module: &IrModule, ty: &Type) -> String {
 }
 
 impl DataSchema {
+    pub fn collection_overflow(
+        &self,
+        data: &mut ManagedData,
+        heap: &mut DomainHeap,
+        operation: rinzu_compiler::DataOperation,
+        current: i64,
+        added: i64,
+    ) -> Result<ManagedHandle, DataError> {
+        let identity = operation
+            .length_overflow()
+            .ok_or(DataError::InvalidEncoding)?;
+        let ty = *self
+            .indices
+            .get(&Type::Named(identity.into()))
+            .ok_or(DataError::InvalidEncoding)?;
+        let ValueType::ErrorRecord { fields, .. } = self.value.ty(ty)? else {
+            return Err(DataError::WrongKind);
+        };
+        let [_, _, source, cause, payload] = fields.as_slice() else {
+            return Err(DataError::InvalidEncoding);
+        };
+        let int = |value: i64| {
+            ManagedSlot::Scalar(ScalarValue::from_bits(ScalarKind::I64, value as u64).unwrap())
+        };
+        // Structural fields are in canonical name order.
+        let payload = data.create_composite(heap, *payload, None, &[int(added), int(current)])?;
+        let name = data.create_string(heap, "LengthOverflow")?;
+        let message = data.create_string(heap, "collection length exceeds Int")?;
+        let source = data.create_composite(heap, *source, Some(0), &[])?;
+        let cause = data.create_composite(heap, *cause, Some(0), &[])?;
+        let children = [name, message, source, cause, payload];
+        let result = data.create_composite(heap, ty, None, &children.map(ManagedSlot::Reference));
+        for child in children {
+            data.release(heap, child)?;
+        }
+        result
+    }
+
     pub fn new(module: &IrModule) -> Result<Self> {
         let mut types = Vec::new();
         let mut indices = HashMap::new();
@@ -361,6 +400,19 @@ impl DataSchema {
         let mut source = String::new();
         for op in rinzu_compiler::DataOperation::ALL {
             source.push_str(&format!("enum {{ {} = {} }};\n", op.c_name(), op as u32));
+        }
+        for (name, op) in [
+            ("list", rinzu_compiler::DataOperation::ListAppend),
+            ("map", rinzu_compiler::DataOperation::MapInsert),
+        ] {
+            let ty = Type::Named(op.length_overflow().unwrap().into());
+            let index = self
+                .indices
+                .get(&ty)
+                .map_or("SIZE_MAX".into(), usize::to_string);
+            source.push_str(&format!(
+                "#define rinzu_{name}_length_overflow ((size_t){index})\n"
+            ));
         }
         for index in 0..self.types.len() {
             let descriptor = self.value.ty(index).expect("closed type index");

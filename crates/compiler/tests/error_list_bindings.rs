@@ -58,9 +58,10 @@ fn whole_list_is_not_a_scalar_error_and_cannot_be_thrown() {
 
 #[test]
 fn lists_can_be_retained_returned_and_captured_in_the_same_domain() {
-    compile(r#"
+    compile(r#"import rinzu.List;
+
         error A{} error B{}
         fn collect()->List<Error>{try{try{throw A(message:"a");}finally{throw B(message:"b");}}catch errors{return errors;}return [];}
-        fn main(){let values=collect();let get=fn()->List<Error>{return values;};let count=listLength(get());}
+        fn main(){let values=collect();let get=fn()->List<Error>{return values;};let count=rinzu.List.length(get());}
     "#).unwrap();
 }

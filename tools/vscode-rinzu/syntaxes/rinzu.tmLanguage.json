@@ -5,6 +5,7 @@
     { "include": "#comments" },
     { "include": "#strings" },
     { "include": "#keywords" },
+    { "include": "#collection-modules" },
     { "include": "#types" },
     { "include": "#numbers" },
     { "include": "#operators" },
@@ -119,6 +120,10 @@
         { "name": "constant.language.boolean.rinzu", "match": "\\b(?:true|false)\\b" },
         { "name": "variable.language.rinzu", "match": "\\bself\\b" }
       ]
+    },
+    "collection-modules": {
+      "name": "support.module.rinzu",
+      "match": "\\brinzu\\.(?:List|Map)\\b"
     },
     "types": {
       "name": "support.type.rinzu",

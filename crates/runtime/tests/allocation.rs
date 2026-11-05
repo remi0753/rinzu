@@ -10,6 +10,14 @@ use std::sync::{Arc, Barrier, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 thread_local! {static FAIL: Cell<bool> = const {Cell::new(false)};static FAILED: Cell<bool> = const {Cell::new(false)};}
+thread_local! {
+    static COLLECTION_ALLOCATIONS: Cell<Option<(usize, usize)>> = const { Cell::new(None) };
+}
+fn record_collection_allocation(bytes: usize) {
+    if let Some((calls, total)) = COLLECTION_ALLOCATIONS.get() {
+        COLLECTION_ALLOCATIONS.set(Some((calls + 1, total + bytes)));
+    }
+}
 struct ControlledSystem;
 fn fail() -> bool {
     if !FAIL.with(Cell::get) {
@@ -28,6 +36,7 @@ unsafe impl GlobalAlloc for ControlledSystem {
         if fail() {
             return std::ptr::null_mut();
         }
+        record_collection_allocation(layout.size());
         // SAFETY: unchanged valid layout is delegated to System.
         unsafe { System.alloc(layout) }
     }
@@ -35,6 +44,7 @@ unsafe impl GlobalAlloc for ControlledSystem {
         if fail() {
             return std::ptr::null_mut();
         }
+        record_collection_allocation(layout.size());
         // SAFETY: preserve System's zeroing and alignment contract.
         unsafe { System.alloc_zeroed(layout) }
     }
@@ -42,6 +52,7 @@ unsafe impl GlobalAlloc for ControlledSystem {
         if fail() {
             return std::ptr::null_mut();
         }
+        record_collection_allocation(size);
         // SAFETY: System receives its live pointer/layout and requested new size.
         unsafe { System.realloc(pointer, layout, size) }
     }
@@ -52,6 +63,85 @@ unsafe impl GlobalAlloc for ControlledSystem {
 }
 #[global_allocator]
 static ALLOCATOR: FatalAllocator<ControlledSystem> = FatalAllocator(ControlledSystem);
+
+#[test]
+fn growing_collection_storage_uses_geometric_allocation() {
+    use rinzu_abi::data_operation::DataOperation::*;
+    use rinzu_runtime::data::ManagedSlot;
+    use rinzu_runtime::scalar::{ScalarKind, ScalarValue};
+    use rinzu_runtime::value::{ValueSchema, ValueType};
+
+    let schema = Arc::new(
+        ValueSchema::new(vec![
+            ValueType::Scalar(ScalarKind::I64),
+            ValueType::List(0),
+            ValueType::Map { key: 0, value: 0 },
+        ])
+        .unwrap(),
+    );
+    for n in [1024, 2048] {
+        for (ty, operation) in [(1, ListBufferAppend), (2, MapBufferInsert)] {
+            let mut heap = DomainHeap::new(1);
+            let mut data = ManagedData::new(1);
+            data.configure_values(&heap, Arc::clone(&schema)).unwrap();
+            let empty = data.create_composite(&mut heap, ty, None, &[]).unwrap();
+            let mut handle = empty;
+            COLLECTION_ALLOCATIONS.set(Some((0, 0)));
+            for index in 0..n {
+                let item =
+                    ManagedSlot::Scalar(ScalarValue::from_bits(ScalarKind::I64, index).unwrap());
+                let slots = [ManagedSlot::Reference(handle), item, item];
+                let ManagedSlot::Reference(next) = data
+                    .operation(
+                        &mut heap,
+                        operation,
+                        ty,
+                        &[ty, 0, 0][..operation.arity()],
+                        &slots[..operation.arity()],
+                    )
+                    .unwrap()
+                else {
+                    panic!("collection update");
+                };
+                if next != handle && handle != empty {
+                    data.release(&mut heap, handle).unwrap();
+                }
+                handle = next;
+            }
+            if operation == MapBufferInsert {
+                let before = COLLECTION_ALLOCATIONS.get();
+                let key = ManagedSlot::Scalar(ScalarValue::from_bits(ScalarKind::I64, 3).unwrap());
+                for index in 0..n {
+                    let value = ManagedSlot::Scalar(
+                        ScalarValue::from_bits(ScalarKind::I64, index).unwrap(),
+                    );
+                    let slots = [ManagedSlot::Reference(handle), key, value];
+                    assert_eq!(
+                        data.operation(&mut heap, operation, ty, &[ty, 0, 0], &slots)
+                            .unwrap(),
+                        slots[0]
+                    );
+                }
+                assert_eq!(COLLECTION_ALLOCATIONS.get(), before);
+            }
+            let _ = data
+                .operation(
+                    &mut heap,
+                    CollectionFinish,
+                    ty,
+                    &[ty],
+                    &[ManagedSlot::Reference(handle)],
+                )
+                .unwrap();
+            let (calls, bytes) = COLLECTION_ALLOCATIONS.replace(None).unwrap();
+            assert!(
+                calls < 32 && bytes < n as usize * 1024,
+                "{operation:?}: {calls} calls, {bytes} bytes"
+            );
+            eprintln!("{operation:?} {n}: {calls} allocator requests for {bytes} bytes");
+        }
+    }
+}
 
 fn seal_stderr() {
     // SAFETY: child-private pipe remains unread, filled with nonblocking writes;

@@ -1,3 +1,4 @@
+import rinzu.List;
 import rinzu.macos;
 import rinzu.timer;
 import rinzu.process;
@@ -318,7 +319,7 @@ async fn actionsBody(app: rinzu.macos.UiApplication) {
         let joined = await scope.join();
     }
     catch errors {
-        switch listGet(errors, 0) {
+        switch rinzu.List.get(errors, 0) {
             case Option.Some(problem): {
                 if errorCode(problem) == -7891 {
                     failed = true;
@@ -354,7 +355,7 @@ async fn exercise() {
                 let finished = await rinzu.macos.application("Canvas test", 240.0, 160.0, body);
             }
             catch errors {
-                switch listGet(errors, 0) {
+                switch rinzu.List.get(errors, 0) {
                     case Option.Some(problem): {
                         if errorCode(problem) == -7890 {
                             failed = true;

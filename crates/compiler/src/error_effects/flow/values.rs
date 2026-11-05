@@ -310,7 +310,7 @@ impl Analyzer<'_> {
                     fallback,
                 ))
             }
-            ListAppend | MapInsert | ListSet => {
+            ListAppend | ListBufferAppend | MapInsert | MapBufferInsert | ListSet => {
                 let added = values.last()?.clone();
                 let fallback = match self.checked.expression_type(expression.range) {
                     Some(Type::List(element)) => self.typed(element),
@@ -327,7 +327,45 @@ impl Analyzer<'_> {
                 }
             }
             ListRemove => option(first.clone()),
-            MapRemove => first.clone(),
+            MapRemove | ListBufferReserve | CollectionFinish => first.clone(),
+            ListConcatAll => {
+                let Type::List(element) = self.checked.expression_type(expression.range)? else {
+                    return None;
+                };
+                let part = Type::List(element.clone());
+                let lists =
+                    first.project(Projection::AllElements(collection_type), self.typed(&part));
+                Value::Collection(Box::new(lists.project(
+                    Projection::AllElements(part.to_string()),
+                    self.typed(element),
+                )))
+            }
+            MapEntries => {
+                let Type::List(entry) = self.checked.expression_type(expression.range)? else {
+                    return None;
+                };
+                let Type::Named(entry) = entry.as_ref() else {
+                    return None;
+                };
+                let [(_, key), (_, value)] =
+                    self.checked.source_types.get(entry)?.fields.as_slice()
+                else {
+                    return None;
+                };
+                Value::Collection(Box::new(Value::Aggregate {
+                    ty: entry.clone(),
+                    fields: BTreeMap::from([
+                        ("key".into(), self.typed(key)),
+                        (
+                            "value".into(),
+                            first.project(
+                                Projection::AllElements(collection_type),
+                                self.typed(value),
+                            ),
+                        ),
+                    ]),
+                }))
+            }
             _ => return None,
         })
     }

@@ -7,13 +7,14 @@ use test_library::compile_library;
 
 #[test]
 fn cancellation_during_collection_updates_bypasses_catch_and_releases_data() {
-    let source = r#"
+    let source = r#"import rinzu.List;
+
 import rinzu.stdio;
 async fn main() {
     try {
         var values: List<Int> = [];
         var index = 0;
-        while index < 100 { values = listAppend(values,index); index=index+1; }
+        while index < 100 { values = rinzu.List.append(values,index); index=index+1; }
     } catch error { rinzu.stdio.writeLine("caught"); }
     finally { rinzu.stdio.writeLine("cleanup"); }
 }

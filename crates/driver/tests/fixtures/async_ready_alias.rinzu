@@ -1,3 +1,5 @@
+import rinzu.List;
+
 class Trace {
     values: List<Int>
 }
@@ -12,7 +14,12 @@ async fn gate() -> Int {
 
 async fn observe(shared: Future<Int>, trace: Trace, index: Int) -> Int {
     let result = await shared;
-    trace.values = listAppend(trace.values, index);
+    try {
+        trace.values = rinzu.List.append(trace.values, index);
+    }
+    catch [overflow: rinzu.List.LengthOverflow] {
+        panic(overflow.message);
+    }
     return result;
 }
 
@@ -22,15 +29,15 @@ async fn main() {
     var futures: List<Future<Int>> = [];
     var index = 0;
     while index < 96 {
-        futures = listAppend(futures, observe(shared, trace, index));
+        futures = rinzu.List.append(futures, observe(shared, trace, index));
         index = index + 1;
     }
-    if listLength(trace.values) != 0 {
+    if rinzu.List.length(trace.values) != 0 {
         panic("ranBeforeTurn");
     }
     index = 0;
     while index < 96 {
-        switch listGet(futures, index) {
+        switch rinzu.List.get(futures, index) {
             case Option.Some(future): {
                 let result = await future;
                 if result != 42 {
@@ -41,7 +48,7 @@ async fn main() {
                 panic("missingFuture");
             }
         }
-        switch listGet(trace.values, index) {
+        switch rinzu.List.get(trace.values, index) {
             case Option.Some(value): {
                 if value != index {
                     panic("changedOrder");

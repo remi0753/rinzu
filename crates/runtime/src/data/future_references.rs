@@ -46,13 +46,15 @@ impl ManagedData {
             if !visited.insert(reference) {
                 continue;
             }
-            if heap.header(reference)?.type_id == super::composite::COMPOSITE_TYPE {
-                let mut encoded = heap.fields_iter(reference)?;
-                let Some(HeapValue::Integer(ty)) = encoded.next() else {
-                    return Err(DataError::InvalidEncoding);
+            let kind = heap.header(reference)?.type_id;
+            if matches!(kind, COMPOSITE_TYPE | COLLECTION_BUFFER_TYPE) {
+                let ty = usize::try_from(heap.integer_field(reference, 0)?)
+                    .map_err(|_| DataError::InvalidEncoding)?;
+                let (variant, fields) = if kind == COLLECTION_BUFFER_TYPE {
+                    (None, self.buffer_fields(heap, reference, ty)?)
+                } else {
+                    self.composite_fields_iter(heap, reference, ty)?
                 };
-                let ty = usize::try_from(ty).map_err(|_| DataError::InvalidEncoding)?;
-                let (variant, fields) = self.composite_fields_iter(heap, reference, ty)?;
                 let types = super::composite::child_types(schema.ty(ty)?, variant, fields.len())?;
                 for (ty, value) in types.iter().zip(fields) {
                     match value {

@@ -22,8 +22,18 @@ pub(crate) fn function_name(path: &[String]) -> Option<&str> {
     } else {
         return None;
     };
-    (FUNCTIONS.contains(&name) || crate::DataOperation::ALL.iter().any(|op| op.name() == name))
-        .then_some(name)
+    (FUNCTIONS.contains(&name) || data_operation(path).is_some()).then_some(name)
+}
+
+pub(crate) fn data_operation(path: &[String]) -> Option<crate::DataOperation> {
+    let name = match path {
+        [name] => name.strip_prefix("rinzu.core::").unwrap_or(name),
+        [root, module, name] if root == "rinzu" && module == "core" => name,
+        _ => return None,
+    };
+    crate::DataOperation::ALL
+        .into_iter()
+        .find(|op| op.name() == name)
 }
 
 pub(crate) fn data_signature(op: crate::DataOperation, input: &Type) -> Option<(Vec<Type>, Type)> {
@@ -33,7 +43,14 @@ pub(crate) fn data_signature(op: crate::DataOperation, input: &Type) -> Option<(
         (Panic, Type::String) => (vec![Type::String], Type::Unit),
         (ListLength, Type::List(_)) => (vec![input.clone()], Type::Int),
         (ListGet, Type::List(element)) => (vec![input.clone(), Type::Int], option(element)),
-        (ListAppend, Type::List(element)) => (vec![input.clone(), *element.clone()], input.clone()),
+        (ListAppend | ListBufferAppend, Type::List(element)) => {
+            (vec![input.clone(), *element.clone()], input.clone())
+        }
+        (ListBufferReserve, Type::List(_)) => (vec![input.clone(), Type::Int], input.clone()),
+        (ListConcatAll, Type::List(part)) if matches!(part.as_ref(), Type::List(_)) => {
+            (vec![input.clone()], *part.clone())
+        }
+        (CollectionFinish, Type::List(_) | Type::Map(_, _)) => (vec![input.clone()], input.clone()),
         (ListSet, Type::List(element)) => (
             vec![input.clone(), Type::Int, *element.clone()],
             option(input),
@@ -41,12 +58,20 @@ pub(crate) fn data_signature(op: crate::DataOperation, input: &Type) -> Option<(
         (ListRemove, Type::List(_)) => (vec![input.clone(), Type::Int], option(input)),
         (MapLength, Type::Map(_, _)) => (vec![input.clone()], Type::Int),
         (MapGet, Type::Map(key, value)) => (vec![input.clone(), *key.clone()], option(value)),
-        (MapInsert, Type::Map(key, value)) => (
+        (MapInsert | MapBufferInsert, Type::Map(key, value)) => (
             vec![input.clone(), *key.clone(), *value.clone()],
             input.clone(),
         ),
         (MapRemove, Type::Map(key, _)) => (vec![input.clone(), *key.clone()], input.clone()),
         (MapKeys, Type::Map(key, _)) => (vec![input.clone()], Type::List(key.clone())),
+        (MapBufferIndex, Type::Map(key, _)) => (vec![input.clone(), *key.clone()], Type::Int),
+        (MapEntries, Type::Map(key, value)) => {
+            let identity = crate::records::identity(&crate::collections::entry_fields(key, value));
+            (
+                vec![input.clone()],
+                Type::List(Box::new(Type::Named(identity))),
+            )
+        }
         (ByteArray, Type::FixedBytes(_)) => (vec![input.clone()], Type::Bytes),
         (ByteArray, Type::List(t)) if **t == Type::Scalar(AbiScalar::U8) => {
             (vec![input.clone()], Type::Bytes)

@@ -111,9 +111,7 @@ impl Expander {
         if self.inference_active
             && formals.is_empty()
             && !self.local_target(target)
-            && let Some(operation) = crate::DataOperation::ALL
-                .into_iter()
-                .find(|operation| Some(operation.name()) == crate::core::function_name(target))
+            && let Some(operation) = crate::core::data_operation(target)
             && let Arguments::Positional(values) = arguments
             && let Some(first) = values.first_mut()
         {

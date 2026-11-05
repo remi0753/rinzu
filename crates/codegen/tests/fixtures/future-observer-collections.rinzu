@@ -1,3 +1,4 @@
+import rinzu.List;
 import rinzu.stdio;
 
 error Failed {
@@ -27,7 +28,7 @@ fn make(count: Int) -> List<Future<Unit>> {
     while index < count {
         let pending = fail(331 + index * 6);
         let job = receive(pending);
-        jobs = listAppend(jobs, job);
+        jobs = rinzu.List.append(jobs, job);
         index = index + 1;
     }
     return jobs;
@@ -35,8 +36,8 @@ fn make(count: Int) -> List<Future<Unit>> {
 
 async fn waitAll(jobs: List<Future<Unit>>) {
     var index = 0;
-    while index < listLength(jobs) {
-        switch listGet(jobs, index) {
+    while index < rinzu.List.length(jobs) {
+        switch rinzu.List.get(jobs, index) {
             case Option.Some(job): {
                 await job;
             }
@@ -53,7 +54,7 @@ fn start(jobs: List<Future<Unit>>) -> Future<Unit> {
 async fn main() {
     let jobs = make(3);
     await start(jobs);
-    switch listGet(jobs, 0) {
+    switch rinzu.List.get(jobs, 0) {
         case Option.Some(job): {
             let cancelled = cancelFuture(job);
         }

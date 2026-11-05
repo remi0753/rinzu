@@ -20,4 +20,4 @@ These pages describe public source declarations. Standard packages can be import
 | `rinzu.stream` | [API](sdk-stream.md) |
 | `rinzu.testing` | [API](sdk-testing.md) |
 
-Built-in core, stdio, and timer APIs are described in the [core reference](../libraries/core.md) and [standard library overview](../libraries/overview.md).
+See the [core reference](../libraries/core.md), [collection API reference](../libraries/collections.md), and [standard library overview](../libraries/overview.md) for built-in modules.

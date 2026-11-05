@@ -17,7 +17,7 @@ impl ManagedData {
         self.operation_hashed(heap, op, result, types, slots, |hash| hash)
     }
 
-    fn operation_hashed(
+    pub(super) fn operation_hashed(
         &mut self,
         heap: &mut DomainHeap,
         op: DataOperation,
@@ -38,6 +38,18 @@ impl ManagedData {
                 return Err(DataError::WrongKind);
             };
             return Err(DataError::Panic(self.string(heap, handle)?));
+        }
+        if matches!(
+            op,
+            ListConcatAll
+                | MapEntries
+                | ListBufferReserve
+                | ListBufferAppend
+                | MapBufferInsert
+                | MapBufferIndex
+                | CollectionFinish
+        ) {
+            return self.collection_construction(heap, op, result, types[0], slots, remap_hash);
         }
         if matches!(
             op,
@@ -102,18 +114,6 @@ impl ManagedData {
             }
             return output.map(ManagedSlot::Reference);
         }
-        // End the readonly loan before allocating. Source containers and input
-        // arguments stay rooted; allocation never moves/collects this heap.
-        let child_types = super::composite::child_types(&layout, None, fields.len())?;
-        let extra = match op {
-            ListAppend => 1,
-            MapInsert => 2,
-            _ => 0,
-        };
-        let mut children = Vec::with_capacity(fields.len() + extra);
-        for (ty, field) in child_types.iter().zip(fields) {
-            children.push(self.decode_slot_field(heap, ty, field)?);
-        }
         let index = if matches!(op, ListSet | ListRemove) {
             match slots[1] {
                 ManagedSlot::Scalar(value) if value.kind() == ScalarKind::I64 => {
@@ -124,15 +124,15 @@ impl ManagedData {
                 _ => return Err(DataError::InvalidEncoding),
             }
         } else if matches!(op, MapInsert | MapRemove) {
-            let ValueType::Map { key, .. } = layout else {
+            let ValueType::Map { key, .. } = &layout else {
                 return Err(DataError::WrongKind);
             };
+            let key = *key;
             let schema = self.value_schema()?;
             let wanted = self.snapshot(heap, key, slots[1])?;
             let wanted_hash = remap_hash(schema.key_hash(key, &wanted)?);
             let mut found = None;
-            for (index, pair) in children.chunks_exact(2).enumerate() {
-                let field = self.decoded_slot_field(heap, key, pair[0])?;
+            for (index, field) in fields.clone().step_by(2).enumerate() {
                 let candidate = self.snapshot_field(heap, key, field)?;
                 if remap_hash(schema.key_hash(key, &candidate)?) == wanted_hash
                     && schema.equal(key, &candidate, &wanted)?
@@ -145,6 +145,28 @@ impl ManagedData {
         } else {
             None
         };
+        let extra = match op {
+            ListAppend => {
+                super::collections::added_length(op, count, 1)?;
+                1
+            }
+            MapInsert if index.is_none() => {
+                super::collections::added_length(op, count, 1)?;
+                2
+            }
+            _ => 0,
+        };
+        // End the readonly loan before allocating. Source containers and input
+        // arguments stay rooted; allocation never moves/collects this heap.
+        let child_types = super::composite::child_types(&layout, None, fields.len())?;
+        let capacity = fields
+            .len()
+            .checked_add(extra)
+            .ok_or(DataError::AddressSpaceExhausted)?;
+        let mut children = Vec::with_capacity(capacity);
+        for (ty, field) in child_types.iter().zip(fields) {
+            children.push(self.decode_slot_field(heap, ty, field)?);
+        }
         let mut option = None;
         match op {
             ListAppend => children.push(self.decode_rooted_slot(heap, slots[1])?),

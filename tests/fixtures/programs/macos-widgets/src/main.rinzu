@@ -1,3 +1,4 @@
+import rinzu.List;
 import rinzu.timer;
 import rinzu.macos;
 import rinzu.process;
@@ -26,7 +27,7 @@ class Screen {
                         if !owner.isStopping() {
                             self.analyses = self.analyses + 1;
                             let updated = self.status.setText(
-                                f"Analysis {self.analyses}: {stringLength(snapshot)} characters, {listLength(stringSplit(snapshot, "\n"))} lines"
+                                f"Analysis {self.analyses}: {stringLength(snapshot)} characters, {rinzu.List.length(stringSplit(snapshot, "\n"))} lines"
                             );
                         }
                     }
@@ -112,7 +113,7 @@ async fn main() {
     }
     catch errors {
         try {
-            switch listGet(errors, 0) {
+            switch rinzu.List.get(errors, 0) {
                 case Option.Some(problem): {
                     rinzu.stdio.writeLine(f"Widgets failed: {errorMessage(problem)} {errorContext(problem)}");
                 }

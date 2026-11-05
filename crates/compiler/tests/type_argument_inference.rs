@@ -13,7 +13,10 @@ const BASE: &str = "fn identity<T>(value:T)->T{return value;} fn same<T>(first:T
 #[test]
 fn arguments_expected_results_constructors_and_typed_callbacks_infer() {
     let text = format!(
-        r#"{BASE}
+        r#"
+import rinzu.List;
+import rinzu.Map;
+{BASE}
 fn transform<T,U>(value:T,callback:fn(T)->U)->U{{return callback(value);}}
 fn nested()->Option<String>{{return Option.None();}}
 fn take(value:Option<Int>){{}}
@@ -29,10 +32,10 @@ fn main(){{
     let explicit=identity<Int>(42);
     take(Option.None());
     let options:List<Option<Int>> = [Option.Some(value:1)];
-    let appended=listAppend(options,Option.None());
-    let replaced=listSet(appended,0,Option.None());
+    let appended=rinzu.List.append(options,Option.None());
+    let replaced=rinzu.List.set(appended,0,Option.None());
     let mapped:Map<String,Option<Int>> = {{"first":Option.Some(value:1)}};
-    let inserted=mapInsert(mapped,"second",Option.None());
+    let inserted=rinzu.Map.insert(mapped,"second",Option.None());
     let accept:fn(Option<Int>)->Int=fn(value:Option<Int>)->Int{{return 1;}};
     let accepted=accept(Option.None());
     let a=identity({{x:Int=1,y="yes"}});
@@ -59,7 +62,7 @@ fn no_backwards_inference_or_implicit_conversion_resolves_ambiguity() {
 
 #[test]
 fn local_callables_can_shadow_core_operations_without_changing_inference() {
-    compile("fn main(){let listAppend:fn(Option<Int>,Int)->Int=fn(value:Option<Int>,other:Int)->Int{return other;};let result=listAppend(Option.None(),7);}").unwrap();
+    compile("fn main(){let byteLength:fn(Option<Int>,Int)->Int=fn(value:Option<Int>,other:Int)->Int{return other;};let result=byteLength(Option.None(),7);}").unwrap();
 }
 
 #[test]

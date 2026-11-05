@@ -1,3 +1,4 @@
+import rinzu.List;
 import rinzu.stdio;
 
 error Failed {}
@@ -7,17 +8,17 @@ async fn fail() {
 }
 
 async fn observeList<T>(values: List<Future<T>>) -> Int {
-    let length = listLength(values);
+    let length = rinzu.List.length(values);
     var index = 0;
     var caught = 0;
     while index < length {
-        switch listGet(values, index) {
+        switch rinzu.List.get(values, index) {
             case Option.Some(value): {
                 try {
                     let result = await value;
                 }
                 catch errors {
-                    caught = caught + listLength(errors);
+                    caught = caught + rinzu.List.length(errors);
                 }
             }
             case Option.None: {}
@@ -40,8 +41,8 @@ async fn main() {
         let values = [a, b, a];
         var index = 0;
         try all {
-            while index < listLength(values) {
-                switch listGet(values, index) {
+            while index < rinzu.List.length(values) {
+                switch rinzu.List.get(values, index) {
                     case Option.Some(value): {
                         await value;
                     }
@@ -51,7 +52,7 @@ async fn main() {
             }
         }
         catch errors {
-            rinzu.stdio.writeLine(listLength(errors));
+            rinzu.stdio.writeLine(rinzu.List.length(errors));
         }
     }
     catch errors {}

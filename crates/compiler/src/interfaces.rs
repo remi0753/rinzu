@@ -732,7 +732,7 @@ impl Resolver<'_> {
         // Only collection operations can return a constrained element without a
         // source function signature. Other intrinsics cannot manufacture R.
         if let Arguments::Positional(args) = arguments
-            && let Some(name) = crate::core::function_name(target)
+            && let Some(operation) = crate::core::data_operation(target)
             && let Some(input) = args.first().and_then(|a| self.infer(a))
         {
             let option = |t| TypeRef {
@@ -742,13 +742,14 @@ impl Resolver<'_> {
                     arguments: vec![t],
                 },
             };
-            match (name, &input.kind) {
-                ("listGet", TypeRefKind::List(t)) | ("mapGet", TypeRefKind::Map(_, t)) => {
+            use crate::DataOperation::*;
+            match (operation, &input.kind) {
+                (ListGet, TypeRefKind::List(t)) | (MapGet, TypeRefKind::Map(_, t)) => {
                     return Some(option(*t.clone()));
                 }
-                ("listAppend", _) | ("mapInsert", _) | ("mapRemove", _) => return Some(input),
-                ("listSet" | "listRemove", _) => return Some(option(input)),
-                ("mapKeys", TypeRefKind::Map(k, _)) => {
+                (ListAppend | MapInsert | MapRemove, _) => return Some(input),
+                (ListSet | ListRemove, _) => return Some(option(input)),
+                (MapKeys, TypeRefKind::Map(k, _)) => {
                     return Some(TypeRef {
                         range: e.range,
                         kind: TypeRefKind::List(k.clone()),

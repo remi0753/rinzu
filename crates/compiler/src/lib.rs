@@ -1,11 +1,12 @@
 //! Rinzu 0.5 frontend.
 
 /// Grammar and meaning used by parse/check, independently of a legacy manifest version.
-pub const LANGUAGE_SEMANTICS_REVISION: &str = "rinzu-language-0.5-r78";
+pub const LANGUAGE_SEMANTICS_REVISION: &str = "rinzu-language-0.5-r79";
 
 pub mod ast;
 mod ast_walk;
 mod closures;
+mod collections;
 mod compilation;
 mod core;
 mod lambdas;

@@ -1,3 +1,4 @@
+import rinzu.List;
 import rinzu.timer;
 import "./document.rinzu" as documents;
 import "./document_files.rinzu" as documentFiles;
@@ -1980,11 +1981,11 @@ class UiScope {
             }
             var active: List<UiTask> = [];
             var index = 0;
-            while index < listLength(self.tasks) {
-                switch listGet(self.tasks, index) {
+            while index < rinzu.List.length(self.tasks) {
+                switch rinzu.List.get(self.tasks, index) {
                     case Option.Some(job): {
                         if !job.done {
-                            active = listAppend(active, job);
+                            active = rinzu.List.append(active, job);
                         }
                     }
                     case Option.None: {}
@@ -1992,11 +1993,11 @@ class UiScope {
                 index = index + 1;
             }
             self.tasks = active;
-            if listLength(self.tasks) >= 256 {
+            if rinzu.List.length(self.tasks) >= 256 {
                 throw error(-7803, "UI scope job limit");
             }
             let job = UiTask(pending: Option<Future<Unit>>.None(), done: false, started: false);
-            self.tasks = listAppend(self.tasks, job);
+            self.tasks = rinzu.List.append(self.tasks, job);
             job.pending = Option<Future<Unit>>.Some(value: uiRunJob(self, job, work));
         }
         return 0;
@@ -2087,7 +2088,7 @@ class UiScope {
         clear: Color,
         draw: fn (Frame2D) -> Future<Unit>
     ) -> Canvas2D {
-        if self.control.stopping || listLength(self.canvases) >= 256 {
+        if self.control.stopping || rinzu.List.length(self.canvases) >= 256 {
             throw error(-7803, "macos.canvas.limitOrStopping");
         }
         var result: Option<Canvas2D> = Option<Canvas2D>.None();
@@ -2116,7 +2117,7 @@ class UiScope {
                 );
                 let root = self.window.contentView();
                 let attached = root.addSubview(surface);
-                self.canvases = listAppend(self.canvases, canvas);
+                self.canvases = rinzu.List.append(self.canvases, canvas);
                 result = Option<Canvas2D>.Some(value: canvas);
                 retained = true;
             }
@@ -2157,7 +2158,7 @@ class UiScope {
                 }
                 catch errors {
                     uiDisposeCanvas(created);
-                    switch listGet(errors, 0) {
+                    switch rinzu.List.get(errors, 0) {
                         case Option.Some(problem): {
                             throw problem;
                         }
@@ -2214,6 +2215,18 @@ class UiScope {
     }
 }
 
+fn uiStoreErrors(scope: UiScope, errors: List<Error>) {
+    try {
+        for problem in errors {
+            scope.errors = rinzu.List.append(scope.errors, problem);
+        }
+    }
+    catch [overflow: rinzu.List.LengthOverflow] {
+        scope.errors = [overflow];
+        scope.reportedErrors = 0;
+    }
+}
+
 async fn uiRunJob(scope: UiScope, job: UiTask, work: fn (UiJob) -> Future<Unit>) {
     var settledNormally = false;
     try {
@@ -2226,16 +2239,7 @@ async fn uiRunJob(scope: UiScope, job: UiTask, work: fn (UiJob) -> Future<Unit>)
         settledNormally = true;
     }
     catch errors {
-        var errorIndex = 0;
-        while errorIndex < listLength(errors) {
-            switch listGet(errors, errorIndex) {
-                case Option.Some(problem): {
-                    scope.errors = listAppend(scope.errors, problem);
-                }
-                case Option.None: {}
-            }
-            errorIndex = errorIndex + 1;
-        }
+        uiStoreErrors(scope, errors);
         scope.control.stopping = true;
         try {
             if scope.session.isRunning() {
@@ -2264,7 +2268,7 @@ async fn uiRunJob(scope: UiScope, job: UiTask, work: fn (UiJob) -> Future<Unit>)
 /// Register before spawning. A NoFail watcher and started/done handshake cover
 /// cancellation before the caller receives its Future. No native callback owns work.
 async fn uiJoinJobs(tasks: List<UiTask>, index: Int) {
-    switch listGet(tasks, index) {
+    switch rinzu.List.get(tasks, index) {
         case Option.Some(job): {
             try {
                 switch job.pending {
@@ -2302,8 +2306,8 @@ fn uiScope(session: Session, window: Window) -> UiScope {
 
 fn uiReportErrors(scope: UiScope) -> Int {
     let first = scope.reportedErrors;
-    scope.reportedErrors = listLength(scope.errors);
-    switch listGet(scope.errors, first) {
+    scope.reportedErrors = rinzu.List.length(scope.errors);
+    switch rinzu.List.get(scope.errors, first) {
         case Option.Some(problem): {
             throw problem;
         }
@@ -2382,16 +2386,7 @@ async fn uiObserveOsLoop(scope: UiScope) {
         let result = await scope.session.runEvents();
     }
     catch errors {
-        var index = 0;
-        while index < listLength(errors) {
-            switch listGet(errors, index) {
-                case Option.Some(problem): {
-                    scope.errors = listAppend(scope.errors, problem);
-                }
-                case Option.None: {}
-            }
-            index = index + 1;
-        }
+        uiStoreErrors(scope, errors);
         scope.control.stopping = true;
         try {
             let stopped = checked(Int(rawRequestStop(scope.session.handle)), "macos.run.failure.stop");
@@ -2796,7 +2791,7 @@ let actionRedo = -2;
 /// Equal cells. Call again on eventResized; coordinates remain AppKit points.
 fn layoutStack(parent: View, children: List<View>, padding: Float, gap: Float, vertical: Bool) -> Int {
     let bounds = parent.frame();
-    let count = listLength(children);
+    let count = rinzu.List.length(children);
     if padding < 0.0 || gap < 0.0 || bounds.width < padding * 2.0 || bounds.height < padding * 2.0 {
         throw error(-7804, "macos.layout.invalidSpacing");
     }
@@ -2814,7 +2809,7 @@ fn layoutStack(parent: View, children: List<View>, padding: Float, gap: Float, v
     let cell = available / Float(count);
     var index = 0;
     while index < count {
-        switch listGet(children, index) {
+        switch rinzu.List.get(children, index) {
             case Option.Some(child): {
                 var frame = Rect(
                     x: padding + Float(index) * (cell + gap),
@@ -3346,7 +3341,7 @@ class Batch2D {
                 Quad2D(destination: destination, uv: uv, tint: tint, transform: compose2D(self.transform, projection))
             );
             var grouped = false;
-            switch listGet(self.draws, listLength(self.draws) - 1) {
+            switch rinzu.List.get(self.draws, rinzu.List.length(self.draws) - 1) {
                 case Option.None: {}
                 case Option.Some(last): {
                     if last.textureId == id
@@ -3365,7 +3360,7 @@ class Batch2D {
                 if self.filter == filterNearest {
                     sampler = self.nearest;
                 }
-                self.draws = listAppend(
+                self.draws = rinzu.List.append(
                     self.draws,
                     BatchDraw2D(
                         texture: texture,
@@ -3383,7 +3378,7 @@ class Batch2D {
     }
 
     fn drawCallCount(self: Batch2D) -> Int {
-        return listLength(self.draws);
+        return rinzu.List.length(self.draws);
     }
 
     /// Encode into an already begun pass. On Error the caller must abandon it.
@@ -3406,8 +3401,8 @@ class Batch2D {
         }
         let installed = command.setRenderPipeline(pipeline);
         var index = 0;
-        while index < listLength(self.draws) {
-            switch listGet(self.draws, index) {
+        while index < rinzu.List.length(self.draws) {
+            switch rinzu.List.get(self.draws, index) {
                 case Option.None: {
                     throw error(-7804, "macos.batch2D.span");
                 }
@@ -3641,8 +3636,8 @@ async fn canvasLoop(job: UiJob, canvas: Canvas2D, draw: fn (Frame2D) -> Future<U
                     }
                     catch errors {
                         var index = 0;
-                        while index < listLength(errors) {
-                            switch listGet(errors, index) {
+                        while index < rinzu.List.length(errors) {
+                            switch rinzu.List.get(errors, index) {
                                 case Option.None: {}
                                 case Option.Some(problem): {
                                     if errorCode(problem) != -7810 {
@@ -3691,12 +3686,12 @@ class UiActions {
     bindings: List<UiAction>
 
     fn on(self: UiActions, action: Int, handler: fn (UiJob, UiEvent) -> Future<Unit>) {
-        if listLength(self.bindings) >= 256 {
+        if rinzu.List.length(self.bindings) >= 256 {
             throw error(-7803, "macos.actions.limit");
         }
         var index = 0;
-        while index < listLength(self.bindings) {
-            switch listGet(self.bindings, index) {
+        while index < rinzu.List.length(self.bindings) {
+            switch rinzu.List.get(self.bindings, index) {
                 case Option.None: {}
                 case Option.Some(binding): {
                     if binding.action == action {
@@ -3706,7 +3701,7 @@ class UiActions {
             }
             index = index + 1;
         }
-        self.bindings = listAppend(self.bindings, UiAction(action: action, handler: handler, busy: false));
+        self.bindings = rinzu.List.append(self.bindings, UiAction(action: action, handler: handler, busy: false));
     }
 
     fn handle(self: UiActions, scope: UiScope, event: UiEvent) {
@@ -3725,8 +3720,8 @@ class UiActions {
             return;
         }
         var index = 0;
-        while index < listLength(self.bindings) {
-            switch listGet(self.bindings, index) {
+        while index < rinzu.List.length(self.bindings) {
+            switch rinzu.List.get(self.bindings, index) {
                 case Option.None: {}
                 case Option.Some(binding): {
                     if binding.action == event.action && !binding.busy {
@@ -3771,7 +3766,7 @@ class LayoutItem {
 }
 
 fn weightedStack(parent: View, children: List<LayoutItem>, padding: Float, gap: Float, vertical: Bool) -> Int {
-    if !(padding >= 0.0 && padding <= 32768.0 && gap >= 0.0 && gap <= 32768.0) || listLength(children) > 256 {
+    if !(padding >= 0.0 && padding <= 32768.0 && gap >= 0.0 && gap <= 32768.0) || rinzu.List.length(children) > 256 {
         throw error(-7804, "macos.layout.spacing");
     }
     let bounds = parent.frame();
@@ -3781,7 +3776,7 @@ fn weightedStack(parent: View, children: List<LayoutItem>, padding: Float, gap: 
         extent = bounds.height - padding * 2.0;
         cross = bounds.width - padding * 2.0;
     }
-    let count = listLength(children);
+    let count = rinzu.List.length(children);
     if count == 0 {
         return 0;
     }
@@ -3789,7 +3784,7 @@ fn weightedStack(parent: View, children: List<LayoutItem>, padding: Float, gap: 
     var weights = 0.0;
     var index = 0;
     while index < count {
-        switch listGet(children, index) {
+        switch rinzu.List.get(children, index) {
             case Option.None: {}
             case Option.Some(item): {
                 if !(item.fixed >= 0.0 && item.fixed <= 32768.0 && item.grow >= 0.0 && item.grow <= 32768.0) {
@@ -3808,7 +3803,7 @@ fn weightedStack(parent: View, children: List<LayoutItem>, padding: Float, gap: 
     var offset = padding;
     index = 0;
     while index < count {
-        switch listGet(children, index) {
+        switch rinzu.List.get(children, index) {
             case Option.None: {}
             case Option.Some(item): {
                 var size = item.fixed;
@@ -3862,8 +3857,8 @@ fn uiDisposeCanvas(canvas: Canvas2D) {
 
 fn uiCloseCanvases(scope: UiScope) {
     var index = 0;
-    while index < listLength(scope.canvases) {
-        switch listGet(scope.canvases, index) {
+    while index < rinzu.List.length(scope.canvases) {
+        switch rinzu.List.get(scope.canvases, index) {
             case Option.None: {}
             case Option.Some(canvas): {
                 uiDisposeCanvas(canvas);
@@ -4058,9 +4053,9 @@ class DataView {
 
     async fn setRows(self: DataView, rows: List<DataRow>) {
         await self.generateRows(
-            listLength(rows),
+            rinzu.List.length(rows),
             fn (index: Int) -> DataRow {
-                switch listGet(rows, index) {
+                switch rinzu.List.get(rows, index) {
                     case Option.Some(row): {
                         return row;
                     }
@@ -4074,13 +4069,13 @@ class DataView {
 }
 
 fn dataCells(cells: List<String>, columns: Int) -> ByteArray {
-    if listLength(cells) != columns {
+    if rinzu.List.length(cells) != columns {
         throw error(-7804, "macos.data.columnCount");
     }
     var result = "";
     var index = 0;
     while index < columns {
-        switch listGet(cells, index) {
+        switch rinzu.List.get(cells, index) {
             case Option.Some(cell): {
                 let bytes = utf8Encode(cell);
                 if byteLength(bytes) > 65536 {
@@ -4100,12 +4095,15 @@ fn dataCells(cells: List<String>, columns: Int) -> ByteArray {
 }
 
 fn createDataView(scope: UiScope, kind: Int, columns: List<DataColumn>, frame: Rect, action: Int) -> DataView {
-    if scope.control.closed || scope.control.stopping || listLength(columns) < 1 || listLength(columns) > 32 {
+    if scope.control.closed
+        || scope.control.stopping
+        || rinzu.List.length(columns) < 1
+        || rinzu.List.length(columns) > 32 {
         throw error(-7804, "macos.data.columnsOrStopping");
     }
     var index = 0;
-    while index < listLength(columns) {
-        switch listGet(columns, index) {
+    while index < rinzu.List.length(columns) {
+        switch rinzu.List.get(columns, index) {
             case Option.Some(column): {
                 if !(column.width >= 16.0 && column.width <= 4096.0) || byteLength(utf8Encode(column.title)) > 4096 {
                     throw error(-7804, "macos.data.column");
@@ -4117,14 +4115,17 @@ fn createDataView(scope: UiScope, kind: Int, columns: List<DataColumn>, frame: R
     }
     let view = View(
         handle: rawView(
-            checked(rawDataCreate(scope.window.handle, kind, listLength(columns), frame, action), "macos.data.create")
+            checked(
+                rawDataCreate(scope.window.handle, kind, rinzu.List.length(columns), frame, action),
+                "macos.data.create"
+            )
         )
     );
     var retained = false;
     try {
         index = 0;
-        while index < listLength(columns) {
-            switch listGet(columns, index) {
+        while index < rinzu.List.length(columns) {
+            switch rinzu.List.get(columns, index) {
                 case Option.Some(column): {
                     let bytes = utf8Encode(column.title);
                     let configured = checked(
@@ -4136,7 +4137,7 @@ fn createDataView(scope: UiScope, kind: Int, columns: List<DataColumn>, frame: R
             }
             index = index + 1;
         }
-        let data = DataView(view: view, columns: listLength(columns), control: scope.control);
+        let data = DataView(view: view, columns: rinzu.List.length(columns), control: scope.control);
         retained = true;
         return data;
     }

@@ -233,6 +233,7 @@ pub struct CheckedModule {
     pub core_lengths: HashMap<SourceRange, crate::CoreLengthKind>,
     pub task_controls: HashMap<SourceRange, crate::TaskControlKind>,
     pub data_operations: HashMap<SourceRange, crate::DataOperation>,
+    pub(crate) in_bounds_collection_updates: HashSet<SourceRange>,
     pub stdout_calls: HashMap<SourceRange, bool>,
     pub syntax: Module,
     pub functions: Vec<CheckedFunction>,
@@ -444,7 +445,8 @@ pub fn check_module_with_options(
     options: &CompilerOptions,
 ) -> Result<CheckedModule, Vec<Diagnostic>> {
     let _timing = crate::timing::span("frontend.check");
-    let module = crate::methods::expand_exports(module)?;
+    let module = crate::collections::prepare(module);
+    let module = crate::methods::expand_exports(&module)?;
     crate::package::validate_public_signatures(
         &module,
         &module
@@ -487,6 +489,7 @@ pub fn check_module_with_options(
     } else {
         checked
     };
+    checked.in_bounds_collection_updates = crate::ir::collection_buffers::in_bounds(&checked);
     let summaries = crate::error_effects::analyze(&checked, !options.is_library)?;
     for function in &mut checked.functions {
         function.error_types =
@@ -780,6 +783,7 @@ impl<'a> Checker<'a> {
             core_lengths: self.core_lengths,
             task_controls: self.task_controls,
             data_operations: self.data_operations,
+            in_bounds_collection_updates: HashSet::new(),
             stdout_calls: self.stdout_calls,
             syntax,
             functions,
@@ -2791,6 +2795,14 @@ impl<'a> Checker<'a> {
             context.facts.may_fail = true;
             return Some(*signature.result);
         }
+        if let [root, module, ..] = target
+            && root == "rinzu"
+            && matches!(module.as_str(), "List" | "Map")
+        {
+            // A valid import links the dotted path to a canonical symbol.
+            self.unknown_name(&qualified, range);
+            return None;
+        }
         if let Some(newline) = crate::stdio::call(target) {
             if target.len() > 1
                 && !self
@@ -2887,9 +2899,8 @@ impl<'a> Checker<'a> {
             self.task_controls.insert(range, kind);
             return Some(Type::Bool);
         }
-        if let Some(op) = crate::DataOperation::ALL
-            .into_iter()
-            .find(|op| Some(op.name()) == core)
+        if let Some(op) = crate::core::data_operation(target)
+            .filter(|_| !self.declarations.contains_key(&qualified))
         {
             let Arguments::Positional(values) = arguments else {
                 self.type_error(range, "data operation requires positional arguments");
@@ -2914,6 +2925,11 @@ impl<'a> Checker<'a> {
                 self.expect_expression(value, expected, context);
             }
             use crate::DataOperation::*;
+            if op == MapEntries
+                && let Type::Map(key, value) = &input
+            {
+                self.intern_record(crate::collections::entry_fields(key, value), range)?;
+            }
             let payload = match (op, &input) {
                 (ListGet, Type::List(t)) => Some(t.as_ref()),
                 (ListSet | ListRemove, _) => Some(&input),

@@ -1,3 +1,5 @@
+import rinzu.List;
+
 class Layer {
     const apply: fn (Int) -> Int
 }
@@ -16,14 +18,14 @@ fn invokeAsync(layer: AsyncLayer) -> Future<Int> {
 
 async fn main() {
     let layers: List<Layer> = [];
-    switch listGet(layers, 0) {
+    switch rinzu.List.get(layers, 0) {
         case Option.Some(layer): {
             let value = invoke(layer);
         }
         case Option.None: {}
     }
     let asynchronous: List<AsyncLayer> = [];
-    switch listGet(asynchronous, 0) {
+    switch rinzu.List.get(asynchronous, 0) {
         case Option.Some(asyncLayer): {
             try {
                 let asyncValue = await invokeAsync(asyncLayer);

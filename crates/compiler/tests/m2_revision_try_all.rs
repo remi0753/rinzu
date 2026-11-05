@@ -31,7 +31,7 @@ fn try_all_uses_statement_edges_unbound_reads_and_list_catch() {
             .any(|op| matches!(op.kind, OperationKind::FinishErrorGroup { .. }))
     );
     for text in [
-        "async fn child(){} async fn main(){try all {let pending=child();await pending;} catch errors {let count=listLength(errors);}}",
+        "import rinzu.List;\nasync fn child(){} async fn main(){try all {let pending=child();await pending;} catch errors {let count=rinzu.List.length(errors);}}",
         "async fn main(){try{try all {let bad=CInt8(300);} finally {}}catch errors{}}",
         "async fn main(){try all {try all {let bad=CInt8(300);} catch inner {}} catch outer {}}",
         "async fn child(){} async fn main(){child();}",

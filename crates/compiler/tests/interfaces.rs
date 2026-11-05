@@ -19,6 +19,8 @@ fn invalid(source: &str) {
     );
 }
 const READERS: &str = r#"
+import rinzu.List;
+import rinzu.Map;
 error ReadFailed{}
 interface Reader{fn read(self:Self)->String throws ReadFailed;}
 class MemoryReader interface Reader{text:String fn read(self:MemoryReader)->String nothrow{return self.text;}}
@@ -95,8 +97,8 @@ fn interface_contracts_follow_symbolic_values_through_containers_fields_and_clos
     for body in [
         "let item={reader=r};return item.reader.read();",
         "let values=[r];for value in values{return value.read();}return \"empty\";",
-        "let item=listGet([r],0);switch item{case Option.Some(value):{return value.read();}case Option.None:{return \"empty\";}}",
-        "let item=mapGet({\"key\":r},\"key\");switch item{case Option.Some(value):{return value.read();}case Option.None:{return \"empty\";}}",
+        "let item=rinzu.List.get([r],0);switch item{case Option.Some(value):{return value.read();}case Option.None:{return \"empty\";}}",
+        "let item=rinzu.Map.get({\"key\":r},\"key\");switch item{case Option.Some(value):{return value.read();}case Option.None:{return \"empty\";}}",
         "let get=fn()->R nothrow{return r;};let value=get();return value.read();",
         "let read=fn()->String nothrow{return r.read();};return read();",
         "let value=identity(r);return value.read();",

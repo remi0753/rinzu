@@ -52,6 +52,12 @@ typedef struct rinzu_managed_value {
       size_t scalar_length;
       unsigned char *bytes;
     };
+    /* Private List/Map construction. Capacity stays valid if the published
+       result takes ownership of the buffer. Error records use error_source. */
+    struct {
+      size_t collection_capacity;
+      unsigned collection_building;
+    };
     rinzu_source_position_t error_source;
   };
   union {
@@ -518,6 +524,19 @@ static inline void rinzu_managed_account_payload(rinzu_managed_data_t *data,
   value->accounted_bytes += bytes;
   rinzu_resource_acquire(RINZU_RESOURCE_MANAGED, bytes);
 }
+static inline void rinzu_managed_unaccount_payload(rinzu_managed_data_t *data,
+                                                  rinzu_managed_value_t *value, size_t bytes) {
+  if (bytes > value->gc_bytes || bytes > data->heap_bytes)
+    rinzu_failure_fatal();
+  value->gc_bytes -= bytes;
+  data->heap_bytes -= bytes;
+  if (value->accounted_bytes) {
+    if (bytes > value->accounted_bytes)
+      rinzu_failure_fatal();
+    value->accounted_bytes -= bytes;
+    rinzu_resource_release(RINZU_RESOURCE_MANAGED, bytes);
+  }
+}
 /* Allocate the final String once, then fill it inside this non-yielding owned
    operation. The caller supplies validated immutable UTF-8 scalar metadata. */
 static inline rinzu_managed_value_t *
@@ -961,23 +980,27 @@ static inline void rinzu_managed_collect(rinzu_managed_data_t *data,
       value->bytes = moved;
     }
     if (relocate && value->kind == RINZU_MANAGED_COMPOSITE && value->count) {
-      if (value->count > SIZE_MAX / sizeof(*value->slots))
+      unsigned kind = data->schema ? data->schema->types[value->type].kind : 0;
+      size_t capacity = value->count;
+      if ((kind == RINZU_VALUE_LIST || kind == RINZU_VALUE_MAP) &&
+          value->collection_building)
+        capacity = value->collection_capacity;
+      if (capacity > SIZE_MAX / sizeof(*value->slots))
         rinzu_failure_fatal();
-      rinzu_managed_slot_t *moved = rinzu_failure_allocate(value->count * sizeof(*moved));
+      rinzu_managed_slot_t *moved = rinzu_failure_allocate(capacity * sizeof(*moved));
       memcpy(moved, value->slots, value->count * sizeof(*moved));
       if (value->slots == &value->inline_slot)
-        rinzu_managed_account_payload(data, value, value->count * sizeof(*moved));
-      size_t expected = sizeof(*value) + value->count * sizeof(*moved);
-      if (data->schema && data->schema->types[value->type].kind == RINZU_VALUE_MAP)
+        rinzu_managed_account_payload(data, value, capacity * sizeof(*moved));
+      size_t expected = sizeof(*value) + capacity * sizeof(*moved);
+      if (kind == RINZU_VALUE_MAP)
         expected += rinzu_managed_map_index_bytes(value->map_index);
       if (value->gc_bytes < expected)
         rinzu_failure_fatal();
-      data->heap_bytes -= value->gc_bytes - expected;
-      value->gc_bytes = expected;
-      if (value->accounted_bytes > expected) {
-        rinzu_resource_release(RINZU_RESOURCE_MANAGED, value->accounted_bytes - expected);
-        value->accounted_bytes = expected;
-      }
+      if (value->gc_bytes > expected)
+        rinzu_managed_unaccount_payload(data, value, value->gc_bytes - expected);
+      if ((kind == RINZU_VALUE_LIST || kind == RINZU_VALUE_MAP) &&
+          !value->collection_building)
+        value->collection_capacity = 0;
       if (value->slots != &value->inline_slot)
         free(value->slots);
       value->slots = moved;

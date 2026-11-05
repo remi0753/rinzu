@@ -492,6 +492,61 @@ static inline void rinzu_managed_map_index_add(rinzu_managed_map_index_t *index,
     bucket = (bucket + 1) & (index->capacity - 1);
   index->buckets[bucket] = (rinzu_managed_map_bucket_t){hash, slot + 1};
 }
+
+/* The generated function keeps the builder rooted through ordinary typed
+   locals. Only count slots are initialized and visible to tracing. */
+static inline rinzu_managed_value_t *rinzu_managed_collection_allocate_owned(
+    rinzu_managed_data_t *data, size_t type, size_t capacity) {
+  if (capacity > SIZE_MAX / sizeof(rinzu_managed_slot_t))
+    rinzu_failure_fatal();
+  rinzu_managed_value_t *value = rinzu_managed_new_owned(data, RINZU_MANAGED_COMPOSITE);
+  value->type = type;
+  if (capacity) {
+    value->slots = rinzu_failure_allocate(capacity * sizeof(*value->slots));
+    rinzu_managed_account_payload(data, value, capacity * sizeof(*value->slots));
+  }
+  return value;
+}
+static inline void rinzu_managed_collection_grow_owned(
+    rinzu_managed_data_t *data, rinzu_managed_value_t *value, size_t capacity, int map) {
+  if (capacity > SIZE_MAX / sizeof(*value->slots) || value->count > capacity)
+    rinzu_failure_fatal();
+  rinzu_managed_slot_t *slots = rinzu_failure_allocate(capacity * sizeof(*slots));
+  rinzu_managed_account_payload(data, value, capacity * sizeof(*slots));
+  if (value->count)
+    memcpy(slots, value->slots, value->count * sizeof(*slots));
+  if (value->slots) {
+    free(value->slots);
+    rinzu_managed_unaccount_payload(data, value, value->collection_capacity * sizeof(*slots));
+  }
+  value->slots = slots;
+  value->collection_capacity = capacity;
+  if (map) {
+    rinzu_managed_map_index_t *index = rinzu_managed_map_index_new(capacity / 2);
+    rinzu_managed_account_payload(data, value, rinzu_managed_map_index_bytes(index));
+    if (value->map_index) {
+      for (size_t i = 0; i < value->map_index->capacity; ++i) {
+        rinzu_managed_map_bucket_t old = value->map_index->buckets[i];
+        if (old.slot_plus_one)
+          rinzu_managed_map_index_add(index, old.hash, old.slot_plus_one - 1);
+      }
+      rinzu_managed_unaccount_payload(data, value, rinzu_managed_map_index_bytes(value->map_index));
+      free(value->map_index);
+    }
+    value->map_index = index;
+  }
+}
+static inline size_t rinzu_managed_collection_doubled(size_t capacity, size_t stride) {
+  if (capacity > SIZE_MAX / 2)
+    rinzu_failure_fatal();
+  return capacity ? capacity * 2 : 4 * stride;
+}
+
+/* The public collection limit counts elements or pairs, independent of how
+   many bytes or slots the implementation needs to allocate. */
+static inline int rinzu_collection_length_fits(size_t current, size_t added) {
+  return current <= INT64_MAX && added <= (size_t)INT64_MAX - current;
+}
 /* Called after layout and every typed child validation. This weak table never
    marks a value, retains a metadata pointer, yields or collects. */
 #if RINZU_MANAGED_SMALL_ENUM_MODE

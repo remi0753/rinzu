@@ -60,7 +60,8 @@ fn run(text: &str, expected: &[u8]) {
 #[test]
 fn throw_and_list_catch_preserve_nominal_payload_and_call_propagation() {
     run(
-        r#"
+        r#"import rinzu.List;
+
         import rinzu.stdio;
         error Missing { payload: Int }
         fn fail() -> Int { throw Missing(message: "missing", payload: 37); }
@@ -71,7 +72,7 @@ fn throw_and_list_catch_preserve_nominal_payload_and_call_propagation() {
                 rinzu.stdio.writeLine(problem.name);
                 rinzu.stdio.writeLine(problem.message);
                 rinzu.stdio.writeLine(problem.payload);
-                rinzu.stdio.writeLine(listLength(rest));
+                rinzu.stdio.writeLine(rinzu.List.length(rest));
             }
             catch errors { rinzu.stdio.writeLine("wrong catch"); }
         }
@@ -100,7 +101,8 @@ fn inferred_exhaustive_patterns_execute_without_a_whole_list_fallback() {
 #[test]
 fn whole_list_bindings_preserve_individual_errors_and_can_outlive_the_catch() {
     run(
-        r#"
+        r#"import rinzu.List;
+
         import rinzu.stdio;
         error A{payload:Int} error B{payload:Int}
         fn collect()->List<Error>{
@@ -110,10 +112,10 @@ fn whole_list_bindings_preserve_individual_errors_and_can_outlive_the_catch() {
         }
         async fn main(){
             let saved=collect();
-            rinzu.stdio.writeLine(listLength(saved));
-            switch listGet(saved,0){case Option.Some(first):{rinzu.stdio.writeLine(first.name);rinzu.stdio.writeLine(first.message);if first is A{rinzu.stdio.writeLine(first.payload);}}case Option.None:{}}
-            switch listGet(saved,1){case Option.Some(second):{rinzu.stdio.writeLine(second.name);rinzu.stdio.writeLine(second.message);if second is B{rinzu.stdio.writeLine(second.payload);}}case Option.None:{}}
-            try{throw A(message:"single",payload:7);}catch errors{rinzu.stdio.writeLine(listLength(errors));}
+            rinzu.stdio.writeLine(rinzu.List.length(saved));
+            switch rinzu.List.get(saved,0){case Option.Some(first):{rinzu.stdio.writeLine(first.name);rinzu.stdio.writeLine(first.message);if first is A{rinzu.stdio.writeLine(first.payload);}}case Option.None:{}}
+            switch rinzu.List.get(saved,1){case Option.Some(second):{rinzu.stdio.writeLine(second.name);rinzu.stdio.writeLine(second.message);if second is B{rinzu.stdio.writeLine(second.payload);}}case Option.None:{}}
+            try{throw A(message:"single",payload:7);}catch errors{rinzu.stdio.writeLine(rinzu.List.length(errors));}
         }
     "#,
         b"2\nA\nfirst\n13\nB\nsecond\n31\n1\n",
@@ -123,7 +125,8 @@ fn whole_list_bindings_preserve_individual_errors_and_can_outlive_the_catch() {
 #[test]
 fn statement_all_continues_collects_in_order_and_keeps_finally_outside_its_catch() {
     run(
-        r#"
+        r#"import rinzu.List;
+
         import rinzu.stdio;
         error A{} error B{}
         async fn main(){
@@ -135,9 +138,9 @@ fn statement_all_continues_collects_in_order_and_keeps_finally_outside_its_catch
                 visited=visited+1;
             } catch errors {
                 rinzu.stdio.writeLine(visited);
-                rinzu.stdio.writeLine(listLength(errors));
-                switch listGet(errors,0){case Option.Some(first):{rinzu.stdio.writeLine(first.name);}case Option.None:{}}
-                switch listGet(errors,1){case Option.Some(second):{rinzu.stdio.writeLine(second.name);}case Option.None:{}}
+                rinzu.stdio.writeLine(rinzu.List.length(errors));
+                switch rinzu.List.get(errors,0){case Option.Some(first):{rinzu.stdio.writeLine(first.name);}case Option.None:{}}
+                switch rinzu.List.get(errors,1){case Option.Some(second):{rinzu.stdio.writeLine(second.name);}case Option.None:{}}
             } finally {rinzu.stdio.writeLine("finally");}
         }
     "#,
@@ -148,12 +151,13 @@ fn statement_all_continues_collects_in_order_and_keeps_finally_outside_its_catch
 #[test]
 fn statement_all_preserves_saved_control_and_handler_return_overrides_it() {
     run(
-        r#"
+        r#"import rinzu.List;
+
         import rinzu.stdio;
         error A{}
         fn choose()->String{
             try all {throw A(message:"a");return "held";}
-            catch errors {rinzu.stdio.writeLine(listLength(errors));}
+            catch errors {rinzu.stdio.writeLine(rinzu.List.length(errors));}
             finally {let churn=["moving","roots"];rinzu.stdio.writeLine("choose-finally");}
             return "wrong";
         }
@@ -182,14 +186,15 @@ fn statement_all_preserves_saved_control_and_handler_return_overrides_it() {
 #[test]
 fn statement_all_without_catch_propagates_after_finally_and_handler_failure_stays_outward() {
     run(
-        r#"
+        r#"import rinzu.List;
+
         import rinzu.stdio;
         error A{} error B{} error C{}
         fn missing(){try all {throw A(message:"a");throw B(message:"b");}finally {rinzu.stdio.writeLine("before propagation");}}
         fn handled(){try all {throw A(message:"a");}catch errors {throw B(message:"handler");}finally {throw C(message:"cleanup");}}
         async fn main(){
-            try {missing();}catch errors {rinzu.stdio.writeLine(listLength(errors));}
-            try {handled();}catch errors {rinzu.stdio.writeLine(listLength(errors));switch listGet(errors,0){case Option.Some(first):{rinzu.stdio.writeLine(first.name);}case Option.None:{}}}
+            try {missing();}catch errors {rinzu.stdio.writeLine(rinzu.List.length(errors));}
+            try {handled();}catch errors {rinzu.stdio.writeLine(rinzu.List.length(errors));switch rinzu.List.get(errors,0){case Option.Some(first):{rinzu.stdio.writeLine(first.name);}case Option.None:{}}}
             try all {rinzu.stdio.writeLine("no failure");}catch errors {rinzu.stdio.writeLine("wrong");}finally {rinzu.stdio.writeLine("empty-finally");}
         }
     "#,
@@ -200,15 +205,16 @@ fn statement_all_without_catch_propagates_after_finally_and_handler_failure_stay
 #[test]
 fn statement_all_observes_awaits_and_deduplicates_one_future_per_group() {
     run(
-        r#"
+        r#"import rinzu.List;
+
         import rinzu.stdio;
         error A{}
         async fn work(){throw A(message:"a");}
         async fn main(){
             let pending=work();
-            try all {await pending;await pending;}catch errors {rinzu.stdio.writeLine(listLength(errors));}
+            try all {await pending;await pending;}catch errors {rinzu.stdio.writeLine(rinzu.List.length(errors));}
             var round=0;
-            try all {while round<2{await pending;round=round+1;}}catch errors {rinzu.stdio.writeLine(listLength(errors));}
+            try all {while round<2{await pending;round=round+1;}}catch errors {rinzu.stdio.writeLine(rinzu.List.length(errors));}
             rinzu.stdio.writeLine(round);
         }
     "#,
@@ -347,7 +353,8 @@ fn repeated_await_observes_the_same_failure_and_handler_errors_propagate_outward
 #[test]
 fn full_list_matching_preserves_finally_order_and_selects_one_handler() {
     run(
-        r#"
+        r#"import rinzu.List;
+
         import rinzu.stdio;
         error A { payload: Int }
         error B { payload: Int }
@@ -360,7 +367,7 @@ fn full_list_matching_preserves_finally_order_and_selects_one_handler() {
             catch [first: A, second: B, ...rest] {
                 rinzu.stdio.writeLine(first.payload);
                 rinzu.stdio.writeLine(second.payload);
-                rinzu.stdio.writeLine(listLength(rest));
+                rinzu.stdio.writeLine(rinzu.List.length(rest));
             }
             catch errors { rinzu.stdio.writeLine("wrong order"); }
         }

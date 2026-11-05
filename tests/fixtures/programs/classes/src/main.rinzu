@@ -1,3 +1,4 @@
+import rinzu.Map;
 import rinzu.stdio;
 
 class Point {
@@ -41,7 +42,7 @@ async fn main() {
         rinzu.stdio.writeLine(counter.value);
         rinzu.stdio.writeLine(received == Point(x: 40, y: 2));
         rinzu.stdio.writeLine(received.sum());
-        switch mapGet(index, received) {
+        switch rinzu.Map.get(index, received) {
             case Option.Some(value): {
                 rinzu.stdio.writeLine(value);
             }

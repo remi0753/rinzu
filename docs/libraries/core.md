@@ -2,20 +2,7 @@
 
 Core operations are built in and available without imports. The signatures below use T, K, and V to describe the concrete types inferred from arguments. They are grouped by purpose; follow the language chapters for examples and capability rules.
 
-## Collections
-
-| Function | Result |
-| --- | --- |
-| `listLength(List<T>)` | Int |
-| `listGet(List<T>, Int)` | Option<T> |
-| `listAppend(List<T>, T)` | List<T> |
-| `listSet(List<T>, Int, T)` / `listRemove(List<T>, Int)` | Option<List<T>> |
-| `mapLength(Map<K,V>)` | Int |
-| `mapGet(Map<K,V>, K)` | Option<V> |
-| `mapInsert(Map<K,V>, K, V)` / `mapRemove(Map<K,V>, K)` | Map<K,V> |
-| `mapKeys(Map<K,V>)` | List<K>, in insertion order |
-
-Invalid list indices and absent map lookups return None. See [Lists and maps](../language/collections.md) for immutable update and cost rules.
+List and Map operations are documented in the [collection API reference](collections.md).
 
 ## Text and binary data
 

@@ -58,10 +58,11 @@ fn native_data_cli_compares_values_caught_errors_and_rejects_uncaught_roots() {
             let rejected = cli(&app, "check");
             assert!(!rejected.status.success());
             assert!(String::from_utf8_lossy(&rejected.stderr).contains("RZ0413"));
-            std::fs::write(app.join("src/main.rinzu"), format!(r#"import buffers; {main} {{
+            std::fs::write(app.join("src/main.rinzu"), format!(r#"import rinzu.List;
+import buffers; {main} {{
                 var caught=false;
                 try {{let failed=buffers.failure({kind});}}
-                catch [problem:Error,...rest] {{caught=true;if problem.message!="{message}"||listLength(rest)!=0{{panic("wrongError");}}}}
+                catch [problem:Error,...rest] {{caught=true;if problem.message!="{message}"||rinzu.List.length(rest)!=0{{panic("wrongError");}}}}
                 if !caught{{panic("missingError");}}
             }}"#)).unwrap();
             success(&cli(&app, "run"));

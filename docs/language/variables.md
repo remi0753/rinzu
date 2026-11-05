@@ -23,6 +23,8 @@ Bindings belong to their block scope. Avoid names that shadow existing locals. R
 A top-level `let` defines a module constant with a pure initializer. Supported initializers include scalar calculations, Bool, String, and explicitly typed immutable aggregate values. Arbitrary function execution and global `var` declarations are unavailable.
 
 ```rinzu-test
+import rinzu.List;
+
 let TITLE = "Report";
 
 let MASK: CUInt8 = bitOr(0xf0, 0x0f);
@@ -30,7 +32,7 @@ let MASK: CUInt8 = bitOr(0xf0, 0x0f);
 let SIZES: List<Int> = [16, 32, 64];
 
 fn main() {
-    if TITLE != "Report" || MASK != CUInt8(255) || listLength(SIZES) != 3 {
+    if TITLE != "Report" || MASK != CUInt8(255) || rinzu.List.length(SIZES) != 3 {
         panic("invalid constants");
     }
 }

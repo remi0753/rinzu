@@ -64,10 +64,17 @@ pub enum DataOperation {
     BytesTrim = 59,
     BytesConcatAll = 60,
     Panic = 61,
+    ListConcatAll = 62,
+    MapEntries = 63,
+    ListBufferReserve = 64,
+    ListBufferAppend = 65,
+    MapBufferInsert = 66,
+    MapBufferIndex = 67,
+    CollectionFinish = 68,
 }
 
 impl DataOperation {
-    pub const ALL: [Self; 62] = [
+    pub const ALL: [Self; 69] = [
         Self::ListLength,
         Self::ListGet,
         Self::ListAppend,
@@ -130,6 +137,13 @@ impl DataOperation {
         Self::BytesTrim,
         Self::BytesConcatAll,
         Self::Panic,
+        Self::ListConcatAll,
+        Self::MapEntries,
+        Self::ListBufferReserve,
+        Self::ListBufferAppend,
+        Self::MapBufferInsert,
+        Self::MapBufferIndex,
+        Self::CollectionFinish,
     ];
 
     pub fn from_code(code: u32) -> Option<Self> {
@@ -138,16 +152,23 @@ impl DataOperation {
     pub const fn name(self) -> &'static str {
         match self {
             Self::Panic => "panic",
-            Self::ListLength => "listLength",
-            Self::ListGet => "listGet",
-            Self::ListAppend => "listAppend",
-            Self::ListSet => "listSet",
-            Self::ListRemove => "listRemove",
-            Self::MapLength => "mapLength",
-            Self::MapGet => "mapGet",
-            Self::MapInsert => "mapInsert",
-            Self::MapRemove => "mapRemove",
-            Self::MapKeys => "mapKeys",
+            Self::ListConcatAll => "rinzu.List::concatAll",
+            Self::MapEntries => "rinzu.Map::entries",
+            Self::ListBufferReserve => "$collection::reserveList",
+            Self::ListBufferAppend => "$collection::pushList",
+            Self::MapBufferInsert => "$collection::putMap",
+            Self::MapBufferIndex => "$collection::mapIndex",
+            Self::CollectionFinish => "$collection::finish",
+            Self::ListLength => "rinzu.List::length",
+            Self::ListGet => "rinzu.List::get",
+            Self::ListAppend => "rinzu.List::append",
+            Self::ListSet => "rinzu.List::set",
+            Self::ListRemove => "rinzu.List::remove",
+            Self::MapLength => "rinzu.Map::length",
+            Self::MapGet => "rinzu.Map::get",
+            Self::MapInsert => "rinzu.Map::insert",
+            Self::MapRemove => "rinzu.Map::remove",
+            Self::MapKeys => "rinzu.Map::keys",
             Self::ByteArray => "byteArray",
             Self::BytesLength => "bytesLength",
             Self::BytesGet => "bytesGet",
@@ -201,9 +222,26 @@ impl DataOperation {
             Self::FloatIsNan => "floatIsNan",
         }
     }
+    pub const fn length_overflow(self) -> Option<&'static str> {
+        match self {
+            Self::ListAppend | Self::ListConcatAll | Self::ListBufferAppend => {
+                Some("rinzu.List::LengthOverflow")
+            }
+            Self::MapInsert | Self::MapBufferInsert => Some("rinzu.Map::LengthOverflow"),
+            _ => None,
+        }
+    }
+
     pub const fn arity(self) -> usize {
         match self {
             Self::Panic => 1,
+            Self::ListConcatAll => 1,
+            Self::MapEntries => 1,
+            Self::ListBufferReserve => 2,
+            Self::ListBufferAppend => 2,
+            Self::MapBufferInsert => 3,
+            Self::MapBufferIndex => 2,
+            Self::CollectionFinish => 1,
             Self::ByteArray => 1,
             Self::BytesLength => 1,
             Self::BytesGet => 2,
@@ -261,6 +299,13 @@ impl DataOperation {
     pub const fn c_name(self) -> &'static str {
         match self {
             Self::Panic => "RINZU_DATA_PANIC",
+            Self::ListConcatAll => "RINZU_DATA_LIST_CONCAT_ALL",
+            Self::MapEntries => "RINZU_DATA_MAP_ENTRIES",
+            Self::ListBufferReserve => "RINZU_DATA_LIST_BUFFER_RESERVE",
+            Self::ListBufferAppend => "RINZU_DATA_LIST_BUFFER_APPEND",
+            Self::MapBufferInsert => "RINZU_DATA_MAP_BUFFER_INSERT",
+            Self::MapBufferIndex => "RINZU_DATA_MAP_BUFFER_INDEX",
+            Self::CollectionFinish => "RINZU_DATA_COLLECTION_FINISH",
             Self::ListLength => "RINZU_DATA_LIST_LENGTH",
             Self::ListGet => "RINZU_DATA_LIST_GET",
             Self::ListAppend => "RINZU_DATA_LIST_APPEND",

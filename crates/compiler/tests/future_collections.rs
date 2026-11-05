@@ -1,15 +1,16 @@
 use rinzu_compiler::{DiagnosticCode, FileId, SourceFile, compile_source};
 const BASE: &str = r#"
+import rinzu.List;
 error Lost{}
 async fn fail(){throw Lost(message:"failure");}
 async fn observe(value:Future<Unit>){try{await value;}catch errors{}}
-async fn observeList(values:List<Future<Unit>>){var index=0;while index<listLength(values){switch listGet(values,index){case Option.Some(value):{let observer=observe(value);}case Option.None:{}}index=index+1;}}
+async fn observeList(values:List<Future<Unit>>){var index=0;while index<rinzu.List.length(values){switch rinzu.List.get(values,index){case Option.Some(value):{let observer=observe(value);}case Option.None:{}}index=index+1;}}
 "#;
 const BUILDER: &str = r#"
 fn build(count:Int)->List<Future<Unit>> {
     var output:List<Future<Unit>> = [];
     var index=0;
-    while index<count {output=listAppend(output,fail());index=index+1;}
+    while index<count {output=rinzu.List.append(output,fail());index=index+1;}
     return output;
 }
 "#;
@@ -57,8 +58,8 @@ fn dropping_the_collection_or_retaining_one_member_does_not_cover_the_family() {
 #[test]
 fn conditionally_saving_only_some_generations_does_not_transfer_all_tasks() {
     let partial = BUILDER.replace(
-        "output=listAppend(output,fail());",
-        "let pending=fail();if index==0{output=listAppend(output,pending);}",
+        "output=rinzu.List.append(output,fail());",
+        "let pending=fail();if index==0{output=rinzu.List.append(output,pending);}",
     );
     lost(&format!(
         "{partial}fn main(){{let receiver=observeList(build(5));}}"
@@ -68,8 +69,8 @@ fn conditionally_saving_only_some_generations_does_not_transfer_all_tasks() {
 #[test]
 fn a_normal_error_before_append_retains_the_created_tasks_obligation() {
     let interrupted = BUILDER.replace(
-        "output=listAppend(output,fail());",
-        "let pending=fail();let bad=CInt8(300);output=listAppend(output,pending);",
+        "output=rinzu.List.append(output,fail());",
+        "let pending=fail();let bad=CInt8(300);output=rinzu.List.append(output,pending);",
     );
     lost(&format!(
         "{interrupted}async fn main(){{try{{let receiver=observeList(build(5));}}catch errors{{}}}}"
@@ -106,7 +107,10 @@ fn replacing_an_observed_batch_does_not_reuse_its_receipt_for_new_tasks() {
 
 #[test]
 fn removal_and_replacement_cannot_discharge_the_original_collection() {
-    for operation in ["listRemove(values,0)", "listSet(values,0,fail())"] {
+    for operation in [
+        "rinzu.List.remove(values,0)",
+        "rinzu.List.set(values,0,fail())",
+    ] {
         lost(&format!(
             "{BUILDER}fn main(){{let values=build(3);switch {operation}{{case Option.Some(changed):{{let receiver=observeList(changed);}}case Option.None:{{let receiver=observeList(values);}}}}}}"
         ));
@@ -126,7 +130,7 @@ fn an_observed_collection_does_not_reintroduce_obligations_when_returned() {
 
 #[test]
 fn an_immutable_field_preserves_the_complete_family_across_a_loop_join() {
-    let builder = "class Batch{const values:List<Future<Unit>>}fn build(count:Int)->Batch{var output=Batch(values:[]);var index=0;while index<count{output=Batch(values:listAppend(output.values,fail()));index=index+1;}return output;}";
+    let builder = "class Batch{const values:List<Future<Unit>>}fn build(count:Int)->Batch{var output=Batch(values:[]);var index=0;while index<count{let pending=fail();try{output=Batch(values:rinzu.List.append(output.values,pending));}catch[rinzu.List.LengthOverflow]{let dropped=observe(pending);let prefix=observeList(output.values);return output;}index=index+1;}return output;}";
     accepted(&format!(
         "{builder}fn main(){{let batch=build(3);let observer=observeList(batch.values);}}"
     ));

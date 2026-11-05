@@ -446,126 +446,13 @@ impl Engine<'_> {
                 break;
             }
         }
-        if backedge && !self.bounded_counter(condition, body) {
+        if backedge && !crate::collections::bounded_counter(self.checked, condition, body) {
             exits.push(Path {
                 state: header,
                 control: Control::Diverges,
             });
         }
         unique(exits)
-    }
-    pub(super) fn bounded_counter(&self, condition: &Expression, body: &Block) -> bool {
-        use BinaryOperator::*;
-        let ExpressionKind::Binary {
-            operator,
-            left,
-            right,
-        } = &condition.kind
-        else {
-            return false;
-        };
-        let direction = match operator {
-            Less | LessEqual => 1,
-            Greater | GreaterEqual => -1,
-            _ => return false,
-        };
-        let ExpressionKind::Name(counter) = &left.kind else {
-            return false;
-        };
-        if counter.len() != 1 || !self.type_at(left.range).is_integer() {
-            return false;
-        }
-        let Some(last) = body.statements.last() else {
-            return false;
-        };
-        let StatementKind::Assign { name, value } = &last.kind else {
-            return false;
-        };
-        if name != &counter[0] {
-            return false;
-        }
-        let ExpressionKind::Binary {
-            operator: update,
-            left: previous,
-            right: step,
-        } = &value.kind
-        else {
-            return false;
-        };
-        if !matches!(&previous.kind,ExpressionKind::Name(path) if path==counter) {
-            return false;
-        }
-        let ExpressionKind::Literal(Literal::Int(step)) = step.kind else {
-            return false;
-        };
-        let delta = match update {
-            Add => step,
-            Subtract => match step.checked_neg() {
-                Some(value) => value,
-                None => return false,
-            },
-            _ => return false,
-        };
-        if delta.signum() != direction {
-            return false;
-        }
-        let bound = match &right.kind {
-            ExpressionKind::Literal(_) => None,
-            ExpressionKind::Name(path) if path.len() == 1 && path != counter => {
-                Some(path[0].as_str())
-            }
-            ExpressionKind::Call {
-                arguments: Arguments::Positional(values),
-                ..
-            } if self.checked.data_operations.get(&right.range)
-                == Some(&crate::DataOperation::ListLength) =>
-            {
-                let Some(Expression {
-                    kind: ExpressionKind::Name(path),
-                    ..
-                }) = values.first()
-                else {
-                    return false;
-                };
-                if path.len() != 1 {
-                    return false;
-                }
-                Some(path[0].as_str())
-            }
-            _ => return false,
-        };
-        struct Writes<'a> {
-            counter: &'a str,
-            bound: Option<&'a str>,
-            update: SourceRange,
-            invalid: bool,
-        }
-        impl Visitor for Writes<'_> {
-            fn enter_statement(&mut self, statement: &Statement) {
-                if let StatementKind::Assign { name, .. } = &statement.kind
-                    && (Some(name.as_str()) == self.bound
-                        || (name == self.counter && statement.range != self.update))
-                {
-                    self.invalid = true;
-                }
-                if let StatementKind::Local { name, .. } = &statement.kind
-                    && (name == self.counter || Some(name.as_str()) == self.bound)
-                {
-                    self.invalid = true;
-                }
-                if matches!(statement.kind, StatementKind::Continue) {
-                    self.invalid = true;
-                }
-            }
-        }
-        let mut writes = Writes {
-            counter: &counter[0],
-            bound,
-            update: last.range,
-            invalid: false,
-        };
-        ast_walk::block(&mut body.clone(), &mut writes);
-        !writes.invalid
     }
     fn try_block(
         &self,

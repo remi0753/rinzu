@@ -1,3 +1,4 @@
+import rinzu.List;
 import rinzu.stream;
 
 /// Bounded encoded image input. The stream owner recovers an unreceived open.
@@ -15,7 +16,7 @@ async fn readImageBytes(path: String) -> ByteArray {
                     if bytesLength(bytes) > 67108864 - length {
                         throw error(-7804, "macos.image.encodedLimit");
                     }
-                    chunks = listAppend(chunks, bytes);
+                    chunks = rinzu.List.append(chunks, bytes);
                     length = length + bytesLength(bytes);
                 }
             }

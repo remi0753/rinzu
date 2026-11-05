@@ -1,5 +1,6 @@
 use rinzu_compiler::{DiagnosticCode, FileId, SourceFile, compile_source};
 const BASE: &str = r#"
+import rinzu.List;
 error A{} error B{}
 async fn fail(){throw A(message:"failure");}
 async fn ok(){}
@@ -72,10 +73,10 @@ fn immutable_fields_and_known_collection_indices_keep_aliases() {
         "class Pending{const future:Future<Unit>} async fn main(){let pending=Pending(future:fail());try{await pending.future;}catch[A]{}}",
     );
     accepted(
-        "async fn main(){let pending=fail();let values=[pending];switch listGet(values,0){case Option.Some(value):{try{await value;}catch[A]{}}case Option.None:{}}}",
+        "async fn main(){let pending=fail();let values=[pending];switch rinzu.List.get(values,0){case Option.Some(value):{try{await value;}catch[A]{}}case Option.None:{}}}",
     );
     lost(
-        "async fn main(){let first=fail();let second=fail();let values=[first,second];switch listGet(values,0){case Option.Some(value):{try{await value;}catch[A]{}}case Option.None:{}}}",
+        "async fn main(){let first=fail();let second=fail();let values=[first,second];switch rinzu.List.get(values,0){case Option.Some(value):{try{await value;}catch[A]{}}case Option.None:{}}}",
     );
 }
 #[test]
@@ -339,8 +340,8 @@ fn merging_handled_outcomes_never_observes_a_skipped_second_task() {
 const OBSERVE_LIST: &str = r#"
 async fn observeList<T>(values:List<Future<T>>) {
     var index=0;
-    while index<listLength(values) {
-        switch listGet(values,index) {
+    while index<rinzu.List.length(values) {
+        switch rinzu.List.get(values,index) {
             case Option.Some(value): {try{let result=await value;}catch errors{}}
             case Option.None: {}
         }
@@ -362,7 +363,7 @@ fn a_dynamic_list_observer_receives_every_element_and_not_just_one() {
 #[test]
 fn a_local_list_can_be_fully_observed_with_an_exhaustive_loop() {
     accepted(
-        "async fn main(){let values=[fail(),fail()];var index=0;while index<listLength(values){switch listGet(values,index){case Option.Some(value):{try{await value;}catch[A]{}}case Option.None:{}}index=index+1;}}",
+        "async fn main(){let values=[fail(),fail()];var index=0;while index<rinzu.List.length(values){switch rinzu.List.get(values,index){case Option.Some(value):{try{await value;}catch[A]{}}case Option.None:{}}index=index+1;}}",
     );
 }
 
@@ -410,20 +411,20 @@ fn an_uncaught_iteration_await_does_not_observe_the_remaining_elements() {
 #[test]
 fn observing_an_earlier_list_does_not_observe_a_subsequently_appended_task() {
     lost(&format!(
-        "{OBSERVE_LIST} fn main(){{let first=fail();let original=[first];let second=fail();let expanded=listAppend(original,second);let observer=observeList<Unit>(original);}}"
+        "{OBSERVE_LIST} fn main(){{let first=fail();let original=[first];let second=fail();let expanded=rinzu.List.append(original,second);let observer=observeList<Unit>(original);}}"
     ));
     accepted(&format!(
-        "{OBSERVE_LIST} fn main(){{let first=fail();let original=[first];let second=fail();let expanded=listAppend(original,second);let observer=observeList<Unit>(expanded);}}"
+        "{OBSERVE_LIST} fn main(){{let first=fail();let original=[first];let second=fail();let expanded=rinzu.List.append(original,second);let observer=observeList<Unit>(expanded);}}"
     ));
 }
 
 #[test]
 fn all_elements_can_be_observed_in_a_statement_collecting_loop() {
     accepted(
-        "async fn main(){let values=[fail(),fail()];var index=0;try all{while index<listLength(values){switch listGet(values,index){case Option.Some(value):{await value;}case Option.None:{}}index=index+1;}}catch errors{}}",
+        "async fn main(){let values=[fail(),fail()];var index=0;try all{while index<rinzu.List.length(values){switch rinzu.List.get(values,index){case Option.Some(value):{await value;}case Option.None:{}}index=index+1;}}catch errors{}}",
     );
     lost(
-        "async fn main(){var values=[fail(),fail()];var index=0;try all{while index<listLength(values){values=[];switch listGet(values,index){case Option.Some(value):{await value;}case Option.None:{}}index=index+1;}}catch errors{}}",
+        "async fn main(){var values=[fail(),fail()];var index=0;try all{while index<rinzu.List.length(values){values=[];switch rinzu.List.get(values,index){case Option.Some(value):{await value;}case Option.None:{}}index=index+1;}}catch errors{}}",
     );
 }
 
@@ -431,8 +432,8 @@ fn all_elements_can_be_observed_in_a_statement_collecting_loop() {
 fn the_error_effect_of_a_collecting_list_loop_depends_on_its_actual_elements() {
     let waiting = OBSERVE_LIST
         .replace(
-            "while index<listLength(values)",
-            "try all{while index<listLength(values)",
+            "while index<rinzu.List.length(values)",
+            "try all{while index<rinzu.List.length(values)",
         )
         .replace("index=index+1;\n    }", "index=index+1;\n    }}finally{}")
         .replace(
@@ -450,26 +451,29 @@ fn the_error_effect_of_a_collecting_list_loop_depends_on_its_actual_elements() {
 #[test]
 fn an_immutable_length_binding_can_bound_the_same_list() {
     let observer = OBSERVE_LIST
-        .replace("var index=0;", "let length=listLength(values);var index=0;")
-        .replace("index<listLength(values)", "index<length");
+        .replace(
+            "var index=0;",
+            "let length=rinzu.List.length(values);var index=0;",
+        )
+        .replace("index<rinzu.List.length(values)", "index<length");
     accepted(&format!(
         "{observer} fn main(){{let observer=observeList<Unit>([fail(),fail()]);}}"
     ));
     lost(
-        "async fn main(){var values=[fail(),fail()];let length=listLength(values);values=[];var index=0;while index<length{switch listGet(values,index){case Option.Some(value):{try{await value;}catch errors{}}case Option.None:{}}index=index+1;}}",
+        "async fn main(){var values=[fail(),fail()];let length=rinzu.List.length(values);values=[];var index=0;while index<length{switch rinzu.List.get(values,index){case Option.Some(value):{try{await value;}catch errors{}}case Option.None:{}}index=index+1;}}",
     );
 }
 
 #[test]
 fn returning_a_length_never_transfers_the_tasks_used_to_compute_it() {
     lost(
-        "fn length()->Int{let values=[fail()];return listLength(values);}fn main(){let size=length();}",
+        "fn length()->Int{let values=[fail()];return rinzu.List.length(values);}fn main(){let size=length();}",
     );
 }
 
 #[test]
 fn exhaustive_field_observation_clears_only_that_field_in_every_row() {
-    let declarations = "class Row{const first:Future<Unit>,const second:Future<Unit>} async fn observeRows(rows:List<Row>){var index=0;while index<listLength(rows){switch listGet(rows,index){case Option.Some(row):{try{await row.first;}catch errors{}SECOND}case Option.None:{}}index=index+1;}}";
+    let declarations = "class Row{const first:Future<Unit>,const second:Future<Unit>} async fn observeRows(rows:List<Row>){var index=0;while index<rinzu.List.length(rows){switch rinzu.List.get(rows,index){case Option.Some(row):{try{await row.first;}catch errors{}SECOND}case Option.None:{}}index=index+1;}}";
     let main = "fn main(){let observer=observeRows([Row(first:fail(),second:fail()),Row(first:fail(),second:fail())]);}";
     lost(&format!("{}{main}", declarations.replace("SECOND", "")));
     accepted(&format!(
@@ -499,8 +503,8 @@ fn every_list_element_can_be_handed_to_a_proven_independent_observer() {
 fn different_list_elements_may_fail_with_different_error_types() {
     let gathering = OBSERVE_LIST
         .replace(
-            "while index<listLength(values)",
-            "try all{while index<listLength(values)",
+            "while index<rinzu.List.length(values)",
+            "try all{while index<rinzu.List.length(values)",
         )
         .replace("index=index+1;\n    }", "index=index+1;\n    }}finally{}")
         .replace(
@@ -527,7 +531,7 @@ fn different_list_elements_may_fail_with_different_error_types() {
 #[test]
 fn separate_collection_reads_do_not_share_one_failure_word() {
     let source = format!(
-        "{BASE} async fn other(){{throw B(message:\"second\");}} async fn gather(values:List<Future<Unit>>){{try all{{switch listGet(values,0){{case Option.Some(value):{{await value;}}case Option.None:{{}}}}switch listGet(values,1){{case Option.Some(value):{{await value;}}case Option.None:{{}}}}}}finally{{}}}} async fn main(){{let first=fail();let second=other();try{{await gather([first,second]);}}catch[A]{{}}catch[B]{{}}catch[A,A]{{}}catch[B,B]{{}}}}"
+        "{BASE} async fn other(){{throw B(message:\"second\");}} async fn gather(values:List<Future<Unit>>){{try all{{switch rinzu.List.get(values,0){{case Option.Some(value):{{await value;}}case Option.None:{{}}}}switch rinzu.List.get(values,1){{case Option.Some(value):{{await value;}}case Option.None:{{}}}}}}finally{{}}}} async fn main(){{let first=fail();let second=other();try{{await gather([first,second]);}}catch[A]{{}}catch[B]{{}}catch[A,A]{{}}catch[B,B]{{}}}}"
     );
     let diagnostics = compile_source(&SourceFile::new(
         FileId(256),
@@ -548,11 +552,11 @@ fn one_element_succeeding_cannot_remove_another_elements_failure_exit() {
     let source = r#"
 async fn run(values:List<Future<Unit>>) {
     let third=fail();
-    switch listGet(values,0) {
+    switch rinzu.List.get(values,0) {
         case Option.Some(first): {
             try {await first;}
             catch firstErrors {try{await third;}catch thirdErrors{}return;}
-            switch listGet(values,1) {
+            switch rinzu.List.get(values,1) {
                 case Option.Some(second): {try {await second;await third;}catch errors{}}
                 case Option.None: {try{await third;}catch errors{}}
             }

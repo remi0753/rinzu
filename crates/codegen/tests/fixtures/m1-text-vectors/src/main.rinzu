@@ -1,3 +1,4 @@
+import rinzu.List;
 import rinzu.stdio;
 
 fn require(condition: Bool) {
@@ -12,7 +13,7 @@ fn code<T>(operation: fn () -> T) -> Int {
         return 0;
     }
     catch [problem: Error, ...rest] {
-        require(listLength(rest) == 0);
+        require(rinzu.List.length(rest) == 0);
         return errorCode(problem);
     }
 }

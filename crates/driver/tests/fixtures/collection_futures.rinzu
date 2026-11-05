@@ -1,0 +1,63 @@
+import rinzu.List;
+import rinzu.Map;
+
+error Failed {}
+
+async fn fail(value: Int) -> Int {
+    throw Failed(message: f"{value}");
+}
+
+fn start(value: Int) -> Future<Int> {
+    return fail(value);
+}
+
+async fn main() {
+    let tasks = rinzu.List.map([1, 2, 3], start);
+    var failures = 0;
+    for task in tasks {
+        try {
+            let unexpected = await task;
+            panic("task succeeded");
+        }
+        catch [problem: Failed] {
+            failures = failures + 1;
+        }
+    }
+    if failures != 3 {
+        panic("missing map futures");
+    }
+    let pending = fail(7);
+    let input: List<
+        {
+            key: Int, value: Future<Int>
+        }
+    > = [
+        {
+            key = 7, value = pending
+        }
+    ];
+    try {
+        let table = rinzu.Map.fromEntries(input);
+        for entry in rinzu.Map.entries(table) {
+            try {
+                let unexpected = await entry.value;
+                panic("task succeeded");
+            }
+            catch errors {
+                failures = failures + 1;
+            }
+        }
+    }
+    catch [duplicate: rinzu.Map.DuplicateKey<Int>] {
+        for entry in input {
+            try {
+                let unexpected = await entry.value;
+            }
+            catch errors {}
+        }
+        panic("duplicate accepted");
+    }
+    if failures != 4 {
+        panic("missing entry futures");
+    }
+}

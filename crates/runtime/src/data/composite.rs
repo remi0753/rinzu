@@ -4,9 +4,6 @@ use crate::value::{Value, ValueError, ValueSchema, ValueType};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-const BYTES_TYPE: u32 = 0xffff_ff03;
-pub(super) const COMPOSITE_TYPE: u32 = 0xffff_ff04;
-
 /// The tag comes from the typed frame, never from a scalar's numeric bit pattern.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ManagedSlot {
@@ -595,7 +592,7 @@ impl ManagedData {
                     ValueType::Other => match heap.header(reference)?.type_id {
                         STRING_TYPE => DataKind::String,
                         ERROR_TYPE => DataKind::Error,
-                        native_opaque::OPAQUE_TYPE
+                        OPAQUE_TYPE
                             if heap.integer_field(reference, 0)? as usize == ty
                                 && heap.integer_field(reference, 1)? != 0 =>
                         {

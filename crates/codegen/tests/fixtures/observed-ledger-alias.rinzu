@@ -1,3 +1,4 @@
+import rinzu.List;
 import rinzu.stdio;
 
 fn check(value: Bool) {
@@ -22,10 +23,10 @@ fn pressure() -> Int {
     var values: List<Int> = [];
     var index = 0;
     while index < 1024 {
-        values = listAppend(values, index);
+        values = rinzu.List.append(values, index);
         index = index + 1;
     }
-    return listLength(values);
+    return rinzu.List.length(values);
 }
 
 async fn main() {

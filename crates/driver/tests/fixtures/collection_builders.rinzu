@@ -1,0 +1,166 @@
+import rinzu.List;
+import rinzu.Map;
+
+error Failed {}
+
+class Visits {
+    trace: Int
+}
+
+fn require(condition: Bool) {
+    if !condition {
+        panic("collection construction");
+    }
+}
+
+fn growList(count: Int) -> List<Int> {
+    var output: List<Int> = [];
+    var index = 0;
+    while index < count {
+        output = rinzu.List.append(output, index);
+        index = index + 1;
+    }
+    return output;
+}
+
+fn growMap(count: Int) -> Map<Int, Int> {
+    var output: Map<Int, Int> = {};
+    var index = 0;
+    while index < count {
+        output = rinzu.Map.insert(output, index % 3, index);
+        index = index + 1;
+    }
+    return output;
+}
+
+fn main() {
+    try {
+        let values = [1, 2, 3, 4];
+        let visits = Visits(trace: 0);
+        let mapped = rinzu.List.map(
+            values,
+            fn (value: Int) -> Int {
+                visits.trace = visits.trace * 10 + value;
+                let nested = rinzu.List.map(
+                    [value],
+                    fn (inner: Int) -> Int {
+                        return inner * 2;
+                    }
+                );
+                for item in nested {
+                    return item;
+                }
+                panic("nested map");
+                return 0;
+            }
+        );
+        require(mapped == [2, 4, 6, 8]);
+        require(visits.trace == 1234);
+        let filtered = rinzu.List.filter(
+            mapped,
+            fn (value: Int) -> Bool {
+                return value >= 4;
+            }
+        );
+        let empty: List<Int> = [];
+        require(rinzu.List.concatAll([empty, filtered, empty, values]) == [4, 6, 8, 1, 2, 3, 4]);
+        require(
+            rinzu.List.filter(
+                empty,
+                fn (value: Int) -> Bool {
+                    panic("empty callback");
+                    return true;
+                }
+            ) == []
+        );
+        visits.trace = 0;
+        try {
+            let failedFilter = rinzu.List.filter(
+                values,
+                fn (value: Int) -> Bool {
+                    visits.trace = visits.trace * 10 + value;
+                    if value == 3 {
+                        throw Failed(message: "stop");
+                    }
+                    return value > 1;
+                }
+            );
+            panic("callback did not fail");
+        }
+        catch [problem: Failed] {
+            require(problem.message == "stop" && visits.trace == 123);
+        }
+        visits.trace = 0;
+        try {
+            let failedIndex = rinzu.Map.fromList(
+                [1, 2, 1, 4],
+                fn (value: Int) -> Int {
+                    visits.trace = visits.trace * 10 + value;
+                    return value;
+                }
+            );
+            panic("duplicate accepted");
+        }
+        catch [problem: rinzu.Map.DuplicateKey<Int>] {
+            require(visits.trace == 121);
+            require(problem.payload.key == 1 && problem.payload.firstIndex == 0 && problem.payload.duplicateIndex == 2);
+        }
+        let output = growMap(20);
+        let entries = rinzu.Map.entries(output);
+        require(rinzu.Map.keys(output) == [0, 1, 2]);
+        require(
+            rinzu.Map.fromEntries(entries) == {
+                0: 18, 1: 19, 2: 17
+            }
+        );
+        require(growList(20) == rinzu.List.concatAll([growList(20), empty]));
+        let duplicate: List<
+            {
+                key: String, value: Int
+            }
+        > = [
+            {
+                key = "日本", value = 1
+            },
+            {
+                key = "x", value = 2
+            },
+            {
+                key = "日本", value = 3
+            }
+        ];
+        try {
+            let failedEntries = rinzu.Map.fromEntries(duplicate);
+            panic("duplicate accepted");
+        }
+        catch [problem: rinzu.Map.DuplicateKey<String>] {
+            require(
+                problem.payload.key == "日本" && problem.payload.firstIndex == 0 && problem.payload.duplicateIndex == 2
+            );
+        }
+        var snapshots: List<Int> = [];
+        for value in values {
+            let before = snapshots;
+            snapshots = rinzu.List.append(snapshots, value);
+            require(rinzu.List.length(before) == value - 1);
+        }
+        var prefix: List<Int> = [];
+        try {
+            for value in values {
+                if value == 3 {
+                    throw Failed(message: "prefix");
+                }
+                prefix = rinzu.List.append(prefix, value);
+            }
+        }
+        catch [problem: Failed] {
+            require(prefix == [1, 2]);
+        }
+        catch [overflow: rinzu.List.LengthOverflow] {
+            panic(overflow.message);
+        }
+    }
+    catch errors {
+        panic("unexpected collection Error");
+    }
+}

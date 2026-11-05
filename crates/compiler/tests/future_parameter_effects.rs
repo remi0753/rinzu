@@ -1,6 +1,7 @@
 use rinzu_compiler::{DiagnosticCode, FileId, SourceFile, compile_source};
 
 const BASE: &str = r#"
+import rinzu.List;
 error A{} error B{} error C{}
 async fn a(){throw A(message:"a");}
 async fn ok(){}
@@ -152,7 +153,7 @@ async fn main(){try{await receive(Pending(future:a()));}catch[A]{}}
     );
     accepted(
         r#"
-async fn receive(values:List<Future<Unit>>){switch listGet(values,0){case Option.Some(future):{await future;}case Option.None:{}}}
+async fn receive(values:List<Future<Unit>>){switch rinzu.List.get(values,0){case Option.Some(future):{await future;}case Option.None:{}}}
 async fn main(){let pending=a();try{await receive([pending]);}catch[A]{}try{await pending;}catch[A]{}}
 "#,
     );

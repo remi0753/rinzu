@@ -157,11 +157,12 @@ fn callback_error_groups_are_observed_on_main_and_worker_owners() {
     fixture::create(&root);
     let sdk = root.join("callbacks/src/api.rinzu");
     let mut code = fs::read_to_string(&sdk).unwrap();
+    code.insert_str(0, "import rinzu.List;\n");
     code.push_str(
         r#"
 fn innerGrouped(value:CInt)->CInt {
     try all { let first=CInt8(400);let second=CInt8(500); }
-    catch errors { if listLength(errors)!=2 { panic("lost"); } }
+    catch errors { if rinzu.List.length(errors)!=2 { panic("lost"); } }
     return value+7;
 }
 fn grouped(value:CInt)->CInt {

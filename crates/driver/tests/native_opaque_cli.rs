@@ -63,10 +63,11 @@ fn opaque_cli_runs_compiled_owners_and_catches_null_at_checked_roots() {
         let rejected = cli(&app, "check");
         assert!(!rejected.status.success());
         assert!(String::from_utf8_lossy(&rejected.stderr).contains("RZ0413"));
-        std::fs::write(app.join("src/main.rinzu"), format!(r#"import objects; {main} {{
+        std::fs::write(app.join("src/main.rinzu"), format!(r#"import rinzu.List;
+import objects; {main} {{
             var caught=false;
             try {{let missing=objects.failure();}}
-            catch [problem:Error,...rest] {{caught=true;if problem.message!="native value is NULL"||listLength(rest)!=0{{panic("wrongError");}}}}
+            catch [problem:Error,...rest] {{caught=true;if problem.message!="native value is NULL"||rinzu.List.length(rest)!=0{{panic("wrongError");}}}}
             if !caught{{panic("missingError");}}
         }}"#)).unwrap();
         success(&cli(&app, "run"));

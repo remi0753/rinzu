@@ -357,8 +357,15 @@ impl<'a> Analyzer<'a> {
                     let flow = self.block(body, &mut loop_env);
                     body_flow.join(flow);
                     loop_env.remove(binding);
-                    for value in loop_env.values_mut() {
-                        *value = value.forget_elements();
+                    for (name, value) in &mut loop_env {
+                        // The private bulk constructors only append to output.
+                        // Its element projection represents every visited input,
+                        // including those from earlier iterations.
+                        if name != "output"
+                            || iterable.range.file_id != crate::collections::source_file().id()
+                        {
+                            *value = value.forget_elements();
+                        }
                     }
                     join_env(&mut loop_env, &before);
                     if loop_env == before {

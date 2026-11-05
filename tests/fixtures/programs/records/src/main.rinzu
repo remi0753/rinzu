@@ -1,3 +1,4 @@
+import rinzu.Map;
 import rinzu.stdio;
 
 type Point = {
@@ -55,7 +56,7 @@ async fn main() {
         rinzu.stdio.writeLine(received == point);
         rinzu.stdio.writeLine(f"{point.x},{point.y}:{changed.x},{changed.y}");
         rinzu.stdio.writeLine(holder.counter.value);
-        switch mapGet(index, received) {
+        switch rinzu.Map.get(index, received) {
             case Option.Some(value): {
                 rinzu.stdio.writeLine(value);
             }

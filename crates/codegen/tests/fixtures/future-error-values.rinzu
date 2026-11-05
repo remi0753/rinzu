@@ -1,3 +1,5 @@
+import rinzu.List;
+import rinzu.Map;
 import rinzu.stdio;
 
 error Failed {
@@ -30,7 +32,7 @@ fn unpack(value: Pending) -> Future<Int> {
 }
 
 fn first(values: List<Future<Int>>) -> Option<Future<Int>> {
-    return listGet(values, 0);
+    return rinzu.List.get(values, 0);
 }
 
 async fn main() {
@@ -65,7 +67,7 @@ async fn main() {
         }
         catch [first: Failed] {}
         let other = fail(23);
-        switch mapGet(
+        switch rinzu.Map.get(
             {
                 "key": other
             },

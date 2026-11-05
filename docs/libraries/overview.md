@@ -4,7 +4,9 @@ The toolchain bundles the following modules. Import them directly in either a st
 
 | Module | Purpose | Details |
 | --- | --- | --- |
-| `rinzu.core` | Built-in types, collections, text, bytes, numeric and task operations | [Core APIs](core.md) |
+| `rinzu.core` | Built-in types, text, bytes, numeric and task operations | [Core APIs](core.md) |
+| `rinzu.List` | List queries, immutable updates and bulk construction | [Collection APIs](collections.md) |
+| `rinzu.Map` | Map queries, immutable updates and bulk construction | [Collection APIs](collections.md) |
 | `rinzu.stdio` | Synchronous display of language values | Below |
 | `rinzu.timer` | Asynchronous sleep | Below |
 | `rinzu.io` | Files, standard input/output, clocks, resource cleanup | [I/O](io.md) |

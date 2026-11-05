@@ -1,3 +1,5 @@
+import rinzu.List;
+
 /// Immutable, transferable input for saving and background analysis.
 class DocumentSnapshot {
     const text: String,
@@ -32,14 +34,14 @@ class DocumentHistory {
     }
 
     fn length(self: DocumentHistory) -> Int {
-        return listLength(self.entries);
+        return rinzu.List.length(self.entries);
     }
 
     fn peek(self: DocumentHistory) -> Option<DocumentSnapshot> {
-        if listLength(self.entries) == 0 {
+        if rinzu.List.length(self.entries) == 0 {
             return Option<DocumentSnapshot>.None();
         }
-        return listGet(self.entries, listLength(self.entries) - 1);
+        return rinzu.List.get(self.entries, rinzu.List.length(self.entries) - 1);
     }
 
     fn pop(self: DocumentHistory) -> Option<DocumentSnapshot> {
@@ -57,7 +59,7 @@ class DocumentHistory {
                 return Option<DocumentSnapshot>.None();
             }
             case Option.Some(snapshot): {
-                switch listRemove(self.entries, listLength(self.entries) - 1) {
+                switch rinzu.List.remove(self.entries, rinzu.List.length(self.entries) - 1) {
                     case Option.Some(next): {
                         self.entries = next;
                     }
@@ -85,11 +87,11 @@ class DocumentHistory {
             self.clear();
             return;
         }
-        while listLength(self.entries) >= self.maximumEntries || self.bytes + size > self.maximumBytes {
-            switch listGet(self.entries, 0) {
+        while rinzu.List.length(self.entries) >= self.maximumEntries || self.bytes + size > self.maximumBytes {
+            switch rinzu.List.get(self.entries, 0) {
                 case Option.Some(oldest): {
                     self.bytes = self.bytes - Int(utf8ByteLength(oldest.text));
-                    switch listRemove(self.entries, 0) {
+                    switch rinzu.List.remove(self.entries, 0) {
                         case Option.Some(shorter): {
                             self.entries = shorter;
                         }
@@ -103,7 +105,7 @@ class DocumentHistory {
                 }
             }
         }
-        self.entries = listAppend(self.entries, snapshot);
+        self.entries = rinzu.List.append(self.entries, snapshot);
         self.bytes = self.bytes + size;
     }
 }

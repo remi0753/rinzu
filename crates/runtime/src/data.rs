@@ -90,6 +90,7 @@ mod packed_read_tests {
 }
 
 mod bytes_operations;
+mod collections;
 mod composite;
 pub mod display;
 mod error_operations;
@@ -127,6 +128,10 @@ const HANDLE_BASE: u64 = 1 << 62;
 static NEXT_HANDLE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(HANDLE_BASE);
 const STRING_TYPE: u32 = 0xffff_ff01;
 const ERROR_TYPE: u32 = 0xffff_ff02;
+const BYTES_TYPE: u32 = 0xffff_ff03;
+const COMPOSITE_TYPE: u32 = 0xffff_ff04;
+const OPAQUE_TYPE: u32 = 0xffff_ff05;
+const COLLECTION_BUFFER_TYPE: u32 = 0xffff_ff06;
 
 /// Length followed by canonical little-endian, zero-padded integer words.
 /// The borrowed bytes remain immutable until heap allocation has completed.
@@ -189,6 +194,11 @@ enum DataKind {
 pub enum DataError {
     /// A normal language Error returned by a checked intrinsic.
     Thrown(crate::error_value::ErrorValue),
+    CollectionOverflow {
+        operation: rinzu_abi::data_operation::DataOperation,
+        current: i64,
+        added: i64,
+    },
     /// Explicit, uncatchable managed failure. The owned message may be written
     /// only after the caller publishes roots and enters native-safe state.
     Panic(String),

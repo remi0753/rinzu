@@ -1,3 +1,4 @@
+import rinzu.List;
 import rinzu.stdio;
 
 error Failed {
@@ -38,8 +39,8 @@ async fn receive(value: Future<Int>) {
 
 fn overwrite(cells: List<Cell>) {
     var index = 0;
-    while index < listLength(cells) {
-        switch listGet(cells, index) {
+    while index < rinzu.List.length(cells) {
+        switch rinzu.List.get(cells, index) {
             case Option.Some(cell): {
                 cell.future = safe();
             }
@@ -57,7 +58,7 @@ async fn main() {
         let cell = Cell(future: pending);
         let field = fromCell(cell);
         let data = receive(pending);
-        cells = listAppend(cells, cell);
+        cells = rinzu.List.append(cells, cell);
         index = index + 1;
     }
     overwrite(cells);

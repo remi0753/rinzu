@@ -139,21 +139,23 @@ fn main() {
 
 #[test]
 fn immutable_collection_operations_preserve_roots_and_snapshots() {
-    let source = r#"
+    let source = r#"import rinzu.List;
+import rinzu.Map;
+
 import rinzu.stdio;
 fn main() {
     let original=["日本語\u{0}tail"];
-    let changed=listAppend(original,"second");
+    let changed=rinzu.List.append(original,"second");
     var index=0;
-    while index<64 { let temporary=listAppend(changed,"collect"); index=index+1; }
-    switch listGet(original,0) { case Option.Some(value): {rinzu.stdio.writeLine(value);} case Option.None:{} }
-    switch listSet(changed,1,"updated") {case Option.Some(value):{rinzu.stdio.writeLine(value);} case Option.None:{} }
-    switch listRemove(changed,0) {case Option.Some(value):{rinzu.stdio.writeLine(value);} case Option.None:{} }
+    while index<64 { let temporary=rinzu.List.append(changed,"collect"); index=index+1; }
+    switch rinzu.List.get(original,0) { case Option.Some(value): {rinzu.stdio.writeLine(value);} case Option.None:{} }
+    switch rinzu.List.set(changed,1,"updated") {case Option.Some(value):{rinzu.stdio.writeLine(value);} case Option.None:{} }
+    switch rinzu.List.remove(changed,0) {case Option.Some(value):{rinzu.stdio.writeLine(value);} case Option.None:{} }
     let table: Map<String,List<String>> = {"a":original,"b":changed};
-    let updated=mapRemove(mapInsert(table,"a",changed),"b");
-    rinzu.stdio.writeLine(mapKeys(updated));
-    rinzu.stdio.writeLine(mapLength(updated));
-    switch mapGet(table,"a") {case Option.Some(value):{rinzu.stdio.writeLine(value==original);} case Option.None:{} }
+    let updated=rinzu.Map.remove(rinzu.Map.insert(table,"a",changed),"b");
+    rinzu.stdio.writeLine(rinzu.Map.keys(updated));
+    rinzu.stdio.writeLine(rinzu.Map.length(updated));
+    switch rinzu.Map.get(table,"a") {case Option.Some(value):{rinzu.stdio.writeLine(value==original);} case Option.None:{} }
 }
 "#;
     let artifact =

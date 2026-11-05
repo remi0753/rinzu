@@ -1,3 +1,5 @@
+import rinzu.List;
+import rinzu.Map;
 import rinzu.stdio;
 
 error Failed {
@@ -12,7 +14,7 @@ fn build(count: Int) -> Map<Int, Future<Int>> {
     var values: Map<Int, Future<Int>> = {};
     var index = 0;
     while index < count {
-        values = mapInsert(values, index, fail(index));
+        values = rinzu.Map.insert(values, index, fail(index));
         index = index + 1;
     }
     return values;
@@ -32,12 +34,12 @@ async fn observe(value: Future<Int>) {
 }
 
 async fn observeMap(values: Map<Int, Future<Int>>) {
-    let keys = mapKeys(values);
+    let keys = rinzu.Map.keys(values);
     var index = 0;
-    while index < listLength(keys) {
-        switch listGet(keys, index) {
+    while index < rinzu.List.length(keys) {
+        switch rinzu.List.get(keys, index) {
             case Option.Some(key): {
-                switch mapGet(values, key) {
+                switch rinzu.Map.get(values, key) {
                     case Option.Some(value): {
                         let observer = observe(value);
                     }
@@ -55,7 +57,7 @@ async fn main() {
     let observer = observeMap(values);
     let next = observeMap(build(2));
     let empty = observeMap(build(0));
-    switch mapGet(values, 1) {
+    switch rinzu.Map.get(values, 1) {
         case Option.Some(value): {
             try {
                 let result = await value;

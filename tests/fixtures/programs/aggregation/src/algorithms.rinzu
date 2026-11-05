@@ -1,3 +1,6 @@
+import rinzu.List;
+import rinzu.Map;
+
 export map;
 export filter;
 export fold;
@@ -7,11 +10,11 @@ export frequencies;
 fn map<T, U>(values: List<T>, transform: fn (T) -> U) -> List<U> {
     var output: List<U> = [];
     var index = 0;
-    let count = listLength(values);
+    let count = rinzu.List.length(values);
     while index < count {
-        switch listGet(values, index) {
+        switch rinzu.List.get(values, index) {
             case Option.Some(value): {
-                output = listAppend(output, transform(value));
+                output = rinzu.List.append(output, transform(value));
             }
             case Option.None: {}
         }
@@ -23,12 +26,12 @@ fn map<T, U>(values: List<T>, transform: fn (T) -> U) -> List<U> {
 fn filter<T>(values: List<T>, predicate: fn (T) -> Bool) -> List<T> {
     var output: List<T> = [];
     var index = 0;
-    let count = listLength(values);
+    let count = rinzu.List.length(values);
     while index < count {
-        switch listGet(values, index) {
+        switch rinzu.List.get(values, index) {
             case Option.Some(value): {
                 if predicate(value) {
-                    output = listAppend(output, value);
+                    output = rinzu.List.append(output, value);
                 }
             }
             case Option.None: {}
@@ -41,9 +44,9 @@ fn filter<T>(values: List<T>, predicate: fn (T) -> Bool) -> List<T> {
 fn fold<T, A>(values: List<T>, initial: A, combine: fn (A, T) -> A) -> A {
     var output = initial;
     var index = 0;
-    let count = listLength(values);
+    let count = rinzu.List.length(values);
     while index < count {
-        switch listGet(values, index) {
+        switch rinzu.List.get(values, index) {
             case Option.Some(value): {
                 output = combine(output, value);
             }
@@ -56,9 +59,9 @@ fn fold<T, A>(values: List<T>, initial: A, combine: fn (A, T) -> A) -> A {
 
 fn findFirst<T: Equality>(values: List<T>, wanted: T) -> Option<Int> {
     var index = 0;
-    let count = listLength(values);
+    let count = rinzu.List.length(values);
     while index < count {
-        switch listGet(values, index) {
+        switch rinzu.List.get(values, index) {
             case Option.Some(value): {
                 if value == wanted {
                     return Option<Int>.Some(value: index);
@@ -74,18 +77,18 @@ fn findFirst<T: Equality>(values: List<T>, wanted: T) -> Option<Int> {
 fn frequencies(words: List<String>) -> Map<String, Int> {
     var counts: Map<String, Int> = {};
     var index = 0;
-    let length = listLength(words);
+    let length = rinzu.List.length(words);
     while index < length {
-        switch listGet(words, index) {
+        switch rinzu.List.get(words, index) {
             case Option.Some(word): {
                 var count = 0;
-                switch mapGet(counts, word) {
+                switch rinzu.Map.get(counts, word) {
                     case Option.Some(value): {
                         count = value;
                     }
                     case Option.None: {}
                 }
-                counts = mapInsert(counts, word, count + 1);
+                counts = rinzu.Map.insert(counts, word, count + 1);
             }
             case Option.None: {}
         }

@@ -1,79 +1,61 @@
 # Lists and maps
 
-Lists and maps are immutable snapshots. Operations that change their contents return a new collection, leaving aliases of the old value unchanged.
+Lists and maps are immutable snapshots. Updates return a new collection and preserve the contents of old aliases. Elements retain the same shallow references.
 
 ## Lists
 
 ```rinzu-test
-fn sum(values: List<Int>) -> Int {
-    var total = 0;
-    var index = 0;
-    let count = listLength(values);
-    while index < count {
-        switch listGet(values, index) {
-            case Option.Some(value): {
-                total = total + value;
-            }
-            case Option.None: {
-                panic("invalid index");
-            }
-        }
-        index = index + 1;
-    }
-    return total;
-}
+import rinzu.List;
 
 fn main() {
-    let original: List<Int> = [10, 20];
-    let extended = listAppend(original, 12);
-    if sum(extended) != 42 || listLength(original) != 2 {
+    let values = [1, 2, 3];
+    let doubled = rinzu.List.map(values, fn (value: Int) -> Int {
+        return value * 2;
+    });
+    let large = rinzu.List.filter(doubled, fn (value: Int) -> Bool {
+        return value >= 4;
+    });
+    if large != [4, 6] || rinzu.List.length(values) != 3 {
         panic("invalid list");
     }
 }
 ```
 
-| Operation | Result |
-| --- | --- |
-| `listLength(values)` | Int length |
-| `listGet(values,index)` | `Option<T>` |
-| `listAppend(values,value)` | New `List<T>` |
-| `listSet(values,index,value)` | `Option<List<T>>` |
-| `listRemove(values,index)` | `Option<List<T>>` |
-
-Indices are Int. Invalid negative or out-of-range indices return None. Empty lists require an element type, for example `let names: List<String> = [];`.
+Use `for` to traverse a List. Use `rinzu.List.concatAll` to join a list of parts in order. Empty lists need a contextual element type, as in `let names: List<String> = [];`.
 
 ## Maps
 
 ```rinzu-test
+import rinzu.Map;
+
+type Count = {key: String, value: Int};
+
 fn main() {
-    let original: Map<String, Int> = {
-        "a": 1, "b": 2
-    };
-    let changed = mapInsert(original, "a", 42);
-    switch mapGet(changed, "a") {
-        case Option.Some(value): {
-            if value != 42 {
-                panic("wrong value");
-            }
+    let counts: List<Count> = [{key = "red", value = 10}, {key = "blue", value = 20}];
+    try {
+        let index = rinzu.Map.fromEntries(counts);
+        var total = 0;
+        for entry in rinzu.Map.entries(index) {
+            total = total + entry.value;
         }
-        case Option.None: {
-            panic("missing key");
+        if total != 30 {
+            panic("invalid count");
         }
     }
-    if mapLength(original) != 2 {
-        panic("original changed");
+    catch [problem: rinzu.Map.DuplicateKey<String>] {
+        panic(problem.message);
     }
 }
 ```
 
-Use `mapLength`, `mapGet`, `mapInsert`, `mapRemove`, and `mapKeys`. Keys require Key. `mapGet` returns Option; `mapRemove` returns a map even when the key was absent.
+Use `rinzu.Map.fromList` to index existing elements by a key derived from each element. Both bulk constructors report duplicates. Use `rinzu.Map.insert` for replacement and addition. Map literals use the last value for duplicate keys and retain the first insertion position.
 
-`mapKeys` follows first insertion order. Overwriting a key preserves its position; removing and reinserting it places it last. Duplicate literal keys use the later value without moving the first position.
+## Traversal and transfer
 
-## Costs and traversal
+`rinzu.Map.entries` materializes a List of key and value records in insertion order. The snapshot takes linear time and space. List transformations preserve order, and callbacks run synchronously. Existing Future observation rules apply when a callback fails or a transformation leaves elements out of its result.
 
-Use `while`, `listGet`, and `mapKeys` to traverse collections. List updates copy a flat representation, so repeated appends can accumulate quadratic work. Map operations can scan entries and compare key contents; do not assume constant-time lookup. Length and index APIs are not a promise of an optimized iterator representation.
+A collection sent to a Worker must have a transferable key and value graph. Its snapshot is independent of Main's bindings.
 
-A collection sent to a Worker must have a transferable key/value graph. Its snapshot is independent of Main's bindings.
+See the [collection API reference](../libraries/collections.md) for signatures and Error contracts.
 
-Next: [Strings and bytes](strings-and-bytes.md).
+Next [Strings and bytes](strings-and-bytes.md).

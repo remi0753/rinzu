@@ -49,7 +49,7 @@ fn key_failures_name_record_fields_unused_variants_and_recursive_graphs() {
         "fn main(){let x:Map<Unit,Int> = {};}",
         "fn main(){let x:Map<Future<Unit>,Int> = {};}",
         "fn require<T:CustomKey>(x:T){} fn main(){}",
-        "fn main(){let x:Map<Bytes(4),Int> = {b\"A\":1};let y=mapGet(x,byteArray(b\"A\"));}",
+        "import rinzu.Map;\nfn main(){let x:Map<Bytes(4),Int> = {b\"A\":1};let y=rinzu.Map.get(x,byteArray(b\"A\"));}",
     ] {
         assert!(compile_source(&file(text)).is_err(), "{text}");
     }

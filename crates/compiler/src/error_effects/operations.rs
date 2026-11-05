@@ -27,6 +27,13 @@ impl flow::Analyzer<'_> {
         name: &str,
     ) -> Language {
         if let Some(operation) = self.checked.data_operations.get(&expression.range) {
+            if self
+                .checked
+                .in_bounds_collection_updates
+                .contains(&expression.range)
+            {
+                return Language::new();
+            }
             return data_errors(*operation);
         }
         if self.checked.stdout_calls.contains_key(&expression.range) {
@@ -107,9 +114,13 @@ fn data_errors(operation: crate::DataOperation) -> Language {
     match operation {
         ErrorWithCause | NativeStatus | ParseInt | Utf8Decode | ShiftLeft | ShiftRight
         | CheckedAdd | CheckedSub | CheckedMul => language::one(Tag::Any),
-        ListLength | ListGet | ListAppend | ListSet | ListRemove | MapLength | MapGet
-        | MapInsert | MapRemove | MapKeys | ByteArray | BytesLength | BytesGet | BytesSlice
-        | BytesConcat | BytesConcatAll | BytesCopy | BytesXor | BytesFindAny | BytesFindNotAny
+        ListAppend | ListConcatAll | MapInsert => {
+            language::one(Tag::Named(operation.length_overflow().unwrap().into()))
+        }
+        ListLength | ListGet | ListSet | ListRemove | MapLength | MapGet | MapRemove | MapKeys
+        | MapEntries | ListBufferReserve | ListBufferAppend | MapBufferIndex | MapBufferInsert
+        | CollectionFinish | ByteArray | BytesLength | BytesGet | BytesSlice | BytesConcat
+        | BytesConcatAll | BytesCopy | BytesXor | BytesFindAny | BytesFindNotAny
         | BytesLowerAscii | BytesContainsAny | BytesAllIn | BytesTrim | ErrorCreate | ErrorCode
         | ErrorMessage | ErrorContext | ErrorWithContext | ErrorCause | ErrorCleanup
         | ErrorSourceFile | ErrorSourceStart | ErrorSourceEnd | ErrorNativeStatus

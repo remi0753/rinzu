@@ -338,6 +338,24 @@ impl BaselineRuntime {
                 }
                 None
             }
+            Err(DataError::CollectionOverflow {
+                operation,
+                current,
+                added,
+            }) => {
+                let handle = self.data_schema.collection_overflow(
+                    &mut self.data,
+                    &mut self.heap,
+                    operation,
+                    current,
+                    added,
+                );
+                if let Some(handle) = self.data_result(handle) {
+                    let thrown = errors::throw_error(self, handle);
+                    self.data_result(thrown);
+                }
+                None
+            }
             Err(
                 DataError::AddressSpaceExhausted
                 | DataError::Heap(HeapError::AddressSpaceExhausted),
@@ -967,6 +985,7 @@ extern "C" fn baseline_data_operation(
 ) -> i64 {
     with_runtime(context, 0, |runtime| {
         let before = runtime.heap.object_count();
+        let mut logical = None;
         let outcome = (|| {
             let op = u32::try_from(op)
                 .ok()
@@ -977,31 +996,36 @@ extern "C" fn baseline_data_operation(
                 return Err(DataError::InvalidEncoding);
             }
             // SAFETY: generated code supplies two aligned arrays with the verified arity.
-            let (types, bits) = unsafe {
+            let (raw_types, bits) = unsafe {
                 (
                     std::slice::from_raw_parts(types, count),
                     std::slice::from_raw_parts(bits, count),
                 )
             };
-            let types = types
-                .iter()
-                .map(|ty| usize::try_from(*ty).map_err(|_| DataError::InvalidEncoding))
-                .collect::<std::result::Result<Vec<_>, _>>()?;
-            let slots = types
-                .iter()
-                .zip(bits)
-                .map(|(ty, bits)| runtime.data_schema.slot(*ty, *bits))
-                .collect::<std::result::Result<Vec<_>, _>>()?;
-            runtime.data.operation(
+            let mut types = [0; 3];
+            let mut slots = [rinzu_runtime::data::ManagedSlot::Unit; 3];
+            for index in 0..count {
+                types[index] =
+                    usize::try_from(raw_types[index]).map_err(|_| DataError::InvalidEncoding)?;
+                slots[index] = runtime.data_schema.slot(types[index], bits[index])?;
+            }
+            let output = runtime.data.operation(
                 &mut runtime.heap,
                 op,
                 usize::try_from(result).map_err(|_| DataError::InvalidEncoding)?,
-                &types,
-                &slots,
-            )
+                &types[..count],
+                &slots[..count],
+            )?;
+            use rinzu_compiler::DataOperation::*;
+            logical = match op {
+                ListBufferAppend | MapBufferInsert => Some(1),
+                CollectionFinish => Some(0),
+                _ => None,
+            };
+            Ok(output)
         })();
         let slot = runtime.data_result(outcome);
-        runtime.data_allocated(runtime.heap.object_count() - before);
+        runtime.data_allocated(logical.unwrap_or_else(|| runtime.heap.object_count() - before));
         let Some(slot) = slot else {
             return 0;
         };

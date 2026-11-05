@@ -128,8 +128,9 @@ fn numeric_conversions_are_errors_but_identity_conversions_and_arithmetic_traps_
 #[test]
 fn control_validation_and_normal_absence_do_not_throw_normal_errors() {
     compile(
-        r#"error A{} async fn main(){try{
-        let invalid=setProcessExitStatus(300);let absent=listGet([1],-1);
+        r#"import rinzu.List;
+error A{} async fn main(){try{
+        let invalid=setProcessExitStatus(300);let absent=rinzu.List.get([1],-1);
     }catch[A]{}}"#,
     )
     .unwrap();

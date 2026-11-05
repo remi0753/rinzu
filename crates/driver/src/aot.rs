@@ -2159,6 +2159,7 @@ fn runtime_shim(
     );
     append_dispatch_cases(&mut source, &aot.functions);
     source.push_str("    default: return 0;\n  }\n}\n\n");
+    source.push_str(include_str!("aot_collections.c"));
     source.push_str(include_str!("aot_data.c"));
     source.push_str(include_str!("aot_stdio.c"));
     source.push_str(include_str!("aot_errors.c"));

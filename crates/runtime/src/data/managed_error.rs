@@ -155,7 +155,7 @@ impl ManagedData {
             match self.value_schema()?.ty(expected)? {
                 ValueType::Error => {}
                 ValueType::ErrorRecord { .. } => {
-                    if heap.header(reference)?.type_id != composite::COMPOSITE_TYPE
+                    if heap.header(reference)?.type_id != COMPOSITE_TYPE
                         || self.error_record_type_at(heap, reference)? != expected
                     {
                         return Ok(false);
@@ -261,7 +261,7 @@ impl ManagedData {
         heap: &DomainHeap,
         reference: HeapRef,
     ) -> Result<usize, DataError> {
-        if heap.header(reference)?.type_id != composite::COMPOSITE_TYPE {
+        if heap.header(reference)?.type_id != COMPOSITE_TYPE {
             return Err(DataError::WrongKind);
         }
         let ty = usize::try_from(heap.integer_field(reference, 0)?)
@@ -277,7 +277,7 @@ impl ManagedData {
         heap: &DomainHeap,
         reference: HeapRef,
     ) -> Result<String, DataError> {
-        if heap.header(reference)?.type_id == composite::COMPOSITE_TYPE {
+        if heap.header(reference)?.type_id == COMPOSITE_TYPE {
             self.error_record_type_at(heap, reference)?;
             let Some(HeapValue::Reference(message)) = heap.fields(reference)?.get(3).copied()
             else {

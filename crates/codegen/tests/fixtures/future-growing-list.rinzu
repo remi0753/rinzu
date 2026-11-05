@@ -1,3 +1,4 @@
+import rinzu.List;
 import rinzu.stdio;
 
 error Failed {
@@ -12,7 +13,7 @@ fn build(count: Int) -> List<Future<Int>> {
     var values: List<Future<Int>> = [];
     var index = 0;
     while index < count {
-        values = listAppend(values, fail(index));
+        values = rinzu.List.append(values, fail(index));
         index = index + 1;
     }
     return values;
@@ -33,8 +34,8 @@ async fn observe(value: Future<Int>) {
 
 async fn observeList(values: List<Future<Int>>) {
     var index = 0;
-    while index < listLength(values) {
-        switch listGet(values, index) {
+    while index < rinzu.List.length(values) {
+        switch rinzu.List.get(values, index) {
             case Option.Some(value): {
                 let observer = observe(value);
             }
@@ -49,7 +50,7 @@ async fn main() {
     let observer = observeList(values);
     let next = observeList(build(2));
     let empty = observeList(build(0));
-    switch listGet(values, 1) {
+    switch rinzu.List.get(values, 1) {
         case Option.Some(value): {
             try {
                 let result = await value;

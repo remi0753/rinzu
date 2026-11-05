@@ -1,3 +1,4 @@
+import rinzu.List;
 import rinzu.stdio;
 
 fn chunks(data: ByteArray) -> List<ByteArray> {
@@ -10,7 +11,12 @@ fn chunks(data: ByteArray) -> List<ByteArray> {
         }
         switch bytesSlice(data, start, end) {
             case Option.Some(part): {
-                output = listAppend(output, part);
+                try {
+                    output = rinzu.List.append(output, part);
+                }
+                catch [overflow: rinzu.List.LengthOverflow] {
+                    panic(overflow.message);
+                }
             }
             case Option.None: {}
         }
@@ -70,8 +76,8 @@ async fn main() {
         rinzu.stdio.writeLine(parts);
         var joined = empty;
         var i = 0;
-        while i < listLength(parts) {
-            switch listGet(parts, i) {
+        while i < rinzu.List.length(parts) {
+            switch rinzu.List.get(parts, i) {
                 case Option.Some(part): {
                     joined = bytesConcat(joined, part);
                 }

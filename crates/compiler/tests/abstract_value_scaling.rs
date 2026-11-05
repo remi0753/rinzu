@@ -4,10 +4,11 @@ use rinzu_compiler::{DiagnosticCode, FileId, SourceFile, compile_source};
 fn many_checked_closures_preserve_failure_handlers() {
     let mut source = String::from(
         r#"
+import rinzu.List;
 fn require(value:Bool){if !value{panic("invalid");}}
 fn checked<T>(action:fn()->T,code:Int){
     try{let unexpected=action();require(false);}
-    catch[problem:Error,...rest]{require(errorCode(problem)==code);require(listLength(rest)==0);}
+    catch[problem:Error,...rest]{require(errorCode(problem)==code);require(rinzu.List.length(rest)==0);}
 }
 fn main(){let high=9223372036854775807;
 "#,

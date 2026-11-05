@@ -269,6 +269,9 @@ pub(super) enum Tracked {
         fields: Vec<Tracked>,
     },
     List(Vec<Tracked>),
+    /// The full projected membership of an immutable collection. It carries
+    /// no proof about a particular index, key, or result length.
+    CollectionView(Box<Tracked>),
     Members(FutureMembers),
     AllMembers {
         tokens: BTreeSet<Token>,
@@ -315,6 +318,7 @@ impl Tracked {
     }
     pub fn finish_iteration(&mut self, at: Site) {
         match self {
+            Self::CollectionView(elements) => elements.finish_iteration(at),
             Self::Keys(_) => *self = Self::data(Value::Collection(Box::new(Value::Plain))),
             Self::Length { .. } => *self = Self::data(Value::Plain),
             Self::Iteration {
@@ -379,6 +383,9 @@ impl Tracked {
         population: &BTreeSet<Token>,
     ) {
         match self {
+            Self::CollectionView(elements) => {
+                elements.prepare_return(resolved, pending, population)
+            }
             Self::Members(members) => {
                 members.population = members.members.intersection(population).cloned().collect();
                 members.pending = members
@@ -461,6 +468,7 @@ impl Tracked {
                 )]),
             },
             Self::List(values) => Value::Collection(Box::new(join_effects(values.iter()))),
+            Self::CollectionView(elements) => Value::Collection(Box::new(elements.effect())),
             Self::Map(entries) => Value::Collection(Box::new(join_effects(
                 entries.iter().map(|(_, value)| value),
             ))),
@@ -484,6 +492,7 @@ impl Tracked {
     }
     pub fn tokens(&self) -> BTreeSet<Token> {
         match self {
+            Self::CollectionView(elements) => elements.tokens(),
             Self::Members(members) => members.members.clone(),
             Self::AllMembers {
                 tokens, population, ..
@@ -518,6 +527,8 @@ impl Tracked {
     }
     pub fn guaranteed(&self) -> BTreeSet<Token> {
         match self {
+            Self::CollectionView(elements) => elements.guaranteed(),
+            Self::AllMembers { tokens, .. } => tokens.clone(),
             Self::Members(members) => members.complete.clone(),
             Self::Future { token, result, .. } => {
                 let mut tokens = if token.observable() {
@@ -561,6 +572,7 @@ impl Tracked {
     }
     pub fn project(&self, access: Access, fallback: Value, future: bool) -> Self {
         match (self, &access) {
+            (Self::CollectionView(elements), Access::Each(_)) => *elements.clone(),
             (Self::Members(members), Access::Each(_)) => Self::AllMembers {
                 population: members.population_complete.clone(),
                 tokens: members.complete.clone(),
@@ -694,6 +706,7 @@ impl Tracked {
     }
     pub fn visit_tokens(&mut self, visit: &mut impl FnMut(&mut Token, &mut bool)) {
         match self {
+            Self::CollectionView(elements) => elements.visit_tokens(visit),
             Self::Members(members) => members.visit_tokens(visit),
             Self::AllMembers {
                 tokens, population, ..
@@ -862,6 +875,7 @@ impl Tracked {
     }
     pub fn contains_iteration(&self) -> bool {
         match self {
+            Self::CollectionView(elements) => elements.contains_iteration(),
             Self::Iteration { .. } => true,
             Self::Record { fields, .. }
             | Self::Reference {
@@ -878,6 +892,7 @@ impl Tracked {
     }
     pub fn erase_opaque_local_tokens(&mut self) {
         match self {
+            Self::CollectionView(elements) => elements.erase_opaque_local_tokens(),
             Self::Unknown { held, .. } => held.retain(|token| matches!(token, Token::Input(_))),
             Self::Record { fields, .. }
             | Self::Reference {
@@ -953,10 +968,22 @@ fn map_entry_retained(entries: &[(Option<Key>, Tracked)], index: usize) -> bool 
 }
 pub(super) fn map(entries: impl IntoIterator<Item = (Option<Key>, Tracked)>) -> Tracked {
     let mut result: Vec<(Option<Key>, Tracked)> = Vec::new();
+    let mut unknown_key = false;
     for (key, value) in entries {
-        if let Some(key) = &key {
-            result.retain(|(previous, _)| previous.as_ref() != Some(key));
+        if let Some(key) = &key
+            && let Some(position) = result
+                .iter()
+                .position(|(previous, _)| previous.as_ref() == Some(key))
+        {
+            if !unknown_key {
+                result[position].1 = value;
+                continue;
+            }
+            // With an unknown key, keep writes in time order so that an
+            // unknown earlier write cannot obscure a definite later write.
+            result.remove(position);
         }
+        unknown_key |= key.is_none();
         result.push((key, value));
     }
     Tracked::Map(result)

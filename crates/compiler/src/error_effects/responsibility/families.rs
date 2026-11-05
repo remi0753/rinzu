@@ -190,6 +190,14 @@ impl Tracked {
             *self = Self::Members(members);
         }
         match self {
+            Self::CollectionView(elements) => elements.age_family(
+                current,
+                old,
+                old_pending,
+                current_pending,
+                old_present,
+                current_present,
+            ),
             Self::Members(members) => members.age(
                 current,
                 old,

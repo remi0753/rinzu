@@ -1,3 +1,4 @@
+import rinzu.List;
 import rinzu.stdio;
 
 class Editor {
@@ -8,7 +9,7 @@ class Editor {
 }
 
 fn edit(editor: Editor) {
-    editor.undo = listAppend(editor.undo, editor.text);
+    editor.undo = rinzu.List.append(editor.undo, editor.text);
     editor.text = "after";
 }
 
@@ -40,7 +41,7 @@ async fn main() {
         let pending = spawn snapshot(editor.text);
         editor.text = "updated-after-snapshot";
         let text = await pending;
-        rinzu.stdio.writeLine(f"selection={alias.selection},undo={listLength(alias.undo)}");
+        rinzu.stdio.writeLine(f"selection={alias.selection},undo={rinzu.List.length(alias.undo)}");
         rinzu.stdio.writeLine(text);
         rinzu.stdio.writeLine(f"current={editor.text}");
     }

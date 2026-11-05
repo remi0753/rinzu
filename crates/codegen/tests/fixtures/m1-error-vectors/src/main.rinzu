@@ -1,3 +1,4 @@
+import rinzu.List;
 import rinzu.stdio;
 
 async fn failCleanup() -> Int {
@@ -54,8 +55,8 @@ async fn main() {
         catch [primary: Error, ...primaryRest] {
             rinzu.stdio.writeLine(errorCode(primary));
             let cleanup = primaryRest;
-            rinzu.stdio.writeLine(listLength(cleanup));
-            switch listGet(cleanup, 0) {
+            rinzu.stdio.writeLine(rinzu.List.length(cleanup));
+            switch rinzu.List.get(cleanup, 0) {
                 case Option.Some(extra): {
                     rinzu.stdio.writeLine(errorCode(extra));
                     switch errorSourceStart(extra) {

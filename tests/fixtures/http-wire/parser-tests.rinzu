@@ -1,3 +1,4 @@
+import rinzu.List;
 import "wire.rinzu" as wire;
 import "support.rinzu" as support;
 import rinzu.testing;
@@ -53,8 +54,8 @@ fn main() {
 fn checkHostFields() {
     let names = ["localhost", "example.test:8080", "127.0.0.1", "xn--bcher-kva.example"];
     var index = 0;
-    while index < listLength(names) {
-        switch listGet(names, index) {
+    while index < rinzu.List.length(names) {
+        switch rinzu.List.get(names, index) {
             case Option.Some(host): {
                 let parser = wire.fresh(true);
                 support.assertTrue(
@@ -100,8 +101,8 @@ fn checkRequests() -> Int {
     }
     decoded(single, body, bytesLength(head));
     support.assertEqual<String>(single.target, "/echo?raw=%2F", "raw query preserved");
-    support.assertEqual<Int>(listLength(single.headers), 4, "field ordering/duplicates");
-    switch listGet(single.headers, 2) {
+    support.assertEqual<Int>(rinzu.List.length(single.headers), 4, "field ordering/duplicates");
+    switch rinzu.List.get(single.headers, 2) {
         case Option.Some(header): {
             support.assertEqual<String>(header.name, "x-test", "lowercase name");
             support.assertEqual<ByteArray>(header.value, byteArray(b"\xff\x80"), "binary OWS trimmed");

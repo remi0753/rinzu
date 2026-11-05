@@ -1,6 +1,8 @@
 use rinzu_compiler::{DiagnosticCode, FileId, SourceFile, compile_source};
 
 const FAILURES: &str = r#"
+import rinzu.List;
+import rinzu.Map;
 error A{} error B{}
 async fn a(){throw A(message:"a");}
 async fn b(){throw B(message:"b");}
@@ -156,12 +158,12 @@ case Pending.None:{}
 fn persistent_list_and_map_operations_and_factories_keep_latent_errors() {
     for (helper, call) in [
         (
-            "fn first(values:List<Future<Unit>>)->Option<Future<Unit>>{return listGet(values,0);}",
-            "first(listAppend([pending],pending))",
+            "fn first(values:List<Future<Unit>>)->Option<Future<Unit>>{return rinzu.List.get(values,0);}",
+            "first(rinzu.List.append([pending],pending))",
         ),
         (
-            "fn first(values:Map<String,Future<Unit>>)->Option<Future<Unit>>{return mapGet(values,\"key\");}",
-            "first(mapInsert({\"key\":pending},\"other\",pending))",
+            "fn first(values:Map<String,Future<Unit>>)->Option<Future<Unit>>{return rinzu.Map.get(values,\"key\");}",
+            "first(rinzu.Map.insert({\"key\":pending},\"other\",pending))",
         ),
     ] {
         accepted(&format!(

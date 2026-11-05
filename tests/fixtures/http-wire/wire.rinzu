@@ -1,4 +1,5 @@
 // H1 experiment: bounded octet framing, not a public standard package.
+import rinzu.List;
 import rinzu.socket;
 import rinzu.httpcodec;
 
@@ -210,19 +211,19 @@ fn validTarget(data: ByteArray) -> Bool {
 
 fn authority(value: String) -> rinzu.socket.Address {
     let parts = stringSplit(value, ":");
-    if listLength(parts) < 1 || listLength(parts) > 2 {
+    if rinzu.List.length(parts) < 1 || rinzu.List.length(parts) > 2 {
         throw error(7801, "http.authority");
     }
     var host = "";
-    switch listGet(parts, 0) {
+    switch rinzu.List.get(parts, 0) {
         case Option.Some(part): {
             host = part;
         }
         case Option.None: {}
     }
     var port = 80;
-    if listLength(parts) == 2 {
-        switch listGet(parts, 1) {
+    if rinzu.List.length(parts) == 2 {
+        switch rinzu.List.get(parts, 1) {
             case Option.Some(part): {
                 port = decimal(utf8Encode(part));
             }
@@ -321,7 +322,7 @@ fn startLine(parser: Parser, data: ByteArray) -> Bool {
 }
 
 fn headerLine(parser: Parser, data: ByteArray) -> Bool {
-    if listLength(parser.headers) >= 64 {
+    if rinzu.List.length(parser.headers) >= 64 {
         return bad(parser, 7802, 431, "head");
     }
     let colon = findAny(data, byteArray(b":"), 0);
@@ -333,7 +334,7 @@ fn headerLine(parser: Parser, data: ByteArray) -> Bool {
     if key == "" || colon >= bytesLength(data) || !fieldValue(value) {
         return bad(parser, 7801, 400, "head");
     }
-    parser.headers = listAppend(parser.headers, Header(name: key, value: trim(value)));
+    parser.headers = rinzu.List.append(parser.headers, Header(name: key, value: trim(value)));
     return (false);
 }
 
@@ -343,8 +344,8 @@ fn finishHead(parser: Parser) -> Bool {
     var transfers = 0;
     var length = 0;
     var index = 0;
-    while index < listLength(parser.headers) {
-        switch listGet(parser.headers, index) {
+    while index < rinzu.List.length(parser.headers) {
+        switch rinzu.List.get(parser.headers, index) {
             case Option.Some(header): {
                 if parser.request && header.name == "host" {
                     hosts = hosts + 1;
@@ -644,13 +645,13 @@ fn response(parser: Parser) -> Response {
 }
 
 fn appendHeaders(head: ByteArray, headers: List<Header>, generated: Int) -> ByteArray {
-    if listLength(headers) + generated > 64 {
+    if rinzu.List.length(headers) + generated > 64 {
         throw error(7802, "http.encode.headers");
     }
     var result = head;
     var index = 0;
-    while index < listLength(headers) {
-        switch listGet(headers, index) {
+    while index < rinzu.List.length(headers) {
+        switch rinzu.List.get(headers, index) {
             case Option.Some(header): {
                 let key = name(utf8Encode(header.name));
                 if key == ""

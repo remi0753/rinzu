@@ -65,7 +65,7 @@ mod native_resources;
 pub use native_resources::{CallbackPoolEvidence, NativeProcessEvidence};
 
 /// Private generated object/runtime contract; public native ABI versions are separate.
-pub const BASELINE_RUNTIME_ABI_REVISION: &str = "rinzu-baseline-0.5-r181";
+pub const BASELINE_RUNTIME_ABI_REVISION: &str = "rinzu-baseline-0.5-r182";
 
 /// Private macOS arm64 C Context contract; generated C asserts this field offset.
 pub const C_CONTEXT_PENDING_PRIMARY_OFFSET: i32 = 208;

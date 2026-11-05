@@ -4,7 +4,8 @@ use rinzu_codegen::{
 };
 use rinzu_compiler::{FileId, SourceFile, compile_source};
 
-const SOURCE: &str = r#"
+const SOURCE: &str = r#"import rinzu.List;
+
 class Counter { value:Int }
 class Saved { const read:fn()->Int }
 fn values(counter:Counter)->List<Int>{counter.value=counter.value+1;return [1,2,3,4];}
@@ -27,7 +28,7 @@ fn main(){
     for value in source {
         source=[9];
         let read=fn()->Int{return value;};
-        snapshots=listAppend(snapshots,Saved(read:read));
+        snapshots=rinzu.List.append(snapshots,Saved(read:read));
     }
     var result=0;
     for saved in snapshots {result=result*10+saved.read();}
