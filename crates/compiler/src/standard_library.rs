@@ -43,10 +43,10 @@ pub fn names() -> impl Iterator<Item = &'static str> {
 }
 
 pub fn dependencies(name: &str) -> &'static [&'static str] {
-    if name == "rinzu.stream" {
-        &["rinzu.io"]
-    } else {
-        &[]
+    match name {
+        "rinzu.process" => &["rinzu.option"],
+        "rinzu.stream" => &["rinzu.io"],
+        _ => &[],
     }
 }
 

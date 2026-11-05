@@ -1,6 +1,7 @@
 import rinzu.list;
 import rinzu.timer;
 import rinzu.macos;
+import rinzu.option;
 import rinzu.process;
 import rinzu.stdio;
 import rinzu.testing;
@@ -335,17 +336,14 @@ async fn main() {
                         let overflowDone = await rinzu.macos.application("Event overflow", 320.0, 200.0, overflowBody);
                     }
                     catch overflowErrors {
-                        switch rinzu.list.get(overflowErrors, 0) {
-                            case Option.Some(problem): {
-                                switch errorNativeStatus(problem) {
-                                    case Option.Some(status): {
-                                        overflowObserved = status == -7808;
-                                    }
-                                    case Option.None: {}
-                                }
+                        let first = rinzu.list.get(overflowErrors, 0);
+                        let status = rinzu.option.andThen(
+                            first,
+                            fn (problem: Error) -> Option<Int> {
+                                return errorNativeStatus(problem);
                             }
-                            case Option.None: {}
-                        }
+                        );
+                        overflowObserved = status == Option<Int>.Some(value: -7808);
                     }
                     rinzu.testing.assertTrue(overflowObserved, "late OS failure is observed");
                 }

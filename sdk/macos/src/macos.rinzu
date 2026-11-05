@@ -3648,17 +3648,14 @@ class UiActions {
         if rinzu.list.length(self.bindings) >= 256 {
             throw error(-7803, "macos.actions.limit");
         }
-        var index = 0;
-        while index < rinzu.list.length(self.bindings) {
-            switch rinzu.list.get(self.bindings, index) {
-                case Option.None: {}
-                case Option.Some(binding): {
-                    if binding.action == action {
-                        throw error(-7804, "macos.actions.duplicate");
-                    }
-                }
+        let duplicate = rinzu.list.any(
+            self.bindings,
+            fn (binding: UiAction) -> Bool {
+                return binding.action == action;
             }
-            index = index + 1;
+        );
+        if duplicate {
+            throw error(-7804, "macos.actions.duplicate");
         }
         self.bindings = rinzu.list.append(self.bindings, UiAction(action: action, handler: handler, busy: false));
     }
@@ -3678,37 +3675,36 @@ class UiActions {
         if (event.kind != eventAction && event.kind != eventData) || scope.control.stopping {
             return;
         }
-        var index = 0;
-        while index < rinzu.list.length(self.bindings) {
-            switch rinzu.list.get(self.bindings, index) {
-                case Option.None: {}
-                case Option.Some(binding): {
-                    if binding.action == event.action && !binding.busy {
-                        binding.busy = true;
-                        var handed = false;
-                        try {
-                            let registered = scope.start(
-                                async fn (job: UiJob) {
-                                    try {
-                                        await binding.handler(job, event);
-                                    }
-                                    finally {
-                                        binding.busy = false;
-                                    }
-                                }
-                            );
-                            handed = true;
-                        }
-                        finally {
-                            if !handed {
+        let matching = rinzu.list.find(
+            self.bindings,
+            fn (candidate: UiAction) -> Bool {
+                return candidate.action == event.action && !candidate.busy;
+            }
+        );
+        switch matching {
+            case Option.Some(binding): {
+                binding.busy = true;
+                var handed = false;
+                try {
+                    let registered = scope.start(
+                        async fn (job: UiJob) {
+                            try {
+                                await binding.handler(job, event);
+                            }
+                            finally {
                                 binding.busy = false;
                             }
                         }
-                        return;
+                    );
+                    handed = true;
+                }
+                finally {
+                    if !handed {
+                        binding.busy = false;
                     }
                 }
             }
-            index = index + 1;
+            case Option.None: {}
         }
     }
 }
@@ -4028,21 +4024,17 @@ fn dataCells(cells: List<String>, columns: Int) -> ByteArray {
     if rinzu.list.length(cells) != columns {
         throw error(-7804, "macos.data.columnCount");
     }
-    var result = "";
-    var index = 0;
-    while index < columns {
-        switch rinzu.list.get(cells, index) {
-            case Option.Some(cell): {
-                let bytes = utf8Encode(cell);
-                if byteLength(bytes) > 65536 {
-                    throw error(-7804, "macos.data.cellLimit");
-                }
-                result = f"{result}{byteLength(bytes)}:{cell}";
+    let result = rinzu.list.fold(
+        cells,
+        "",
+        fn (encoded: String, cell: String) -> String {
+            let length = byteLength(utf8Encode(cell));
+            if length > 65536 {
+                throw error(-7804, "macos.data.cellLimit");
             }
-            case Option.None: {}
+            return f"{encoded}{length}:{cell}";
         }
-        index = index + 1;
-    }
+    );
     let bytes = utf8Encode(result);
     if byteLength(bytes) > 1048576 {
         throw error(-7804, "macos.data.rowLimit");
@@ -4057,17 +4049,14 @@ fn createDataView(scope: UiScope, kind: Int, columns: List<DataColumn>, frame: R
         || rinzu.list.length(columns) > 32 {
         throw error(-7804, "macos.data.columnsOrStopping");
     }
-    var index = 0;
-    while index < rinzu.list.length(columns) {
-        switch rinzu.list.get(columns, index) {
-            case Option.Some(column): {
-                if !(column.width >= 16.0 && column.width <= 4096.0) || byteLength(utf8Encode(column.title)) > 4096 {
-                    throw error(-7804, "macos.data.column");
-                }
-            }
-            case Option.None: {}
+    let validColumns = rinzu.list.all(
+        columns,
+        fn (column: DataColumn) -> Bool {
+            return column.width >= 16.0 && column.width <= 4096.0 && byteLength(utf8Encode(column.title)) <= 4096;
         }
-        index = index + 1;
+    );
+    if !validColumns {
+        throw error(-7804, "macos.data.column");
     }
     let view = View(
         handle: rawView(
@@ -4079,7 +4068,7 @@ fn createDataView(scope: UiScope, kind: Int, columns: List<DataColumn>, frame: R
     );
     var retained = false;
     try {
-        index = 0;
+        var index = 0;
         while index < rinzu.list.length(columns) {
             switch rinzu.list.get(columns, index) {
                 case Option.Some(column): {

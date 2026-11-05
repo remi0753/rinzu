@@ -1,25 +1,9 @@
 import rinzu.list;
 import rinzu.map;
+import rinzu.option;
 
-export fold;
 export findFirst;
 export frequencies;
-
-fn fold<T, A>(values: List<T>, initial: A, combine: fn (A, T) -> A) -> A {
-    var output = initial;
-    var index = 0;
-    let count = rinzu.list.length(values);
-    while index < count {
-        switch rinzu.list.get(values, index) {
-            case Option.Some(value): {
-                output = combine(output, value);
-            }
-            case Option.None: {}
-        }
-        index = index + 1;
-    }
-    return output;
-}
 
 fn findFirst<T: Equality>(values: List<T>, wanted: T) -> Option<Int> {
     var index = 0;
@@ -40,23 +24,15 @@ fn findFirst<T: Equality>(values: List<T>, wanted: T) -> Option<Int> {
 
 fn frequencies(words: List<String>) -> Map<String, Int> {
     var counts: Map<String, Int> = {};
-    var index = 0;
-    let length = rinzu.list.length(words);
-    while index < length {
-        switch rinzu.list.get(words, index) {
-            case Option.Some(word): {
-                var count = 0;
-                switch rinzu.map.get(counts, word) {
-                    case Option.Some(value): {
-                        count = value;
-                    }
-                    case Option.None: {}
-                }
-                counts = rinzu.map.insert(counts, word, count + 1);
+    for word in words {
+        let previous = rinzu.map.get(counts, word);
+        let count = rinzu.option.getOrElse(
+            previous,
+            fn () -> Int {
+                return 0;
             }
-            case Option.None: {}
-        }
-        index = index + 1;
+        );
+        counts = rinzu.map.insert(counts, word, count + 1);
     }
     return counts;
 }

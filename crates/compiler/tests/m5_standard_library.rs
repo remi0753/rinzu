@@ -63,11 +63,11 @@ fn every_selected_source_package_is_reachable_without_manifest_dependencies() {
     for name in standard_library::SOURCE_PACKAGES {
         let entry = scratch.source("entry.rinzu", &format!("import {name}; fn main() {{}}"));
         let result = check(&entry);
-        let expected = if name == "rinzu.stream" {
-            vec!["rinzu.io", "rinzu.stream"]
-        } else {
-            vec![name]
-        };
+        let expected: Vec<_> = standard_library::dependencies(name)
+            .iter()
+            .copied()
+            .chain([name])
+            .collect();
         assert_eq!(packages(&result), expected);
         assert!(result.artifact.source_interface.is_none());
         assert!(

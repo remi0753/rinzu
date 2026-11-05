@@ -1,3 +1,5 @@
+import rinzu.option;
+
 native {
     fn rawRead(name: String) -> Int symbol "rinzu_process_environment_read";
 
@@ -37,31 +39,31 @@ fn environment(name: String) -> Option<String> {
 }
 
 fn setting(name: String, defaultValue: String) -> String {
-    let resultValue3 = environment(name);
-    switch resultValue3 {
-        case Option.None: {
-            return (defaultValue);
+    return rinzu.option.getOrElse(
+        environment(name),
+        fn () -> String {
+            return defaultValue;
         }
-        case Option.Some(text): {
-            return (text);
-        }
-    }
+    );
 }
 
 fn integer(name: String, defaultValue: Int, minimum: Int, maximum: Int) -> Int {
-    let resultValue2 = environment(name);
-    var number = defaultValue;
-    switch resultValue2 {
-        case Option.None: {}
-        case Option.Some(text): {
-            let resultValue1 = parseInt(text);
-            number = resultValue1;
+    let parsed = rinzu.option.map(
+        environment(name),
+        fn (text: String) -> Int {
+            return parseInt(text);
         }
-    }
+    );
+    let number = rinzu.option.getOrElse(
+        parsed,
+        fn () -> Int {
+            return defaultValue;
+        }
+    );
     if number < minimum || number > maximum {
         throw error(610, "process.integer.range");
     }
-    return (number);
+    return number;
 }
 
 export environment;

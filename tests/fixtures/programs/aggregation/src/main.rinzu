@@ -25,14 +25,14 @@ fn failOnLarge(value: Int) -> Int {
 fn main() {
     try {
         let values = [3, -1, 3, 2];
-        rinzu.stdio.writeLine(algorithms.fold<Int, Int>(values, 0, add));
+        rinzu.stdio.writeLine(rinzu.list.fold(values, 0, add));
         rinzu.stdio.writeLine(rinzu.list.map(values, double));
         rinzu.stdio.writeLine(rinzu.list.filter(values, positive));
         rinzu.stdio.writeLine(algorithms.findFirst<Int>(values, 3));
         rinzu.stdio.writeLine(algorithms.findFirst<Int>(values, 99));
         rinzu.stdio.writeLine(values);
         rinzu.stdio.writeLine(algorithms.frequencies(["a", "b", "a", "日本語", ""]));
-        rinzu.stdio.writeLine(algorithms.fold<String, String>(["日本語", "\u{0}tail"], "", appendText));
+        rinzu.stdio.writeLine(rinzu.list.fold(["日本語", "\u{0}tail"], "", appendText));
         try {
             let failed = rinzu.list.map([1, 300], failOnLarge);
         }
