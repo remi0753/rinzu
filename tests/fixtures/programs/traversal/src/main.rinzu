@@ -21,23 +21,9 @@ fn countMatches<T: Equality>(values: List<T>, wanted: T) -> Int {
 }
 
 fn sumMap<K: Key>(values: Map<K, Int>) -> Int {
-    let keys = rinzu.Map.keys(values);
-    let length = rinzu.List.length(keys);
     var total = 0;
-    var index = 0;
-    while index < length {
-        switch rinzu.List.get(keys, index) {
-            case Option.Some(key): {
-                switch rinzu.Map.get(values, key) {
-                    case Option.Some(value): {
-                        total = total + value;
-                    }
-                    case Option.None: {}
-                }
-            }
-            case Option.None: {}
-        }
-        index = index + 1;
+    for entry in rinzu.Map.entries(values) {
+        total = total + entry.value;
     }
     return total;
 }

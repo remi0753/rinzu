@@ -1,45 +1,9 @@
 import rinzu.List;
 import rinzu.Map;
 
-export map;
-export filter;
 export fold;
 export findFirst;
 export frequencies;
-
-fn map<T, U>(values: List<T>, transform: fn (T) -> U) -> List<U> {
-    var output: List<U> = [];
-    var index = 0;
-    let count = rinzu.List.length(values);
-    while index < count {
-        switch rinzu.List.get(values, index) {
-            case Option.Some(value): {
-                output = rinzu.List.append(output, transform(value));
-            }
-            case Option.None: {}
-        }
-        index = index + 1;
-    }
-    return output;
-}
-
-fn filter<T>(values: List<T>, predicate: fn (T) -> Bool) -> List<T> {
-    var output: List<T> = [];
-    var index = 0;
-    let count = rinzu.List.length(values);
-    while index < count {
-        switch rinzu.List.get(values, index) {
-            case Option.Some(value): {
-                if predicate(value) {
-                    output = rinzu.List.append(output, value);
-                }
-            }
-            case Option.None: {}
-        }
-        index = index + 1;
-    }
-    return output;
-}
 
 fn fold<T, A>(values: List<T>, initial: A, combine: fn (A, T) -> A) -> A {
     var output = initial;

@@ -148,20 +148,13 @@ class Tasks {
         if job.isStopping() || self.selected == 0 {
             return;
         }
-        var kept: List<Task> = [];
-        var index = 0;
-        while index < rinzu.List.length(self.items) {
-            switch rinzu.List.get(self.items, index) {
-                case Option.Some(task): {
-                    if task.id != self.selected {
-                        kept = rinzu.List.append(kept, task);
-                    }
-                }
-                case Option.None: {}
+        let selected = self.selected;
+        self.items = rinzu.List.filter(
+            self.items,
+            fn (task: Task) -> Bool {
+                return task.id != selected;
             }
-            index = index + 1;
-        }
-        self.items = kept;
+        );
         await self.refresh();
     }
 

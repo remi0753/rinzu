@@ -1979,20 +1979,12 @@ class UiScope {
             if self.control.closed || self.control.stopping {
                 throw error(-7803, "UI scope is stopping");
             }
-            var active: List<UiTask> = [];
-            var index = 0;
-            while index < rinzu.List.length(self.tasks) {
-                switch rinzu.List.get(self.tasks, index) {
-                    case Option.Some(job): {
-                        if !job.done {
-                            active = rinzu.List.append(active, job);
-                        }
-                    }
-                    case Option.None: {}
+            self.tasks = rinzu.List.filter(
+                self.tasks,
+                fn (job: UiTask) -> Bool {
+                    return !job.done;
                 }
-                index = index + 1;
-            }
-            self.tasks = active;
+            );
             if rinzu.List.length(self.tasks) >= 256 {
                 throw error(-7803, "UI scope job limit");
             }
@@ -2217,9 +2209,7 @@ class UiScope {
 
 fn uiStoreErrors(scope: UiScope, errors: List<Error>) {
     try {
-        for problem in errors {
-            scope.errors = rinzu.List.append(scope.errors, problem);
-        }
+        scope.errors = rinzu.List.concatAll([scope.errors, errors]);
     }
     catch [overflow: rinzu.List.LengthOverflow] {
         scope.errors = [overflow];
