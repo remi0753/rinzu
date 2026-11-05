@@ -1,0 +1,39 @@
+/// Transform the value in Some. Return None without calling transform when absent.
+fn map<T, U>(value: Option<T>, transform: fn (T) -> U) -> Option<U> {
+    switch value {
+        case Option.Some(item): {
+            return Option<U>.Some(value: transform(item));
+        }
+        case Option.None: {
+            return Option<U>.None();
+        }
+    }
+}
+
+/// Run an optional lookup on the value in Some and return its Option directly.
+fn andThen<T, U>(value: Option<T>, next: fn (T) -> Option<U>) -> Option<U> {
+    switch value {
+        case Option.Some(item): {
+            return next(item);
+        }
+        case Option.None: {
+            return Option<U>.None();
+        }
+    }
+}
+
+/// Return the value in Some, or call onNone once to compute the default.
+fn getOrElse<T>(value: Option<T>, onNone: fn () -> T) -> T {
+    switch value {
+        case Option.Some(item): {
+            return item;
+        }
+        case Option.None: {
+            return onNone();
+        }
+    }
+}
+
+export map;
+export andThen;
+export getOrElse;

@@ -14,8 +14,12 @@ Import `rinzu.list` or `rinzu.map` and qualify calls with the module name. Colle
 | `rinzu.list.map(List<T>, fn (T) -> U)` | `List<U>` in input order |
 | `rinzu.list.filter(List<T>, fn (T) -> Bool)` | Matching elements in input order |
 | `rinzu.list.concatAll(List<List<T>>)` | `List<T>` in part and element order |
+| `rinzu.list.fold(List<T>, A, fn (A, T) -> A)` | Accumulated result. An empty input returns the initial value |
+| `rinzu.list.find(List<T>, fn (T) -> Bool)` | First matching element as `Some`, or `None` |
+| `rinzu.list.any(List<T>, fn (T) -> Bool)` | Whether any element matches. An empty input returns `false` |
+| `rinzu.list.all(List<T>, fn (T) -> Bool)` | Whether every element matches. An empty input returns `true` |
 
-Negative and out-of-range indices return `Option.None`. Updates preserve existing snapshots. `map` and `filter` call their functions synchronously, once per visited element, from the start of the input. A callback Error propagates immediately with its original failure information.
+Negative and out-of-range indices return `Option.None`. Updates preserve existing snapshots. List callbacks run synchronously, once per visited element, from the start of the input. `fold` passes the accumulator first and the element second. `find` and `any` stop at the first match, and `all` stops at the first nonmatch. A callback Error propagates immediately with its original failure information.
 
 ## rinzu.map
 

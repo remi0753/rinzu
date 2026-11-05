@@ -7,10 +7,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use sha2::{Digest, Sha256};
 
 pub const TARGET: &str = "aarch64-apple-darwin";
-pub const REVISION: u32 = 5;
+pub const REVISION: u32 = 6;
 /// Shared by the embedded registry and its distribution fingerprint.
 pub const RUNTIME_CODEGEN_REVISION: u32 = 182;
-pub const SOURCE_PACKAGES: [&str; 8] = [
+pub const SOURCE_PACKAGES: [&str; 9] = [
+    "rinzu.option",
     "rinzu.io",
     "rinzu.process",
     "rinzu.stream",
@@ -143,6 +144,8 @@ pub fn resources() -> BTreeMap<&'static str, &'static [u8]> {
         sdk_resource!("stream", "src/stream.rinzu"),
         sdk_resource!("testing", "rinzu.toml"),
         sdk_resource!("testing", "src/testing.rinzu"),
+        sdk_resource!("option", "rinzu.toml"),
+        sdk_resource!("option", "src/option.rinzu"),
         sdk_resource!("shutdown", "rinzu.toml"),
         sdk_resource!("shutdown", "src/shutdown.rinzu"),
         sdk_resource!("shutdown", "native/control.c"),

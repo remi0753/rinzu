@@ -13,6 +13,10 @@ pub(crate) const LIST_SYMBOLS: &[&str] = &[
     "map",
     "filter",
     "concatAll",
+    "fold",
+    "find",
+    "any",
+    "all",
     "LengthOverflow",
 ];
 pub(crate) const MAP_SYMBOLS: &[&str] = &[
@@ -54,6 +58,41 @@ fn filter<T>(values: List<T>, predicate: fn (T) -> Bool) -> List<T> {
         }
     }
     return finish(output);
+}
+
+fn fold<T, A>(values: List<T>, initial: A, step: fn (A, T) -> A) -> A {
+    var accumulator = initial;
+    for value in values {
+        accumulator = step(accumulator, value);
+    }
+    return accumulator;
+}
+
+fn find<T>(values: List<T>, predicate: fn (T) -> Bool) -> Option<T> {
+    for value in values {
+        if predicate(value) {
+            return Option<T>.Some(value: value);
+        }
+    }
+    return Option<T>.None();
+}
+
+fn any<T>(values: List<T>, predicate: fn (T) -> Bool) -> Bool {
+    for value in values {
+        if predicate(value) {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn all<T>(values: List<T>, predicate: fn (T) -> Bool) -> Bool {
+    for value in values {
+        if !predicate(value) {
+            return false;
+        }
+    }
+    return true;
 }
 
 fn fromList<T, K: Key>(values: List<T>, keyOf: fn (T) -> K) -> Map<K, T> {
@@ -104,6 +143,10 @@ fn prelude() -> &'static Module {
                 "DuplicateKey" => "rinzu.map::DuplicateKey",
                 "map" => "rinzu.list::map",
                 "filter" => "rinzu.list::filter",
+                "fold" => "rinzu.list::fold",
+                "find" => "rinzu.list::find",
+                "any" => "rinzu.list::any",
+                "all" => "rinzu.list::all",
                 "fromList" => "rinzu.map::fromList",
                 "fromEntries" => "rinzu.map::fromEntries",
                 "lengthList" => crate::DataOperation::ListLength.name(),

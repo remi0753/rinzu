@@ -12,6 +12,18 @@ fn fixture(name: &str) -> std::path::PathBuf {
 }
 
 #[test]
+fn list_and_option_helpers_preserve_callback_semantics() {
+    let output = Command::new(frozen_cli::path())
+        .arg("verify-aot")
+        .arg(fixture("collection_helpers.rinzu"))
+        .env("RINZU_GC_STRESS", "1")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("outcome=success"));
+}
+
+#[test]
 fn bulk_operations_and_private_updates_match_jit_and_aot_under_moving_gc() {
     for name in ["collection_builders.rinzu", "collection_futures.rinzu"] {
         for stress in ["0", "1"] {

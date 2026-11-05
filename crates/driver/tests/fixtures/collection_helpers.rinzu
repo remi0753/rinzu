@@ -1,0 +1,104 @@
+import rinzu.list;
+import rinzu.option;
+
+class Visits {
+    order: Int
+}
+
+error Rejected {
+    payload: Int
+}
+
+fn require(condition: Bool, message: String) nothrow {
+    if !condition {
+        panic(message);
+    }
+}
+
+fn checkList() nothrow {
+    let digits = [1, 2, 3];
+    let empty: List<Int> = [];
+    let step = fn (accumulator: String, digit: Int) -> String {
+        return f"{accumulator}{digit}";
+    };
+    require(rinzu.list.fold(digits, "", step) == "123", "fold order");
+    require(rinzu.list.fold(empty, "initial", step) == "initial", "fold initial value");
+    let visits = Visits(order: 0);
+    let match = fn (digit: Int) -> Bool {
+        visits.order = visits.order * 10 + digit;
+        return digit >= 2;
+    };
+    require(rinzu.list.find(digits, match) == Option<Int>.Some(value: 2), "first match");
+    require(visits.order == 12, "find short circuit");
+    visits.order = 0;
+    require(rinzu.list.any(digits, match) && visits.order == 12, "any short circuit");
+    visits.order = 0;
+    require(!rinzu.list.all([2, 1, 3], match) && visits.order == 21, "all short circuit");
+    visits.order = 0;
+    require(rinzu.list.find(empty, match) == Option<Int>.None(), "empty find");
+    require(!rinzu.list.any(empty, match) && rinzu.list.all(empty, match), "empty predicates");
+    require(visits.order == 0, "empty input skips callback");
+}
+
+fn checkOption() nothrow {
+    let present = Option<Int>.Some(value: 2);
+    let absent = Option<Int>.None();
+    let visits = Visits(order: 0);
+    let describe = fn (digit: Int) -> String {
+        visits.order = visits.order * 10 + digit;
+        return f"{digit}";
+    };
+    let lookup = fn (digit: Int) -> Option<String> {
+        visits.order = visits.order * 10 + digit;
+        if digit == 2 {
+            return Option<String>.Some(value: "two");
+        }
+        return Option<String>.None();
+    };
+    let onNone = fn () -> Int {
+        visits.order = visits.order * 10 + 7;
+        return 42;
+    };
+    require(rinzu.option.map(present, describe) == Option<String>.Some(value: "2"), "map Some");
+    require(rinzu.option.map(absent, describe) == Option<String>.None(), "map None");
+    require(rinzu.option.andThen(present, lookup) == Option<String>.Some(value: "two"), "andThen Some result");
+    require(rinzu.option.andThen(Option<Int>.Some(value: 3), lookup) == Option<String>.None(), "andThen None result");
+    require(rinzu.option.andThen(absent, lookup) == Option<String>.None(), "andThen None input");
+    require(rinzu.option.getOrElse(present, onNone) == 2, "keep present value");
+    require(rinzu.option.getOrElse(absent, onNone) == 42, "compute default");
+    require(visits.order == 2237, "option callback count and order");
+}
+
+fn checkErrors() nothrow {
+    let validate = fn (digit: Int) -> Bool throws Rejected {
+        if digit == 2 {
+            throw Rejected(message: "rejected item", payload: digit);
+        }
+        return digit == 1;
+    };
+    try {
+        require(rinzu.list.any([1, 2], validate), "skip failing predicate");
+        let unexpected = rinzu.list.find([2, 1], validate);
+        panic("expected predicate Error");
+    }
+    catch [problem: Rejected, ...rest] {
+        require(problem.payload == 2 && rinzu.list.length(rest) == 0, "predicate Error payload");
+    }
+    let onNone = fn () -> Int throws Rejected {
+        throw Rejected(message: "rejected default", payload: 7);
+    };
+    try {
+        require(rinzu.option.getOrElse(Option<Int>.Some(value: 2), onNone) == 2, "skip failing default");
+        let unexpectedDefault = rinzu.option.getOrElse(Option<Int>.None(), onNone);
+        panic("expected default Error");
+    }
+    catch [problem: Rejected, ...rest] {
+        require(problem.payload == 7 && rinzu.list.length(rest) == 0, "default Error payload");
+    }
+}
+
+fn main() nothrow {
+    checkList();
+    checkOption();
+    checkErrors();
+}

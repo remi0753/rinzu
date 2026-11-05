@@ -1,0 +1,5 @@
+[package]
+name = "rinzu.option"
+language = "0.5"
+kind = "sdk"
+entry = "src/option.rinzu"

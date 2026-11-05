@@ -7,6 +7,7 @@ The toolchain bundles the following modules. Import them directly in either a st
 | `rinzu.core` | Built-in types, text, bytes, numeric and task operations | [Core APIs](core.md) |
 | `rinzu.list` | List queries, immutable updates and bulk construction | [Collection APIs](collections.md) |
 | `rinzu.map` | Map queries, immutable updates and bulk construction | [Collection APIs](collections.md) |
+| `rinzu.option` | Optional transformations, chained lookups and lazy defaults | [Option helpers](../language/enums.md#option-helpers) |
 | `rinzu.stdio` | Synchronous display of language values | Below |
 | `rinzu.timer` | Asynchronous sleep | Below |
 | `rinzu.io` | Files, standard input/output, clocks, resource cleanup | [I/O](io.md) |
