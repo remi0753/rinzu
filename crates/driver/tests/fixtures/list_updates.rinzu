@@ -1,4 +1,4 @@
-import rinzu.List;
+import rinzu.list;
 
 class Box {
     value: Int
@@ -9,7 +9,7 @@ error Problem {
 }
 
 fn integer(values: List<Int>, index: Int) -> Int {
-    switch rinzu.List.get(values, index) {
+    switch rinzu.list.get(values, index) {
         case Option.Some(value): {
             return value;
         }
@@ -22,12 +22,12 @@ fn integer(values: List<Int>, index: Int) -> Int {
 
 fn checks() {
     let empty: List<Int> = [];
-    let one = rinzu.List.append(empty, 11);
-    let two = rinzu.List.append(one, 22);
+    let one = rinzu.list.append(empty, 11);
+    let two = rinzu.list.append(one, 22);
     if empty != [] || one != [11] || two != [11, 22] {
         panic("assertionFailure1");
     }
-    switch rinzu.List.set(one, 0, 33) {
+    switch rinzu.list.set(one, 0, 33) {
         case Option.Some(updated): {
             if updated != [33] || one != [11] {
                 panic("assertionFailure2");
@@ -37,7 +37,7 @@ fn checks() {
             panic("assertionFailure3");
         }
     }
-    switch rinzu.List.remove(one, 0) {
+    switch rinzu.list.remove(one, 0) {
         case Option.Some(updated): {
             if updated != [] || one != [11] {
                 panic("assertionFailure4");
@@ -47,7 +47,7 @@ fn checks() {
             panic("assertionFailure5");
         }
     }
-    switch rinzu.List.remove(two, 0) {
+    switch rinzu.list.remove(two, 0) {
         case Option.Some(updated): {
             if updated != [22] {
                 panic("assertionFailure6");
@@ -57,7 +57,7 @@ fn checks() {
             panic("assertionFailure7");
         }
     }
-    switch rinzu.List.remove(two, 1) {
+    switch rinzu.list.remove(two, 1) {
         case Option.Some(updated): {
             if updated != [11] {
                 panic("assertionFailure8");
@@ -70,13 +70,13 @@ fn checks() {
     var index = -1;
     while index < 3 {
         if index != 0 {
-            switch rinzu.List.set(one, index, 99) {
+            switch rinzu.list.set(one, index, 99) {
                 case Option.None: {}
                 case Option.Some(unexpected): {
                     panic("assertionFailure10");
                 }
             }
-            switch rinzu.List.remove(one, index) {
+            switch rinzu.list.remove(one, index) {
                 case Option.None: {}
                 case Option.Some(unexpected): {
                     panic("assertionFailure11");
@@ -85,7 +85,7 @@ fn checks() {
         }
         index = index + 1;
     }
-    switch rinzu.List.remove(empty, 9223372036854775807) {
+    switch rinzu.list.remove(empty, 9223372036854775807) {
         case Option.None: {}
         case Option.Some(unexpected): {
             panic("assertionFailure12");
@@ -94,10 +94,10 @@ fn checks() {
     var values: List<Int> = [];
     index = 0;
     while index < 130 {
-        values = rinzu.List.append(values, index);
+        values = rinzu.list.append(values, index);
         index = index + 1;
     }
-    switch rinzu.List.set(values, 64, 999) {
+    switch rinzu.list.set(values, 64, 999) {
         case Option.Some(updated): {
             index = 0;
             while index < 130 {
@@ -115,9 +115,9 @@ fn checks() {
             panic("assertionFailure14");
         }
     }
-    switch rinzu.List.remove(values, 64) {
+    switch rinzu.list.remove(values, 64) {
         case Option.Some(updated): {
-            if rinzu.List.length(updated) != 129 {
+            if rinzu.list.length(updated) != 129 {
                 panic("assertionFailure15");
             }
             index = 0;
@@ -137,8 +137,8 @@ fn checks() {
         }
     }
     let strings = ["日本語", "tail"];
-    let appended = rinzu.List.append(strings, "third");
-    switch rinzu.List.set(appended, 1, "changed") {
+    let appended = rinzu.list.append(strings, "third");
+    switch rinzu.list.set(appended, 1, "changed") {
         case Option.Some(updated): {
             if updated != ["日本語", "changed", "third"] || strings != ["日本語", "tail"] {
                 panic("assertionFailure18");
@@ -149,8 +149,8 @@ fn checks() {
         }
     }
     let bytes = [byteArray(b"\x00\xff"), byteArray(b"\x80")];
-    let more = rinzu.List.append(bytes, byteArray(b"end"));
-    switch rinzu.List.remove(more, 1) {
+    let more = rinzu.list.append(bytes, byteArray(b"end"));
+    switch rinzu.list.remove(more, 1) {
         case Option.Some(updated): {
             if updated != [byteArray(b"\x00\xff"), byteArray(b"end")]
                 || bytes != [byteArray(b"\x00\xff"), byteArray(b"\x80")] {
@@ -163,9 +163,9 @@ fn checks() {
     }
     let box = Box(value: 7);
     let boxes = [box];
-    let shared = rinzu.List.append(boxes, box);
+    let shared = rinzu.list.append(boxes, box);
     box.value = 8;
-    switch rinzu.List.get(shared, 1) {
+    switch rinzu.list.get(shared, 1) {
         case Option.Some(value): {
             if value.value != 8 {
                 panic("assertionFailure22");
@@ -176,10 +176,10 @@ fn checks() {
         }
     }
     let noErrors: List<Error> = [];
-    let problems = rinzu.List.append(noErrors, Problem(message: "first", payload: box));
-    switch rinzu.List.set(problems, 0, Problem(message: "second", payload: box)) {
+    let problems = rinzu.list.append(noErrors, Problem(message: "first", payload: box));
+    switch rinzu.list.set(problems, 0, Problem(message: "second", payload: box)) {
         case Option.Some(replacedProblems): {
-            if rinzu.List.length(replacedProblems) != 1 || rinzu.List.length(problems) != 1 {
+            if rinzu.list.length(replacedProblems) != 1 || rinzu.list.length(problems) != 1 {
                 panic("errorListFailure");
             }
         }
@@ -188,7 +188,7 @@ fn checks() {
         }
     }
     let nested = [one, two];
-    switch rinzu.List.set(nested, 0, [44]) {
+    switch rinzu.list.set(nested, 0, [44]) {
         case Option.Some(updated): {
             if updated != [[44], [11, 22]] || nested != [[11], [11, 22]] {
                 panic("assertionFailure24");
@@ -225,9 +225,9 @@ async fn main() {
         let first = number(41);
         let second = number(42);
         let futures = [first];
-        switch rinzu.List.set(futures, 0, second) {
+        switch rinzu.list.set(futures, 0, second) {
             case Option.Some(updated): {
-                switch rinzu.List.get(updated, 0) {
+                switch rinzu.list.get(updated, 0) {
                     case Option.Some(future): {
                         let value = await future;
                         if value != 42 {

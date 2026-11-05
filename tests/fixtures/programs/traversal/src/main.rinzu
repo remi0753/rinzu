@@ -1,13 +1,13 @@
-import rinzu.List;
-import rinzu.Map;
+import rinzu.list;
+import rinzu.map;
 import rinzu.stdio;
 
 fn countMatches<T: Equality>(values: List<T>, wanted: T) -> Int {
     var count = 0;
     var index = 0;
-    let length = rinzu.List.length(values);
+    let length = rinzu.list.length(values);
     while index < length {
-        switch rinzu.List.get(values, index) {
+        switch rinzu.list.get(values, index) {
             case Option.Some(value): {
                 if value == wanted {
                     count = count + 1;
@@ -22,7 +22,7 @@ fn countMatches<T: Equality>(values: List<T>, wanted: T) -> Int {
 
 fn sumMap<K: Key>(values: Map<K, Int>) -> Int {
     var total = 0;
-    for entry in rinzu.Map.entries(values) {
+    for entry in rinzu.map.entries(values) {
         total = total + entry.value;
     }
     return total;
@@ -33,10 +33,10 @@ fn sumSnapshot(values: List<Int>) -> Int {
     var changed = values;
     var total = 0;
     var index = 0;
-    let count = rinzu.List.length(snapshot);
+    let count = rinzu.list.length(snapshot);
     while index < count {
-        changed = rinzu.List.append(changed, index);
-        switch rinzu.List.get(snapshot, index) {
+        changed = rinzu.list.append(changed, index);
+        switch rinzu.list.get(snapshot, index) {
             case Option.Some(value): {
                 total = total + value;
             }
@@ -44,7 +44,7 @@ fn sumSnapshot(values: List<Int>) -> Int {
         }
         index = index + 1;
     }
-    if rinzu.List.length(changed) != count + count {
+    if rinzu.list.length(changed) != count + count {
         panic("wrongSnapshot");
     }
     return total;
@@ -58,7 +58,7 @@ async fn main() {
         let table: Map<String, Int> = {
             "first": 2, "second": 3, "first": 4
         };
-        rinzu.stdio.writeLine(rinzu.Map.keys(table));
+        rinzu.stdio.writeLine(rinzu.map.keys(table));
         let pending = spawn sumMap<String>(table);
         rinzu.stdio.writeLine(await pending);
     }

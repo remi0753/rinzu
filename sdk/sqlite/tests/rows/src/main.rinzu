@@ -1,4 +1,4 @@
-import rinzu.List;
+import rinzu.list;
 import rinzu.sqlite;
 import rinzu.stdio;
 
@@ -67,7 +67,7 @@ fn worker() -> Snapshot {
             rejected(resultValue7, "SELECT 'text'", 1, -7008);
             try {
                 let resultValue4 = resultValue7.queryByteRows("SELECT X'00' WHERE 0", 1);
-                if rinzu.List.length(resultValue4) != 0 {
+                if rinzu.list.length(resultValue4) != 0 {
                     let incorrectEmpty = CInt8(300);
                 }
             }
@@ -109,12 +109,12 @@ async fn main() {
             let unavailableStats = CInt8(300);
         }
         let snapshot = await spawn worker();
-        if rinzu.List.length(snapshot.rows) != 256 {
+        if rinzu.list.length(snapshot.rows) != 256 {
             panic("failedTransport");
         }
         var i = 0;
         while i < 256 {
-            switch rinzu.List.get(snapshot.rows, i) {
+            switch rinzu.list.get(snapshot.rows, i) {
                 case Option.None: {
                     panic("missingRow");
                 }

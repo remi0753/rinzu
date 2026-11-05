@@ -1,4 +1,4 @@
-import rinzu.List;
+import rinzu.list;
 import rinzu.macos;
 import rinzu.stdio;
 import rinzu.testing;
@@ -7,7 +7,7 @@ fn historyInvariant(history: rinzu.macos.DocumentHistory) {
     var bytes = 0;
     var index = 0;
     while index < history.length() {
-        switch rinzu.List.get(history.entries, index) {
+        switch rinzu.list.get(history.entries, index) {
             case Option.Some(snapshot): {
                 bytes = bytes + Int(utf8ByteLength(snapshot.text));
                 rinzu.testing.assertTrue(

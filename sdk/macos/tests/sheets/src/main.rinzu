@@ -1,4 +1,4 @@
-import rinzu.List;
+import rinzu.list;
 import rinzu.timer;
 import rinzu.macos;
 import rinzu.process;
@@ -107,7 +107,7 @@ async fn results(app: rinzu.macos.UiApplication) {
     let directory = rinzu.process.setting("RINZU_SHEET_DIRECTORY", "");
     let parts = stringSplit(savePath, "/");
     var name = "document.txt";
-    switch rinzu.List.get(parts, rinzu.List.length(parts) - 1) {
+    switch rinzu.list.get(parts, rinzu.list.length(parts) - 1) {
         case Option.Some(last): {
             name = last;
         }

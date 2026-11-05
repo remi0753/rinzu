@@ -152,23 +152,23 @@ impl DataOperation {
     pub const fn name(self) -> &'static str {
         match self {
             Self::Panic => "panic",
-            Self::ListConcatAll => "rinzu.List::concatAll",
-            Self::MapEntries => "rinzu.Map::entries",
+            Self::ListConcatAll => "rinzu.list::concatAll",
+            Self::MapEntries => "rinzu.map::entries",
             Self::ListBufferReserve => "$collection::reserveList",
             Self::ListBufferAppend => "$collection::pushList",
             Self::MapBufferInsert => "$collection::putMap",
             Self::MapBufferIndex => "$collection::mapIndex",
             Self::CollectionFinish => "$collection::finish",
-            Self::ListLength => "rinzu.List::length",
-            Self::ListGet => "rinzu.List::get",
-            Self::ListAppend => "rinzu.List::append",
-            Self::ListSet => "rinzu.List::set",
-            Self::ListRemove => "rinzu.List::remove",
-            Self::MapLength => "rinzu.Map::length",
-            Self::MapGet => "rinzu.Map::get",
-            Self::MapInsert => "rinzu.Map::insert",
-            Self::MapRemove => "rinzu.Map::remove",
-            Self::MapKeys => "rinzu.Map::keys",
+            Self::ListLength => "rinzu.list::length",
+            Self::ListGet => "rinzu.list::get",
+            Self::ListAppend => "rinzu.list::append",
+            Self::ListSet => "rinzu.list::set",
+            Self::ListRemove => "rinzu.list::remove",
+            Self::MapLength => "rinzu.map::length",
+            Self::MapGet => "rinzu.map::get",
+            Self::MapInsert => "rinzu.map::insert",
+            Self::MapRemove => "rinzu.map::remove",
+            Self::MapKeys => "rinzu.map::keys",
             Self::ByteArray => "byteArray",
             Self::BytesLength => "bytesLength",
             Self::BytesGet => "bytesGet",
@@ -225,9 +225,9 @@ impl DataOperation {
     pub const fn length_overflow(self) -> Option<&'static str> {
         match self {
             Self::ListAppend | Self::ListConcatAll | Self::ListBufferAppend => {
-                Some("rinzu.List::LengthOverflow")
+                Some("rinzu.list::LengthOverflow")
             }
-            Self::MapInsert | Self::MapBufferInsert => Some("rinzu.Map::LengthOverflow"),
+            Self::MapInsert | Self::MapBufferInsert => Some("rinzu.map::LengthOverflow"),
             _ => None,
         }
     }

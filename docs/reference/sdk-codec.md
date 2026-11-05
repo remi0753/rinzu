@@ -2,7 +2,7 @@
 
 Generated from checked public exports and captured source comments.
 
-Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r79`.
+Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r80`.
 
 [Machine-readable API v4 snapshot](../../sdk/codec/build/package-api-v4.json).
 
@@ -160,7 +160,7 @@ Checked type: `fn(ByteArray)->Document`.
 
 Error contract: `throws Error` (declared).
 
-function · [source](../../sdk/codec/src/codec.rinzu#L167).
+function · [source](../../sdk/codec/src/codec.rinzu#L165).
 
 ```rinzu
 fn decodeDocument(data: ByteArray) -> Document throws Error
@@ -172,7 +172,7 @@ Checked type: `fn(ByteArray)->Message`.
 
 Error contract: `throws Error` (declared).
 
-function · [source](../../sdk/codec/src/codec.rinzu#L209).
+function · [source](../../sdk/codec/src/codec.rinzu#L207).
 
 ```rinzu
 fn decodeMessage(data: ByteArray) -> Message throws Error
@@ -184,7 +184,7 @@ Checked type: `fn(ByteArray)->Settings`.
 
 Error contract: `throws Error` (declared).
 
-function · [source](../../sdk/codec/src/codec.rinzu#L194).
+function · [source](../../sdk/codec/src/codec.rinzu#L192).
 
 ```rinzu
 fn decodeSettings(data: ByteArray) -> Settings throws Error
@@ -196,7 +196,7 @@ Checked type: `fn(T)->ByteArray throws Error`.
 
 Error contract: `throws Error` (declared).
 
-function · [source](../../sdk/codec/src/codec.rinzu#L235).
+function · [source](../../sdk/codec/src/codec.rinzu#L233).
 
 ```rinzu
 fn encode<T interface Encodable>(value: T) -> ByteArray throws Error
@@ -210,7 +210,7 @@ Checked type: `fn(Document)->ByteArray`.
 
 Error contract: `throws Error` (declared).
 
-function · [source](../../sdk/codec/src/codec.rinzu#L163).
+function · [source](../../sdk/codec/src/codec.rinzu#L161).
 
 ```rinzu
 fn encodeDocument(value: Document) -> ByteArray throws Error
@@ -244,7 +244,7 @@ Checked type: `fn(Message)->ByteArray`.
 
 Error contract: `throws Error` (declared).
 
-function · [source](../../sdk/codec/src/codec.rinzu#L205).
+function · [source](../../sdk/codec/src/codec.rinzu#L203).
 
 ```rinzu
 fn encodeMessage(value: Message) -> ByteArray throws Error
@@ -256,7 +256,7 @@ Checked type: `fn(Settings)->ByteArray`.
 
 Error contract: `throws Error` (declared).
 
-function · [source](../../sdk/codec/src/codec.rinzu#L190).
+function · [source](../../sdk/codec/src/codec.rinzu#L188).
 
 ```rinzu
 fn encodeSettings(value: Settings) -> ByteArray throws Error

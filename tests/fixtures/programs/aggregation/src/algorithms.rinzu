@@ -1,5 +1,5 @@
-import rinzu.List;
-import rinzu.Map;
+import rinzu.list;
+import rinzu.map;
 
 export fold;
 export findFirst;
@@ -8,9 +8,9 @@ export frequencies;
 fn fold<T, A>(values: List<T>, initial: A, combine: fn (A, T) -> A) -> A {
     var output = initial;
     var index = 0;
-    let count = rinzu.List.length(values);
+    let count = rinzu.list.length(values);
     while index < count {
-        switch rinzu.List.get(values, index) {
+        switch rinzu.list.get(values, index) {
             case Option.Some(value): {
                 output = combine(output, value);
             }
@@ -23,9 +23,9 @@ fn fold<T, A>(values: List<T>, initial: A, combine: fn (A, T) -> A) -> A {
 
 fn findFirst<T: Equality>(values: List<T>, wanted: T) -> Option<Int> {
     var index = 0;
-    let count = rinzu.List.length(values);
+    let count = rinzu.list.length(values);
     while index < count {
-        switch rinzu.List.get(values, index) {
+        switch rinzu.list.get(values, index) {
             case Option.Some(value): {
                 if value == wanted {
                     return Option<Int>.Some(value: index);
@@ -41,18 +41,18 @@ fn findFirst<T: Equality>(values: List<T>, wanted: T) -> Option<Int> {
 fn frequencies(words: List<String>) -> Map<String, Int> {
     var counts: Map<String, Int> = {};
     var index = 0;
-    let length = rinzu.List.length(words);
+    let length = rinzu.list.length(words);
     while index < length {
-        switch rinzu.List.get(words, index) {
+        switch rinzu.list.get(words, index) {
             case Option.Some(word): {
                 var count = 0;
-                switch rinzu.Map.get(counts, word) {
+                switch rinzu.map.get(counts, word) {
                     case Option.Some(value): {
                         count = value;
                     }
                     case Option.None: {}
                 }
-                counts = rinzu.Map.insert(counts, word, count + 1);
+                counts = rinzu.map.insert(counts, word, count + 1);
             }
             case Option.None: {}
         }

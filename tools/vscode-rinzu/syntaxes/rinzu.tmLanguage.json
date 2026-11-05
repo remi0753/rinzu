@@ -130,7 +130,7 @@
     },
     "collection-modules": {
       "name": "support.module.rinzu",
-      "match": "\\brinzu\\.(?:List|Map)\\b"
+      "match": "\\brinzu\\.(?:list|map)\\b"
     },
     "types": {
       "name": "support.type.rinzu",

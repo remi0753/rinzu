@@ -1,4 +1,4 @@
-import rinzu.List;
+import rinzu.list;
 import rinzu.stdio;
 
 fn work() -> Int {
@@ -33,7 +33,7 @@ async fn choose() -> Int {
         await c();
     }
     catch errors {
-        rinzu.stdio.writeLine(f"choose-errors={rinzu.List.length(errors)}");
+        rinzu.stdio.writeLine(f"choose-errors={rinzu.list.length(errors)}");
     }
     finally {
         rinzu.stdio.writeLine("choose-finally");
@@ -48,7 +48,7 @@ async fn expression() -> Int {
         return 7;
     }
     catch errors {
-        rinzu.stdio.writeLine(f"expression-errors={rinzu.List.length(errors)}");
+        rinzu.stdio.writeLine(f"expression-errors={rinzu.list.length(errors)}");
     }
     finally {
         rinzu.stdio.writeLine("expression-finally");
@@ -87,7 +87,7 @@ async fn held() -> String {
         return "held";
     }
     catch errors {
-        rinzu.stdio.writeLine(f"held-errors={rinzu.List.length(errors)}");
+        rinzu.stdio.writeLine(f"held-errors={rinzu.list.length(errors)}");
     }
     finally {
         var gc = 0;
@@ -147,7 +147,7 @@ async fn main() {
             rinzu.stdio.writeLine("inner-body");
         }
         catch errors {
-            rinzu.stdio.writeLine(f"inner-errors={rinzu.List.length(errors)}");
+            rinzu.stdio.writeLine(f"inner-errors={rinzu.list.length(errors)}");
         }
         finally {
             rinzu.stdio.writeLine("inner-finally");

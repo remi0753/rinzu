@@ -1,5 +1,5 @@
-import rinzu.List;
-import rinzu.Map;
+import rinzu.list;
+import rinzu.map;
 import rinzu.stdio;
 
 class Kept {
@@ -41,7 +41,7 @@ async fn main() {
             let again = await pending;
             check(first.text == "日本語\u{0}held" && again.text == first.text);
             check(bytesLength(again.bytes) == 3 && bytesGet(again.bytes, 2) == bytesGet(byteArray(b"\xff"), 0));
-            switch rinzu.List.get(words, 0) {
+            switch rinzu.list.get(words, 0) {
                 case Option.Some(word): {
                     check(word == first.text);
                 }
@@ -49,7 +49,7 @@ async fn main() {
                     check(false);
                 }
             }
-            switch rinzu.Map.get(kept, "binary") {
+            switch rinzu.map.get(kept, "binary") {
                 case Option.Some(binary): {
                     check(bytesLength(binary) == 3);
                 }

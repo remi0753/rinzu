@@ -1,5 +1,5 @@
-import rinzu.List;
-import rinzu.Map;
+import rinzu.list;
+import rinzu.map;
 
 error Failed {}
 
@@ -12,7 +12,7 @@ fn start(value: Int) -> Future<Int> {
 }
 
 async fn main() {
-    let tasks = rinzu.List.map([1, 2, 3], start);
+    let tasks = rinzu.list.map([1, 2, 3], start);
     var failures = 0;
     for task in tasks {
         try {
@@ -29,8 +29,8 @@ async fn main() {
     let pending = fail(7);
     let input: List<{ key: Int, value: Future<Int> }> = [{ key = 7, value = pending }];
     try {
-        let table = rinzu.Map.fromEntries(input);
-        for entry in rinzu.Map.entries(table) {
+        let table = rinzu.map.fromEntries(input);
+        for entry in rinzu.map.entries(table) {
             try {
                 let unexpected = await entry.value;
                 panic("task succeeded");
@@ -40,7 +40,7 @@ async fn main() {
             }
         }
     }
-    catch [duplicate: rinzu.Map.DuplicateKey<Int>] {
+    catch [duplicate: rinzu.map.DuplicateKey<Int>] {
         for entry in input {
             try {
                 let unexpected = await entry.value;

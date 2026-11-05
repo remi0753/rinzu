@@ -1,15 +1,15 @@
 use rinzu_compiler::{DiagnosticCode, FileId, SourceFile, compile_source};
 const BASE: &str = r#"
-import rinzu.List;
-import rinzu.Map;
+import rinzu.list;
+import rinzu.map;
 error Lost{} async fn fail(){throw Lost(message:"failure");}
 async fn observe(value:Future<Unit>){try{await value;}catch errors{}}
 async fn observeMap(values:Map<String,Future<Unit>>) {
- let keys=rinzu.Map.keys(values);
+ let keys=rinzu.map.keys(values);
  var index=0;
- while index<rinzu.List.length(keys) {
-  switch rinzu.List.get(keys,index) {
-   case Option.Some(key): {switch rinzu.Map.get(values,key){case Option.Some(value):{let receiver=observe(value);}case Option.None:{}}}
+ while index<rinzu.list.length(keys) {
+  switch rinzu.list.get(keys,index) {
+   case Option.Some(key): {switch rinzu.map.get(values,key){case Option.Some(value):{let receiver=observe(value);}case Option.None:{}}}
    case Option.None: {}
   }
   index=index+1;
@@ -46,16 +46,16 @@ fn all_map_values_can_be_handed_to_independent_observers() {
 #[test]
 fn known_overwrite_and_removal_leave_the_original_tasks_responsibility() {
     lost(
-        "fn main(){let first=fail();let second=fail();let values=rinzu.Map.insert({\"key\":first},\"key\",second);let receiver=observeMap(values);}",
+        "fn main(){let first=fail();let second=fail();let values=rinzu.map.insert({\"key\":first},\"key\",second);let receiver=observeMap(values);}",
     );
     accepted(
-        "async fn main(){let first=fail();let second=fail();let values=rinzu.Map.insert({\"key\":first},\"key\",second);let receiver=observeMap(values);try{await first;}catch[Lost]{}}",
+        "async fn main(){let first=fail();let second=fail();let values=rinzu.map.insert({\"key\":first},\"key\",second);let receiver=observeMap(values);try{await first;}catch[Lost]{}}",
     );
     lost(
-        "fn main(){let first=fail();let values=rinzu.Map.remove({\"key\":first},\"key\");let receiver=observeMap(values);}",
+        "fn main(){let first=fail();let values=rinzu.map.remove({\"key\":first},\"key\");let receiver=observeMap(values);}",
     );
     accepted(
-        "fn main(){let first=fail();let original={\"key\":first};let changed=rinzu.Map.remove(original,\"key\");let receiver=observeMap(original);}",
+        "fn main(){let first=fail();let original={\"key\":first};let changed=rinzu.map.remove(original,\"key\");let receiver=observeMap(original);}",
     );
 }
 
@@ -72,9 +72,9 @@ fn dynamic_key_collisions_do_not_guarantee_the_earlier_values_are_retained() {
 #[test]
 fn keys_are_ordinary_values_and_do_not_transfer_future_responsibility() {
     lost(
-        "fn make()->List<String>{let values={\"key\":fail()};return rinzu.Map.keys(values);}fn main(){let keys=make();}",
+        "fn make()->List<String>{let values={\"key\":fail()};return rinzu.map.keys(values);}fn main(){let keys=make();}",
     );
-    lost("fn main(){let values={\"key\":fail()};let keys=rinzu.Map.keys(values);}");
+    lost("fn main(){let values={\"key\":fail()};let keys=rinzu.map.keys(values);}");
 }
 
 #[test]
@@ -85,8 +85,8 @@ fn a_different_map_cannot_use_another_maps_key_snapshot_to_claim_all_values() {
             "wrong(keysFrom:Map<String,Future<Unit>>,values:Map<String,Future<Unit>>)",
         )
         .replace(
-            "let keys=rinzu.Map.keys(values)",
-            "let keys=rinzu.Map.keys(keysFrom)",
+            "let keys=rinzu.map.keys(values)",
+            "let keys=rinzu.map.keys(keysFrom)",
         );
     lost(&format!(
         "{wrong} fn main(){{let receiver=wrong({{\"a\":fail()}},{{\"b\":fail()}});}}"
@@ -99,9 +99,9 @@ fn an_alias_of_the_keys_length_keeps_the_same_snapshot() {
         .replace("observeMap(", "withLength(")
         .replace(
             "var index=0;",
-            "let count=rinzu.List.length(keys);var index=0;",
+            "let count=rinzu.list.length(keys);var index=0;",
         )
-        .replace("index<rinzu.List.length(keys)", "index<count");
+        .replace("index<rinzu.list.length(keys)", "index<count");
     accepted(&format!(
         "{observer} fn main(){{let receiver=withLength({{\"a\":fail(),\"b\":fail()}});}}"
     ));
@@ -110,7 +110,7 @@ fn an_alias_of_the_keys_length_keeps_the_same_snapshot() {
 #[test]
 fn a_known_map_read_returns_the_replacement_not_the_overwritten_future() {
     lost(
-        "async fn main(){let first=fail();let second=fail();let values=rinzu.Map.insert({\"key\":first},\"key\",second);switch rinzu.Map.get(values,\"key\"){case Option.Some(value):{try{await value;}catch[Lost]{}}case Option.None:{}}try{await second;}catch[Lost]{}}",
+        "async fn main(){let first=fail();let second=fail();let values=rinzu.map.insert({\"key\":first},\"key\",second);switch rinzu.map.get(values,\"key\"){case Option.Some(value):{try{await value;}catch[Lost]{}}case Option.None:{}}try{await second;}catch[Lost]{}}",
     );
 }
 

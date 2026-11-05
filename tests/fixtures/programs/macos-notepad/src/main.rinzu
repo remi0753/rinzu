@@ -1,4 +1,4 @@
-import rinzu.List;
+import rinzu.list;
 import rinzu.macos;
 import rinzu.io;
 import rinzu.process;
@@ -14,7 +14,7 @@ let closeAction = 4;
 
 fn filename(path: String) -> String {
     let parts = stringSplit(path, "/");
-    switch rinzu.List.get(parts, rinzu.List.length(parts) - 1) {
+    switch rinzu.list.get(parts, rinzu.list.length(parts) - 1) {
         case Option.Some(name): {
             if name != "" {
                 return name;
@@ -241,7 +241,7 @@ class Notepad {
             }
             catch errors {
                 self.failures = self.failures + 1;
-                switch rinzu.List.get(errors, 0) {
+                switch rinzu.list.get(errors, 0) {
                     case Option.Some(problem): {
                         self.message(f"Operation failed: {errorMessage(problem)} — retry from File");
                     }

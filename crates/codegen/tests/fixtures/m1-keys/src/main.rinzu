@@ -1,4 +1,4 @@
-import rinzu.Map;
+import rinzu.map;
 import rinzu.stdio;
 
 enum Tag {
@@ -40,27 +40,27 @@ async fn main() {
         let flags: Map<CBool, String> = {
             false: "first", true: "second", false: "last"
         };
-        require(rinzu.Map.length(flags) == 2 && rinzu.Map.keys(flags) == [false, true]);
-        require(rinzu.Map.get(flags, false) == Option<String>.Some(value: "last"));
-        let changedFlags = rinzu.Map.insert(flags, true, "updated");
-        require(rinzu.Map.get(flags, true) == Option<String>.Some(value: "second"));
-        require(rinzu.Map.keys(rinzu.Map.insert(rinzu.Map.remove(flags, false), false, "again")) == [true, false]);
+        require(rinzu.map.length(flags) == 2 && rinzu.map.keys(flags) == [false, true]);
+        require(rinzu.map.get(flags, false) == Option<String>.Some(value: "last"));
+        let changedFlags = rinzu.map.insert(flags, true, "updated");
+        require(rinzu.map.get(flags, true) == Option<String>.Some(value: "second"));
+        require(rinzu.map.keys(rinzu.map.insert(rinzu.map.remove(flags, false), false, "again")) == [true, false]);
         let first: Bytes(4) = b"A";
         let second: Bytes(4) = b"AB";
         let fixed: Map<Bytes(4), Int> = {
             first: 1, second: 2, b"A\x00\x00\x00": 3
         };
-        require(rinzu.Map.length(fixed) == 2 && rinzu.Map.keys(fixed) == [first, second]);
-        require(rinzu.Map.get(fixed, first) == Option<Int>.Some(value: 3));
+        require(rinzu.map.length(fixed) == 2 && rinzu.map.keys(fixed) == [first, second]);
+        require(rinzu.map.get(fixed, first) == Option<Int>.Some(value: 3));
         let invalid: List<CUInt8> = [0, 255, 128];
         let data = byteArray(invalid);
         let empty = byteArray(b"");
         let binary: Map<ByteArray, Int> = {
             empty: 0, data: 1, bytesCopy(data): 2
         };
-        require(rinzu.Map.keys(binary) == [empty, data] && rinzu.Map.length(binary) == 2);
-        require(rinzu.Map.get(binary, bytesCopy(data)) == Option<Int>.Some(value: 2));
-        require(rinzu.Map.get(binary, byteArray(b"missing")) == Option<Int>.None());
+        require(rinzu.map.keys(binary) == [empty, data] && rinzu.map.length(binary) == 2);
+        require(rinzu.map.get(binary, bytesCopy(data)) == Option<Int>.Some(value: 2));
+        require(rinzu.map.get(binary, byteArray(b"missing")) == Option<Int>.None());
         let original = Key<Int>(
             inner: Inner(flag: true, bytes: data),
             fixed: first,
@@ -85,16 +85,16 @@ async fn main() {
         let records: Map<Key<Int>, String> = {
             original: "old", changed: "changed", copy: "last", changedChild: "child"
         };
-        require(rinzu.Map.length(records) == 3 && rinzu.Map.keys(records) == [original, changed, changedChild]);
-        require(rinzu.Map.get(records, copy) == Option<String>.Some(value: "last"));
-        require(rinzu.Map.get(records, changed) == Option<String>.Some(value: "changed"));
-        require(rinzu.Map.get(records, changedChild) == Option<String>.Some(value: "child"));
+        require(rinzu.map.length(records) == 3 && rinzu.map.keys(records) == [original, changed, changedChild]);
+        require(rinzu.map.get(records, copy) == Option<String>.Some(value: "last"));
+        require(rinzu.map.get(records, changed) == Option<String>.Some(value: "changed"));
+        require(rinzu.map.get(records, changedChild) == Option<String>.Some(value: "child"));
         require(original.value == 1 && original.inner.flag);
         let tags: Map<Tag, Int> = {
             Tag.Empty(): 1, Tag.Flag(value: false): 2, Tag.Flag(value: true): 3
         };
         require(
-            rinzu.Map.length(tags) == 3 && rinzu.Map.get(tags, Tag.Flag(value: true)) == Option<Int>.Some(value: 3)
+            rinzu.map.length(tags) == 3 && rinzu.map.get(tags, Tag.Flag(value: true)) == Option<Int>.Some(value: 3)
         );
         let zero: Map<Bytes(0), Int> = {
             b"": 1, b"": 2
@@ -102,28 +102,28 @@ async fn main() {
         let emptyRecords: Map<Empty, Int> = {
             Empty(): 1, Empty(): 2
         };
-        require(rinzu.Map.length(zero) == 1 && rinzu.Map.get(zero, b"") == Option<Int>.Some(value: 2));
+        require(rinzu.map.length(zero) == 1 && rinzu.map.get(zero, b"") == Option<Int>.Some(value: 2));
         require(
-            rinzu.Map.length(emptyRecords) == 1 && rinzu.Map.get(emptyRecords, Empty()) == Option<Int>.Some(value: 2)
+            rinzu.map.length(emptyRecords) == 1 && rinzu.map.get(emptyRecords, Empty()) == Option<Int>.Some(value: 2)
         );
         var many: Map<ByteArray, Int> = {};
         var index = 0;
         while index < 64 {
             let one: List<CUInt8> = [CUInt8(index)];
-            many = rinzu.Map.insert(many, byteArray(one), index);
+            many = rinzu.map.insert(many, byteArray(one), index);
             index = index + 1;
         }
         index = 0;
         while index < 64 {
             let query: List<CUInt8> = [CUInt8(index)];
-            require(rinzu.Map.get(many, byteArray(query)) == Option<Int>.Some(value: index));
+            require(rinzu.map.get(many, byteArray(query)) == Option<Int>.Some(value: index));
             index = index + 1;
         }
         let flagFuture = spawn echo<Map<Bool, String>>(changedFlags);
         let fixedFuture = spawn echo<Map<Bytes(4), Int>>(fixed);
         let binaryFuture = spawn echo<Map<ByteArray, Int>>(binary);
         let recordFuture = spawn echo<Map<Key<Int>, String>>(records);
-        let later = rinzu.Map.insert(records, original, "later");
+        let later = rinzu.map.insert(records, original, "later");
         let copiedFlags = await flagFuture;
         let copiedFixed = await fixedFuture;
         let copiedBinary = await binaryFuture;
@@ -131,9 +131,9 @@ async fn main() {
         require(
             copiedFlags == changedFlags && copiedFixed == fixed && copiedBinary == binary && copiedRecords == records
         );
-        require(rinzu.Map.get(copiedRecords, copy) == Option<String>.Some(value: "last"));
-        require(rinzu.Map.get(later, original) == Option<String>.Some(value: "later"));
-        require(rinzu.Map.keys(copiedRecords) == rinzu.Map.keys(records));
+        require(rinzu.map.get(copiedRecords, copy) == Option<String>.Some(value: "last"));
+        require(rinzu.map.get(later, original) == Option<String>.Some(value: "later"));
+        require(rinzu.map.keys(copiedRecords) == rinzu.map.keys(records));
         rinzu.stdio.writeLine("keys ok");
     }
     catch errors {}

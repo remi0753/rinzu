@@ -1,4 +1,4 @@
-import rinzu.List;
+import rinzu.list;
 import rinzu.process;
 import rinzu.stdio;
 
@@ -15,7 +15,7 @@ fn invalid<T>(operation: fn () -> T, code: Int) {
     }
     catch [problem: Error, ...rest] {
         require(errorCode(problem) == code);
-        require(rinzu.List.length(rest) == 0);
+        require(rinzu.list.length(rest) == 0);
     }
 }
 

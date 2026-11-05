@@ -1,5 +1,5 @@
-import rinzu.List;
-import rinzu.Map;
+import rinzu.list;
+import rinzu.map;
 import rinzu.stdio;
 
 class Box {
@@ -22,7 +22,7 @@ fn checks() {
     let noInts: List<Int> = [];
     let noStrings: List<String> = [];
     let noMap: Map<String, Int> = {};
-    check(rinzu.List.length(noInts) == 0 && rinzu.List.length(noStrings) == 0 && rinzu.Map.length(noMap) == 0);
+    check(rinzu.list.length(noInts) == 0 && rinzu.list.length(noStrings) == 0 && rinzu.map.length(noMap) == 0);
     let words = ["日本語", "second"];
     let nested = [[1, 2], []];
     let box = Box(value: 7);
@@ -30,33 +30,33 @@ fn checks() {
     let values = {
         "left": binary, "right": empty
     };
-    check(rinzu.List.length(words) == 2 && rinzu.List.length(nested) == 2 && rinzu.List.length(boxes) == 2);
-    check(rinzu.Map.length(values) == 2 && rinzu.Map.length(rinzu.Map.insert(values, "left", empty)) == 2);
+    check(rinzu.list.length(words) == 2 && rinzu.list.length(nested) == 2 && rinzu.list.length(boxes) == 2);
+    check(rinzu.map.length(values) == 2 && rinzu.map.length(rinzu.map.insert(values, "left", empty)) == 2);
     var bytes = binary;
     var ints = noInts;
     var map = noMap;
     var index = 0;
     while index < 96 {
         bytes = bytesConcat(bytes, binary);
-        ints = rinzu.List.append(ints, index);
-        map = rinzu.Map.insert(map, f"key-{index}", index);
+        ints = rinzu.list.append(ints, index);
+        map = rinzu.map.insert(map, f"key-{index}", index);
         check(bytesLength(bytes) == (index + 2) * 4);
-        check(rinzu.List.length(ints) == index + 1 && rinzu.Map.length(map) == index + 1);
-        check(stringLength(text) == 7 && rinzu.List.length(boxes) == 2);
+        check(rinzu.list.length(ints) == index + 1 && rinzu.map.length(map) == index + 1);
+        check(stringLength(text) == 7 && rinzu.list.length(boxes) == 2);
         index = index + 1;
     }
     box.value = 9;
-    check(rinzu.List.length(boxes) == 2);
+    check(rinzu.list.length(boxes) == 2);
 }
 
 fn worker() -> Int {
     try {
         checks();
     }
-    catch [overflow: rinzu.List.LengthOverflow] {
+    catch [overflow: rinzu.list.LengthOverflow] {
         panic(overflow.message);
     }
-    catch [overflow: rinzu.Map.LengthOverflow] {
+    catch [overflow: rinzu.map.LengthOverflow] {
         panic(overflow.message);
     }
     return 42;

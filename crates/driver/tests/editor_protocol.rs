@@ -616,14 +616,14 @@ fn eof_and_invalid_cli_usage_exit_with_the_expected_status() {
 fn imported_collection_modules_offer_qualified_completions() {
     let fixture = Fixture::new();
     fixture.package();
-    let source = "import rinzu.List;\nimport rinzu.Map;\nfn main() { let count = rinzu.List.length([1]); }\n";
+    let source = "import rinzu.list;\nimport rinzu.map;\nfn main() { let count = rinzu.list.length([1]); }\n";
     let entry = fixture.file("src/main.rinzu", source);
     let mut client = Client::new(Some(&fixture.0));
     client.open(&entry, 1, source);
     let response = client.query("completion", &entry, 1, position(source, "let count"));
     let items = labels(&response);
-    assert!(items.contains(&"rinzu.List.map"), "{response:#}");
-    assert!(items.contains(&"rinzu.Map.DuplicateKey"), "{response:#}");
+    assert!(items.contains(&"rinzu.list.map"), "{response:#}");
+    assert!(items.contains(&"rinzu.map.DuplicateKey"), "{response:#}");
     assert!(!items.contains(&"listLength"));
     client.shutdown();
 }

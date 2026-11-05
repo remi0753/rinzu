@@ -170,8 +170,8 @@ pub fn build_editor_index(
         for import in &module.imports {
             let qualifier = import.path.join(".");
             let symbols = match qualifier.as_str() {
-                "rinzu.List" => crate::collections::LIST_SYMBOLS,
-                "rinzu.Map" => crate::collections::MAP_SYMBOLS,
+                "rinzu.list" => crate::collections::LIST_SYMBOLS,
+                "rinzu.map" => crate::collections::MAP_SYMBOLS,
                 _ => continue,
             };
             for symbol in symbols {

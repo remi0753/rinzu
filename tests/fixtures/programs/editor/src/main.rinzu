@@ -1,4 +1,4 @@
-import rinzu.List;
+import rinzu.list;
 import rinzu.timer;
 import rinzu.macos;
 import rinzu.process;
@@ -29,8 +29,8 @@ fn analyze(snapshot: rinzu.macos.DocumentSnapshot) -> Analysis {
     return Analysis(
         version: snapshot.version,
         scalars: stringLength(snapshot.text),
-        lines: rinzu.List.length(stringSplit(snapshot.text, "\n")),
-        keywords: rinzu.List.length(stringSplit(snapshot.text, "TODO")) - 1
+        lines: rinzu.list.length(stringSplit(snapshot.text, "\n")),
+        keywords: rinzu.list.length(stringSplit(snapshot.text, "TODO")) - 1
     );
 }
 
@@ -303,7 +303,7 @@ class Editor {
                 rinzu.stdio.writeLine(f"SAVE:OK:{snapshot.version}");
             }
             catch errors {
-                switch rinzu.List.get(errors, 0) {
+                switch rinzu.list.get(errors, 0) {
                     case Option.Some(problem): {
                         self.message(f"Save failed: {errorMessage(problem)}; retry Save");
                         rinzu.stdio.writeLine(f"SAVE:FAILED:{errorCode(problem)}:{errorContext(problem)}");
@@ -334,7 +334,7 @@ class Editor {
                 rinzu.stdio.writeLine(f"HTTP:OK:{response.status}");
             }
             catch errors {
-                switch rinzu.List.get(errors, 0) {
+                switch rinzu.list.get(errors, 0) {
                     case Option.Some(problem): {
                         if problem is rinzu.http.HttpFailure {
                             self.message(f"Send failed: {errorMessage(problem.payload.cause)}; retry Send");
@@ -697,7 +697,7 @@ async fn launch() {
         initial = await rinzu.macos.readDocument(path);
     }
     catch errors {
-        switch rinzu.List.get(errors, 0) {
+        switch rinzu.list.get(errors, 0) {
             case Option.Some(problem): {
                 switch errorNativeStatus(problem) {
                     case Option.Some(status): {

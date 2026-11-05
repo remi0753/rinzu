@@ -1,5 +1,5 @@
-import rinzu.List;
-import rinzu.Map;
+import rinzu.list;
+import rinzu.map;
 import rinzu.stdio;
 
 class Config {
@@ -56,8 +56,8 @@ async fn main() {
         rinzu.stdio.writeLine(DEFAULT.title);
         rinzu.stdio.writeLine(DEFAULT.masks);
         rinzu.stdio.writeLine(DEFAULT.prefix);
-        rinzu.stdio.writeLine(rinzu.List.length(EMPTY));
-        rinzu.stdio.writeLine(rinzu.Map.get(TABLE, "a"));
+        rinzu.stdio.writeLine(rinzu.list.length(EMPTY));
+        rinzu.stdio.writeLine(rinzu.map.get(TABLE, "a"));
         rinzu.stdio.writeLine(BOXED.value == DEFAULT);
         switch PRESENT {
             case Option.Some(value): {

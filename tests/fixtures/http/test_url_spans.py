@@ -44,7 +44,7 @@ def main():
         cases.extend(['a'*length+'%20x', '%20'+'a'*length, 'a'*length+'+x%21', '%41'*length])
     program = '''import "old_url.rinzu" as before;
 import "new_url.rinzu" as after;
-import rinzu.List;
+import rinzu.list;
 import rinzu.stdio;
 fn check(index: Int, value: String, plus: Bool, path: Bool) {
     var oldValue="";var oldMessage="";var oldFailed=false;
@@ -63,8 +63,8 @@ fn check(index: Int, value: String, plus: Bool, path: Bool) {
 fn main(){try{
     let values: List<String> = [__CASES__];
     var index=0;
-    while index<rinzu.List.length(values){
-        switch rinzu.List.get(values,index){
+    while index<rinzu.list.length(values){
+        switch rinzu.list.get(values,index){
             case Option.Some(value):{
                 check(index,value,false,false);check(index,value,false,true);
                 check(index,value,true,false);check(index,value,true,true);

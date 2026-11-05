@@ -20,7 +20,7 @@ fn accompanying_c_runtime_calls_link_directly_and_keep_worker_gc_errors_and_expo
     let source = directory.0.join("main.rinzu");
     std::fs::write(
         &source,
-        r#"import rinzu.List;
+        r#"import rinzu.list;
 
 import rinzu.stdio;
 error Check {}
@@ -28,7 +28,7 @@ class Box {value:Int}
 fn work(value:Int)->Int {
     let words=["scope","界🙂"]; let boxValue=Box(value:value);
     if value<0 {throw Check(message:"expected");}
-    return boxValue.value+rinzu.List.length(words);
+    return boxValue.value+rinzu.list.length(words);
 }
 fn workerRoot(value:Int)->Int{try{return work(value);}catch errors{return -1;}}
 async fn main(){try {

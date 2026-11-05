@@ -360,8 +360,8 @@ impl Engine<'_> {
         values: &[Tracked],
         result: &Tracked,
     ) -> Option<Tracked> {
-        let from_entries = name.starts_with("rinzu.Map::fromEntries<");
-        if !from_entries && !name.starts_with("rinzu.Map::fromList<") {
+        let from_entries = name.starts_with("rinzu.map::fromEntries<");
+        if !from_entries && !name.starts_with("rinzu.map::fromList<") {
             return None;
         }
         let Type::Map(key, value) = self.type_at(expression.range) else {

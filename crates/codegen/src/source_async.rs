@@ -5376,12 +5376,12 @@ mod sync_failure_tests {
             compile_source(&SourceFile::new(
                 FileId(179),
                 "callback-errors.rinzu",
-                r#"import rinzu.List;
+                r#"import rinzu.list;
 
             error A{} error B{}
             fn handler()->Int {
                 try {try {throw A(message:"a");} finally {throw B(message:"b");}}
-                catch errors {return 40+rinzu.List.length(errors);}
+                catch errors {return 40+rinzu.list.length(errors);}
                 return 0;
             }
             async fn main(){}
@@ -5574,13 +5574,13 @@ async fn main() {
         let source = SourceFile::new(
             FileId(92),
             "worker-catches.rinzu",
-            r#"import rinzu.List;
+            r#"import rinzu.list;
 
 fn bad() -> Int {
     try {
         try { let first = CInt8(200); }
         finally { try { let local = CInt8(300); } catch [caught: Error, ...caughtRest] { let message = caught.message; } let cleanup = CInt8(400); }
-    } catch errors { return rinzu.List.length(errors); }
+    } catch errors { return rinzu.list.length(errors); }
     return 0;
 }
 async fn main() {

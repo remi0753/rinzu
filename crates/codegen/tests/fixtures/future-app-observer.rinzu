@@ -1,4 +1,4 @@
-import rinzu.List;
+import rinzu.list;
 import rinzu.stdio;
 
 error Failed {
@@ -20,9 +20,9 @@ async fn observe(state: State, pending: Future<Unit>) {
     }
     catch errors {
         try {
-            state.errors = rinzu.List.append(state.errors, errors);
+            state.errors = rinzu.list.append(state.errors, errors);
         }
-        catch [overflow: rinzu.List.LengthOverflow] {
+        catch [overflow: rinzu.list.LengthOverflow] {
             state.errors = [[overflow]];
         }
         state.done = true;
@@ -39,9 +39,9 @@ async fn main() {
             await turn();
         }
         await settled;
-        switch rinzu.List.get(state.errors, 0) {
+        switch rinzu.list.get(state.errors, 0) {
             case Option.Some(group): {
-                switch rinzu.List.get(group, 0) {
+                switch rinzu.list.get(group, 0) {
                     case Option.Some(problem): {
                         if problem is Failed {
                             rinzu.stdio.writeLine(problem.payload);

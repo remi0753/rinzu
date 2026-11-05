@@ -1,4 +1,4 @@
-import rinzu.List;
+import rinzu.list;
 import rinzu.timer;
 import rinzu.macos;
 import rinzu.process;
@@ -315,7 +315,7 @@ async fn main() {
                         let failureDone = await rinzu.macos.application("Job failure", 320.0, 200.0, failureBody);
                     }
                     catch errors {
-                        switch rinzu.List.get(errors, 0) {
+                        switch rinzu.list.get(errors, 0) {
                             case Option.Some(problem): {
                                 rinzu.testing.assertEqual<String>(
                                     errorMessage(problem),
@@ -335,7 +335,7 @@ async fn main() {
                         let overflowDone = await rinzu.macos.application("Event overflow", 320.0, 200.0, overflowBody);
                     }
                     catch overflowErrors {
-                        switch rinzu.List.get(overflowErrors, 0) {
+                        switch rinzu.list.get(overflowErrors, 0) {
                             case Option.Some(problem): {
                                 switch errorNativeStatus(problem) {
                                     case Option.Some(status): {

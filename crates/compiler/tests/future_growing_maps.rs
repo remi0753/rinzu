@@ -1,15 +1,15 @@
 use rinzu_compiler::{DiagnosticCode, FileId, SourceFile, compile_source};
 const BASE: &str = r#"
-import rinzu.List;
-import rinzu.Map;
+import rinzu.list;
+import rinzu.map;
 error Lost{}
 async fn fail(){throw Lost(message:"failure");}
 async fn observe(value:Future<Unit>){try{await value;}catch errors{}}
 async fn observeMap(values:Map<Int,Future<Unit>>){
- let keys=rinzu.Map.keys(values);var index=0;
- while index<rinzu.List.length(keys){
-  switch rinzu.List.get(keys,index){
-   case Option.Some(key):{switch rinzu.Map.get(values,key){case Option.Some(value):{let receiver=observe(value);}case Option.None:{}}}
+ let keys=rinzu.map.keys(values);var index=0;
+ while index<rinzu.list.length(keys){
+  switch rinzu.list.get(keys,index){
+   case Option.Some(key):{switch rinzu.map.get(values,key){case Option.Some(value):{let receiver=observe(value);}case Option.None:{}}}
    case Option.None:{}
   }
   index=index+1;
@@ -20,7 +20,7 @@ const BUILDER: &str = r#"
 fn build(count:Int)->Map<Int,Future<Unit>>{
  var output:Map<Int,Future<Unit>> = {};
  var index=0;
- while index<count{output=rinzu.Map.insert(output,index,fail());index=index+1;}
+ while index<count{output=rinzu.map.insert(output,index,fail());index=index+1;}
  return output;
 }
 "#;
@@ -57,8 +57,8 @@ fn noncolliding_counter_keys_retain_every_pending_task() {
 fn repeated_or_unknown_keys_do_not_transfer_overwritten_tasks() {
     for key in ["0", "count"] {
         let builder = BUILDER.replace(
-            "rinzu.Map.insert(output,index,fail())",
-            &format!("rinzu.Map.insert(output,{key},fail())"),
+            "rinzu.map.insert(output,index,fail())",
+            &format!("rinzu.map.insert(output,{key},fail())"),
         );
         lost(&format!(
             "{builder}fn main(){{let receiver=observeMap(build(5));}}"
@@ -75,7 +75,7 @@ fn resets_and_extra_writes_invalidate_counter_key_uniqueness() {
     }
     let builder = BUILDER.replace(
         "index=index+1;",
-        "output=rinzu.Map.insert(output,0,fail());index=index+1;",
+        "output=rinzu.map.insert(output,0,fail());index=index+1;",
     );
     lost(&format!(
         "{builder}fn main(){{let receiver=observeMap(build(5));}}"
@@ -88,17 +88,17 @@ fn removal_and_dropping_the_map_leave_a_responsibility() {
         "{dropped}fn main(){{let receiver=observeMap(build(5));}}"
     ));
     lost(&format!(
-        "{BUILDER}fn main(){{let values=build(5);let changed=rinzu.Map.remove(values,0);let receiver=observeMap(changed);}}"
+        "{BUILDER}fn main(){{let values=build(5);let changed=rinzu.map.remove(values,0);let receiver=observeMap(changed);}}"
     ));
     accepted(&format!(
-        "{BUILDER}fn main(){{let values=build(5);let changed=rinzu.Map.remove(values,0);let receiver=observeMap(values);}}"
+        "{BUILDER}fn main(){{let values=build(5);let changed=rinzu.map.remove(values,0);let receiver=observeMap(values);}}"
     ));
 }
 #[test]
 fn an_error_before_storage_cannot_lose_the_created_task() {
     let interrupted = BUILDER.replace(
-        "output=rinzu.Map.insert(output,index,fail());",
-        "let pending=fail();let invalid=CInt8(300);output=rinzu.Map.insert(output,index,pending);",
+        "output=rinzu.map.insert(output,index,fail());",
+        "let pending=fail();let invalid=CInt8(300);output=rinzu.map.insert(output,index,pending);",
     );
     lost(&format!(
         "{interrupted}fn main(){{try{{let receiver=observeMap(build(5));}}catch errors{{}}}}"
@@ -122,7 +122,7 @@ fn complete_aliases_transfer_the_map_but_keys_alone_do_not() {
     ));
     let keys = BUILDER
         .replace("->Map<Int,Future<Unit>>", "->List<Int>")
-        .replace("return output;", "return rinzu.Map.keys(output);");
+        .replace("return output;", "return rinzu.map.keys(output);");
     lost(&format!("{keys}fn main(){{let keys=build(3);}}"));
 }
 

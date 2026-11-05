@@ -1,5 +1,5 @@
-import rinzu.List;
-import rinzu.Map;
+import rinzu.list;
+import rinzu.map;
 
 error Failed {}
 
@@ -17,7 +17,7 @@ fn growList(count: Int) -> List<Int> {
     var output: List<Int> = [];
     var index = 0;
     while index < count {
-        output = rinzu.List.append(output, index);
+        output = rinzu.list.append(output, index);
         index = index + 1;
     }
     return output;
@@ -27,7 +27,7 @@ fn growMap(count: Int) -> Map<Int, Int> {
     var output: Map<Int, Int> = {};
     var index = 0;
     while index < count {
-        output = rinzu.Map.insert(output, index % 3, index);
+        output = rinzu.map.insert(output, index % 3, index);
         index = index + 1;
     }
     return output;
@@ -37,11 +37,11 @@ fn main() {
     try {
         let values = [1, 2, 3, 4];
         let visits = Visits(trace: 0);
-        let mapped = rinzu.List.map(
+        let mapped = rinzu.list.map(
             values,
             fn (value: Int) -> Int {
                 visits.trace = visits.trace * 10 + value;
-                let nested = rinzu.List.map(
+                let nested = rinzu.list.map(
                     [value],
                     fn (inner: Int) -> Int {
                         return inner * 2;
@@ -56,16 +56,16 @@ fn main() {
         );
         require(mapped == [2, 4, 6, 8]);
         require(visits.trace == 1234);
-        let filtered = rinzu.List.filter(
+        let filtered = rinzu.list.filter(
             mapped,
             fn (value: Int) -> Bool {
                 return value >= 4;
             }
         );
         let empty: List<Int> = [];
-        require(rinzu.List.concatAll([empty, filtered, empty, values]) == [4, 6, 8, 1, 2, 3, 4]);
+        require(rinzu.list.concatAll([empty, filtered, empty, values]) == [4, 6, 8, 1, 2, 3, 4]);
         require(
-            rinzu.List.filter(
+            rinzu.list.filter(
                 empty,
                 fn (value: Int) -> Bool {
                     panic("empty callback");
@@ -75,7 +75,7 @@ fn main() {
         );
         visits.trace = 0;
         try {
-            let failedFilter = rinzu.List.filter(
+            let failedFilter = rinzu.list.filter(
                 values,
                 fn (value: Int) -> Bool {
                     visits.trace = visits.trace * 10 + value;
@@ -92,7 +92,7 @@ fn main() {
         }
         visits.trace = 0;
         try {
-            let failedIndex = rinzu.Map.fromList(
+            let failedIndex = rinzu.map.fromList(
                 [1, 2, 1, 4],
                 fn (value: Int) -> Int {
                     visits.trace = visits.trace * 10 + value;
@@ -101,29 +101,29 @@ fn main() {
             );
             panic("duplicate accepted");
         }
-        catch [problem: rinzu.Map.DuplicateKey<Int>] {
+        catch [problem: rinzu.map.DuplicateKey<Int>] {
             require(visits.trace == 121);
             require(problem.payload.key == 1 && problem.payload.firstIndex == 0 && problem.payload.duplicateIndex == 2);
         }
         let output = growMap(20);
-        let entries = rinzu.Map.entries(output);
-        require(rinzu.Map.keys(output) == [0, 1, 2]);
+        let entries = rinzu.map.entries(output);
+        require(rinzu.map.keys(output) == [0, 1, 2]);
         require(
-            rinzu.Map.fromEntries(entries) == {
+            rinzu.map.fromEntries(entries) == {
                 0: 18, 1: 19, 2: 17
             }
         );
-        require(growList(20) == rinzu.List.concatAll([growList(20), empty]));
+        require(growList(20) == rinzu.list.concatAll([growList(20), empty]));
         let duplicate: List<{ key: String, value: Int }> = [
             { key = "日本", value = 1 },
             { key = "x", value = 2 },
             { key = "日本", value = 3 }
         ];
         try {
-            let failedEntries = rinzu.Map.fromEntries(duplicate);
+            let failedEntries = rinzu.map.fromEntries(duplicate);
             panic("duplicate accepted");
         }
-        catch [problem: rinzu.Map.DuplicateKey<String>] {
+        catch [problem: rinzu.map.DuplicateKey<String>] {
             require(
                 problem.payload.key == "日本" && problem.payload.firstIndex == 0 && problem.payload.duplicateIndex == 2
             );
@@ -131,8 +131,8 @@ fn main() {
         var snapshots: List<Int> = [];
         for value in values {
             let before = snapshots;
-            snapshots = rinzu.List.append(snapshots, value);
-            require(rinzu.List.length(before) == value - 1);
+            snapshots = rinzu.list.append(snapshots, value);
+            require(rinzu.list.length(before) == value - 1);
         }
         var prefix: List<Int> = [];
         try {
@@ -140,13 +140,13 @@ fn main() {
                 if value == 3 {
                     throw Failed(message: "prefix");
                 }
-                prefix = rinzu.List.append(prefix, value);
+                prefix = rinzu.list.append(prefix, value);
             }
         }
         catch [problem: Failed] {
             require(prefix == [1, 2]);
         }
-        catch [overflow: rinzu.List.LengthOverflow] {
+        catch [overflow: rinzu.list.LengthOverflow] {
             panic(overflow.message);
         }
     }

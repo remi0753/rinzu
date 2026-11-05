@@ -1,6 +1,6 @@
 use rinzu_compiler::{DiagnosticCode, FileId, SourceFile, compile_source};
 const BASE: &str = r#"
-import rinzu.List;
+import rinzu.list;
 error Lost{}
 async fn fail(){throw Lost(message:"failure");}
 async fn safe(){}
@@ -92,7 +92,7 @@ fn caller_locals_survive_callee_names_and_nested_calls() {
 
 #[test]
 fn appending_through_a_mutable_field_preserves_the_complete_task_family() {
-    let declarations = "class Batch{values:List<Future<Unit>>}fn append(batch:Batch){let pending=fail();try{batch.values=rinzu.List.append(batch.values,pending);}catch[rinzu.List.LengthOverflow]{let receiver=observe(pending);}}async fn observeList(values:List<Future<Unit>>){var index=0;while index<rinzu.List.length(values){switch rinzu.List.get(values,index){case Option.Some(value):{let receiver=observe(value);}case Option.None:{}}index=index+1;}}";
+    let declarations = "class Batch{values:List<Future<Unit>>}fn append(batch:Batch){let pending=fail();try{batch.values=rinzu.list.append(batch.values,pending);}catch[rinzu.list.LengthOverflow]{let receiver=observe(pending);}}async fn observeList(values:List<Future<Unit>>){var index=0;while index<rinzu.list.length(values){switch rinzu.list.get(values,index){case Option.Some(value):{let receiver=observe(value);}case Option.None:{}}index=index+1;}}";
     accepted(&format!(
         "{declarations}fn main(){{let batch=Batch(values:[]);var index=0;while index<3{{append(batch);index=index+1;}}let receiver=observeList(batch.values);}}"
     ));

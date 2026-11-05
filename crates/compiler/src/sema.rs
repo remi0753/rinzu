@@ -2797,7 +2797,7 @@ impl<'a> Checker<'a> {
         }
         if let [root, module, ..] = target
             && root == "rinzu"
-            && matches!(module.as_str(), "List" | "Map")
+            && matches!(module.as_str(), "list" | "map")
         {
             // A valid import links the dotted path to a canonical symbol.
             self.unknown_name(&qualified, range);

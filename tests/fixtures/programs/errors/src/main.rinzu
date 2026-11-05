@@ -1,4 +1,4 @@
-import rinzu.List;
+import rinzu.list;
 import rinzu.stdio;
 
 fn parseFixture(text: String) -> Int {
@@ -60,7 +60,7 @@ async fn main() {
                         rinzu.stdio.writeLine(false);
                     }
                 }
-                rinzu.stdio.writeLine(rinzu.List.length(caughtRest));
+                rinzu.stdio.writeLine(rinzu.list.length(caughtRest));
                 let retained = caught;
                 rinzu.stdio.writeLine(errorCode(retained));
             }

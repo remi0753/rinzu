@@ -1,6 +1,6 @@
 use rinzu_compiler::{FileId, SourceFile, compile_source};
 const BASE: &str = r#"
-import rinzu.List;
+import rinzu.list;
 error Lost{} async fn fail(){throw Lost(message:"lost");} async fn ok(){} async fn forever(){while true{}} async fn observe(value:Future<Unit>){try{let ignored=await value;}catch errors{}}"#;
 fn accepted(source: &str) {
     compile_source(&SourceFile::new(
@@ -76,7 +76,7 @@ fn sync_factories_and_const_fields_keep_nonreturning_outcomes() {
     );
 }
 
-const WAIT_LIST: &str = r#"async fn waitList(values:List<Future<Unit>>){var index=0;while index<rinzu.List.length(values){switch rinzu.List.get(values,index){case Option.Some(value):{try{await value;}catch errors{}}case Option.None:{}}index=index+1;}}"#;
+const WAIT_LIST: &str = r#"async fn waitList(values:List<Future<Unit>>){var index=0;while index<rinzu.list.length(values){switch rinzu.list.get(values,index){case Option.Some(value):{try{await value;}catch errors{}}case Option.None:{}}index=index+1;}}"#;
 #[test]
 fn a_blocking_list_observer_cannot_hide_a_failure_behind_a_nonreturning_element() {
     lost(&format!(

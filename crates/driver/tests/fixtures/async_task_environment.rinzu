@@ -1,4 +1,4 @@
-import rinzu.List;
+import rinzu.list;
 import rinzu.stdio;
 
 class Kept {
@@ -44,7 +44,7 @@ async fn mixed(
     check(a == 17 && kept.value == 18 && high == 18446744073709551615);
     check(text == "日本語\u{0}kept" && flag && received == "zero" && apply(a) == 18);
     check(bytesLength(data) == 3 && bytesGet(data, 2) == bytesGet(byteArray(b"\xff"), 0));
-    switch rinzu.List.get(list, 0) {
+    switch rinzu.list.get(list, 0) {
         case Option.Some(item): {
             check(item.value == 18 && item.label == text);
         }

@@ -7,8 +7,10 @@ fn file(text: &str) -> SourceFile {
 #[test]
 fn collection_modules_require_imports_and_preserve_nominal_error_bounds() {
     for text in [
-        "fn main() { let count = rinzu.List.length([1]); }",
-        "fn main() { let count = rinzu.Map.length({1: 2}); }",
+        "fn main() { let count = rinzu.list.length([1]); }",
+        "fn main() { let count = rinzu.map.length({1: 2}); }",
+        "import rinzu.List; fn main() { let count = rinzu.List.length([1]); }",
+        "import rinzu.Map; fn main() { let count = rinzu.Map.length({1: 2}); }",
         "fn main() { let count = listLength([1]); }",
         "import rinzu.core; fn main() { let count = rinzu.core.mapLength({1: 2}); }",
     ] {
@@ -16,25 +18,25 @@ fn collection_modules_require_imports_and_preserve_nominal_error_bounds() {
     }
     let checked = compile_source(&file(
         r#"
-        import rinzu.List;
-        import rinzu.Map;
+        import rinzu.list;
+        import rinzu.map;
         error Callback {}
         fn transform(value: Int) -> Int throws Callback { return value; }
         fn key(value: Int) -> String throws Callback { return f"{value}"; }
         fn converted(values: List<Int>) -> List<Int> {
-            return rinzu.List.map(values, transform);
+            return rinzu.list.map(values, transform);
         }
         fn indexed(values: List<Int>) -> Map<String, Int> {
-            return rinzu.Map.fromList(values, key);
+            return rinzu.map.fromList(values, key);
         }
-        fn grow(values: List<Int>) -> List<Int> throws rinzu.List.LengthOverflow {
-            return rinzu.List.append(values, 1);
+        fn grow(values: List<Int>) -> List<Int> throws rinzu.list.LengthOverflow {
+            return rinzu.list.append(values, 1);
         }
-        fn insert(values: Map<Int,Int>) -> Map<Int,Int> throws rinzu.Map.LengthOverflow {
-            return rinzu.Map.insert(values, 1, 2);
+        fn insert(values: Map<Int,Int>) -> Map<Int,Int> throws rinzu.map.LengthOverflow {
+            return rinzu.map.insert(values, 1, 2);
         }
-        fn concat(parts: List<List<Int>>) -> List<Int> throws rinzu.List.LengthOverflow {
-            return rinzu.List.concatAll(parts);
+        fn concat(parts: List<List<Int>>) -> List<Int> throws rinzu.list.LengthOverflow {
+            return rinzu.list.concatAll(parts);
         }
         fn main() {}
     "#,
@@ -53,29 +55,29 @@ fn collection_modules_require_imports_and_preserve_nominal_error_bounds() {
     assert_eq!(summary("converted"), ["Callback"]);
     assert_eq!(
         summary("indexed"),
-        ["Callback", "rinzu.Map::DuplicateKey<String>"]
+        ["Callback", "rinzu.map::DuplicateKey<String>"]
     );
-    assert_eq!(summary("grow"), ["rinzu.List::LengthOverflow"]);
-    assert_eq!(summary("insert"), ["rinzu.Map::LengthOverflow"]);
-    assert_eq!(summary("concat"), ["rinzu.List::LengthOverflow"]);
+    assert_eq!(summary("grow"), ["rinzu.list::LengthOverflow"]);
+    assert_eq!(summary("insert"), ["rinzu.map::LengthOverflow"]);
+    assert_eq!(summary("concat"), ["rinzu.list::LengthOverflow"]);
 }
 
 #[test]
 fn loops_use_buffers_only_while_the_accumulator_is_private() {
     let checked = compile_source(&file(
         r#"
-        import rinzu.List;
-        import rinzu.Map;
+        import rinzu.list;
+        import rinzu.map;
         fn list(values: List<Int>) -> List<Int> {
             var out: List<Int> = [];
-            for value in values { out = rinzu.List.append(out, value); }
+            for value in values { out = rinzu.list.append(out, value); }
             return out;
         }
         fn map(count: Int) -> Map<Int, Int> {
             var out: Map<Int, Int> = {};
             var index = 0;
             while index < count {
-                out = rinzu.Map.insert(out, index, index * 2);
+                out = rinzu.map.insert(out, index, index * 2);
                 index = index + 1;
             }
             return out;
@@ -84,8 +86,8 @@ fn loops_use_buffers_only_while_the_accumulator_is_private() {
             var out: List<Int> = [];
             for value in values {
                 let before = out;
-                out = rinzu.List.append(out, value);
-                if rinzu.List.length(before) >= rinzu.List.length(out) { panic("changed alias"); }
+                out = rinzu.list.append(out, value);
+                if rinzu.list.length(before) >= rinzu.list.length(out) { panic("changed alias"); }
             }
             return out;
         }
@@ -93,8 +95,8 @@ fn loops_use_buffers_only_while_the_accumulator_is_private() {
             var out: List<Int> = [];
             for value in values {
                 try {
-                    out = rinzu.List.append(out, value);
-                } catch [rinzu.List.LengthOverflow] { return out; }
+                    out = rinzu.list.append(out, value);
+                } catch [rinzu.list.LengthOverflow] { return out; }
             }
             return out;
         }
@@ -103,7 +105,7 @@ fn loops_use_buffers_only_while_the_accumulator_is_private() {
             var out: List<Int> = [];
             for value in values {
                 await pause();
-                out = rinzu.List.append(out, value);
+                out = rinzu.list.append(out, value);
             }
             return out;
         }
@@ -139,8 +141,8 @@ fn loops_use_buffers_only_while_the_accumulator_is_private() {
 #[test]
 fn bulk_operations_keep_future_obligations_on_dropped_and_failing_paths() {
     let prelude = r#"
-        import rinzu.List;
-        import rinzu.Map;
+        import rinzu.list;
+        import rinzu.map;
         error Failed {}
         error Stop {}
         async fn fail(value: Int) -> Int { throw Failed(message: f"{value}"); }
@@ -149,7 +151,7 @@ fn bulk_operations_keep_future_obligations_on_dropped_and_failing_paths() {
         r#"
         fn main() {
             let pending = fail(1);
-            let kept = rinzu.List.filter([pending], fn (item: Future<Int>) -> Bool { return false; });
+            let kept = rinzu.list.filter([pending], fn (item: Future<Int>) -> Bool { return false; });
         }
         "#,
         r#"
@@ -157,14 +159,14 @@ fn bulk_operations_keep_future_obligations_on_dropped_and_failing_paths() {
             let pending = fail(1);
             let input: List<{key: Int, value: Future<Int>}> =
                 [{key = 1, value = pending}, {key = 1, value = pending}];
-            try { let table = rinzu.Map.fromEntries(input); }
-            catch [duplicate: rinzu.Map.DuplicateKey<Int>] {}
+            try { let table = rinzu.map.fromEntries(input); }
+            catch [duplicate: rinzu.map.DuplicateKey<Int>] {}
         }
         "#,
         r#"
         async fn main() {
             try {
-                let mapped = rinzu.List.map([1, 2], fn (value: Int) -> Future<Int> {
+                let mapped = rinzu.list.map([1, 2], fn (value: Int) -> Future<Int> {
                     if value == 2 { throw Stop(message: "stop"); }
                     return fail(value);
                 });

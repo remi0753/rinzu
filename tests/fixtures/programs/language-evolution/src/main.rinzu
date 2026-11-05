@@ -1,5 +1,5 @@
-import rinzu.List;
-import rinzu.Map;
+import rinzu.list;
+import rinzu.map;
 
 interface Getter<T> {
     fn get(self: Self) -> T nothrow;
@@ -32,7 +32,7 @@ fn synchronous() -> Int {
     var handlers: List<fn (Int) -> Int> = [];
     for offset in source {
         source = [9];
-        handlers = rinzu.List.append(
+        handlers = rinzu.list.append(
             handlers,
             fn (value: Int) -> Int {
                 return value + offset;
@@ -63,7 +63,7 @@ fn synchronous() -> Int {
             return value;
         }
     };
-    switch rinzu.Map.get(named, "identity") {
+    switch rinzu.map.get(named, "identity") {
         case Option.Some(handle): {
             return handle(after.x);
         }

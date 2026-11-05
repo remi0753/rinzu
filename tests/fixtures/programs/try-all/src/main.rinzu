@@ -1,4 +1,4 @@
-import rinzu.List;
+import rinzu.list;
 import rinzu.stdio;
 
 class Counter {
@@ -71,7 +71,7 @@ async fn main() {
             await finishing;
         }
         catch errors {
-            rinzu.stdio.writeLine(f"errors={rinzu.List.length(errors)}");
+            rinzu.stdio.writeLine(f"errors={rinzu.list.length(errors)}");
         }
         finally {
             rinzu.stdio.writeLine("finally");

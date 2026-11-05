@@ -1,4 +1,4 @@
-import rinzu.List;
+import rinzu.list;
 
 fn equal(actual: ByteArray, expected: ByteArray) {
     if actual != expected {
@@ -50,8 +50,8 @@ fn concatBounds() -> ByteArray {
     var index = 0;
     while index < 258 {
         let part = byteArray([CUInt8(index % 256)]);
-        parts = rinzu.List.append(parts, byteArray(b""));
-        parts = rinzu.List.append(parts, part);
+        parts = rinzu.list.append(parts, byteArray(b""));
+        parts = rinzu.list.append(parts, part);
         expected = bytesConcat(expected, part);
         if index == 62
             || index == 63
@@ -105,7 +105,7 @@ fn checks() {
     var alphabet: List<CUInt8> = [];
     var index = 0;
     while index < 256 {
-        alphabet = rinzu.List.append(alphabet, CUInt8(index));
+        alphabet = rinzu.list.append(alphabet, CUInt8(index));
         index = index + 1;
     }
     let bytes = byteArray(alphabet);
@@ -126,7 +126,7 @@ fn checks() {
         if code >= 65 && code <= 90 {
             code = code + 32;
         }
-        lowerAlphabet = rinzu.List.append(lowerAlphabet, CUInt8(code));
+        lowerAlphabet = rinzu.list.append(lowerAlphabet, CUInt8(code));
         index = index + 1;
     }
     let lowerBytes = byteArray(lowerAlphabet);

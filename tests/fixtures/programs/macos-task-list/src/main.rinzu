@@ -1,4 +1,4 @@
-import rinzu.List;
+import rinzu.list;
 import rinzu.macos;
 import rinzu.process;
 import rinzu.stdio;
@@ -64,8 +64,8 @@ class Tasks {
         var rows: List<rinzu.macos.DataRow> = [];
         var index = 0;
         var open = 0;
-        while index < rinzu.List.length(self.items) {
-            switch rinzu.List.get(self.items, index) {
+        while index < rinzu.list.length(self.items) {
+            switch rinzu.list.get(self.items, index) {
                 case Option.Some(task): {
                     if !task.done {
                         open = open + 1;
@@ -75,7 +75,7 @@ class Tasks {
                         if task.done {
                             title = f"✓  {title}";
                         }
-                        rows = rinzu.List.append(rows, rinzu.macos.DataRow(id: task.id, parent: 0, cells: [title]));
+                        rows = rinzu.list.append(rows, rinzu.macos.DataRow(id: task.id, parent: 0, cells: [title]));
                     }
                 }
                 case Option.None: {}
@@ -90,7 +90,7 @@ class Tasks {
         if self.openOnly {
             filter = "Open tasks";
         }
-        let updated = self.status.setText(f"{rinzu.List.length(self.items)} tasks · {open} open · {filter}");
+        let updated = self.status.setText(f"{rinzu.list.length(self.items)} tasks · {open} open · {filter}");
     }
 
     fn updateSelection(self: Tasks) {
@@ -110,13 +110,13 @@ class Tasks {
             let limited = self.status.setText("Task title is too long. Use a shorter title.");
             return;
         }
-        if rinzu.List.length(self.items) >= 1000 {
+        if rinzu.list.length(self.items) >= 1000 {
             let full = self.status.setText("This list is full. Delete a task before adding another.");
             return;
         }
         let id = self.nextId;
         self.nextId = id + 1;
-        self.items = rinzu.List.append(self.items, Task(id: id, title: title, done: false));
+        self.items = rinzu.list.append(self.items, Task(id: id, title: title, done: false));
         let cleared = self.input.setText("");
         await self.refresh();
         let selected = self.list.select(id, true);
@@ -130,8 +130,8 @@ class Tasks {
             return;
         }
         var index = 0;
-        while index < rinzu.List.length(self.items) {
-            switch rinzu.List.get(self.items, index) {
+        while index < rinzu.list.length(self.items) {
+            switch rinzu.list.get(self.items, index) {
                 case Option.Some(task): {
                     if task.id == self.selected {
                         task.done = !task.done;
@@ -149,7 +149,7 @@ class Tasks {
             return;
         }
         let selected = self.selected;
-        self.items = rinzu.List.filter(
+        self.items = rinzu.list.filter(
             self.items,
             fn (task: Task) -> Bool {
                 return task.id != selected;
@@ -165,12 +165,12 @@ class Tasks {
         }
         let oversized = self.input.setText(longTitle);
         await self.add(job);
-        if rinzu.List.length(self.items) != 3 {
+        if rinzu.list.length(self.items) != 3 {
             panic("task input limit failed");
         }
         let title = self.input.setText("テスト task 😀");
         await self.add(job);
-        if rinzu.List.length(self.items) != 4 || self.list.cell(4, 0) != "テスト task 😀" {
+        if rinzu.list.length(self.items) != 4 || self.list.cell(4, 0) != "テスト task 😀" {
             panic("task add failed");
         }
         await self.change(job);
@@ -186,7 +186,7 @@ class Tasks {
         let selected = self.list.select(1, true);
         self.selected = 1;
         await self.erase(job);
-        if rinzu.List.length(self.items) != 3 {
+        if rinzu.list.length(self.items) != 3 {
             panic("task delete failed");
         }
         let theme = job.window.setTheme(rinzu.macos.themeDark);

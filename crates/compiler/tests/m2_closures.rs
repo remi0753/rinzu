@@ -8,8 +8,8 @@ fn source(text: &str) -> SourceFile {
 #[test]
 fn empty_callable_containers_lower_to_uninhabited_dispatch_without_dummy_targets() {
     for text in [
-        "import rinzu.List;\nclass Layer {const apply:fn(Int)->Int} fn invoke(layer:Layer)->Int{return layer.apply(42);} fn main(){let layers:List<Layer> = [];switch rinzu.List.get(layers,0){case Option.Some(layer):{let value=invoke(layer);}case Option.None:{}}}",
-        "import rinzu.List;\nclass Layer {const apply:fn(Int)->Future<Int>} fn invoke(layer:Layer)->Future<Int>{return layer.apply(42);} async fn main(){let layers:List<Layer> = [];switch rinzu.List.get(layers,0){case Option.Some(layer):{try{let value=await invoke(layer);}catch errors{}}case Option.None:{}}}",
+        "import rinzu.list;\nclass Layer {const apply:fn(Int)->Int} fn invoke(layer:Layer)->Int{return layer.apply(42);} fn main(){let layers:List<Layer> = [];switch rinzu.list.get(layers,0){case Option.Some(layer):{let value=invoke(layer);}case Option.None:{}}}",
+        "import rinzu.list;\nclass Layer {const apply:fn(Int)->Future<Int>} fn invoke(layer:Layer)->Future<Int>{return layer.apply(42);} async fn main(){let layers:List<Layer> = [];switch rinzu.list.get(layers,0){case Option.Some(layer):{try{let value=await invoke(layer);}catch errors{}}case Option.None:{}}}",
     ] {
         let artifact =
             compile_source(&source(text)).unwrap_or_else(|errors| panic!("{text}\n{errors:#?}"));

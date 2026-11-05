@@ -1,4 +1,4 @@
-import rinzu.List;
+import rinzu.list;
 
 class Connection {
     const handle: ConnectionHandle
@@ -363,7 +363,7 @@ fn queryByteRows(connection: Connection, sql: String, maximumRows: Int) -> List<
                     throw error(-7010, "sqlite.query.rowLength");
                 }
                 case Option.Some(value): {
-                    rows = rinzu.List.append(rows, value);
+                    rows = rinzu.list.append(rows, value);
                 }
             }
             row = row + 1;

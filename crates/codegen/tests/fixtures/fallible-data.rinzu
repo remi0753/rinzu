@@ -1,4 +1,4 @@
-import rinzu.List;
+import rinzu.list;
 import rinzu.stdio;
 
 async fn main() {
@@ -84,7 +84,7 @@ async fn main() {
             let b = utf8Decode(byteArray(b"\xff"));
         }
         catch errors {
-            rinzu.stdio.writeLine(rinzu.List.length(errors));
+            rinzu.stdio.writeLine(rinzu.list.length(errors));
         }
     }
     catch errors {

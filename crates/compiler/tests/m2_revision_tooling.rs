@@ -2,7 +2,7 @@ use rinzu_compiler::{FileId, SourceFile, compile_source, format_source};
 
 #[test]
 fn revised_syntax_formats_idempotently_and_retains_unicode_literals_and_comments() {
-    let text = "import rinzu.List;\n// 日本語\r\ntype Pair={x:Int,y:Int};class Counter{const tag:String,value:Int fn read(self:Counter)->Int{return self.value;}}native{record Input{value:CInt}}async fn main(){var base:Int=40;let p:Pair={y=2,x=1};let c=Counter(tag:\"日本\",value:0);let add=fn(a:Int)->Int{return base+a;};let later=async fn()->Int{return add(p.x);};try all{let n=await later();c.value=n;}catch errors{let count=rinzu.List.length(errors);}finally{let text=f\"日本-{c.value}\";}}";
+    let text = "import rinzu.list;\n// 日本語\r\ntype Pair={x:Int,y:Int};class Counter{const tag:String,value:Int fn read(self:Counter)->Int{return self.value;}}native{record Input{value:CInt}}async fn main(){var base:Int=40;let p:Pair={y=2,x=1};let c=Counter(tag:\"日本\",value:0);let add=fn(a:Int)->Int{return base+a;};let later=async fn()->Int{return add(p.x);};try all{let n=await later();c.value=n;}catch errors{let count=rinzu.list.length(errors);}finally{let text=f\"日本-{c.value}\";}}";
     let mut bytes = vec![0xef, 0xbb, 0xbf];
     bytes.extend(text.as_bytes());
     let source = SourceFile::from_utf8(FileId(19), "tooling.rinzu", bytes).unwrap();

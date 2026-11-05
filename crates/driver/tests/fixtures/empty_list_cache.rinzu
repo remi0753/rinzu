@@ -1,4 +1,4 @@
-import rinzu.List;
+import rinzu.list;
 import rinzu.stdio;
 import rinzu.process;
 
@@ -15,7 +15,7 @@ fn check(value: Bool) {
 fn lists() -> List<Int> {
     let original: List<Int> = [];
     let held = original;
-    let populated = rinzu.List.append(original, 42);
+    let populated = rinzu.list.append(original, 42);
     var round = 0;
     while round < 64 {
         let numbers: List<Int> = [];
@@ -24,17 +24,17 @@ fn lists() -> List<Int> {
         let problems: List<Error> = [];
         let binary: List<ByteArray> = [];
         check(
-            rinzu.List.length(numbers) + rinzu.List.length(texts) + rinzu.List.length(cells) + rinzu.List.length(
+            rinzu.list.length(numbers) + rinzu.list.length(texts) + rinzu.list.length(cells) + rinzu.list.length(
                 problems
-            ) + rinzu.List.length(binary) == 0
+            ) + rinzu.list.length(binary) == 0
         );
         let firstCell = Cell(value: 1);
         let secondCell = Cell(value: 2);
         firstCell.value = 99;
         check(secondCell.value == 2);
-        let expanded = rinzu.List.append(texts, "日本語\u{0}🙂");
-        check(rinzu.List.length(expanded) == 1 && rinzu.List.length(texts) == 0);
-        switch rinzu.List.remove(populated, 0) {
+        let expanded = rinzu.list.append(texts, "日本語\u{0}🙂");
+        check(rinzu.list.length(expanded) == 1 && rinzu.list.length(texts) == 0);
+        switch rinzu.list.remove(populated, 0) {
             case Option.Some(removed): {
                 check(removed == numbers && populated == [42]);
             }
@@ -44,7 +44,7 @@ fn lists() -> List<Int> {
         }
         round = round + 1;
     }
-    check(held == original && rinzu.List.length(original) == 0 && populated == [42]);
+    check(held == original && rinzu.list.length(original) == 0 && populated == [42]);
     return held;
 }
 

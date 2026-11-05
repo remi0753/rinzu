@@ -1308,7 +1308,7 @@ fn typed_scalar_arithmetic_has_equivalent_jit_and_aot_results() {
         assert!(stdout.contains(expected), "{stdout}");
     }
 
-    std::fs::write(root.join("src/main.rinzu"), "import rinzu.List;\nfn main() { try { try { let primary = CInt8(200); } finally { try { let second = CInt8(300); } finally { let third = CInt8(400); } } } catch [error: Error, ...errorRest] { if rinzu.List.length(errorRest) != 2 || error.message != \"numeric conversion is out of range or loses required integer precision\" { panic(\"incorrect_aggregation\"); } } }").unwrap();
+    std::fs::write(root.join("src/main.rinzu"), "import rinzu.list;\nfn main() { try { try { let primary = CInt8(200); } finally { try { let second = CInt8(300); } finally { let third = CInt8(400); } } } catch [error: Error, ...errorRest] { if rinzu.list.length(errorRest) != 2 || error.message != \"numeric conversion is out of range or loses required integer precision\" { panic(\"incorrect_aggregation\"); } } }").unwrap();
     let nested = Command::new(frozen_cli::path())
         .arg("verify-aot")
         .arg(&root)
@@ -1539,7 +1539,7 @@ fn source_async_ready_failures_are_caught_at_await_and_preserve_cleanup_diagnost
     )
     .unwrap();
     let functions = r#"
-import rinzu.List;
+import rinzu.list;
 import rinzu.core;
 fn score(value: Int) -> Int { return value * 2; }
 fn fail() -> CInt8 { return CInt8(200); }
@@ -1553,7 +1553,7 @@ async fn trapped() -> Int { return 1 / 0; }
             "success",
         ),
         (
-            "var order = 0; try { let future = bad(); order = 1; try { let value = await future; } catch [error: Error, ...errorRest] { order = order * 10 + 2; if rinzu.List.length(errorRest) != 1 || error.message != \"numeric conversion is out of range or loses required integer precision\" { panic(\"wrong_message\"); } } } catch unexpected { order = 99; } finally { order = order * 10 + 3; } if order != 123 { panic(\"wrong_order\"); }",
+            "var order = 0; try { let future = bad(); order = 1; try { let value = await future; } catch [error: Error, ...errorRest] { order = order * 10 + 2; if rinzu.list.length(errorRest) != 1 || error.message != \"numeric conversion is out of range or loses required integer precision\" { panic(\"wrong_message\"); } } } catch unexpected { order = 99; } finally { order = order * 10 + 3; } if order != 123 { panic(\"wrong_order\"); }",
             "success",
         ),
         (
@@ -1613,12 +1613,12 @@ fn source_workers_handle_errors_locally_and_repeat_scalar_reports() {
     )
     .unwrap();
     let functions = r#"
-import rinzu.List;
+import rinzu.list;
 fn fail(value: Int) -> CInt8 { return CInt8(value); }
 fn failThree() -> CInt8 { try { return fail(200); } finally { try { let second = CInt8(300); } finally { let third = CInt8(400); } } }
 fn failTwo() -> CInt8 { try { return fail(200); } finally { try { let second = CInt8(300); } catch [inside: Error, ...insideRest] { let message = inside.message; } let third = CInt8(400); } }
-fn bad() -> Int { try { let ignored=failThree(); } catch errors { return rinzu.List.length(errors); } return 0; }
-fn local() -> Int { try { let ignored=failTwo(); } catch errors { return rinzu.List.length(errors); } return 0; }
+fn bad() -> Int { try { let ignored=failThree(); } catch errors { return rinzu.list.length(errors); } return 0; }
+fn local() -> Int { try { let ignored=failTwo(); } catch errors { return rinzu.list.length(errors); } return 0; }
 fn caught() -> CInt8 { var value: CInt8 = 0; try { let first = fail(200); } catch one { value = 7; } try { let second = fail(300); } catch two { value = value + 1; } return value; }
 fn trapped() -> Int { try { try { return 1 / 0; } finally { let cleanup = CInt8(200); } } catch errors { panic("unexpected"); return 0; } }
 "#;
@@ -1839,7 +1839,7 @@ fn source_ready_async_callees_transfer_observation_explicitly() {
     )
     .unwrap();
     let functions = r#"
-import rinzu.List;
+import rinzu.list;
 async fn ready() -> CUInt64 { return 18446744073709551615; }
 async fn bad() -> CInt8 { try { return CInt8(200); } finally { let cleanup = CInt8(300); } }
 async fn trapped() -> Int { return 1 / 0; }
@@ -1855,7 +1855,7 @@ async fn recursive(depth: Int) -> CUInt64 {
     if depth == 0 { return await observed(); }
     return await recursive(depth - 1);
 }
-async fn siblings() -> Int { let first = forwarded(); let second = forwarded(); try all { let one=await first; let two=await second; } catch errors { if rinzu.List.length(errors)!=4 { panic("wrong_count"); } return 9; } return 0; }
+async fn siblings() -> Int { let first = forwarded(); let second = forwarded(); try all { let one=await first; let two=await second; } catch errors { if rinzu.list.length(errors)!=4 { panic("wrong_count"); } return 9; } return 0; }
 async fn primary() -> Int { try { let child = bad(); let value=await child; return 1 / 0; } finally { let cleanup = CInt8(400); } }
 async fn trappedChild() -> Int { let child = trapped(); return 8; }
 "#;
@@ -1865,7 +1865,7 @@ async fn trappedChild() -> Int { let child = trapped(); return 8; }
             "success",
         ),
         (
-            "var catches = 0; let failed = forwarded(); let alias = failed; try { let first = await failed; } catch [one: Error, ...oneRest] { catches = catches + 1; if rinzu.List.length(oneRest) != 1 || one.message != \"numeric conversion is out of range or loses required integer precision\" { panic(\"wrong_message\"); } } try { let second = await alias; } catch two { catches = catches + 1; } if catches != 2 { panic(\"wrong_count\"); }",
+            "var catches = 0; let failed = forwarded(); let alias = failed; try { let first = await failed; } catch [one: Error, ...oneRest] { catches = catches + 1; if rinzu.list.length(oneRest) != 1 || one.message != \"numeric conversion is out of range or loses required integer precision\" { panic(\"wrong_message\"); } } try { let second = await alias; } catch two { catches = catches + 1; } if catches != 2 { panic(\"wrong_count\"); }",
             "success",
         ),
         (

@@ -1,5 +1,5 @@
-import rinzu.List;
-import rinzu.Map;
+import rinzu.list;
+import rinzu.map;
 import rinzu.stdio;
 
 fn echo<T: Transferable>(value: T) -> T {
@@ -9,25 +9,25 @@ fn echo<T: Transferable>(value: T) -> T {
 async fn main() {
     try {
         let empty: List<String> = [];
-        let original = rinzu.List.append(empty, "日本語\u{0}tail");
+        let original = rinzu.list.append(empty, "日本語\u{0}tail");
         let alias = original;
-        let extended = rinzu.List.append(original, "second");
-        rinzu.stdio.writeLine(rinzu.List.length(empty));
-        rinzu.stdio.writeLine(rinzu.List.length(extended));
-        rinzu.stdio.writeLine(rinzu.List.get(extended, -1) == Option<String>.None());
-        switch rinzu.List.get(extended, 0) {
+        let extended = rinzu.list.append(original, "second");
+        rinzu.stdio.writeLine(rinzu.list.length(empty));
+        rinzu.stdio.writeLine(rinzu.list.length(extended));
+        rinzu.stdio.writeLine(rinzu.list.get(extended, -1) == Option<String>.None());
+        switch rinzu.list.get(extended, 0) {
             case Option.Some(value): {
                 rinzu.stdio.writeLine(value);
             }
             case Option.None: {}
         }
-        switch rinzu.List.set(extended, 0, "updated") {
+        switch rinzu.list.set(extended, 0, "updated") {
             case Option.Some(value): {
                 rinzu.stdio.writeLine(value);
             }
             case Option.None: {}
         }
-        switch rinzu.List.remove(extended, 0) {
+        switch rinzu.list.remove(extended, 0) {
             case Option.Some(value): {
                 rinzu.stdio.writeLine(value);
             }
@@ -37,13 +37,13 @@ async fn main() {
         let initial: Map<String, Int> = {
             "a": 1, "b": 2, "a": 3
         };
-        let updated = rinzu.Map.insert(initial, "a", 4);
-        let appended = rinzu.Map.insert(updated, "c", 5);
-        let removed = rinzu.Map.remove(appended, "b");
-        rinzu.stdio.writeLine(rinzu.Map.length(removed));
-        rinzu.stdio.writeLine(rinzu.Map.keys(removed));
-        rinzu.stdio.writeLine(rinzu.Map.get(removed, "b") == Option<Int>.None());
-        switch rinzu.Map.get(removed, "a") {
+        let updated = rinzu.map.insert(initial, "a", 4);
+        let appended = rinzu.map.insert(updated, "c", 5);
+        let removed = rinzu.map.remove(appended, "b");
+        rinzu.stdio.writeLine(rinzu.map.length(removed));
+        rinzu.stdio.writeLine(rinzu.map.keys(removed));
+        rinzu.stdio.writeLine(rinzu.map.get(removed, "b") == Option<Int>.None());
+        switch rinzu.map.get(removed, "a") {
             case Option.Some(value): {
                 rinzu.stdio.writeLine(value);
             }
@@ -52,7 +52,7 @@ async fn main() {
         let snapshot = spawn echo<Map<String, Int>>(initial);
         let copied = await snapshot;
         rinzu.stdio.writeLine(copied == initial);
-        switch rinzu.Map.get(copied, "a") {
+        switch rinzu.map.get(copied, "a") {
             case Option.Some(value): {
                 rinzu.stdio.writeLine(value);
             }

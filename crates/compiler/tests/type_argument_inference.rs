@@ -14,8 +14,8 @@ const BASE: &str = "fn identity<T>(value:T)->T{return value;} fn same<T>(first:T
 fn arguments_expected_results_constructors_and_typed_callbacks_infer() {
     let text = format!(
         r#"
-import rinzu.List;
-import rinzu.Map;
+import rinzu.list;
+import rinzu.map;
 {BASE}
 fn transform<T,U>(value:T,callback:fn(T)->U)->U{{return callback(value);}}
 fn nested()->Option<String>{{return Option.None();}}
@@ -32,10 +32,10 @@ fn main(){{
     let explicit=identity<Int>(42);
     take(Option.None());
     let options:List<Option<Int>> = [Option.Some(value:1)];
-    let appended=rinzu.List.append(options,Option.None());
-    let replaced=rinzu.List.set(appended,0,Option.None());
+    let appended=rinzu.list.append(options,Option.None());
+    let replaced=rinzu.list.set(appended,0,Option.None());
     let mapped:Map<String,Option<Int>> = {{"first":Option.Some(value:1)}};
-    let inserted=rinzu.Map.insert(mapped,"second",Option.None());
+    let inserted=rinzu.map.insert(mapped,"second",Option.None());
     let accept:fn(Option<Int>)->Int=fn(value:Option<Int>)->Int{{return 1;}};
     let accepted=accept(Option.None());
     let a=identity({{x:Int=1,y="yes"}});

@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use sha2::{Digest, Sha256};
 
 pub const TARGET: &str = "aarch64-apple-darwin";
-pub const REVISION: u32 = 4;
+pub const REVISION: u32 = 5;
 /// Shared by the embedded registry and its distribution fingerprint.
 pub const RUNTIME_CODEGEN_REVISION: u32 = 182;
 pub const SOURCE_PACKAGES: [&str; 8] = [
@@ -25,8 +25,8 @@ const BUILTIN_PACKAGES: [&str; 5] = [
     "rinzu.core",
     "rinzu.stdio",
     "rinzu.timer",
-    "rinzu.List",
-    "rinzu.Map",
+    "rinzu.list",
+    "rinzu.map",
 ];
 
 pub(crate) fn builtin(name: &str) -> bool {

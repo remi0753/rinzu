@@ -21,7 +21,7 @@ fn native_compiled_jit_collects_unbound_and_child_errors_and_matches_aot() {
     std::fs::write(
         root.join("src/main.rinzu"),
         checked_entry::source(
-            r#"import rinzu.List;
+            r#"import rinzu.list;
 
 import rinzu.sqlite;
 import rinzu.stdio;
@@ -36,8 +36,8 @@ async fn main() {
         rinzu.stdio.writeLine(value);
         rinzu.stdio.writeLine("continued");
     } catch errors {
-        rinzu.stdio.writeLine(rinzu.List.length(errors));
-        switch rinzu.List.get(errors,2) {
+        rinzu.stdio.writeLine(rinzu.list.length(errors));
+        switch rinzu.list.get(errors,2) {
             case Option.None: {panic("bad");}
             case Option.Some(problem): {rinzu.stdio.writeLine(errorCode(problem));}
         }

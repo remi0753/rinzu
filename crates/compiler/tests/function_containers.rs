@@ -11,7 +11,7 @@ fn compile(
 #[test]
 fn list_map_values_future_and_nested_function_types_are_supported() {
     compile(
-        r#"import rinzu.Map;
+        r#"import rinzu.map;
 
 fn identity<T>(value:T)->T{return value;}
 async fn make()->fn(Int)->Int{return fn(value:Int)->Int{return value+2;};}
@@ -19,7 +19,7 @@ async fn main(){
     let handlers:List<fn(Int)->Int> = [identity,fn(value:Int)->Int{return value+1;}];
     for handle in handlers {let value=handle(1);}
     let names:Map<String,fn(Int)->Int> = {"next":identity<Int>};
-    switch rinzu.Map.get(names,"next") {case Option.Some(handle):{let value=handle(2);}case Option.None:{}}
+    switch rinzu.map.get(names,"next") {case Option.Some(handle):{let value=handle(2);}case Option.None:{}}
     let handle=await make();let value=handle(3);
 }
 "#,

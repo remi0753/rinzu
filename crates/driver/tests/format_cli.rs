@@ -106,7 +106,7 @@ fn syntax_aware_spacing_members_and_width_are_shared_by_stdin_and_file_modes() {
 #[test]
 fn stdout_and_write_preserve_current_syntax_literals_comments_and_bom() {
     let fixture = Fixture::new();
-    let source = "\u{feff}import rinzu.List;\n// 日本語\r\ntype Pair={x:Int,y:Int};class Box<T>{const value:T}class Counter{const tag:String,value:Int fn read(self:Counter)->Int{return self.value;}}native{record Input{value:CInt}}async fn main(){let bytes=b\"\\x00\\xff\";let raw=r##\"日本\r\n\t\\u{0}\0\"##;var base:Int=40;let p:Pair={y=2,x=1};let c=Counter(tag:\"日本\",value:0);let add=fn(a:Int)->Int{return base+a;};let later=async fn()->Int{return add(p.x);};try all{let n=await later();c.value=n;}catch errors{let count=rinzu.List.length(errors);}finally{let text=f\"日本-{c.value}\";}} // 終端\r\n";
+    let source = "\u{feff}import rinzu.list;\n// 日本語\r\ntype Pair={x:Int,y:Int};class Box<T>{const value:T}class Counter{const tag:String,value:Int fn read(self:Counter)->Int{return self.value;}}native{record Input{value:CInt}}async fn main(){let bytes=b\"\\x00\\xff\";let raw=r##\"日本\r\n\t\\u{0}\0\"##;var base:Int=40;let p:Pair={y=2,x=1};let c=Counter(tag:\"日本\",value:0);let add=fn(a:Int)->Int{return base+a;};let later=async fn()->Int{return add(p.x);};try all{let n=await later();c.value=n;}catch errors{let count=rinzu.list.length(errors);}finally{let text=f\"日本-{c.value}\";}} // 終端\r\n";
     let path = fixture.file("日本 語.rinzu", source.as_bytes());
     let stdout = success(fixture.command().arg(&path).output().unwrap()).stdout;
     assert_eq!(std::fs::read(&path).unwrap(), source.as_bytes());

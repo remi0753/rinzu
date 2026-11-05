@@ -99,13 +99,13 @@ fn prelude() -> &'static Module {
         let mut module = crate::parse_source(source_file()).expect("valid collection prelude");
         fn identity(name: &str) -> Option<&'static str> {
             Some(match name {
-                "ListOverflow" => "rinzu.List::LengthOverflow",
-                "MapOverflow" => "rinzu.Map::LengthOverflow",
-                "DuplicateKey" => "rinzu.Map::DuplicateKey",
-                "map" => "rinzu.List::map",
-                "filter" => "rinzu.List::filter",
-                "fromList" => "rinzu.Map::fromList",
-                "fromEntries" => "rinzu.Map::fromEntries",
+                "ListOverflow" => "rinzu.list::LengthOverflow",
+                "MapOverflow" => "rinzu.map::LengthOverflow",
+                "DuplicateKey" => "rinzu.map::DuplicateKey",
+                "map" => "rinzu.list::map",
+                "filter" => "rinzu.list::filter",
+                "fromList" => "rinzu.map::fromList",
+                "fromEntries" => "rinzu.map::fromEntries",
                 "lengthList" => crate::DataOperation::ListLength.name(),
                 "reserveList" => crate::DataOperation::ListBufferReserve.name(),
                 "pushList" => crate::DataOperation::ListBufferAppend.name(),
@@ -155,8 +155,8 @@ pub(crate) fn prepare(module: &Module) -> Module {
             if let [root, module, symbol, ..] = path.as_slice()
                 && root == "rinzu"
                 && match module.as_str() {
-                    "List" => self.list && LIST_SYMBOLS.contains(&symbol.as_str()),
-                    "Map" => self.map && MAP_SYMBOLS.contains(&symbol.as_str()),
+                    "list" => self.list && LIST_SYMBOLS.contains(&symbol.as_str()),
+                    "map" => self.map && MAP_SYMBOLS.contains(&symbol.as_str()),
                     _ => false,
                 }
             {
@@ -164,7 +164,7 @@ pub(crate) fn prepare(module: &Module) -> Module {
                 path.splice(..3, [name]);
             }
             if let Some(name) = path.first()
-                && (name.starts_with("rinzu.List::") || name.starts_with("rinzu.Map::"))
+                && (name.starts_with("rinzu.list::") || name.starts_with("rinzu.map::"))
             {
                 self.referenced.insert(name.clone());
             }
@@ -192,8 +192,8 @@ pub(crate) fn prepare(module: &Module) -> Module {
     let mut module = module.clone();
     let imported = |name| module.imports.iter().any(|i| i.path == ["rinzu", name]);
     let mut linker = LinkImports {
-        list: imported("List"),
-        map: imported("Map"),
+        list: imported("list"),
+        map: imported("map"),
         referenced: HashSet::new(),
     };
     ast_walk::module(&mut module, &mut linker);
@@ -210,8 +210,8 @@ pub(crate) fn prepare(module: &Module) -> Module {
             used.insert(operation.length_overflow().unwrap().into());
         }
     }
-    if used.contains("rinzu.Map::fromList") || used.contains("rinzu.Map::fromEntries") {
-        used.insert("rinzu.Map::DuplicateKey".into());
+    if used.contains("rinzu.map::fromList") || used.contains("rinzu.map::fromEntries") {
+        used.insert("rinzu.map::DuplicateKey".into());
     }
     module.declarations.extend(
         prelude()

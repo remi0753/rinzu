@@ -139,23 +139,23 @@ fn main() {
 
 #[test]
 fn immutable_collection_operations_preserve_roots_and_snapshots() {
-    let source = r#"import rinzu.List;
-import rinzu.Map;
+    let source = r#"import rinzu.list;
+import rinzu.map;
 
 import rinzu.stdio;
 fn main() {
     let original=["日本語\u{0}tail"];
-    let changed=rinzu.List.append(original,"second");
+    let changed=rinzu.list.append(original,"second");
     var index=0;
-    while index<64 { let temporary=rinzu.List.append(changed,"collect"); index=index+1; }
-    switch rinzu.List.get(original,0) { case Option.Some(value): {rinzu.stdio.writeLine(value);} case Option.None:{} }
-    switch rinzu.List.set(changed,1,"updated") {case Option.Some(value):{rinzu.stdio.writeLine(value);} case Option.None:{} }
-    switch rinzu.List.remove(changed,0) {case Option.Some(value):{rinzu.stdio.writeLine(value);} case Option.None:{} }
+    while index<64 { let temporary=rinzu.list.append(changed,"collect"); index=index+1; }
+    switch rinzu.list.get(original,0) { case Option.Some(value): {rinzu.stdio.writeLine(value);} case Option.None:{} }
+    switch rinzu.list.set(changed,1,"updated") {case Option.Some(value):{rinzu.stdio.writeLine(value);} case Option.None:{} }
+    switch rinzu.list.remove(changed,0) {case Option.Some(value):{rinzu.stdio.writeLine(value);} case Option.None:{} }
     let table: Map<String,List<String>> = {"a":original,"b":changed};
-    let updated=rinzu.Map.remove(rinzu.Map.insert(table,"a",changed),"b");
-    rinzu.stdio.writeLine(rinzu.Map.keys(updated));
-    rinzu.stdio.writeLine(rinzu.Map.length(updated));
-    switch rinzu.Map.get(table,"a") {case Option.Some(value):{rinzu.stdio.writeLine(value==original);} case Option.None:{} }
+    let updated=rinzu.map.remove(rinzu.map.insert(table,"a",changed),"b");
+    rinzu.stdio.writeLine(rinzu.map.keys(updated));
+    rinzu.stdio.writeLine(rinzu.map.length(updated));
+    switch rinzu.map.get(table,"a") {case Option.Some(value):{rinzu.stdio.writeLine(value==original);} case Option.None:{} }
 }
 "#;
     let artifact =

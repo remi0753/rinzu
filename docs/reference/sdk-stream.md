@@ -2,7 +2,7 @@
 
 Generated from checked public exports and captured source comments.
 
-Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r79`.
+Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r80`.
 
 [Machine-readable API v4 snapshot](../../sdk/stream/build/package-api-v4.json).
 
