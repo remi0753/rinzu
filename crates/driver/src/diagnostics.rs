@@ -300,6 +300,7 @@ pub(crate) fn run_package(
     resources: Option<&rinzu_runtime::resource_report::Config>,
     output: PathBuf,
     options: &crate::input::Options,
+    program_arguments: &[std::ffi::OsString],
 ) -> Result<(), String> {
     crate::PROGRAM_EXIT_STATUS.with(|status| status.set(0));
     let mut cache = SourceCache::default();
@@ -451,7 +452,8 @@ pub(crate) fn run_package(
     save(&output, &report).map_err(|error| format!("save initial diagnostic report: {error}"))?;
     OBSERVATION.with(|slot| *slot.borrow_mut() = Some(Value::Null));
     let _capture = Capture;
-    let outcome = crate::run_checked_package(&manifest, &artifact, trace, resources);
+    let outcome =
+        crate::run_checked_package(&manifest, &artifact, trace, resources, program_arguments);
     report.phase = "finished".into();
     report.process_memory = Some(process_memory());
     report.outcome = OBSERVATION.with(|slot| {

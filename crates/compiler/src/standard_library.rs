@@ -7,13 +7,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use sha2::{Digest, Sha256};
 
 pub const TARGET: &str = "aarch64-apple-darwin";
-pub const REVISION: u32 = 6;
+pub const REVISION: u32 = 7;
 /// Shared by the embedded registry and its distribution fingerprint.
-pub const RUNTIME_CODEGEN_REVISION: u32 = 182;
-pub const SOURCE_PACKAGES: [&str; 9] = [
+pub const RUNTIME_CODEGEN_REVISION: u32 = 183;
+pub const SOURCE_PACKAGES: [&str; 10] = [
     "rinzu.option",
     "rinzu.io",
     "rinzu.process",
+    "rinzu.json",
     "rinzu.stream",
     "rinzu.testing",
     "rinzu.shutdown",
@@ -32,6 +33,14 @@ const BUILTIN_PACKAGES: [&str; 5] = [
 
 pub(crate) fn builtin(name: &str) -> bool {
     BUILTIN_PACKAGES.contains(&name)
+}
+
+pub(crate) fn intrinsic_source(name: &str) -> Option<&'static [u8]> {
+    match name {
+        "rinzu.process" => Some(include_bytes!("../../../sdk/process/src/process.rinzu")),
+        "rinzu.json" => Some(include_bytes!("../../../sdk/json/src/json.rinzu")),
+        _ => None,
+    }
 }
 
 pub fn registered(name: &str) -> bool {
@@ -84,6 +93,18 @@ pub fn resources() -> BTreeMap<&'static str, &'static [u8]> {
         repository_resource!("include/rinzu/native_fatal.h", "include/rinzu/native_fatal.h"),
         repository_resource!("include/rinzu/failure_transport.h", "include/rinzu/failure_transport.h"),
         repository_resource!("include/rinzu/foreign_queue.h", "include/rinzu/foreign_queue.h"),
+        repository_resource!("include/rinzu/json.h", "include/rinzu/json.h"),
+        repository_resource!("include/rinzu/json.c", "include/rinzu/json.c"),
+        repository_resource!("include/rinzu/vendor/ffc-LICENSE-MIT", "include/rinzu/vendor/ffc-LICENSE-MIT"),
+        repository_resource!("include/rinzu/vendor/ffc.h", "include/rinzu/vendor/ffc.h"),
+        repository_resource!("include/rinzu/vendor/ryu/LICENSE-Boost", "include/rinzu/vendor/ryu/LICENSE-Boost"),
+        repository_resource!("include/rinzu/vendor/ryu/common.h", "include/rinzu/vendor/ryu/common.h"),
+        repository_resource!("include/rinzu/vendor/ryu/d2s.c", "include/rinzu/vendor/ryu/d2s.c"),
+        repository_resource!("include/rinzu/vendor/ryu/d2s.h", "include/rinzu/vendor/ryu/d2s.h"),
+        repository_resource!("include/rinzu/vendor/ryu/d2s_full_table.h", "include/rinzu/vendor/ryu/d2s_full_table.h"),
+        repository_resource!("include/rinzu/vendor/ryu/d2s_intrinsics.h", "include/rinzu/vendor/ryu/d2s_intrinsics.h"),
+        repository_resource!("include/rinzu/vendor/ryu/digit_table.h", "include/rinzu/vendor/ryu/digit_table.h"),
+        repository_resource!("include/rinzu/vendor/ryu/ryu.h", "include/rinzu/vendor/ryu/ryu.h"),
         repository_resource!("include/rinzu/key.h", "include/rinzu/key.h"),
         repository_resource!("include/rinzu/managed_composite.h", "include/rinzu/managed_composite.h"),
         repository_resource!("include/rinzu/managed_data.h", "include/rinzu/managed_data.h"),
@@ -140,6 +161,9 @@ pub fn resources() -> BTreeMap<&'static str, &'static [u8]> {
         sdk_resource!("process", "src/process.rinzu"),
         sdk_resource!("process", "native/process.c"),
         sdk_resource!("process", "native/process.h"),
+        sdk_resource!("json", "rinzu.toml"),
+        sdk_resource!("json", "README.md"),
+        sdk_resource!("json", "src/json.rinzu"),
         ("packages/stream/rinzu.toml", b"[package]\nname=\"rinzu.stream\"\nlanguage=\"0.5\"\nkind=\"sdk\"\nentry=\"src/stream.rinzu\"\n".as_slice()),
         sdk_resource!("stream", "src/stream.rinzu"),
         sdk_resource!("testing", "rinzu.toml"),

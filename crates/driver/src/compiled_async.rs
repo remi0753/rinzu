@@ -6,7 +6,7 @@ use rinzu_codegen::{
 };
 use rinzu_compiler::{FrontendArtifact, Manifest, SourceNativeSignature};
 use std::collections::{BTreeMap, HashMap};
-use std::ffi::{CString, c_char};
+use std::ffi::{CString, OsString, c_char};
 
 pub struct CompiledAsyncRun {
     pub output: String,
@@ -116,6 +116,7 @@ pub(crate) fn runtime_source(
 fn checked<T>(value: std::io::Result<T>) -> Result<T, String> {
     rinzu_runtime::allocation::checked_io(value).map_err(|error| error.to_string())
 }
+#[cfg(test)]
 pub fn run(
     manifest: &Manifest,
     artifact: &FrontendArtifact,
@@ -126,46 +127,58 @@ pub fn run(
     run_configured(
         manifest,
         artifact,
-        cancel_after,
-        shutdown_after,
-        record_evidence,
-        None,
+        RunOptions {
+            cancel_after,
+            shutdown_after,
+            record_evidence,
+            ..Default::default()
+        },
     )
 }
+#[cfg(test)]
 pub fn run_with_resource_report(
     manifest: &Manifest,
     artifact: &FrontendArtifact,
     resource_config: Option<&rinzu_runtime::resource_report::Config>,
 ) -> Result<CompiledAsyncRun, String> {
-    run_configured(manifest, artifact, None, None, false, resource_config)
+    run_with_observation(manifest, artifact, resource_config, false, &[])
 }
 pub(crate) fn run_with_observation(
     manifest: &Manifest,
     artifact: &FrontendArtifact,
     resource_config: Option<&rinzu_runtime::resource_report::Config>,
     show_trace: bool,
+    arguments: &[OsString],
 ) -> Result<CompiledAsyncRun, String> {
-    run_configured(manifest, artifact, None, None, show_trace, resource_config)
+    run_configured(
+        manifest,
+        artifact,
+        RunOptions {
+            record_evidence: show_trace,
+            resource_config,
+            arguments,
+            ..Default::default()
+        },
+    )
 }
-fn run_configured(
-    manifest: &Manifest,
-    artifact: &FrontendArtifact,
+
+#[derive(Default)]
+struct RunOptions<'a> {
     cancel_after: Option<usize>,
     shutdown_after: Option<usize>,
     record_evidence: bool,
-    resource_config: Option<&rinzu_runtime::resource_report::Config>,
+    resource_config: Option<&'a rinzu_runtime::resource_report::Config>,
+    arguments: &'a [OsString],
+}
+
+fn run_configured(
+    manifest: &Manifest,
+    artifact: &FrontendArtifact,
+    options: RunOptions<'_>,
 ) -> Result<CompiledAsyncRun, String> {
     let _timing = rinzu_compiler::timing::span("jit.total");
     let built = crate::native_package::build_artifact(manifest, artifact)?;
-    let outcome = run_built(
-        manifest,
-        artifact,
-        &built,
-        cancel_after,
-        shutdown_after,
-        record_evidence,
-        resource_config,
-    );
+    let outcome = run_built(manifest, artifact, &built, options);
     let _ = std::fs::remove_dir_all(&built.directory);
     outcome
 }
@@ -173,10 +186,13 @@ fn run_built(
     manifest: &Manifest,
     artifact: &FrontendArtifact,
     built: &crate::native_package::BuiltNativePackages,
-    cancel_after: Option<usize>,
-    shutdown_after: Option<usize>,
-    record_evidence: bool,
-    resource_config: Option<&rinzu_runtime::resource_report::Config>,
+    RunOptions {
+        cancel_after,
+        shutdown_after,
+        record_evidence,
+        resource_config,
+        arguments,
+    }: RunOptions<'_>,
 ) -> Result<CompiledAsyncRun, String> {
     // The C startup transaction validates every saved descriptor, digest,
     // table and image before publishing any managed entry. Opening the source
@@ -450,6 +466,21 @@ fn run_built(
     ))?;
     let anchor = CString::new(anchor.to_str().ok_or("runtime anchor is not UTF-8")?)
         .map_err(|error| error.to_string())?;
+    let argc = arguments
+        .len()
+        .checked_add(1)
+        .and_then(|count| std::ffi::c_int::try_from(count).ok())
+        .ok_or("too many program arguments for the C runtime")?;
+    let strings = arguments
+        .iter()
+        .map(|argument| CString::new(argument.as_encoded_bytes()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "program argument contains a NUL byte")?;
+    let mut argv: Vec<_> = std::iter::once(&anchor)
+        .chain(&strings)
+        .map(|value| value.as_ptr().cast_mut())
+        .chain(std::iter::once(std::ptr::null_mut()))
+        .collect();
     let canonical_directory = checked(built.directory.canonicalize())?;
     let directory = CString::new(
         canonical_directory
@@ -469,7 +500,8 @@ fn run_built(
         usize,
         *const usize,
         usize,
-        *const c_char,
+        std::ffi::c_int,
+        *mut *mut c_char,
         *const c_char,
         u64,
         u64,
@@ -507,7 +539,8 @@ fn run_built(
             functions.len(),
             stubs.as_ptr(),
             stubs.len(),
-            anchor.as_ptr(),
+            argc,
+            argv.as_mut_ptr(),
             directory.as_ptr(),
             cancel_after.unwrap_or(0) as u64,
             shutdown_after.unwrap_or(0) as u64,

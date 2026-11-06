@@ -6,16 +6,16 @@ Use `rinzu help` for the complete command list and `rinzu --version` for the too
 | --- | --- |
 | `doctor` | Report the host target and execution support |
 | `check [file or directory]` | Validate source, packages, and supplied native inputs |
-| `run [file or directory]` | Execute with JIT |
+| `run [file or directory] [-- args...]` | Execute with JIT |
 | `build [file or directory] --output path` | Produce AOT output |
-| `verify-aot [file or directory]` | Compare supported JIT/AOT behavior and captured output |
+| `verify-aot [file or directory] [-- args...]` | Compare JIT/AOT behavior and captured output |
 | `fmt paths... --check` / `--write` | Check or apply source formatting |
 | `test [package]` | Execute the package's main |
 | `test [package] --unit` | Discover and run test functions |
 | `test [package] --doc file.md` | Run explicit documentation examples |
 | `lock [package]` / `lock [package] --check` | Create/update or check a package lock |
 | `api [sdk] --output file.json --markdown file.md` | Export a checked public API |
-| `dev [package]` | Recheck and restart an application after edits |
+| `dev [package] [-- args...]` | Recheck and restart an application after edits |
 | `bundle [package] --output app.app` | Build a macOS application bundle |
 | `bundle-verify app.app` | Verify a generated bundle |
 | `toolchain-bundle --output new-directory` | Export the toolchain and bundled resources |
@@ -26,7 +26,20 @@ The `release`, `verify-appkit`, `verify-async`, `run-empty`, and `native-quality
 
 ## Shared inputs
 
-File inputs to check/run/build/verify-aot accept `--language 0.5` and the host `--target`. Explicit files do not inherit a nearby manifest. Additional program arguments and cross-compilation are unavailable.
+File inputs to check/run/build/verify-aot accept `--language 0.5` and the host `--target`. Explicit files do not inherit a nearby manifest.
+
+## Program arguments
+
+Put driver options and the source path before `--` with `run`, `verify-aot`, or `dev`. Each value after the separator reaches `rinzu.process.arguments()` in order, including empty values and additional `--` tokens. A directly launched AOT executable passes every argument after its executable name, including a leading `--`. `dev` reuses the arguments on every restart. Test entries receive an empty list.
+
+```sh
+rinzu run ./report -- '取引 11月.json'
+rinzu verify-aot ./report -- '取引 11月.json'
+rinzu build ./report --output ./report-aot
+./report-aot '取引 11月.json'
+```
+
+Relative file arguments are resolved by the application against its working directory. See [process](../libraries/overview.md#process) and [JSON](../libraries/json.md).
 
 Native input options are `-L path`, `-l name`, `--native-object path`, and optional `--native-header path`. Repeat the same inputs for checking, locks, execution, and builds. See [Native interoperability](../language/native-interop.md).
 

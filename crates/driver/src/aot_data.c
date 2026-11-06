@@ -690,15 +690,22 @@ static inline __attribute__((always_inline)) int64_t rinzu_aot_data_operation_ow
     int64_t count, unsigned owner_proven) {
   RinzuContext *context = raw;
   rinzu_managed_data_t *data = rinzu_context_data(context);
-  if (count < 1 || count > 3 || !types || !bits || result_type < 0 ||
-      (uint64_t)result_type >= data->schema->count)
+  if (result_type < 0 || (uint64_t)result_type >= data->schema->count)
+    rinzu_failure_fatal();
+  if (!owner_proven)
+    rinzu_managed_owner(data);
+  if (operation == RINZU_DATA_PROCESS_ARGUMENTS && count == 0)
+    return rinzu_aot_program_arguments(context, data, (size_t)result_type);
+#ifdef RINZU_AOT_HAS_JSON
+  if (operation == RINZU_DATA_JSON_NULL && count == 0)
+    return rinzu_aot_json_operation(context, data, operation, (size_t)result_type, NULL, NULL, NULL);
+#endif
+  if (count < 1 || count > 3 || !types || !bits)
     rinzu_failure_fatal();
   size_t input = (size_t)types[0], result = (size_t)result_type;
   if (input >= data->schema->count)
     rinzu_failure_fatal();
   const rinzu_value_type_t *layout = &data->schema->types[input];
-  if (!owner_proven)
-    rinzu_managed_owner(data);
   rinzu_managed_value_t *resolved[3] = {0};
   for (size_t index = 0; index < (size_t)count; index++) {
     if (types[index] >= data->schema->count)
@@ -709,6 +716,10 @@ static inline __attribute__((always_inline)) int64_t rinzu_aot_data_operation_ow
             &resolved[index]))
       rinzu_failure_fatal();
   }
+#ifdef RINZU_AOT_HAS_JSON
+  if (operation >= RINZU_DATA_JSON_PARSE && operation <= RINZU_DATA_JSON_FLOAT_VALUE)
+    return rinzu_aot_json_operation(context, data, operation, result, types, bits, resolved);
+#endif
   if (operation == RINZU_DATA_PANIC) {
     rinzu_managed_value_t *message = resolved[0];
     if (count != 1 || !message || message->kind != RINZU_MANAGED_STRING ||

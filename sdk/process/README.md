@@ -1,6 +1,8 @@
 # rinzu.process
 
-Bundled process settings and status APIs. Import directly without a path dependency.
+Bundled process arguments, settings and status APIs. Import directly without a path dependency.
+
+`arguments()` returns an immutable `List<String>` in Main. The list starts with the first value after the executable name. Invalid UTF-8 raises `InvalidArgumentEncoding` with the zero-based argument index and byte offset. See [CLI commands](../../docs/tooling/cli.md#program-arguments).
 
 environment(name) returns Option<String> with a UTF-8 snapshot. setting(name,defaultValue) supplies a default only for absence; integer(name,defaultValue,minimum,maximum) parses and bounds an integer. Invalid names, oversized data, malformed UTF-8, parse failures, and invalid ranges throw Error.
 

@@ -14,6 +14,7 @@ const TAG_NULL: u64 = 0;
 const TAG_INTEGER: u64 = 1;
 const TAG_REFERENCE: u64 = 2;
 const FLAG_NATIVE_FINALIZER: u64 = 1;
+const PACKED_INTEGERS: u64 = 1 << 50;
 const GENERATION_YOUNG: u64 = 0;
 const GENERATION_OLD: u64 = 1;
 
@@ -67,6 +68,9 @@ impl Iterator for HeapFields<'_> {
     type Item = HeapValue;
     fn next(&mut self) -> Option<Self::Item> {
         let words = self.words.next()?;
+        if let [word] = words {
+            return Some(HeapValue::Integer(*word as i64));
+        }
         Some(match words[0] {
             TAG_NULL => HeapValue::Null,
             TAG_INTEGER => HeapValue::Integer(words[1] as i64),
@@ -92,6 +96,9 @@ impl std::iter::FusedIterator for HeapFields<'_> {}
 impl DoubleEndedIterator for HeapFields<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
         let words = self.words.next_back()?;
+        if let [word] = words {
+            return Some(HeapValue::Integer(*word as i64));
+        }
         Some(match words[0] {
             TAG_NULL => HeapValue::Null,
             TAG_INTEGER => HeapValue::Integer(words[1] as i64),
@@ -125,6 +132,7 @@ pub struct ObjectHeader {
     pub age: u16,
     pub is_old: bool,
     pub finalizer: FinalizerPolicy,
+    packed: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -357,7 +365,8 @@ impl DomainHeap {
                 self.validate_reference(*reference)?;
             }
         }
-        let (reference, size_bytes) = self.begin_allocation(type_id, fields.len(), finalizer)?;
+        let (reference, size_bytes) =
+            self.begin_allocation(type_id, fields.len(), finalizer, false)?;
         for field in fields {
             let (tag, payload) = Self::encode_value(*field);
             self.words.push(tag);
@@ -375,7 +384,8 @@ impl DomainHeap {
         count: usize,
     ) -> Result<HeapRef, HeapError> {
         self.require_owner()?;
-        let (reference, size) = self.begin_allocation(type_id, count, FinalizerPolicy::None)?;
+        let (reference, size) =
+            self.begin_allocation(type_id, count, FinalizerPolicy::None, false)?;
         self.words
             .resize(reference.offset_words + size as usize / size_of::<u64>(), 0);
         self.finish_allocation(reference, size);
@@ -395,13 +405,15 @@ impl DomainHeap {
         let end = start
             .checked_add(count)
             .ok_or(HeapError::AddressSpaceExhausted)?;
-        if end > self.header(source)?.field_count as usize {
+        let source_header = self.header(source)?;
+        if source_header.packed || end > source_header.field_count as usize {
             return Err(HeapError::InvalidObject(source));
         }
         let target_end = offset
             .checked_add(count)
             .ok_or(HeapError::AddressSpaceExhausted)?;
-        if target_end > self.header(target)?.field_count as usize {
+        let target_header = self.header(target)?;
+        if target_header.packed || target_end > target_header.field_count as usize {
             return Err(HeapError::InvalidObject(target));
         }
         let source_start = source.offset_words + HEADER_WORDS;
@@ -426,9 +438,8 @@ impl DomainHeap {
     ) -> Result<HeapRef, HeapError> {
         self.require_owner()?;
         let (reference, size_bytes) =
-            self.begin_allocation(type_id, fields.len(), FinalizerPolicy::None)?;
+            self.begin_allocation(type_id, fields.len(), FinalizerPolicy::None, true)?;
         for value in fields {
-            self.words.push(TAG_INTEGER);
             self.words.push(value as u64);
         }
         // ExactSizeIterator is a safe trait. Never publish malformed heap
@@ -447,9 +458,10 @@ impl DomainHeap {
         type_id: u32,
         count: usize,
         finalizer: FinalizerPolicy,
+        packed: bool,
     ) -> Result<(HeapRef, u32), HeapError> {
         let field_words = count
-            .checked_mul(FIELD_WORDS)
+            .checked_mul(if packed { 1 } else { FIELD_WORDS })
             .ok_or(HeapError::AddressSpaceExhausted)?;
         let object_words = HEADER_WORDS
             .checked_add(field_words)
@@ -469,12 +481,10 @@ impl DomainHeap {
         self.words
             .push((u64::from(type_id) << 32) | u64::from(size_bytes));
         self.words.push(object_id);
-        self.words.push(Self::encode_metadata(
-            field_count,
-            0,
-            GENERATION_YOUNG,
-            finalizer,
-        ));
+        self.words.push(
+            Self::encode_metadata(field_count, 0, GENERATION_YOUNG, finalizer)
+                | if packed { PACKED_INTEGERS } else { 0 },
+        );
         Ok((
             HeapRef {
                 epoch: self.epoch,
@@ -653,9 +663,54 @@ impl DomainHeap {
     }
 
     pub fn fields(&self, reference: HeapRef) -> Result<Vec<HeapValue>, HeapError> {
-        self.require_owner()?;
-        self.validate_reference(reference)?;
-        Self::decode_fields(&self.words, reference, self.epoch)
+        Ok(self.fields_iter(reference)?.collect())
+    }
+
+    pub(crate) fn packed_words(&self, reference: HeapRef) -> Result<&[u64], HeapError> {
+        let header = self.header(reference)?;
+        if !header.packed {
+            return Err(HeapError::InvalidObject(reference));
+        }
+        let start = reference.offset_words + HEADER_WORDS;
+        self.words
+            .get(start..start + header.field_count as usize)
+            .ok_or(HeapError::InvalidObject(reference))
+    }
+
+    /// Clone only the requested payload range. Reserve before borrowing
+    /// either address, since reservation may move the entire semispace.
+    pub(crate) fn copy_packed_bytes(
+        &mut self,
+        type_id: u32,
+        source: HeapRef,
+        range: std::ops::Range<usize>,
+    ) -> Result<HeapRef, HeapError> {
+        let words = self.packed_words(source)?;
+        let length = usize::try_from(*words.first().ok_or(HeapError::InvalidObject(source))?)
+            .map_err(|_| HeapError::InvalidObject(source))?;
+        if range.end > length || range.start > range.end || words.len() != 1 + length.div_ceil(8) {
+            return Err(HeapError::InvalidObject(source));
+        }
+        let n = range.len();
+        let (target, size) =
+            self.begin_allocation(type_id, 1 + n.div_ceil(8), FinalizerPolicy::None, true)?;
+        self.words.push(n as u64);
+        self.words
+            .resize(target.offset_words + size as usize / 8, 0);
+        let from = source.offset_words + HEADER_WORDS + 1;
+        let to = target.offset_words + HEADER_WORDS + 1;
+        let base = self.words.as_mut_ptr();
+        // SAFETY: checked range lies in source's packed payload. The new
+        // object's payload is initialized, disjoint, and sized for n bytes.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                base.add(from).cast::<u8>().add(range.start),
+                base.add(to).cast::<u8>(),
+                n,
+            );
+        }
+        self.finish_allocation(target, size);
+        Ok(target)
     }
 
     pub(crate) fn fields_iter(&self, reference: HeapRef) -> Result<HeapFields<'_>, HeapError> {
@@ -681,8 +736,9 @@ impl DomainHeap {
             .offset_words
             .checked_add(HEADER_WORDS)
             .ok_or(HeapError::AddressSpaceExhausted)?;
+        let stride = if header.packed { 1 } else { FIELD_WORDS };
         let count = (header.field_count as usize)
-            .checked_mul(FIELD_WORDS)
+            .checked_mul(stride)
             .ok_or(HeapError::AddressSpaceExhausted)?;
         let end = start
             .checked_add(count)
@@ -693,7 +749,11 @@ impl DomainHeap {
             .ok_or(HeapError::InvalidObject(reference))?;
         // Keep decode_fields' full validation before callers inspect metadata.
         // A malformed later tag must not be hidden by an early length error.
-        for field in words.chunks_exact(FIELD_WORDS) {
+        for field in
+            words
+                .chunks_exact(FIELD_WORDS)
+                .take(if header.packed { 0 } else { usize::MAX })
+        {
             match field[0] {
                 TAG_NULL | TAG_INTEGER => {}
                 TAG_REFERENCE => {
@@ -703,7 +763,7 @@ impl DomainHeap {
             }
         }
         Ok(HeapFields {
-            words: words.chunks_exact(FIELD_WORDS),
+            words: words.chunks_exact(stride),
             epoch: self.epoch,
             _owner: std::marker::PhantomData,
         })
@@ -719,7 +779,7 @@ impl DomainHeap {
         value: HeapValue,
     ) -> Result<(), HeapError> {
         let header = self.header(reference)?;
-        if index >= header.field_count as usize {
+        if header.packed || index >= header.field_count as usize {
             return Err(HeapError::InvalidObject(reference));
         }
         if let HeapValue::Reference(child) = value {
@@ -747,6 +807,17 @@ impl DomainHeap {
         if end > header.field_count as usize {
             return Err(HeapError::InvalidObject(reference));
         }
+        if header.packed {
+            let base = reference.offset_words + HEADER_WORDS;
+            let fields = self
+                .words
+                .get_mut(base + start..base + end)
+                .ok_or(HeapError::InvalidObject(reference))?;
+            for (field, value) in fields.iter_mut().zip(values) {
+                *field = value;
+            }
+            return Ok(());
+        }
         let begin_words = reference.offset_words + HEADER_WORDS + start * FIELD_WORDS;
         let end_words = reference.offset_words + HEADER_WORDS + end * FIELD_WORDS;
         let fields = self
@@ -772,6 +843,9 @@ impl DomainHeap {
         if index >= header.field_count as usize {
             return Err(HeapError::InvalidObject(reference));
         }
+        if header.packed {
+            return Ok(self.words[reference.offset_words + HEADER_WORDS + index] as i64);
+        }
         let offset = reference.offset_words + HEADER_WORDS + index * FIELD_WORDS;
         if self.words[offset] != TAG_INTEGER {
             return Err(HeapError::InvalidObject(reference));
@@ -789,6 +863,11 @@ impl DomainHeap {
         let header = self.header(reference)?;
         if index >= header.field_count as usize {
             return Err(HeapError::InvalidObject(reference));
+        }
+        if header.packed {
+            return Ok(HeapValue::Integer(
+                self.words[reference.offset_words + HEADER_WORDS + index] as i64,
+            ));
         }
         let offset = reference.offset_words + HEADER_WORDS + index * FIELD_WORDS;
         Ok(match self.words[offset] {
@@ -811,6 +890,9 @@ impl DomainHeap {
         index: usize,
         value: i64,
     ) -> Result<(), HeapError> {
+        if self.header(reference)?.packed {
+            return Err(HeapError::InvalidObject(reference));
+        }
         self.integer_field(reference, index)?;
         let offset = reference.offset_words + HEADER_WORDS + index * FIELD_WORDS + 1;
         self.words[offset] = value as u64;
@@ -848,11 +930,13 @@ impl DomainHeap {
             if !reachable.insert(reference.offset_words) {
                 continue;
             }
-            let fields = self.fields_iter(reference)?;
-            live_words = live_words.saturating_add(HEADER_WORDS + fields.len() * FIELD_WORDS);
-            for field in fields {
-                if let HeapValue::Reference(reference) = field {
-                    stack.push(reference);
+            let header = self.header(reference)?;
+            live_words = live_words.saturating_add(header.size_bytes as usize / size_of::<u64>());
+            if !header.packed {
+                for field in self.fields_from_header(reference, header)? {
+                    if let HeapValue::Reference(reference) = field {
+                        stack.push(reference);
+                    }
                 }
             }
         }
@@ -895,7 +979,7 @@ impl DomainHeap {
                         GENERATION_YOUNG
                     },
                     header.finalizer,
-                );
+                ) | if header.packed { PACKED_INTEGERS } else { 0 };
                 new_offsets.push(new_offset);
                 forwarding.insert(*offset, new_offset);
             } else if header.finalizer == FinalizerPolicy::NativeOnly {
@@ -908,6 +992,9 @@ impl DomainHeap {
 
         for offset in &new_offsets {
             let header = self.decode_header(&new_words, *offset)?;
+            if header.packed {
+                continue;
+            }
             for index in 0..usize::try_from(header.field_count).expect("u32 fits usize") {
                 let tag_index = *offset + HEADER_WORDS + index * FIELD_WORDS;
                 if new_words[tag_index] == TAG_REFERENCE {
@@ -1082,40 +1169,8 @@ impl DomainHeap {
             age,
             is_old,
             finalizer,
+            packed: metadata & PACKED_INTEGERS != 0,
         })
-    }
-
-    fn decode_fields(
-        words: &[u64],
-        reference: HeapRef,
-        epoch: u64,
-    ) -> Result<Vec<HeapValue>, HeapError> {
-        let metadata = *words
-            .get(reference.offset_words + 2)
-            .ok_or(HeapError::InvalidObject(reference))?;
-        let field_count = usize::try_from(metadata as u32).expect("u32 fits usize");
-        let mut fields = Vec::with_capacity(field_count);
-        for index in 0..field_count {
-            let tag_index = reference.offset_words + HEADER_WORDS + index * FIELD_WORDS;
-            let tag = *words
-                .get(tag_index)
-                .ok_or(HeapError::InvalidObject(reference))?;
-            let payload = *words
-                .get(tag_index + 1)
-                .ok_or(HeapError::InvalidObject(reference))?;
-            let value = match tag {
-                TAG_NULL => HeapValue::Null,
-                TAG_INTEGER => HeapValue::Integer(payload as i64),
-                TAG_REFERENCE => HeapValue::Reference(HeapRef {
-                    epoch,
-                    offset_words: usize::try_from(payload)
-                        .map_err(|_| HeapError::AddressSpaceExhausted)?,
-                }),
-                _ => return Err(HeapError::InvalidObject(reference)),
-            };
-            fields.push(value);
-        }
-        Ok(fields)
     }
 
     fn encode_metadata(

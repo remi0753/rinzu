@@ -13,6 +13,8 @@ use std::sync::Arc;
 pub(crate) struct DataSchema {
     pub value: Arc<ValueSchema>,
     pub display: Arc<DisplaySchema>,
+    #[cfg(unix)]
+    pub json: Option<Arc<rinzu_runtime::json::Schema>>,
     types: Vec<Type>,
     indices: HashMap<Type, usize>,
 }
@@ -300,6 +302,8 @@ impl DataSchema {
                 .collect(),
         ));
         Ok(Self {
+            #[cfg(unix)]
+            json: crate::json_schema::build(module, &types, &value).map(Arc::new),
             value,
             display,
             types,
@@ -398,6 +402,10 @@ impl DataSchema {
 
     pub fn c_source(&self) -> String {
         let mut source = String::new();
+        #[cfg(unix)]
+        if let Some(schema) = &self.json {
+            crate::json_schema::emit_c(&mut source, schema);
+        }
         for op in rinzu_compiler::DataOperation::ALL {
             source.push_str(&format!("enum {{ {} = {} }};\n", op.c_name(), op as u32));
         }

@@ -34,7 +34,7 @@ impl flow::Analyzer<'_> {
             {
                 return Language::new();
             }
-            return data_errors(*operation);
+            return data_errors(self.checked, *operation);
         }
         if self.checked.stdout_calls.contains_key(&expression.range) {
             return language::one(Tag::Any);
@@ -106,7 +106,7 @@ fn native_errors(signature: &crate::SourceNativeSignature) -> Language {
     }
 }
 
-fn data_errors(operation: crate::DataOperation) -> Language {
+fn data_errors(checked: &CheckedModule, operation: crate::DataOperation) -> Language {
     use crate::DataOperation::*;
     // Exhaustive on purpose: adding an intrinsic requires reviewing its Error
     // contract here. Invalid collection indices return Option; overflow in ordinary
@@ -126,6 +126,25 @@ fn data_errors(operation: crate::DataOperation) -> Language {
         | ErrorSourceFile | ErrorSourceStart | ErrorSourceEnd | ErrorNativeStatus
         | StringLength | StringGet | StringSlice | StringFind | StringSplit | FormatInt
         | Utf8Encode | BitAnd | BitOr | BitXor | BitNot | WrappingAdd | WrappingSub
-        | WrappingMul | MathAbs | MathSqrt | FloatIsNan | Panic => Language::new(),
+        | WrappingMul | MathAbs | MathSqrt | FloatIsNan | Panic | ProcessArguments => {
+            Language::new()
+        }
+        JsonParse | JsonParseWithLimits | JsonDecode | JsonDecodeWithLimits | JsonKind
+        | JsonField | JsonAt | JsonArrayLength | JsonObjectLength | JsonEntryAt | JsonBool
+        | JsonString | JsonNumberText | JsonInt | JsonFloat | JsonIntField | JsonFloatField
+        | JsonNull | JsonConstruct | JsonNumber | JsonFloatValue | JsonEncode
+        | JsonEncodeWithLimits => {
+            let mut result = Language::new();
+            for name in crate::json::errors(operation) {
+                let qualified = format!("rinzu.json::{name}");
+                let identity = if checked.source_types.contains_key(&qualified) {
+                    qualified
+                } else {
+                    (*name).into()
+                };
+                result.extend(language::one(Tag::Named(identity)));
+            }
+            result
+        }
     }
 }

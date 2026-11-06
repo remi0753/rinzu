@@ -1,0 +1,120 @@
+import rinzu.io;
+import rinzu.json;
+import rinzu.list;
+import rinzu.process;
+import rinzu.stdio;
+
+error InputTooLarge {}
+
+error MissingAmount {
+    payload: { row: Int }
+}
+
+async fn readFile(path: String) -> ByteArray {
+    let file = await rinzu.io.openRead(path);
+    try {
+        let limits = rinzu.json.defaultParseLimits;
+        var chunks: List<ByteArray> = [];
+        var length = 0;
+        var eof = false;
+        while !eof {
+            let part = await rinzu.io.read(file, 65536);
+            let count = bytesLength(part.data);
+            if count > limits.maxInputBytes - length {
+                throw InputTooLarge(message: "JSON input exceeds the byte limit");
+            }
+            length = length + count;
+            chunks = rinzu.list.append(chunks, part.data);
+            eof = part.eof;
+        }
+        return bytesConcatAll(chunks);
+    }
+    finally {
+        let closed = await rinzu.io.close(file);
+    }
+}
+
+fn sumAmounts(root: rinzu.json.Value) -> { count: Int, total: Int } {
+    let count = rinzu.json.arrayLength(root);
+    var total = 0;
+    var row = 0;
+    while row < count {
+        switch rinzu.json.at(root, row) {
+            case Option.Some(transaction): {
+                switch rinzu.json.intField(transaction, "amount") {
+                    case Option.Some(amount): {
+                        total = checkedAdd(total, amount);
+                    }
+                    case Option.None: {
+                        throw MissingAmount(message: "missing amount", payload: { row = row });
+                    }
+                }
+            }
+            case Option.None: {
+                panic("array length changed");
+            }
+        }
+        row = row + 1;
+    }
+    return { count = count, total = total };
+}
+
+fn diagnostic(message: String, status: Int) nothrow {
+    let accepted = rinzu.process.setExitStatus(status);
+    try {
+        let written = rinzu.process.writeErrorLine(message);
+    }
+    catch problems {
+        panic("cannot write diagnostic");
+    }
+}
+
+async fn main() {
+    let liveFiles = rinzu.io.liveFiles();
+    try {
+        let paths = rinzu.process.arguments();
+        if rinzu.list.length(paths) != 1 {
+            diagnostic("usage: report FILE", 2);
+            return;
+        }
+        switch rinzu.list.get(paths, 0) {
+            case Option.Some(path): {
+                let input = await readFile(path);
+                let result = sumAmounts(rinzu.json.parse(input));
+                rinzu.stdio.writeLine(f"件数={result.count} 合計={result.total}");
+            }
+            case Option.None: {
+                panic("argument length changed");
+            }
+        }
+    }
+    catch [problem: rinzu.process.InvalidArgumentEncoding, ...rest] {
+        diagnostic(f"invalid argument UTF-8 at {problem.payload.index}/{problem.payload.byteOffset}", 1);
+    }
+    catch [problem: rinzu.json.DecodeFailed, ...rest] {
+        diagnostic(f"invalid JSON at byte {problem.payload.byteOffset}", 1);
+    }
+    catch [problem: rinzu.json.TypeMismatch, ...rest] {
+        diagnostic("invalid transaction schema", 1);
+    }
+    catch [problem: rinzu.json.NumberError, ...rest] {
+        diagnostic("invalid transaction amount", 1);
+    }
+    catch [problem: MissingAmount, ...rest] {
+        diagnostic(f"missing amount in row {problem.payload.row}", 1);
+    }
+    catch [problem: InputTooLarge, ...rest] {
+        diagnostic(problem.message, 1);
+    }
+    catch [problem: rinzu.json.LimitExceeded, ...rest] {
+        diagnostic(problem.message, 1);
+    }
+    catch problems {
+        diagnostic("cannot read or report transactions", 1);
+    }
+    finally {
+        if rinzu.io.liveFiles() != liveFiles {
+            panic("file was not closed");
+        }
+    }
+}

@@ -12,6 +12,7 @@ These pages describe public source declarations. Standard packages can be import
 | `rinzu.log` | [API](sdk-log.md) |
 | `rinzu.macos` | [API](sdk-macos.md) |
 | `rinzu.process` | [API](sdk-process.md) |
+| `rinzu.json` | [API](../libraries/json.md) |
 | `rinzu.sdl2` | [API](sdk-sdl2.md) |
 | `rinzu.shim` | [API](sdk-shim-example.md) |
 | `rinzu.shutdown` | [API](sdk-shutdown.md) |

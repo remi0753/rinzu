@@ -36,6 +36,7 @@ Start with the introduction and follow the language chapters in order. A `rinzu-
 - [SDK API references](reference/libraries.md)
 - [Files, standard streams, and pull streams](libraries/io.md)
 - [HTTP and TCP](libraries/networking.md)
+- [JSON parsing and encoding](libraries/json.md)
 - [Additional SDKs: SQLite, codecs, logging, and SDL](libraries/sdk.md)
 - [macOS applications and GUI](libraries/macos.md)
 

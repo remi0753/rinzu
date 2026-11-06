@@ -125,7 +125,8 @@ pub(crate) fn check_file_with_sources(
     let sdk_packages = resolve_standard_imports(&loader.modules, "0.5", None, loader.sources)?;
     extend_standard_symbols(&mut external, &sdk_packages);
     let source_inputs = loader.source_inputs;
-    let (mut syntax, mut module_graph) = link_modules("entry", loader.modules, "", &external)?;
+    let (mut syntax, mut module_graph) =
+        link_modules("entry", loader.modules, "", &external, None)?;
     let own_syntax = syntax.clone();
     let own_graph = module_graph.clone();
     let mut options = CompilerOptions::default();
@@ -542,8 +543,24 @@ fn check_request(
     extend_standard_symbols(&mut external_symbols, &standard_packages);
     merge_packages(&mut sdk_packages, standard_packages)?;
     let source_inputs = loader.source_inputs;
-    let (mut syntax, mut module_graph) =
-        link_modules(&link_entry, loader.modules, namespace, &external_symbols)?;
+    let intrinsic_package = crate::standard_library::intrinsic_source(&manifest.name)
+        .filter(|source| {
+            manifest.kind == PackageKind::Sdk
+                && loader
+                    .modules
+                    .iter()
+                    .find(|module| module.name == entry_module)
+                    .and_then(|module| source_inputs.get(&module.source_path))
+                    .is_some_and(|bytes| bytes.as_slice() == *source)
+        })
+        .map(|_| manifest.name.as_str());
+    let (mut syntax, mut module_graph) = link_modules(
+        &link_entry,
+        loader.modules,
+        namespace,
+        &external_symbols,
+        intrinsic_package,
+    )?;
     // Test main is generated in memory. Keep its diagnostic label in
     // source_files, but do not require a physical `<test entry>` input receipt.
     if tests.is_some() {
@@ -2133,9 +2150,10 @@ fn link_modules(
     modules: Vec<ParsedModule>,
     namespace: &str,
     external: &HashMap<String, HashMap<String, String>>,
+    package: Option<&str>,
 ) -> Result<(Module, Vec<ResolvedSourceModule>), Vec<Diagnostic>> {
     let graph = resolved_graph(&modules, entry, namespace, &HashMap::new());
-    link_modules_inner(entry, modules, namespace, external)
+    link_modules_inner(entry, modules, namespace, external, package)
         .map_err(|errors| import_context(errors, &graph))
 }
 
@@ -2144,6 +2162,7 @@ fn link_modules_inner(
     modules: Vec<ParsedModule>,
     namespace: &str,
     external: &HashMap<String, HashMap<String, String>>,
+    package: Option<&str>,
 ) -> Result<(Module, Vec<ResolvedSourceModule>), Vec<Diagnostic>> {
     let mut names: HashMap<_, _> = modules
         .iter()
@@ -2198,6 +2217,7 @@ fn link_modules_inner(
             names: &names,
             aliases: &aliases,
             namespace,
+            package: None,
         };
         for (owner, members) in crate::methods::public_methods(&module.syntax) {
             methods
@@ -2250,6 +2270,7 @@ fn link_modules_inner(
                 names: &names,
                 aliases: &aliases,
                 namespace,
+                package: None,
             };
             let mut path = export.path.clone();
             context.rewrite_symbol_path(&mut path);
@@ -2353,6 +2374,7 @@ fn link_modules_inner(
             names: &names,
             aliases: &aliases,
             namespace,
+            package: package.filter(|_| module.name == entry),
         };
         for mut block in module.syntax.native_blocks {
             for member in &mut block.members {
@@ -2453,6 +2475,7 @@ struct RewriteContext<'a> {
     names: &'a HashMap<String, HashSet<String>>,
     aliases: &'a HashMap<(String, String), String>,
     namespace: &'a str,
+    package: Option<&'a str>,
 }
 
 impl RewriteContext<'_> {
@@ -2538,6 +2561,13 @@ impl RewriteContext<'_> {
             *path = rewritten;
         } else if path.len() == 1 && crate::core::FUNCTIONS.contains(&path[0].as_str()) {
             path[0] = format!("rinzu.core::{}", path[0]);
+        } else if self.package == Some("rinzu.process") && path.as_slice() == ["argumentSnapshot"] {
+            path[0] = crate::DataOperation::ProcessArguments.name().into();
+        } else if self.package == Some("rinzu.json")
+            && path.len() == 1
+            && let Some(name) = crate::json::private_operation(&path[0])
+        {
+            path[0] = name.into();
         }
     }
 }

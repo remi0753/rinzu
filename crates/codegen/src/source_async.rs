@@ -78,6 +78,7 @@ pub enum NativeAsyncOperation {
 
 #[derive(Debug)]
 pub struct SourceAsyncOptions {
+    pub arguments: Vec<Vec<u8>>,
     pub capture_stdout: bool,
     pub capture_error_trace: bool,
     /// Conformance mode: force moving GC at every typed root publication.
@@ -103,6 +104,7 @@ pub struct SourceAsyncOptions {
 impl Default for SourceAsyncOptions {
     fn default() -> Self {
         Self {
+            arguments: Vec::new(),
             capture_stdout: false,
             capture_error_trace: false,
             gc_stress: false,
@@ -2069,7 +2071,11 @@ impl SourceTask {
                 .extend(errors);
             return Ok(Step::value(value));
         }
-        if let Some(value) = self.frame.data_operation(operation)? {
+        if let Some(value) = self.frame.data_operation(operation, || {
+            self.cancellation
+                .poll(self.frame.failure.in_cleanup(), false)
+                .then(|| self.cancellation.cause())
+        })? {
             return Ok(Step::value(value));
         }
         let value = match &operation.kind {
@@ -3690,7 +3696,7 @@ fn run_source_async_admitted(
 fn run_source_async_report_admitted(
     module: &IrModule,
     entry: &str,
-    options: SourceAsyncOptions,
+    mut options: SourceAsyncOptions,
     admission: SpawnAdmissionController,
 ) -> Result<SourceAsyncRun> {
     crate::ensure_source_async_backend(module)?;
@@ -3701,6 +3707,9 @@ fn run_source_async_report_admitted(
     let module = Arc::new(module.clone());
     let entry_index = function_index(&module, entry)?;
     let owner_values = OwnerValues::new(&module)?;
+    owner_values
+        .borrow_mut()
+        .set_program_arguments(std::mem::take(&mut options.arguments));
     if options.gc_stress {
         owner_values.borrow_mut().enable_gc_stress();
     }
@@ -4340,7 +4349,14 @@ fn evaluate_sync_context(
                     }
                     return Ok(value);
                 }
-                if let Some(value) = frame.data_operation(operation)? {
+                if let Some(value) = frame.data_operation(operation, || {
+                    let external = worker.is_some_and(|owner| {
+                        owner.domain.is_some_and(WorkerDomain::is_cancel_requested)
+                    });
+                    cancellation
+                        .poll(frame.failure.in_cleanup(), external)
+                        .then(|| cancellation.cause())
+                })? {
                     return Ok(value);
                 }
                 let value = match &operation.kind {

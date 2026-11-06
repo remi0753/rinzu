@@ -42,6 +42,18 @@ pub(crate) fn write_sources(directory: &Path) -> Result<(), String> {
     let mut wait = runtime.clone();
     wait.push_str(include_str!("../../tests/fixtures/async_wait_cycle.c"));
     fs::write(directory.join("async-wait.c"), wait).map_err(|error| error.to_string())?;
+    let json = crate::input::check(
+        &root.join("crates/driver/tests/fixtures/json_operations.rinzu"),
+        &crate::input::Options::default(),
+        &rinzu_compiler::NativeCliInputs::default(),
+    )?;
+    let json = rinzu_codegen::emit_baseline_aot_object(&json.artifact.ir, "main")
+        .map_err(|error| error.to_string())?;
+    fs::write(
+        directory.join("json.runtime.c"),
+        runtime_shim(&json, &[], None, &[]),
+    )
+    .map_err(|error| error.to_string())?;
     let worker = |name: &str| {
         let function = object
             .functions

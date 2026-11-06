@@ -117,6 +117,7 @@ pub struct BaselineAotObject {
     pub source_locations_c: String,
     /// Private typed data catalog emitted from the same IR as the native object.
     pub data_schema_c: String,
+    pub uses_json: bool,
     pub data_types: Vec<AotDataType>,
     /// Handle n+1 identifies this exact target; never a raw native address.
     pub reference_targets: Vec<String>,
@@ -183,6 +184,28 @@ pub(crate) fn source_identities(module: &IrModule) -> (HashMap<u32, u64>, BTreeM
     (identities, names)
 }
 
+struct PollControl {
+    count: usize,
+    cancel_after: Option<usize>,
+    shutdown_after: Option<usize>,
+}
+
+impl PollControl {
+    fn poll(&mut self, in_cleanup: bool, in_callback: bool) -> Option<FailureCause> {
+        self.count += 1;
+        if in_cleanup || in_callback {
+            return None;
+        }
+        if self.shutdown_after.is_some_and(|limit| self.count >= limit) {
+            Some(FailureCause::Shutdown)
+        } else if self.cancel_after.is_some_and(|limit| self.count >= limit) {
+            Some(FailureCause::Cancelled)
+        } else {
+            None
+        }
+    }
+}
+
 struct BaselineRuntime {
     stdout: rinzu_runtime::stdio::Output,
     transitions: Arc<rinzu_runtime::transition::TransitionMachine>,
@@ -193,21 +216,18 @@ struct BaselineRuntime {
     current_source: Option<SourcePosition>,
     caught_errors: Vec<Failure>,
     data: ManagedData,
+    arguments: rinzu_runtime::data::ProgramArguments,
     data_roots: ManagedRoots,
     root_publications: usize,
     peak_root_frames: usize,
     return_roots: BTreeMap<usize, rinzu_runtime::data::RootLease>,
     function_names: Vec<String>,
     function_trace: Vec<String>,
-    poll_count: usize,
+    poll: PollControl,
     allocation_count: usize,
     collection_count: usize,
-    cancel_requested: bool,
     callback_depth: usize,
-    shutdown_requested: bool,
-    cancel_after_polls: Option<usize>,
     max_allocations: Option<usize>,
-    shutdown_after_polls: Option<usize>,
     collect_every_allocation: bool,
     peak_heap_objects: usize,
     dispatch_cells: Vec<VersionedDispatchCell>,
@@ -231,6 +251,7 @@ impl BaselineRuntime {
         options: BaselineOptions,
         native_packages: Option<LoadedNativePackages>,
         data_schema: crate::data_schema::DataSchema,
+        arguments: Vec<Vec<u8>>,
     ) -> Self {
         let mut heap = DomainHeap::new(0x4a49_5401);
         if options.collect_every_allocation {
@@ -263,21 +284,22 @@ impl BaselineRuntime {
             current_source: None,
             caught_errors: Vec::new(),
             data,
+            arguments: rinzu_runtime::data::ProgramArguments::new(arguments),
             data_roots: ManagedRoots::default(),
             root_publications: 0,
             peak_root_frames: 0,
             return_roots: BTreeMap::new(),
             function_names,
             function_trace: Vec::new(),
-            poll_count: 0,
+            poll: PollControl {
+                count: 0,
+                cancel_after: options.cancel_after_polls,
+                shutdown_after: options.shutdown_after_polls,
+            },
             allocation_count: 0,
             collection_count: 0,
-            cancel_requested: false,
             callback_depth: 0,
-            shutdown_requested: false,
-            cancel_after_polls: options.cancel_after_polls,
             max_allocations: options.max_allocations,
-            shutdown_after_polls: options.shutdown_after_polls,
             collect_every_allocation: options.collect_every_allocation,
             peak_heap_objects: 0,
             dispatch_cells,
@@ -336,6 +358,19 @@ impl BaselineRuntime {
                     let thrown = errors::throw_error(self, handle);
                     self.data_result(thrown);
                 }
+                None
+            }
+            Err(DataError::ManagedThrown(handle)) => {
+                let thrown = errors::throw_error(self, handle);
+                self.data_result(thrown);
+                None
+            }
+            Err(DataError::Interrupted(cause)) => {
+                self.fail(match cause {
+                    FailureCause::Cancelled => BaselineFailure::Cancelled,
+                    FailureCause::Shutdown => BaselineFailure::Shutdown,
+                    _ => BaselineFailure::RuntimePanic,
+                });
                 None
             }
             Err(DataError::CollectionOverflow {
@@ -424,39 +459,15 @@ fn with_runtime<T: Copy>(
 
 extern "C" fn baseline_poll(context: *mut BaselineRuntime, _site: i64) -> i64 {
     with_runtime(context, 1, |runtime| {
-        runtime.poll_count += 1;
-        if runtime.pending.cleanup_depth() != 0 {
+        let in_cleanup = runtime.pending.cleanup_depth() != 0;
+        let control = runtime.poll.poll(in_cleanup, runtime.callback_depth != 0);
+        if in_cleanup {
             return 0;
         }
-        if runtime
-            .shutdown_after_polls
-            .is_some_and(|limit| runtime.poll_count >= limit)
-        {
-            runtime.shutdown_requested = true;
+        if let Some(cause) = control {
+            runtime.data_result::<()>(Err(DataError::Interrupted(cause)));
         }
-        if runtime
-            .cancel_after_polls
-            .is_some_and(|limit| runtime.poll_count >= limit)
-        {
-            runtime.cancel_requested = true;
-        }
-        // A synchronous admitted callback records parent cancellation without
-        // throwing it through the native frame. Ordinary GC polls still run.
-        if runtime.callback_depth != 0 {
-            return i64::from(runtime.pending.current().is_some());
-        }
-        if runtime.shutdown_requested {
-            runtime.fail(BaselineFailure::Shutdown);
-            return 1;
-        }
-        if runtime.cancel_requested {
-            runtime.fail(BaselineFailure::Cancelled);
-            1
-        } else if runtime.pending.current().is_some() {
-            1
-        } else {
-            0
-        }
+        i64::from(runtime.pending.current().is_some())
     })
 }
 
@@ -918,7 +929,10 @@ fn baseline_roots_safepoint(runtime: &mut BaselineRuntime) -> i64 {
     if had_data && runtime.heap.collection_due() {
         if runtime
             .data
-            .retain_roots(&mut runtime.heap, runtime.data_roots.live())
+            .retain_roots(
+                &mut runtime.heap,
+                runtime.data_roots.live().chain(runtime.arguments.root()),
+            )
             .is_err()
         {
             runtime.fail(BaselineFailure::RuntimePanic);
@@ -992,15 +1006,28 @@ extern "C" fn baseline_data_operation(
                 .and_then(rinzu_compiler::DataOperation::from_code)
                 .ok_or(DataError::InvalidEncoding)?;
             let count = usize::try_from(count).map_err(|_| DataError::InvalidEncoding)?;
-            if count != op.arity() || bits.is_null() || types.is_null() {
+            if count != op.arity() {
                 return Err(DataError::InvalidEncoding);
             }
-            // SAFETY: generated code supplies two aligned arrays with the verified arity.
-            let (raw_types, bits) = unsafe {
-                (
-                    std::slice::from_raw_parts(types, count),
-                    std::slice::from_raw_parts(bits, count),
-                )
+            let result = usize::try_from(result).map_err(|_| DataError::InvalidEncoding)?;
+            if op == rinzu_compiler::DataOperation::ProcessArguments {
+                return runtime
+                    .arguments
+                    .snapshot(&mut runtime.data, &mut runtime.heap, result);
+            }
+            if count != 0 && (bits.is_null() || types.is_null()) {
+                return Err(DataError::InvalidEncoding);
+            }
+            let (raw_types, bits) = if count == 0 {
+                (&[][..], &[][..])
+            } else {
+                // SAFETY: generated code supplies two aligned arrays with the verified arity.
+                unsafe {
+                    (
+                        std::slice::from_raw_parts(types, count),
+                        std::slice::from_raw_parts(bits, count),
+                    )
+                }
             };
             let mut types = [0; 3];
             let mut slots = [rinzu_runtime::data::ManagedSlot::Unit; 3];
@@ -1009,10 +1036,31 @@ extern "C" fn baseline_data_operation(
                     usize::try_from(raw_types[index]).map_err(|_| DataError::InvalidEncoding)?;
                 slots[index] = runtime.data_schema.slot(types[index], bits[index])?;
             }
+            #[cfg(unix)]
+            if op.is_json() {
+                let schema = runtime
+                    .data_schema
+                    .json
+                    .as_ref()
+                    .ok_or(DataError::InvalidEncoding)?;
+                let cleanup = runtime.pending.cleanup_depth() != 0;
+                let callback = runtime.callback_depth != 0;
+                return runtime.data.json_operation(
+                    &mut runtime.heap,
+                    schema,
+                    rinzu_runtime::data::JsonCall {
+                        operation: op,
+                        result,
+                        types: &types[..count],
+                        slots: &slots[..count],
+                    },
+                    || runtime.poll.poll(cleanup, callback),
+                );
+            }
             let output = runtime.data.operation(
                 &mut runtime.heap,
                 op,
-                usize::try_from(result).map_err(|_| DataError::InvalidEncoding)?,
+                result,
                 &types[..count],
                 &slots[..count],
             )?;
@@ -1025,7 +1073,9 @@ extern "C" fn baseline_data_operation(
             Ok(output)
         })();
         let slot = runtime.data_result(outcome);
-        runtime.data_allocated(logical.unwrap_or_else(|| runtime.heap.object_count() - before));
+        runtime.data_allocated(
+            logical.unwrap_or_else(|| runtime.heap.object_count().saturating_sub(before)),
+        );
         let Some(slot) = slot else {
             return 0;
         };
@@ -1572,6 +1622,7 @@ mod target {
         options: BaselineOptions,
         native_packages: Option<LoadedNativePackages>,
         source_packages: Option<crate::source_package::LoadedSourcePackages>,
+        arguments: Vec<Vec<u8>>,
     ) -> Result<BaselineRun> {
         let native_plans = crate::native_call::NativeCallPlans::new(module_ir)?;
         let source_bindings = source_packages
@@ -1746,6 +1797,7 @@ mod target {
             options,
             native_packages,
             runtime_functions.data_schema.clone(),
+            arguments,
         );
         runtime
             .data
@@ -1855,7 +1907,7 @@ mod target {
             root_publications: runtime.root_publications,
             peak_root_frames: runtime.peak_root_frames,
             function_trace: runtime.function_trace,
-            poll_count: runtime.poll_count,
+            poll_count: runtime.poll.count,
             allocation_count: runtime.allocation_count,
             collection_count: runtime.collection_count,
             heap_objects: runtime.heap.object_count(),
@@ -2041,6 +2093,7 @@ mod target {
             source_files: source_identities(module_ir).1,
             source_locations_c: crate::error_sources::c_source(module_ir),
             data_schema_c: runtime_functions.data_schema.c_source(),
+            uses_json: runtime_functions.data_schema.json.is_some(),
             data_types: runtime_functions.data_schema.metadata(),
             reference_targets: runtime_functions.reference_targets.metadata(),
             native_call_plans: runtime_functions.native_plans.records,
@@ -5457,7 +5510,7 @@ pub fn run_baseline_jit_with_options(
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
-        target::run(module, entry, options, None, None)
+        target::run(module, entry, options, None, None, Vec::new())
     }
 }
 
@@ -5478,7 +5531,14 @@ pub fn run_baseline_jit_with_native_packages(
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
-        target::run(module, entry, options, Some(native_packages), None)
+        target::run(
+            module,
+            entry,
+            options,
+            Some(native_packages),
+            None,
+            Vec::new(),
+        )
     }
 }
 
@@ -5489,15 +5549,47 @@ pub fn run_baseline_jit_with_package_bindings(
     native_packages: Option<LoadedNativePackages>,
     source_packages: Option<crate::source_package::LoadedSourcePackages>,
 ) -> Result<BaselineRun> {
+    run_baseline_jit_with_arguments(
+        module,
+        entry,
+        options,
+        native_packages,
+        source_packages,
+        Vec::new(),
+    )
+}
+
+pub fn run_baseline_jit_with_arguments(
+    module: &IrModule,
+    entry: &str,
+    options: BaselineOptions,
+    native_packages: Option<LoadedNativePackages>,
+    source_packages: Option<crate::source_package::LoadedSourcePackages>,
+    arguments: Vec<Vec<u8>>,
+) -> Result<BaselineRun> {
     crate::ensure_scalar_backend(module, true)?;
     #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
     {
-        let _ = (module, entry, options, native_packages, source_packages);
+        let _ = (
+            module,
+            entry,
+            options,
+            native_packages,
+            source_packages,
+            arguments,
+        );
         anyhow::bail!("source native package JIT requires macOS arm64")
     }
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
-        target::run(module, entry, options, native_packages, source_packages)
+        target::run(
+            module,
+            entry,
+            options,
+            native_packages,
+            source_packages,
+            arguments,
+        )
     }
 }
 

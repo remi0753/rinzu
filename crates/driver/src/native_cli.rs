@@ -35,14 +35,6 @@ pub fn parse(
                 }
                 *slot = Some(value(&mut arguments, &argument)?);
             }
-            "--" if matches!(command, "run" | "verify-aot") => {
-                if arguments.next().is_some() {
-                    return Err(
-                        "program arguments are not supported in this language revision".into(),
-                    );
-                }
-                break;
-            }
             "-L" => result
                 .native
                 .search_paths

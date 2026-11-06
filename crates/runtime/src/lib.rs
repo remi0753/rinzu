@@ -21,6 +21,8 @@ pub mod foreign_queue;
 pub mod gc;
 pub mod heap;
 pub mod host_loop;
+#[cfg(unix)]
+pub mod json;
 pub mod key;
 pub mod native_completion;
 #[cfg(unix)]

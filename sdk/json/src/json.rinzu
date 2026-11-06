@@ -1,0 +1,316 @@
+enum Kind {
+    Null,
+    Boolean,
+    Number,
+    Text,
+    Array,
+    Object
+}
+
+enum DecodeReason {
+    UnexpectedEnd,
+    UnexpectedToken,
+    TrailingData,
+    InvalidUtf8,
+    ControlCharacter,
+    InvalidEscape,
+    UnpairedSurrogate,
+    InvalidNumber,
+    DuplicateKey
+}
+
+enum LimitKind {
+    InputBytes,
+    Depth,
+    Nodes,
+    OutputBytes
+}
+
+enum NumberReason {
+    InvalidSyntax,
+    ExpectedInteger,
+    OutOfRange,
+    NonFinite
+}
+
+enum SchemaReason {
+    WrongKind,
+    ExpectedInteger,
+    IntegerOutOfRange,
+    FloatOutOfRange,
+    MissingField,
+    UnknownField
+}
+
+error DecodeFailed {
+    payload: {
+        reason: DecodeReason,
+        byteOffset: Int,
+        firstOffset: Option<Int>
+    }
+}
+
+error InvalidLimits {
+    payload: {
+        kind: LimitKind,
+        supplied: Int,
+        minimum: Int,
+        maximum: Int
+    }
+}
+
+error LimitExceeded {
+    payload: {
+        kind: LimitKind,
+        limit: Int,
+        byteOffset: Option<Int>
+    }
+}
+
+error TypeMismatch {
+    payload: { expected: Kind, actual: Kind }
+}
+
+error NumberError {
+    payload: { reason: NumberReason }
+}
+
+error SchemaMismatch {
+    payload: {
+        reason: SchemaReason,
+        byteOffset: Int,
+        path: String,
+        key: Option<String>,
+        expected: Option<Kind>,
+        actual: Option<Kind>
+    }
+}
+
+type ParseLimits = {
+    maxInputBytes: Int,
+    maxDepth: Int,
+    maxNodes: Int
+};
+
+type EncodeLimits = {
+    maxOutputBytes: Int,
+    maxDepth: Int,
+    maxNodes: Int
+};
+
+let defaultParseLimits: ParseLimits = {
+    maxInputBytes = 134217728,
+    maxDepth = 1024,
+    maxNodes = 16777216
+};
+
+let defaultEncodeLimits: EncodeLimits = {
+    maxOutputBytes = 134217728,
+    maxDepth = 1024,
+    maxNodes = 16777216
+};
+
+// These layouts are shared by the two runtime implementations. The mutable
+// private field keeps Value local to its Domain.
+enum Representation {
+    ParsedBytes(source: ByteArray, index: ByteArray, node: Int),
+    ParsedString(source: String, index: ByteArray, node: Int),
+    Null,
+    Boolean(value: Bool),
+    Text(value: String),
+    Number(token: String),
+    Integer(value: Int),
+    Float(value: Float),
+    Array(values: List<Value>),
+    Object(fields: Map<String, Value>)
+}
+
+class Value {
+    private representation: Representation
+}
+
+export Value;
+export Kind;
+export DecodeReason;
+export LimitKind;
+export NumberReason;
+export SchemaReason;
+export DecodeFailed;
+export InvalidLimits;
+export LimitExceeded;
+export TypeMismatch;
+export NumberError;
+export SchemaMismatch;
+export ParseLimits;
+export EncodeLimits;
+export defaultParseLimits;
+export defaultEncodeLimits;
+
+fn parse(source: ByteArray) -> Value throws DecodeFailed, LimitExceeded {
+    return jsonParse(source);
+}
+
+fn parseString(source: String) -> Value throws DecodeFailed, LimitExceeded {
+    return jsonParse(source);
+}
+
+fn parseWithLimits(source: ByteArray, limits: ParseLimits) -> Value throws DecodeFailed, LimitExceeded, InvalidLimits {
+    return jsonParseWithLimits(source, limits);
+}
+
+fn parseStringWithLimits(source: String, limits: ParseLimits)
+    -> Value throws DecodeFailed, LimitExceeded, InvalidLimits {
+    return jsonParseWithLimits(source, limits);
+}
+
+fn parseWithTy<T>(source: ByteArray) -> T throws DecodeFailed, SchemaMismatch, LimitExceeded {
+    return jsonDecode(source);
+}
+
+fn parseStringWithTy<T>(source: String) -> T throws DecodeFailed, SchemaMismatch, LimitExceeded {
+    return jsonDecode(source);
+}
+
+fn parseWithTyAndLimits<T>(source: ByteArray, limits: ParseLimits)
+    -> T throws DecodeFailed, SchemaMismatch, LimitExceeded, InvalidLimits {
+    return jsonDecodeWithLimits(source, limits);
+}
+
+fn parseStringWithTyAndLimits<T>(source: String, limits: ParseLimits)
+    -> T throws DecodeFailed, SchemaMismatch, LimitExceeded, InvalidLimits {
+    return jsonDecodeWithLimits(source, limits);
+}
+
+fn kind(value: Value) -> Kind nothrow {
+    return jsonKind(value);
+}
+
+fn field(object: Value, key: String) -> Option<Value> throws TypeMismatch {
+    return jsonField(object, key);
+}
+
+fn at(array: Value, index: Int) -> Option<Value> throws TypeMismatch {
+    return jsonAt(array, index);
+}
+
+fn arrayLength(array: Value) -> Int throws TypeMismatch {
+    return jsonArrayLength(array);
+}
+
+fn objectLength(object: Value) -> Int throws TypeMismatch {
+    return jsonObjectLength(object);
+}
+
+fn entryAt(object: Value, index: Int) -> Option<{ key: String, value: Value }> throws TypeMismatch {
+    return jsonEntryAt(object, index);
+}
+
+fn asBool(value: Value) -> Bool throws TypeMismatch {
+    return jsonBool(value);
+}
+
+fn asString(value: Value) -> String throws TypeMismatch {
+    return jsonString(value);
+}
+
+fn numberText(value: Value) -> String throws TypeMismatch {
+    return jsonNumberText(value);
+}
+
+fn asInt(value: Value) -> Int throws TypeMismatch, NumberError {
+    return jsonInt(value);
+}
+
+fn asFloat(value: Value) -> Float throws TypeMismatch, NumberError {
+    return jsonFloat(value);
+}
+
+fn intField(object: Value, key: String) -> Option<Int> throws TypeMismatch, NumberError {
+    return jsonIntField(object, key);
+}
+
+fn floatField(object: Value, key: String) -> Option<Float> throws TypeMismatch, NumberError {
+    return jsonFloatField(object, key);
+}
+
+fn nullValue() -> Value nothrow {
+    return jsonNull();
+}
+
+fn boolean(value: Bool) -> Value nothrow {
+    return jsonConstruct(value);
+}
+
+fn text(value: String) -> Value nothrow {
+    return jsonConstruct(value);
+}
+
+fn intValue(value: Int) -> Value nothrow {
+    return jsonConstruct(value);
+}
+
+fn floatValue(value: Float) -> Value throws NumberError {
+    return jsonFloatValue(value);
+}
+
+fn number(token: String) -> Value throws NumberError {
+    return jsonNumber(token);
+}
+
+fn array(values: List<Value>) -> Value nothrow {
+    return jsonConstruct(values);
+}
+
+fn object(fields: Map<String, Value>) -> Value nothrow {
+    return jsonConstruct(fields);
+}
+
+fn encode(value: Value) -> ByteArray throws LimitExceeded {
+    return jsonEncode(value);
+}
+
+fn stringify(value: Value) -> String throws LimitExceeded {
+    return jsonEncode(value);
+}
+
+fn encodeWithLimits(value: Value, limits: EncodeLimits) -> ByteArray throws LimitExceeded, InvalidLimits {
+    return jsonEncodeWithLimits(value, limits);
+}
+
+fn stringifyWithLimits(value: Value, limits: EncodeLimits) -> String throws LimitExceeded, InvalidLimits {
+    return jsonEncodeWithLimits(value, limits);
+}
+
+export parse;
+export parseString;
+export parseWithLimits;
+export parseStringWithLimits;
+export parseWithTy;
+export parseStringWithTy;
+export parseWithTyAndLimits;
+export parseStringWithTyAndLimits;
+export kind;
+export field;
+export at;
+export arrayLength;
+export objectLength;
+export entryAt;
+export asBool;
+export asString;
+export numberText;
+export asInt;
+export asFloat;
+export intField;
+export floatField;
+export nullValue;
+export boolean;
+export text;
+export intValue;
+export floatValue;
+export number;
+export array;
+export object;
+export encode;
+export stringify;
+export encodeWithLimits;
+export stringifyWithLimits;

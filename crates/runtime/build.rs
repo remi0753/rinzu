@@ -17,7 +17,17 @@ fn main() {
     println!("cargo:rerun-if-changed=../../include/rinzu/native_diagnostics.h");
     println!("cargo:rerun-if-changed=src/foreign_queue.c");
     println!("cargo:rerun-if-changed=../../include/rinzu/foreign_queue.h");
+    for resource in ["json.c", "json.h", "key.h", "vendor"] {
+        println!("cargo:rerun-if-changed=../../include/rinzu/{resource}");
+    }
     if std::env::var("CARGO_CFG_TARGET_FAMILY").as_deref() == Ok("unix") {
+        cc::Build::new()
+            .file("../../include/rinzu/json.c")
+            .include("../../include")
+            .flag("-std=c11")
+            .opt_level(3)
+            .warnings_into_errors(true)
+            .compile("rinzu_json");
         cc::Build::new()
             .file("src/display.c")
             .file("src/stdio.c")

@@ -472,8 +472,14 @@ pub(crate) fn worker(mut arguments: impl Iterator<Item = String>) -> Result<(), 
                 .map_err(|e| e.to_string())?,
             )
         };
-        let outcome =
-            crate::run_package_engines(&manifest, &artifact, false, Some(&config), &mut session);
+        let outcome = crate::run_package_engines(
+            &manifest,
+            &artifact,
+            false,
+            Some(&config),
+            &mut session,
+            &[],
+        );
         if let Some(session) = session {
             session.finish().map_err(|e| e.to_string())?;
         }

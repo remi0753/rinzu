@@ -1,6 +1,6 @@
 {
   "schema": "rinzu.standard-library-license-inventory-v1",
-  "revision": 2,
+  "revision": 3,
   "toolchainVersion": "0.1.0",
   "ownSource": {
     "includes": [
@@ -45,5 +45,23 @@
     }
   ],
   "additionalSdkPolicy": "GUI, SDL2, SQLite, typed codecs, logging, shim, and consumption SDKs are additional source packages, outside this standard resource bundle.",
-  "generatedAotDependencies": "The deployment inventory records actual selected images and their hashes/UUIDs; it is not a substitute for license texts."
+  "generatedAotDependencies": "The deployment inventory records actual selected images and their hashes/UUIDs; it is not a substitute for license texts.",
+  "bundledDependencies": [
+    {
+      "name": "ffc.h",
+      "owner": "rinzu.json",
+      "source": "https://github.com/kolemannix/ffc.h",
+      "license": "MIT",
+      "licensePath": "include/rinzu/vendor/ffc-LICENSE-MIT",
+      "revision": "7e85c6d11a0289d5eead7c1404de8203c52f8cf8"
+    },
+    {
+      "name": "Ryu",
+      "version": "2.0",
+      "owner": "rinzu.json",
+      "source": "https://github.com/ulfjack/ryu/tree/v2.0",
+      "license": "BSL-1.0",
+      "licensePath": "include/rinzu/vendor/ryu/LICENSE-Boost"
+    }
+  ]
 }

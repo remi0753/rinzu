@@ -2913,6 +2913,41 @@ impl<'a> Checker<'a> {
                 );
                 return None;
             }
+            if op == crate::DataOperation::ProcessArguments {
+                context.facts.requires_owner = true;
+                self.data_operations.insert(range, op);
+                let name = if self
+                    .declarations
+                    .contains_key("rinzu.process::ArgumentSnapshot")
+                {
+                    "rinzu.process::ArgumentSnapshot"
+                } else {
+                    "ArgumentSnapshot"
+                };
+                return Some(Type::Named(name.into()));
+            }
+            if op.is_json() {
+                let types = values
+                    .iter()
+                    .map(|value| self.check_expression(value, None, context))
+                    .collect::<Option<Vec<_>>>()?;
+                let result = context.result.clone();
+                if !crate::json::signature(op, &types, &result) {
+                    self.type_error(range, "invalid internal JSON operation signature");
+                    return None;
+                }
+                if matches!(
+                    op,
+                    crate::DataOperation::JsonDecode | crate::DataOperation::JsonDecodeWithLimits
+                ) && let Some(path) = self.unsupported_json_type(&result)
+                {
+                    self.type_error(range, format!("unsupported JSON target type at {path}"));
+                    return None;
+                }
+                self.data_operations.insert(range, op);
+                context.facts.may_fail = true;
+                return Some(result);
+            }
             let input = self.check_expression(&values[0], None, context)?;
             let Some((parameters, result)) = crate::core::data_signature(op, &input) else {
                 self.type_error(
@@ -3805,6 +3840,40 @@ impl<'a> Checker<'a> {
             Some(&Type::FunctionReference(Box::new(signature))),
             context,
         )
+    }
+
+    fn unsupported_json_type(&self, ty: &Type) -> Option<String> {
+        match ty {
+            Type::Bool | Type::Int | Type::Float | Type::String => None,
+            Type::List(element) => self
+                .unsupported_json_type(element)
+                .map(|path| format!("list element / {path}")),
+            Type::Map(key, value) if **key == Type::String => self
+                .unsupported_json_type(value)
+                .map(|path| format!("map value / {path}")),
+            Type::Named(name) if name.starts_with("$rinzu_record_") => {
+                let record = self.record_declaration(name)?;
+                record.fields.iter().find_map(|field| {
+                    self.unsupported_json_type(&self.resolve_type_readonly(&field.ty)?)
+                        .map(|path| format!("field `{}` / {path}", field.name))
+                })
+            }
+            Type::Named(name) if name.starts_with("Option<") => {
+                if let Some(Declaration::Enum(enumeration)) = self.declarations.get(name)
+                    && let [none, some] = enumeration.variants.as_slice()
+                    && none.name == "None"
+                    && some.name == "Some"
+                    && let [field] = some.fields.as_slice()
+                    && let Some(child) = self.resolve_type_readonly(&field.ty)
+                {
+                    return self
+                        .unsupported_json_type(&child)
+                        .map(|path| format!("option value / {path}"));
+                }
+                Some(format!("`{ty}`"))
+            }
+            _ => Some(format!("`{ty}`")),
+        }
     }
 
     fn intern_record(

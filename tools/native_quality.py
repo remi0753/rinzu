@@ -54,6 +54,7 @@ def native_files():
                  capture_output=True)
     return sorted({ROOT / os.fsdecode(path) for path in result.stdout.split(b"\0")
                    if path and Path(os.fsdecode(path)).suffix in EXTENSIONS
+                   and not Path(os.fsdecode(path)).is_relative_to("include/rinzu/vendor")
                    and (ROOT / os.fsdecode(path)).is_file()})
 
 
@@ -114,7 +115,7 @@ def compilation_database(driver=None):
     sdl_flags = shlex.split(run(["sdl2-config", "--cflags"], capture_output=True, text=True).stdout)
     sources = {path: path.read_text() for path in [
         DATABASE / "source-platform.runtime.c", DATABASE / "compiled-async.c",
-        DATABASE / "async-wait.c", DATABASE / "typed-worker.c",
+        DATABASE / "async-wait.c", DATABASE / "typed-worker.c", DATABASE / "json.runtime.c",
     ]}
     files = native_files()
     fragments = [file for file in files if file.parent == ROOT / "crates/driver/src"]

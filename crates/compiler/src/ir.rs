@@ -3387,11 +3387,24 @@ fn verify_function(module: &IrModule, function: &IrFunction, diagnostics: &mut V
                         .as_ref()
                         .and_then(|types| types.first())
                         .and_then(|input| crate::core::data_signature(*kind, input));
-                    if actual.as_ref() != Some(argument_types)
-                        || !signature.is_some_and(|(parameters, result)| {
+                    let valid = if *kind == crate::DataOperation::ProcessArguments {
+                        arguments.is_empty()
+                            && function.facts.requires_owner
+                            && matches!(operation.result.as_ref().map(|v| &v.ty),
+                                Some(Type::Named(name))
+                                if matches!(name.as_str(), "ArgumentSnapshot" | "rinzu.process::ArgumentSnapshot"))
+                    } else if kind.is_json() {
+                        operation.result.as_ref().is_some_and(|value| {
+                            crate::json::signature(*kind, argument_types, &value.ty)
+                        })
+                    } else {
+                        signature.is_some_and(|(parameters, result)| {
                             actual.as_ref() == Some(&parameters)
                                 && operation.result.as_ref().map(|v| &v.ty) == Some(&result)
                         })
+                    };
+                    if actual.as_ref() != Some(argument_types)
+                        || !valid
                         || (*kind != crate::DataOperation::CollectionFinish
                             && !has_poll_before(block, index, PollReason::Allocation))
                     {

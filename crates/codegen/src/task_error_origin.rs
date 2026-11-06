@@ -105,7 +105,7 @@ extern int64_t origin_zero(void*,int64_t),origin_future(void*,int64_t),origin_fa
 void rinzu_baseline_task_error_origin(void*raw,int64_t future){
  uint64_t value=future>=(int64_t)(UINT64_C(1)<<61)?(uint64_t)future-(UINT64_C(1)<<61):0;
  /* Mirror the independently checked RinzuContext layout in driver/aot.rs. */
- memcpy((unsigned char*)raw+872,&value,8);
+ memcpy((unsigned char*)raw+896,&value,8);
 }
 int main(void){
  uint64_t edges[]={0,1,(UINT64_C(1)<<61)-1,UINT64_C(1)<<61,(UINT64_C(1)<<61)+1,INT64_MAX,UINT64_C(1)<<63,UINT64_MAX};

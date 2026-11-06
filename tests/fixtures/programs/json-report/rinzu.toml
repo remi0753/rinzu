@@ -1,0 +1,4 @@
+[package]
+name = "json_report"
+language = "0.5"
+entry = "src/main.rinzu"

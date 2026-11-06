@@ -251,6 +251,16 @@ impl Expander {
                         self.ty(&mut field.ty, &HashMap::new(), 0).ok()?;
                     }
                 }
+                Declaration::Error(error) => {
+                    if let Some(payload) = &mut error.payload {
+                        self.ty(&mut payload.ty, &HashMap::new(), 0).ok()?;
+                    }
+                }
+                Declaration::Enum(enumeration) => {
+                    for field in enumeration.variants.iter_mut().flat_map(|v| &mut v.fields) {
+                        self.ty(&mut field.ty, &HashMap::new(), 0).ok()?;
+                    }
+                }
                 _ => {}
             }
         }

@@ -278,6 +278,7 @@ pub fn verify_with_input(
     native: &rinzu_compiler::NativeCliInputs,
     options: BaselineOptions,
     cancel_worker_after_polls: Option<usize>,
+    program_arguments: &[std::ffi::OsString],
 ) -> Result<crate::aot::EquivalenceReport, String> {
     let context = crate::input::check(path, input_options, native)?;
     let directory = TemporaryDirectory::new("verify-worker")?;
@@ -295,7 +296,11 @@ pub fn verify_with_input(
     )
     .map_err(|error| error.to_string())?;
     let mut command = Command::new(std::env::current_exe().map_err(|error| error.to_string())?);
-    command.arg("__verify-aot-worker").arg(&directory.0);
+    command
+        .arg("__verify-aot-worker")
+        .arg(&directory.0)
+        .arg("--")
+        .args(program_arguments);
     for name in CONTROLS {
         command.env_remove(name);
     }
@@ -360,7 +365,10 @@ pub fn verify_with_input(
     })
 }
 
-pub fn worker(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
+pub fn worker(
+    mut arguments: impl Iterator<Item = String>,
+    program_arguments: &[std::ffi::OsString],
+) -> Result<(), String> {
     let directory = PathBuf::from(
         arguments
             .next()
@@ -379,7 +387,7 @@ pub fn worker(mut arguments: impl Iterator<Item = String>) -> Result<(), String>
     WORKER_DIRECTORY.with(|slot| *slot.borrow_mut() = Some(directory.clone()));
     let result = request.input.check().and_then(|context| {
         if let Some(limit) = request.cancel_worker_after_polls {
-            crate::aot::verify_worker_cancel_checked(&context, limit)
+            crate::aot::verify_worker_cancel_checked(&context, limit, program_arguments)
         } else {
             crate::aot::verify_checked_input(
                 &context,
@@ -389,6 +397,7 @@ pub fn worker(mut arguments: impl Iterator<Item = String>) -> Result<(), String>
                     shutdown_after_polls: request.shutdown_after_polls,
                     ..BaselineOptions::default()
                 },
+                program_arguments,
             )
         }
     });
@@ -423,6 +432,42 @@ mod evidence_tests {
             status: std::process::ExitStatus::from_raw(status),
             stdout: b"partly written program stdout".to_vec(),
             stderr: stderr.to_vec(),
+        }
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[test]
+    fn program_argument_snapshots_belong_to_each_embedding() {
+        let directory = TemporaryDirectory::new("embedded-arguments").unwrap();
+        let entry = directory.0.join("entry.rinzu");
+        fs::write(
+            &entry,
+            include_str!("../tests/fixtures/process_arguments.rinzu"),
+        )
+        .unwrap();
+        let checked = crate::input::check(
+            &entry,
+            &crate::input::Options::default(),
+            &rinzu_compiler::NativeCliInputs::default(),
+        )
+        .unwrap();
+        for value in ["初回", "second"] {
+            let run = rinzu_codegen::run_baseline_jit_with_arguments(
+                &checked.artifact.ir,
+                "main",
+                BaselineOptions {
+                    capture_stdout: true,
+                    collect_every_allocation: true,
+                    ..Default::default()
+                },
+                None,
+                None,
+                vec![value.as_bytes().to_vec()],
+            )
+            .unwrap();
+            assert_eq!(run.result, Ok(0));
+            assert_eq!(run.stdout, format!("<{value}>\n").as_bytes());
+            assert_eq!(run.heap_objects, 0);
         }
     }
 

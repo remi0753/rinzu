@@ -9,6 +9,8 @@ mod compiled_runtime;
 pub use compiled_runtime::CompiledRuntimeLibrary;
 mod data_schema;
 mod error_sources;
+#[cfg(unix)]
+mod json_schema;
 pub use error_sources::format_error_traces;
 mod function_reference;
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
@@ -44,8 +46,8 @@ pub use baseline::{
     AotDataType, AotFunctionMetadata, BaselineAotObject, BaselineFailure, BaselineOptions,
     BaselineRun, emit_baseline_aot_object, emit_baseline_aot_object_with_native_bindings,
     emit_source_async_aot_object, emit_source_async_aot_plans, run_baseline_jit,
-    run_baseline_jit_with_native_packages, run_baseline_jit_with_options,
-    run_baseline_jit_with_package_bindings,
+    run_baseline_jit_with_arguments, run_baseline_jit_with_native_packages,
+    run_baseline_jit_with_options, run_baseline_jit_with_package_bindings,
 };
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use baseline::{CompiledAsyncJit, compile_source_async_jit};
@@ -65,12 +67,12 @@ mod native_resources;
 pub use native_resources::{CallbackPoolEvidence, NativeProcessEvidence};
 
 /// Private generated object/runtime contract; public native ABI versions are separate.
-pub const BASELINE_RUNTIME_ABI_REVISION: &str = "rinzu-baseline-0.5-r182";
+pub const BASELINE_RUNTIME_ABI_REVISION: &str = "rinzu-baseline-0.5-r183";
 
 /// Private macOS arm64 C Context contract; generated C asserts this field offset.
 pub const C_CONTEXT_PENDING_PRIMARY_OFFSET: i32 = 208;
 /// The same private C Context contract used by direct Source stores.
-pub const C_CONTEXT_FAILURE_ORIGIN_OFFSET: i32 = 872;
+pub const C_CONTEXT_FAILURE_ORIGIN_OFFSET: i32 = 896;
 /// Kept equal to the generated runtime's Future handle base by a C assertion.
 pub const C_ASYNC_HANDLE_BASE: i64 = 1 << 61;
 

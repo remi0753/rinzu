@@ -197,6 +197,9 @@ struct rinzu_managed_data {
   int metadata_cache_disposing;
   rinzu_managed_small_enum_t *small_enums;
   size_t small_enum_accounted_bytes;
+  char **program_argv;
+  uint64_t program_arguments;
+  int program_argc;
 };
 static inline int rinzu_managed_record_busy(const rinzu_managed_data_t *data, uint64_t identity) {
   for (const rinzu_managed_record_loan_t *loan = data->native_record_loans; loan; loan = loan->next)
@@ -926,6 +929,10 @@ static inline void rinzu_managed_collect(rinzu_managed_data_t *data,
     rinzu_failure_fatal();
   int relocate = data->gc.stress;
   size_t root_bytes = 0;
+  if (data->program_arguments) {
+    rinzu_managed_mark(data, data->program_arguments);
+    root_bytes = sizeof(data->program_arguments);
+  }
   if (data->future_begin) data->future_begin(data->future_context);
   rinzu_error_reference_t **errors = &data->error_references;
   while (*errors) {
@@ -975,8 +982,12 @@ static inline void rinzu_managed_collect(rinzu_managed_data_t *data,
       unsigned char *moved = rinzu_managed_relocate_copy(value->bytes, value->length + 1);
       if (value->bytes == value->inline_bytes)
         rinzu_managed_account_payload(data, value, value->length + 1);
-      else
+      else {
+        size_t capacity = value->gc_bytes - sizeof(*value);
+        if (capacity > value->length + 1)
+          rinzu_managed_unaccount_payload(data, value, capacity - value->length - 1);
         free(value->bytes);
+      }
       value->bytes = moved;
     }
     if (relocate && value->kind == RINZU_MANAGED_COMPOSITE && value->count) {

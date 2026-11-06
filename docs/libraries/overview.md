@@ -11,7 +11,8 @@ The toolchain bundles the following modules. Import them directly in either a st
 | `rinzu.stdio` | Synchronous display of language values | Below |
 | `rinzu.timer` | Asynchronous sleep | Below |
 | `rinzu.io` | Files, standard input/output, clocks, resource cleanup | [I/O](io.md) |
-| `rinzu.process` | Environment settings, process ID, exit status, error output | Below |
+| `rinzu.process` | Program arguments, environment, process ID, exit status, error output | Below |
+| `rinzu.json` | Validate, read, build and write JSON | [JSON](json.md) |
 | `rinzu.stream` | Pull-based file streams | [I/O](io.md) |
 | `rinzu.testing` | Assertions | [Testing](../tooling/testing.md) |
 | `rinzu.shutdown` | Signal registration and cooperative shutdown | [Async](../language/async.md) |
@@ -45,7 +46,9 @@ async fn main() {
 
 ## Process settings
 
-`rinzu.process.environment(name)` returns `Option<String>` with a UTF-8 snapshot. `setting(name,defaultValue)` selects a default when absent. `integer(name,defaultValue,minimum,maximum)` additionally parses and checks the range. Missing values and malformed values are different: malformed or oversized settings throw Error.
+`rinzu.process.arguments()` returns the immutable list of program arguments in Main. The first invalid UTF-8 argument throws `InvalidArgumentEncoding` with a zero-based argument index and byte offset. A Worker can receive the list or a selected value as a parameter. See [CLI commands](../tooling/cli.md#program-arguments).
+
+`rinzu.process.environment(name)` returns `Option<String>` with a UTF-8 snapshot. `setting(name,defaultValue)` selects a default when absent. `integer(name,defaultValue,minimum,maximum)` additionally parses and checks the range. Malformed or oversized settings throw Error.
 
 `identifier()` returns the process ID. `setExitStatus(status)` accepts 0 through 255 and returns Bool; use it from async Main. `writeErrorLine(text)` writes a bounded UTF-8 line to stderr, returning a native status result. The line including its newline is limited to 4096 bytes and can block if its peer does not read.
 

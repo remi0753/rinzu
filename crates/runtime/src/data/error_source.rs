@@ -114,15 +114,12 @@ impl ManagedData {
                 }
                 // Legacy metadata has fixed-width position fields, including
                 // absent positions. Preserve the original handle and graph.
-                for (index, chunk) in bytes.chunks(8).enumerate() {
+                let words = bytes.chunks(8).map(|chunk| {
                     let mut word = [0; 8];
                     word[..chunk.len()].copy_from_slice(chunk);
-                    heap.write_field(
-                        reference,
-                        index + 1,
-                        HeapValue::Integer(u64::from_le_bytes(word) as i64),
-                    )?;
-                }
+                    u64::from_le_bytes(word)
+                });
+                heap.write_integer_fields(reference, 1, words)?;
             }
             _ => return Err(DataError::WrongKind),
         }

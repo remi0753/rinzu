@@ -1637,7 +1637,7 @@ mod record_tests {
             arguments[0] = ValueId(100);
         }
         frame.values.insert(ValueId(100), Value::int(1));
-        let value = frame.data_operation(&construct).unwrap().unwrap();
+        let value = frame.data_operation(&construct, || None).unwrap().unwrap();
         frame.data_roots.as_ref().unwrap().hold(&value);
         let Value::Managed { ty, handle } = value else {
             panic!("expected shared record")

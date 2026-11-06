@@ -38,6 +38,7 @@ pub(super) struct OwnerValues {
     pub(super) dispatcher_context: Option<Box<super::dispatcher::Context>>,
     heap: DomainHeap,
     data: ManagedData,
+    arguments: Option<rinzu_runtime::data::ProgramArguments>,
     schema: crate::data_schema::DataSchema,
     frames: BTreeMap<u64, Vec<ManagedHandle>>,
     future_frames: BTreeMap<u64, Vec<u64>>,
@@ -317,7 +318,13 @@ impl OwnerValues {
     }
 
     pub fn new(module: &IrModule) -> Result<Rc<RefCell<Self>>> {
-        Self::with_heap(module, DomainHeap::new(0x4d41_494e))
+        let owner = Self::with_heap(module, DomainHeap::new(0x4d41_494e))?;
+        owner.borrow_mut().set_program_arguments(Vec::new());
+        Ok(owner)
+    }
+
+    pub(super) fn set_program_arguments(&mut self, raw: Vec<Vec<u8>>) {
+        self.arguments = Some(rinzu_runtime::data::ProgramArguments::new(raw));
     }
 
     pub fn worker(module: &IrModule, domain: &mut WorkerDomain) -> Result<Rc<RefCell<Self>>> {
@@ -348,6 +355,7 @@ impl OwnerValues {
             dispatcher_context: None,
             heap,
             data,
+            arguments: None,
             schema,
             frames: BTreeMap::new(),
             future_frames: BTreeMap::new(),
@@ -756,6 +764,7 @@ impl OwnerValues {
             .chain(self.results.values())
             .copied()
             .chain(self.userdata_roots.live())
+            .chain(self.arguments.as_ref().and_then(|args| args.root()))
             .collect::<Vec<_>>();
         checked(self.data.retain_roots(&mut self.heap, live))?;
         let report = self
@@ -978,6 +987,7 @@ impl OwnerValues {
         frame: &Frame,
         operation: &rinzu_compiler::Operation,
         root_frame: u64,
+        poll: &mut impl FnMut() -> Option<FailureCause>,
     ) -> Result<Option<Value>> {
         let get = |id: ValueId| {
             frame
@@ -1220,9 +1230,40 @@ impl OwnerValues {
                     .zip(&types)
                     .map(|(id, ty)| self.slot(*ty, get(*id)?))
                     .collect::<Result<Vec<_>>>()?;
-                let outcome = self
-                    .data
-                    .operation(&mut self.heap, *kind, result, &types, &slots);
+                let outcome = if *kind == rinzu_compiler::DataOperation::ProcessArguments {
+                    self.arguments
+                        .as_mut()
+                        .ok_or_else(|| anyhow!("program arguments require Main"))?
+                        .snapshot(&mut self.data, &mut self.heap, result)
+                } else if kind.is_json() {
+                    #[cfg(unix)]
+                    {
+                        let schema = self
+                            .schema
+                            .json
+                            .as_ref()
+                            .ok_or_else(|| anyhow!("missing JSON schema"))?;
+                        self.data.json_operation(
+                            &mut self.heap,
+                            schema,
+                            rinzu_runtime::data::JsonCall {
+                                operation: *kind,
+                                result,
+                                types: &types,
+                                slots: &slots,
+                            },
+                            poll,
+                        )
+                    }
+                    #[cfg(not(unix))]
+                    {
+                        let _ = poll;
+                        Err(DataError::InvalidEncoding)
+                    }
+                } else {
+                    self.data
+                        .operation(&mut self.heap, *kind, result, &types, &slots)
+                };
                 let slot = match outcome {
                     Err(DataError::Panic(message)) => {
                         let native = self
@@ -1244,6 +1285,17 @@ impl OwnerValues {
                     Err(DataError::Thrown(value)) => {
                         let handle = checked(self.data.create_error_value(&mut self.heap, &value))?;
                         return Err(self.thrown_error(frame, operation, handle)?);
+                    }
+                    Err(DataError::ManagedThrown(handle)) => {
+                        return Err(self.thrown_error(frame, operation, handle)?);
+                    }
+                    Err(DataError::Interrupted(cause)) => {
+                        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+                        self.note_shutdown_request();
+                        return Err(crate::source_failure::ManagedFailure(Failure::new(
+                            frame.failure.diagnostic(cause, operation.range),
+                        ))
+                        .into());
                     }
                     Err(DataError::CollectionOverflow {
                         operation: kind,
@@ -1532,6 +1584,7 @@ impl Frame {
     pub(super) fn data_operation(
         &self,
         operation: &rinzu_compiler::Operation,
+        mut poll: impl FnMut() -> Option<FailureCause>,
     ) -> Result<Option<Value>> {
         self.data_roots
             .as_ref()
@@ -1539,7 +1592,7 @@ impl Frame {
                 roots
                     .owner
                     .borrow_mut()
-                    .operation(self, operation, roots.identity)
+                    .operation(self, operation, roots.identity, &mut poll)
             })
             .transpose()
             .map(Option::flatten)

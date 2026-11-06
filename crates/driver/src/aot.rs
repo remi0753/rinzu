@@ -6,7 +6,7 @@ use std::process::Command;
 use rinzu_codegen::{
     AotFunctionMetadata, BaselineAotObject, BaselineFailure, BaselineOptions, LoadedNativePackages,
     emit_baseline_aot_object_with_native_bindings, emit_source_async_aot_object,
-    run_baseline_jit_with_options, run_baseline_jit_with_package_bindings,
+    run_baseline_jit_with_arguments,
 };
 use rinzu_trace::TraceDocument;
 use serde_json::json;
@@ -77,12 +77,13 @@ pub fn verify_equivalence_with_options(
         &crate::input::Options::default(),
         &rinzu_compiler::NativeCliInputs::default(),
     )?;
-    verify_checked_input(&context, options)
+    verify_checked_input(&context, options, &[])
 }
 
 pub(crate) fn verify_checked_input(
     context: &rinzu_compiler::CompilationContext,
     options: BaselineOptions,
+    program_arguments: &[std::ffi::OsString],
 ) -> Result<EquivalenceReport, String> {
     let manifest = &context.metadata;
     let artifact = &context.artifact;
@@ -97,6 +98,7 @@ pub(crate) fn verify_checked_input(
             options.cancel_after_polls,
             None,
             options.shutdown_after_polls,
+            program_arguments,
         );
     }
     let options = BaselineOptions {
@@ -113,22 +115,24 @@ pub(crate) fn verify_checked_input(
             .sdk_packages
             .iter()
             .any(|package| package.source.is_some());
+    let arguments = crate::argument_bytes(program_arguments);
     let jit = if has_native_artifacts || has_source_packages || !artifact.native_inputs.is_empty() {
         let built = crate::input::build_native(context)?;
         let loaded = LoadedNativePackages::load(&built.artifacts)
             .map_err(|error| format!("load JIT native packages: {error:#}"))?;
-        let result = run_baseline_jit_with_package_bindings(
+        let result = run_baseline_jit_with_arguments(
             &artifact.ir,
             "main",
             options,
             Some(loaded),
             Some(built.load_source_packages()?),
+            arguments,
         )
         .map_err(|error| format!("execute JIT equivalence side: {error:#}"));
         let _ = fs::remove_dir_all(built.directory);
         result?
     } else {
-        run_baseline_jit_with_options(&artifact.ir, "main", options)
+        run_baseline_jit_with_arguments(&artifact.ir, "main", options, None, None, arguments)
             .map_err(|error| format!("execute JIT equivalence side: {error:#}"))?
     };
     let directory = crate::verify_capture::TemporaryDirectory::new("equivalence")?;
@@ -147,6 +151,7 @@ pub(crate) fn verify_checked_input(
         return Err("JIT/AOT diagnostic source file identities differ".into());
     }
     let mut command = Command::new(&build.executable);
+    command.args(program_arguments);
     crate::verify_capture::configure_aot(&mut command);
     if options.capture_error_trace {
         command.env("RINZU_ERROR_TRACE", "1");
@@ -230,13 +235,14 @@ pub(crate) fn verify_checked_input(
 pub(crate) fn verify_worker_cancel_checked(
     context: &rinzu_compiler::CompilationContext,
     after_polls: usize,
+    program_arguments: &[std::ffi::OsString],
 ) -> Result<EquivalenceReport, String> {
     let manifest = &context.metadata;
     let artifact = &context.artifact;
     if manifest.language == "0.1" || !main_uses_source_async(artifact) {
         return Err("Worker cancellation equivalence requires a v0.2 source async main".into());
     }
-    verify_source_async_equivalence(context, None, Some(after_polls), None)
+    verify_source_async_equivalence(context, None, Some(after_polls), None, program_arguments)
 }
 
 fn verify_source_async_equivalence(
@@ -244,6 +250,7 @@ fn verify_source_async_equivalence(
     cancel_after_polls: Option<usize>,
     cancel_worker_after_polls: Option<usize>,
     shutdown_after_polls: Option<usize>,
+    program_arguments: &[std::ffi::OsString],
 ) -> Result<EquivalenceReport, String> {
     let manifest = &context.metadata;
     let artifact = &context.artifact;
@@ -267,6 +274,7 @@ fn verify_source_async_equivalence(
     options.cancel_worker_after_polls = cancel_worker_after_polls;
     options.record_transport_evidence = true;
     options.capture_stdout = !crate::verify_capture::active();
+    options.arguments = crate::argument_bytes(program_arguments);
     let built = if has_native_artifacts || has_source_packages || !artifact.native_inputs.is_empty()
     {
         let built = crate::input::build_native(context)?;
@@ -288,6 +296,7 @@ fn verify_source_async_equivalence(
     let directory = crate::verify_capture::TemporaryDirectory::new("async-equivalence")?;
     let build = crate::verify_capture::build_aot(context, directory.0.join("program"))?;
     let mut command = Command::new(&build.executable);
+    command.args(program_arguments);
     crate::verify_capture::configure_aot(&mut command);
     command
         .env_remove("RINZU_CANCEL_AFTER_POLLS")
@@ -2160,6 +2169,10 @@ fn runtime_shim(
     append_dispatch_cases(&mut source, &aot.functions);
     source.push_str("    default: return 0;\n  }\n}\n\n");
     source.push_str(include_str!("aot_collections.c"));
+    source.push_str(include_str!("aot_arguments.c"));
+    if aot.uses_json {
+        source.push_str(include_str!("aot_json.c"));
+    }
     source.push_str(include_str!("aot_data.c"));
     source.push_str(include_str!("aot_stdio.c"));
     source.push_str(include_str!("aot_errors.c"));
@@ -2229,11 +2242,16 @@ fn runtime_shim(
         ));
     }
     source = source.replace("int main(void) {", "int main(int argc, char **argv) {");
-    source = source.replace("int main(int argc, char **argv) {", "int main(int argc, char **argv) {\n  (void)argv;\n  if (argc > 1) { fputs(\"rinzu: program arguments are not supported in this language revision\\n\", stderr); return 1; }");
-    source = source.replace(
-        "int main(void) {",
-        "int main(void) {\n  rinzu_standalone_interrupt_normalize();\n  if (rinzu_resource_report_from_env()) return 1;\n  rinzu_aot_source_native_startup();",
-    );
+    if async_plan.is_none() {
+        source = source.replace(
+            "RinzuContext context = {0};",
+            "RinzuContext context = {0}; context.data.program_argc = argc; context.data.program_argv = argv;",
+        );
+        source = source.replace(
+            "rinzu_baseline_leave_dispatch(&context);",
+            "rinzu_baseline_leave_dispatch(&context); context.data.program_arguments = 0;",
+        );
+    }
     source = source.replace(
         "int main(int argc, char **argv) {",
         "int main(int argc, char **argv) {\n  rinzu_standalone_interrupt_normalize();\n  if (rinzu_resource_report_from_env()) return 1;\n  rinzu_aot_source_native_startup();",
@@ -2356,7 +2374,8 @@ static void rinzu_worker_run_{index}(rinzu_async_future_t *future) {{
     source.push_str(&format!(r#"
 int main(int argc, char **argv) {{
   rinzu_report_begin();
-  (void)argc; RinzuContext context = {{0}}; RinzuAsyncState async = {{0}};
+  RinzuContext context = {{0}}; RinzuAsyncState async = {{0}};
+  context.data.program_argc = argc; context.data.program_argv = argv;
   rinzu_async_init(&async.runtime); async.executable = argv[0]; context.async = &async; async.root = &context;
   async.runtime.admission_hook = rinzu_aot_async_admission; async.runtime.admission_context = &async;
   async.runtime.record_evidence = getenv("RINZU_TRANSPORT_EVIDENCE") != NULL;
@@ -2391,6 +2410,7 @@ int main(int argc, char **argv) {{
   context.data.future_context=NULL;context.data.future_begin=NULL;context.data.future_mark=NULL;context.data.future_sweep=NULL;context.data.future_due=NULL;
   rinzu_async_dispose(&async.runtime);
   rinzu_child_dispose(&async.children);
+  context.data.program_arguments = 0;
   rinzu_failure_forget_managed(&context.pending.current);
   rinzu_managed_collect(&context.data, &context.roots);
   rinzu_owner_transition_finish(rinzu_context_transitions(&context));

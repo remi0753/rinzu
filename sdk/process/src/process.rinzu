@@ -1,5 +1,31 @@
 import rinzu.option;
 
+error InvalidArgumentEncoding {
+    payload: { index: Int, byteOffset: Int }
+}
+
+enum ArgumentSnapshot {
+    Ready(value: List<String>),
+    Invalid(index: Int, byteOffset: Int)
+}
+
+fn arguments() -> List<String> throws InvalidArgumentEncoding {
+    switch argumentSnapshot() {
+        case ArgumentSnapshot.Ready(values): {
+            return values;
+        }
+        case ArgumentSnapshot.Invalid(index, offset): {
+            throw InvalidArgumentEncoding(
+                message: "process argument is not valid UTF-8",
+                payload: { index = index, byteOffset = offset }
+            );
+        }
+    }
+}
+
+export arguments;
+export InvalidArgumentEncoding;
+
 native {
     fn rawRead(name: String) -> Int symbol "rinzu_process_environment_read";
 

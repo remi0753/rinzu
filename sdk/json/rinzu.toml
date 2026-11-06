@@ -1,0 +1,5 @@
+[package]
+name = "rinzu.json"
+language = "0.5"
+kind = "sdk"
+entry = "src/json.rinzu"

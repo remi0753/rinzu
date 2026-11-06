@@ -294,6 +294,8 @@ impl Records {
             .arg(package)
             .arg("--diagnostic-report")
             .arg(directory.join("report.json"))
+            .arg("--")
+            .args(&options.program_arguments)
             .env("RINZU_DEV_NONCE", &nonce)
             .env("RINZU_DEV_SIGNAL_STATUS", directory.join("signals.json"));
         if options.null_stdin {

@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::ffi::OsString;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -18,6 +19,7 @@ pub struct DevOptions {
     pub shutdown_timeout: Duration,
     pub force_on_timeout: bool,
     pub null_stdin: bool,
+    pub program_arguments: Vec<OsString>,
 }
 
 pub fn parse(arguments: impl Iterator<Item = String>) -> Result<(PathBuf, DevOptions), String> {
@@ -31,6 +33,7 @@ pub fn parse(arguments: impl Iterator<Item = String>) -> Result<(PathBuf, DevOpt
         shutdown_timeout: Duration::from_millis(5000),
         force_on_timeout: false,
         null_stdin: false,
+        program_arguments: Vec::new(),
     };
     while let Some(argument) = arguments.next() {
         if argument.starts_with("--") && !seen.insert(argument.clone()) {
@@ -211,7 +214,7 @@ pub fn run_dev(package: PathBuf, options: DevOptions) -> Result<(), String> {
     let mut watcher = PackageWatcher::new(&package)?;
     let initial = watcher.scan()?;
     print_invalidation(&initial);
-    let mut child = start_child(&package)?;
+    let mut child = start_child(&package, &options)?;
     loop {
         if interrupts() > 0 {
             child.force()?;
@@ -238,14 +241,21 @@ pub fn run_dev(package: PathBuf, options: DevOptions) -> Result<(), String> {
         }
         print_invalidation(&invalidation);
         child.force()?;
-        child = start_child(&package)?;
+        child = start_child(&package, &options)?;
     }
 }
 
-fn start_child(package: &Path) -> Result<OwnedChild, String> {
+fn start_child(package: &Path, options: &DevOptions) -> Result<OwnedChild, String> {
     let executable = std::env::current_exe()
         .map_err(|error| format!("locate rinzu development runner: {error}"))?;
-    let child = OwnedChild::spawn(Command::new(executable).arg("run").arg(package), false)?;
+    let child = OwnedChild::spawn(
+        Command::new(executable)
+            .arg("run")
+            .arg(package)
+            .arg("--")
+            .args(&options.program_arguments),
+        false,
+    )?;
     eprintln!("dev started immediate pid={}", child.pid());
     Ok(child)
 }

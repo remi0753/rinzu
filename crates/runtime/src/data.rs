@@ -89,12 +89,18 @@ mod packed_read_tests {
     }
 }
 
+mod arguments;
+pub use arguments::ProgramArguments;
 mod bytes_operations;
 mod collections;
 mod composite;
 pub mod display;
 mod error_operations;
 mod future_references;
+#[cfg(unix)]
+mod json;
+#[cfg(unix)]
+pub use json::JsonCall;
 mod managed_error;
 pub use managed_error::ManagedError;
 mod error_source;
@@ -194,6 +200,8 @@ enum DataKind {
 pub enum DataError {
     /// A normal language Error returned by a checked intrinsic.
     Thrown(crate::error_value::ErrorValue),
+    ManagedThrown(ManagedHandle),
+    Interrupted(crate::failure::FailureCause),
     CollectionOverflow {
         operation: rinzu_abi::data_operation::DataOperation,
         current: i64,

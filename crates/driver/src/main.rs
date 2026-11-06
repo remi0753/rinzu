@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::env;
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -97,7 +98,7 @@ mod verify_capture;
 
 fn main() -> ExitCode {
     rinzu_runtime::standalone::initialize_interrupt();
-    match run(env::args().skip(1)) {
+    match run(env::args_os().skip(1)) {
         Ok(()) => PROGRAM_EXIT_STATUS.with(|status| ExitCode::from(status.get())),
         Err(message) => {
             eprintln!("rinzu: {message}");
@@ -106,11 +107,36 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
+fn cli_text(argument: OsString) -> Result<String, String> {
+    argument
+        .into_string()
+        .map_err(|_| "command and option arguments must be UTF-8".into())
+}
+
+fn argument_bytes(arguments: &[OsString]) -> Vec<Vec<u8>> {
+    arguments
+        .iter()
+        .map(|value| value.as_encoded_bytes().to_vec())
+        .collect()
+}
+
+fn run(mut arguments: impl Iterator<Item = OsString>) -> Result<(), String> {
     let _timing = rinzu_compiler::timing::span("driver.command");
-    match arguments.next().as_deref() {
+    let command = arguments.next().map(cli_text).transpose()?;
+    let accepts_program_arguments = matches!(
+        command.as_deref(),
+        Some("run" | "verify-aot" | "dev" | "__verify-aot-worker")
+    );
+    let options: Vec<_> = arguments
+        .by_ref()
+        .take_while(|argument| !accepts_program_arguments || argument != "--")
+        .map(cli_text)
+        .collect::<Result<_, _>>()?;
+    let program_arguments: Vec<_> = arguments.collect();
+    let mut arguments = options.into_iter();
+    match command.as_deref() {
         Some("__test-worker") => package_tests::worker(arguments),
-        Some("__verify-aot-worker") => verify_capture::worker(arguments),
+        Some("__verify-aot-worker") => verify_capture::worker(arguments, &program_arguments),
         Some("__verify-aot-build") => verify_capture::build_worker(arguments),
         Some("--version" | "-V") => {
             println!("rinzu {}", env!("CARGO_PKG_VERSION"));
@@ -194,6 +220,7 @@ fn run(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
                     parsed.resource_report.as_ref(),
                     report,
                     &parsed.input,
+                    &program_arguments,
                 );
             }
             PROGRAM_EXIT_STATUS.with(|status| status.set(0));
@@ -206,6 +233,7 @@ fn run(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
                 &context.artifact,
                 parsed.trace,
                 parsed.resource_report.as_ref(),
+                &program_arguments,
             )
         }
         Some("bundle") => macos_bundle::run(arguments),
@@ -311,15 +339,6 @@ fn run(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
                             _ => unreachable!(),
                         }
                     }
-                    "--" => {
-                        if arguments.next().is_some() {
-                            return Err(
-                                "program arguments are not supported in this language revision"
-                                    .into(),
-                            );
-                        }
-                        break;
-                    }
                     "--cancel-after-polls" => {
                         options.cancel_after_polls =
                             Some(parse_limit(arguments.next(), "--cancel-after-polls")?);
@@ -373,6 +392,7 @@ fn run(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
                 &native,
                 options,
                 cancel_worker_after_polls,
+                &program_arguments,
             )?;
             println!(
                 "JIT/AOT equivalent: result={}, outcome={}, resume-domain=main, resources=baseline, shutdown=complete",
@@ -439,7 +459,8 @@ fn run(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
             Ok(())
         }
         Some("dev") => {
-            let (path, options) = dev::parse(arguments)?;
+            let (path, mut options) = dev::parse(arguments)?;
+            options.program_arguments = program_arguments;
             dev::run_dev(path, options)
         }
         Some("release") => {
@@ -469,7 +490,7 @@ fn run(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
         }
         Some("help" | "--help" | "-h") | None => {
             println!(
-                "Rinzu toolchain\n\nCommands:\n  editor --stdio [workspace-path] (versioned JSON lines)\n  fmt <file|directory>... [--check | --write] (use - for stdin)\n  check [file|directory] [input options] [native inputs]\n  run [file|directory] [input options] [--trace] [--diagnostic-report file] [resource options] [native inputs]\n  diagnose report.json [--resources file] [--native-log file] [--trace file] [--exit-record file] [--format text|json]\n  test [path] [resource options] [native inputs] (run test package main)\n  test [path] --unit [--doc file] [--list] [--filter text] [--format text|json] [--timeout-ms n]\n  test [path] --doc file (explicit rinzu-test blocks)\n  resource options: --resource-report file, --resource-interval-ms n (default 100; 0=start/end)\n  build [file|directory] [input options] [--output file] [native inputs]\n  bundle [package] [--config macos-app.json] [--output path.app] [native inputs]\n  bundle-verify path.app (inventory + code-signature integrity)\n  lock [path] [--check] [native inputs]\n  api [SDK path] [--output file] [--compare previous.json] [--markdown file] [native inputs]\n  input options: --language 0.5 (file only), --target host-target\n  file mode: standard/local imports, ordinary native modules and async standard libraries; no manifest needed\n  native inputs (file/package, macOS arm64): -L path, -l name, --native-object path\n  optional ABI headers (file/package): --native-header path; no header required\n  native scope: empty by default; System symbols require explicit -lSystem; -L/headers do not grant access\n  native validation: unresolved/duplicate/target/header mismatch rejected; no guarantee for wrong ABI/native faults\n  AOT distribution: move executable with .source-packages/.resources/native artifacts; custom dylibs bundled; System OS UUID must match\n  migration: rebuild source-package 2.6; SDK cache v4; refresh package locks explicitly\n  verify-aot [file|directory] [input options] [native inputs] [--cancel-after-polls n | --cancel-worker-after-polls n | --max-allocations n | --shutdown-after-polls n]\n  extra program arguments are unsupported; main has no parameters\n  package-only commands below and test/lock/api/editor workspace require a directory; editor initialize.entry selects a file\n  verify-appkit [path] [--output bundle]\n  verify-async [path]\n  dev [path] [--once] [--poll-ms n]\n  dev [path] --restart cooperative [--shutdown-timeout-ms n] [--on-timeout force] [--stdin null]\n  release [path] [--output directory]\n  toolchain-bundle --output directory (bin/rinzu + share/rinzu)\n  standard imports: core/list/map/option/stdio/timer/io/process/stream/testing/shutdown/http/httpcodec/socket; no SDK path needed\n  doctor\n  run-empty\n  --version"
+                "Rinzu toolchain\n\nCommands:\n  editor --stdio [workspace-path] (versioned JSON lines)\n  fmt <file|directory>... [--check | --write] (use - for stdin)\n  check [file|directory] [input options] [native inputs]\n  run [file|directory] [input options] [--trace] [--diagnostic-report file] [resource options] [native inputs] [-- args...]\n  diagnose report.json [--resources file] [--native-log file] [--trace file] [--exit-record file] [--format text|json]\n  test [path] [resource options] [native inputs] (run test package main)\n  test [path] --unit [--doc file] [--list] [--filter text] [--format text|json] [--timeout-ms n]\n  test [path] --doc file (explicit rinzu-test blocks)\n  resource options: --resource-report file, --resource-interval-ms n (default 100; 0=start/end)\n  build [file|directory] [input options] [--output file] [native inputs]\n  bundle [package] [--config macos-app.json] [--output path.app] [native inputs]\n  bundle-verify path.app (inventory + code-signature integrity)\n  lock [path] [--check] [native inputs]\n  api [SDK path] [--output file] [--compare previous.json] [--markdown file] [native inputs]\n  input options: --language 0.5 (file only), --target host-target\n  file mode: standard/local imports, ordinary native modules and async standard libraries; no manifest needed\n  native inputs (file/package, macOS arm64): -L path, -l name, --native-object path\n  optional ABI headers (file/package): --native-header path; no header required\n  native scope: empty by default; System symbols require explicit -lSystem; -L/headers do not grant access\n  native validation: unresolved/duplicate/target/header mismatch rejected; no guarantee for wrong ABI/native faults\n  AOT distribution: move executable with .source-packages/.resources/native artifacts; custom dylibs bundled; System OS UUID must match\n  migration: rebuild source-package 2.6; SDK cache v4; refresh package locks explicitly\n  verify-aot [file|directory] [input options] [native inputs] [--cancel-after-polls n | --cancel-worker-after-polls n | --max-allocations n | --shutdown-after-polls n] [-- args...]\n  package-only commands below and test/lock/api/editor workspace require a directory; editor initialize.entry selects a file\n  verify-appkit [path] [--output bundle]\n  verify-async [path]\n  dev [path] [--once] [--poll-ms n] [-- args...]\n  dev [path] --restart cooperative [--shutdown-timeout-ms n] [--on-timeout force] [--stdin null] [-- args...]\n  release [path] [--output directory]\n  toolchain-bundle --output directory (bin/rinzu + share/rinzu)\n  standard imports: core/list/map/option/stdio/timer/io/process/json/stream/testing/shutdown/http/httpcodec/socket; no SDK path needed\n  doctor\n  run-empty\n  --version"
             );
             Ok(())
         }
@@ -503,7 +524,7 @@ fn run_package_with_native_inputs(
             return Err("package failed to compile".into());
         }
     };
-    run_checked_package(&manifest, &artifact, show_trace, resource_config)
+    run_checked_package(&manifest, &artifact, show_trace, resource_config, &[])
 }
 
 fn run_checked_package(
@@ -511,6 +532,7 @@ fn run_checked_package(
     artifact: &rinzu_compiler::FrontendArtifact,
     show_trace: bool,
     resource_config: Option<&rinzu_runtime::resource_report::Config>,
+    program_arguments: &[OsString],
 ) -> Result<(), String> {
     let uses_c =
         aot::main_uses_source_async(artifact) && !artifact.ir.source_native_signatures.is_empty();
@@ -528,7 +550,14 @@ fn run_checked_package(
     } else {
         None
     };
-    let outcome = run_package_engines(manifest, artifact, show_trace, resource_config, &mut report);
+    let outcome = run_package_engines(
+        manifest,
+        artifact,
+        show_trace,
+        resource_config,
+        &mut report,
+        program_arguments,
+    );
     if let Some(report) = report {
         report
             .finish()
@@ -543,6 +572,7 @@ fn run_package_engines(
     show_trace: bool,
     resource_config: Option<&rinzu_runtime::resource_report::Config>,
     report: &mut Option<rinzu_runtime::resource_report::Session>,
+    program_arguments: &[OsString],
 ) -> Result<(), String> {
     let main_facts = artifact
         .checked
@@ -583,13 +613,13 @@ fn run_package_engines(
     if source_async {
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         if !artifact.ir.source_native_signatures.is_empty() {
-            let execution = if show_trace {
-                compiled_async::run_with_observation(manifest, artifact, resource_config, true)?
-            } else if resource_config.is_some() {
-                compiled_async::run_with_resource_report(manifest, artifact, resource_config)?
-            } else {
-                compiled_async::run(manifest, artifact, None, None, false)?
-            };
+            let execution = compiled_async::run_with_observation(
+                manifest,
+                artifact,
+                resource_config,
+                show_trace,
+                program_arguments,
+            )?;
             diagnostics::observe_compiled(&execution);
             if !execution.retired
                 || execution.rwx_mappings != 0
@@ -650,6 +680,7 @@ fn run_package_engines(
             &artifact.sdk_packages,
         )
         .map_err(|error| format!("configure source async runtime: {error:#}"))?;
+        options.arguments = argument_bytes(program_arguments);
         let built =
             if has_native_artifacts || has_source_packages || !artifact.native_inputs.is_empty() {
                 let built = native_package::build_artifact(manifest, artifact)?;
@@ -710,6 +741,8 @@ fn run_package_engines(
         eprintln!("exit status: {}", execution.exit_status);
         return Ok(());
     }
+    let arguments = argument_bytes(program_arguments);
+    let options = rinzu_codegen::BaselineOptions::default();
     let execution =
         if has_native_artifacts || has_source_packages || !artifact.native_inputs.is_empty() {
             let built = native_package::build_artifact(manifest, artifact)?;
@@ -720,19 +753,27 @@ fn run_package_engines(
             )?;
             let loaded = rinzu_codegen::LoadedNativePackages::load(&built.artifacts)
                 .map_err(|error| format!("load native SDK packages: {error:#}"))?;
-            let execution = rinzu_codegen::run_baseline_jit_with_package_bindings(
+            let execution = rinzu_codegen::run_baseline_jit_with_arguments(
                 &artifact.ir,
                 "main",
-                rinzu_codegen::BaselineOptions::default(),
+                options,
                 Some(loaded),
                 Some(built.load_source_packages()?),
+                arguments,
             )
             .map_err(|error| format!("baseline native-package JIT failed: {error:#}"));
             let _ = std::fs::remove_dir_all(&built.directory);
             execution?
         } else {
-            rinzu_codegen::run_baseline_jit(&artifact.ir, "main")
-                .map_err(|error| format!("baseline JIT failed: {error:#}"))?
+            rinzu_codegen::run_baseline_jit_with_arguments(
+                &artifact.ir,
+                "main",
+                options,
+                None,
+                None,
+                arguments,
+            )
+            .map_err(|error| format!("baseline JIT failed: {error:#}"))?
         };
     eprintln!("ran {} with baseline JIT", manifest.name);
     package_tests::observe_baseline(&execution);

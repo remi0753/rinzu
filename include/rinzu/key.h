@@ -9,11 +9,15 @@ typedef struct {
 } rinzu_key_hasher_t;
 /* Validation and scalar count share one pass. SIZE_MAX is the invalid sentinel;
    managed payload lengths exclude it, including for an empty String. */
-static inline size_t rinzu_utf8_scalar_length(const unsigned char *bytes, size_t length) {
+static inline size_t rinzu_utf8_scalar_length_at(const unsigned char *bytes, size_t length,
+                                                  size_t *invalid_at) {
+  if (invalid_at)
+    *invalid_at = 0;
   if (length == SIZE_MAX || (length && !bytes))
     return SIZE_MAX;
   size_t scalars = 0;
   for (size_t index = 0; index < length;) {
+    size_t start = index;
     unsigned first = bytes[index++];
     scalars++;
     if (first < 0x80)
@@ -22,6 +26,8 @@ static inline size_t rinzu_utf8_scalar_length(const unsigned char *bytes, size_t
         first >= 0xc2 && first <= 0xdf
             ? 1
             : (first >= 0xe0 && first <= 0xef ? 2 : (first >= 0xf0 && first <= 0xf4 ? 3 : 0));
+    if (invalid_at)
+      *invalid_at = start;
     if (!tail || tail > length - index)
       return SIZE_MAX;
     unsigned second = bytes[index];
@@ -35,6 +41,9 @@ static inline size_t rinzu_utf8_scalar_length(const unsigned char *bytes, size_t
     }
   }
   return scalars;
+}
+static inline size_t rinzu_utf8_scalar_length(const unsigned char *bytes, size_t length) {
+  return rinzu_utf8_scalar_length_at(bytes, length, NULL);
 }
 static inline int rinzu_utf8_valid(const unsigned char *bytes, size_t length) {
   return rinzu_utf8_scalar_length(bytes, length) != SIZE_MAX;
