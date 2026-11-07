@@ -20,7 +20,7 @@ fn check(condition: Bool, label: String) nothrow {
 
 error Absent {}
 
-fn need<T>(value: Option<T>) -> T throws Absent {
+fn need<T>(value: Option<T>) throws(Absent) -> T {
     switch value {
         case Option.Some(item): {
             return item;

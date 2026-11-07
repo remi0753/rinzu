@@ -9,7 +9,7 @@ enum ArgumentSnapshot {
     Invalid(index: Int, byteOffset: Int)
 }
 
-fn arguments() -> List<String> throws InvalidArgumentEncoding {
+fn arguments() throws(InvalidArgumentEncoding) -> List<String> {
     switch argumentSnapshot() {
         case ArgumentSnapshot.Ready(values): {
             return values;

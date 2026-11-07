@@ -198,6 +198,7 @@ pub(crate) fn type_ref(ty: &Type, range: crate::SourceRange) -> crate::ast::Type
                     .map(|p| type_ref(p, range))
                     .collect(),
                 result: Box::new(type_ref(&signature.result, range)),
+                error_contract: signature.contract(range),
             },
             _ => TypeRefKind::Named(vec![ty.to_string()]),
         },
@@ -220,6 +221,7 @@ pub(crate) fn reference_signature(name: &str) -> Option<FunctionReferenceType> {
         }
     };
     Some(FunctionReferenceType {
+        error_bound: None,
         parameters: vec![parameter],
         result: Box::new(Type::from_scalar(AbiScalar::U64)),
         supplant: false,

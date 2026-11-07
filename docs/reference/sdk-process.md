@@ -2,7 +2,7 @@
 
 Generated from checked public exports and captured source comments.
 
-Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r81`.
+Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r82`.
 
 ## rinzu.process.InvalidArgumentEncoding
 
@@ -24,19 +24,19 @@ payload: { index: Int, byteOffset: Int }
 
 Checked type: `fn()->List<String>`.
 
-Error contract: `throws InvalidArgumentEncoding` (declared).
+Error contract: `throws(InvalidArgumentEncoding)` (declared).
 
 function · [source](../../sdk/process/src/process.rinzu#L12).
 
 ```rinzu
-fn arguments() -> List<String> throws InvalidArgumentEncoding
+fn arguments() throws(InvalidArgumentEncoding) -> List<String>
 ```
 
 ## rinzu.process.environment
 
 Checked type: `fn(String)->Option<String>`.
 
-Error contract: `throws Error` (inferred).
+Error contract: `throws(Error)` (inferred).
 
 function · [source](../../sdk/process/src/process.rinzu#L39).
 
@@ -58,7 +58,7 @@ fn identifier() -> Int symbol "rinzu_process_identifier";
 
 Checked type: `fn(String,Int,Int,Int)->Int`.
 
-Error contract: `throws Error` (inferred).
+Error contract: `throws(Error)` (inferred).
 
 function · [source](../../sdk/process/src/process.rinzu#L76).
 
@@ -82,7 +82,7 @@ fn setExitStatus(status: Int) -> Bool
 
 Checked type: `fn(String,String)->String`.
 
-Error contract: `throws Error` (inferred).
+Error contract: `throws(Error)` (inferred).
 
 function · [source](../../sdk/process/src/process.rinzu#L67).
 
@@ -94,7 +94,7 @@ fn setting(name: String, defaultValue: String) -> String
 
 Checked type: `fn(String)->Int`.
 
-Error contract: `throws Error` (inferred).
+Error contract: `throws(Error)` (inferred).
 
 function · [source](../../sdk/process/src/process.rinzu#L104).
 

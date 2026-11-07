@@ -6,13 +6,13 @@ An interface declares public instance-method requirements. A nominal class or en
 error ReadFailed {}
 
 interface Reader {
-    fn read(self: Self) -> String throws ReadFailed;
+    fn read(self: Self) throws(ReadFailed) -> String;
 }
 
 class MemoryReader interface Reader {
     const text: String
 
-    fn read(self: MemoryReader) -> String nothrow {
+    fn read(self: MemoryReader) nothrow -> String {
         return self.text;
     }
 }
@@ -21,7 +21,7 @@ enum Input interface Reader {
     Empty,
     Text(text: String),
 
-    fn read(self: Input) -> String nothrow {
+    fn read(self: Input) nothrow -> String {
         switch self {
             case Input.Empty: { return ""; }
             case Input.Text(text): { return text; }
@@ -29,7 +29,7 @@ enum Input interface Reader {
     }
 }
 
-fn read<R interface Reader>(reader: R) -> String throws ReadFailed {
+fn read<R interface Reader>(reader: R) throws(ReadFailed) -> String {
     return reader.read();
 }
 
@@ -49,28 +49,28 @@ fn main() nothrow {
 }
 ```
 
-The compiler checks every required method's visibility, parameter and result types, and sync/async kind. The implementation must permit no more ordinary Errors than the interface. A narrower bound, including nothrow, is allowed; an implementation without an annotation uses inference. Interface requirements must explicitly use `throws E1, E2`, `throws Error`, or `nothrow` and end with a semicolon.
+The compiler checks every required method's visibility, parameter and result types, and sync/async kind. The implementation must permit no more ordinary Errors than the interface. A narrower bound, including `nothrow`, is allowed. An implementation without an annotation uses inference. Interface requirements put an explicit `throws(E1, E2)`, `throws(Error)`, or `nothrow` after the parameter list and end with a semicolon.
 
 The direct `memory.read()` uses MemoryReader.read's nothrow contract. The constrained call in generic `read` uses Reader.read's declared ReadFailed bound even after specialization for MemoryReader. The generic implementation can recover that Error or propagate it through an explicit or inferred contract. A throws declaration never requires an actual failure path.
 
 ## Self and type parameters
 
-`Self` denotes the complete implementing type. It can occur in the receiver, other parameters, results and nested types. For `Box<T>`, Self becomes `Box<T>`; for a Copyable Counter, `fn copy(self: Self) -> Self nothrow;` requires `fn copy(self: Counter) -> Counter nothrow`. Self is available in interface signatures, not as a new shorthand inside class definitions.
+`Self` denotes the complete implementing type. It can occur in the receiver, other parameters, results and nested types. For `Box<T>`, Self becomes `Box<T>`; for a Copyable Counter, `fn copy(self: Self) nothrow -> Self;` requires `fn copy(self: Counter) nothrow -> Counter`. Self is available in interface signatures, not as a new shorthand inside class definitions.
 
 ```rinzu
 interface Getter<T> {
-    fn get(self: Self) -> T nothrow;
+    fn get(self: Self) nothrow -> T;
 }
 
 class Box<T> interface Getter<T> {
     const value: T
 
-    fn get(self: Box<T>) -> T nothrow {
+    fn get(self: Box<T>) nothrow -> T {
         return self.value;
     }
 }
 
-fn unbox<T, B interface Getter<T>>(box: B, otherwise: T) -> T nothrow {
+fn unbox<T, B interface Getter<T>>(box: B, otherwise: T) nothrow -> T {
     return box.get();
 }
 ```

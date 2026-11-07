@@ -104,12 +104,20 @@ pub(crate) fn ty(t: &mut TypeRef, v: &mut impl Visitor) {
             ty(val, v);
         }
         TypeRefKind::Function {
-            parameters, result, ..
+            parameters,
+            result,
+            error_contract,
+            ..
         } => {
             for p in parameters {
                 ty(p, v);
             }
             ty(result, v);
+            if let Some(contract) = error_contract {
+                for value in &mut contract.types {
+                    ty(value, v);
+                }
+            }
         }
         TypeRefKind::Bytes(e) => expression(e, v),
         TypeRefKind::Named(_) | TypeRefKind::ConcreteBytes(_) => {}

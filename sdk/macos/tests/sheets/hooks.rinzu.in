@@ -5,12 +5,12 @@ native {
     fn rawTestSheetVisible(window: WindowHandle) -> CInt symbol "rinzu_macos_test_sheet_visible";
 }
 
-fn testSheetReply(window: Window, choice: Int, path: String) -> Int throws Error {
+fn testSheetReply(window: Window, choice: Int, path: String) throws(Error) -> Int {
     let bytes = utf8Encode(path);
     return checked(Int(rawTestSheetReply(window.handle, CInt(choice), bytes, byteLength(bytes))), "test.sheet.reply");
 }
 
-fn testSheetVisible(window: Window) -> Bool nothrow {
+fn testSheetVisible(window: Window) nothrow -> Bool {
     return rawTestSheetVisible(window.handle) != 0;
 }
 

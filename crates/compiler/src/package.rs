@@ -180,7 +180,7 @@ pub(crate) fn check_file_with_sources(
             values: BTreeMap::new(),
             module_graph: own_graph,
         };
-        complete_source_interface(&mut source, &checked, &ir, &own_syntax);
+        complete_source_interface(&mut source, &checked, &ir, &own_syntax)?;
         Some(source)
     };
     retain_reachable_functions(&mut ir, vec!["main".to_owned()]);
@@ -723,7 +723,7 @@ fn check_request(
     ir.embed_source_locations(sources.sources().values());
     drop(locations_timing);
     if let Some(source) = &mut source_interface {
-        complete_source_interface(source, &checked, &ir, &syntax);
+        complete_source_interface(source, &checked, &ir, &syntax)?;
     }
     let roots = if tests.is_none() && manifest.kind == PackageKind::Sdk {
         syntax
@@ -771,7 +771,7 @@ fn complete_source_interface(
     checked: &crate::CheckedModule,
     ir: &crate::IrModule,
     syntax: &Module,
-) {
+) -> Result<(), Vec<Diagnostic>> {
     let own_functions: HashSet<_> = source
         .syntax
         .native_blocks
@@ -812,17 +812,10 @@ fn complete_source_interface(
         .flat_map(|exports| exports.values().map(String::as_str))
         .collect();
     source.values = checked
-        .functions
+        .source_values
         .iter()
-        .filter_map(|f| {
-            let name = f
-                .declaration
-                .name
-                .strip_prefix(crate::value_constants::ACCESSOR_PREFIX)?;
-            exported
-                .contains(name)
-                .then(|| (name.to_owned(), f.result_type.clone()))
-        })
+        .filter(|(name, _)| exported.contains(name.as_str()))
+        .map(|(name, ty)| (name.clone(), ty.clone()))
         .collect();
     source.type_aliases = checked
         .syntax
@@ -844,7 +837,7 @@ fn complete_source_interface(
     // Future checks. Public bindings, not omission from this complete graph,
     // determine what a caller can name or construct.
     source.types = checked.source_types.clone();
-    source.templates = syntax
+    source.templates = crate::records::expand_aliases(syntax, true)?
         .declarations
         .iter()
         .filter_map(|declaration| {
@@ -1002,6 +995,7 @@ fn complete_source_interface(
             }
         }
     }
+    Ok(())
 }
 
 fn reachable_function_names(module: &crate::IrModule, mut pending: Vec<String>) -> HashSet<String> {
@@ -1263,12 +1257,18 @@ pub(crate) fn validate_public_signatures(
             TypeRefKind::Function {
                 parameters: arguments,
                 result,
+                error_contract,
                 ..
             } => {
                 for parameter in arguments {
                     inspect(parameter, types, public, parameters, diagnostics);
                 }
                 inspect(result, types, public, parameters, diagnostics);
+                if let Some(contract) = error_contract {
+                    for ty in &contract.types {
+                        inspect(ty, types, public, parameters, diagnostics);
+                    }
+                }
             }
             TypeRefKind::Bytes(_) | TypeRefKind::ConcreteBytes(_) => {}
         }
@@ -2717,12 +2717,20 @@ fn rewrite_type(ty: &mut TypeRef, context: &RewriteContext<'_>, locals: &HashSet
         TypeRefKind::Bytes(length) => rewrite_expression(length, context, locals),
         TypeRefKind::ConcreteBytes(_) => {}
         TypeRefKind::Function {
-            parameters, result, ..
+            parameters,
+            result,
+            error_contract,
+            ..
         } => {
             for parameter in parameters {
                 rewrite_type(parameter, context, locals);
             }
             rewrite_type(result, context, locals);
+            if let Some(contract) = error_contract {
+                for ty in &mut contract.types {
+                    rewrite_type(ty, context, locals);
+                }
+            }
         }
         TypeRefKind::List(element) | TypeRefKind::Future(element) => {
             rewrite_type(element, context, locals)

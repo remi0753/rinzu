@@ -28,11 +28,8 @@ pub(crate) fn validate_annotations(module: &mut Module) -> Result<(), Vec<Diagno
         parameters: BTreeSet<String>,
         diagnostics: Vec<Diagnostic>,
     }
-    impl Visitor for Annotations<'_> {
-        fn enter_function(&mut self, function: &FunctionDecl) {
-            let Some(contract) = &function.error_contract else {
-                return;
-            };
+    impl Annotations<'_> {
+        fn contract(&mut self, contract: &ErrorContract) {
             let mut seen = BTreeSet::new();
             for ty in &contract.types {
                 let (name, count) = match &ty.kind {
@@ -47,7 +44,7 @@ pub(crate) fn validate_annotations(module: &mut Module) -> Result<(), Vec<Diagno
                         self.errors.get(&name) == Some(&count)
                     };
                 if !valid || !seen.insert(crate::interfaces::spelling(ty)) {
-                    self.diagnostics.push(Diagnostic::error(DiagnosticCode::InvalidErrorContract,ty.range,"an Error contract requires distinct nominal Error types or Error; a bare type parameter is not an effect variable","use throws E1, E2 with declared Error types, throws Error, or nothrow"));
+                    self.diagnostics.push(Diagnostic::error(DiagnosticCode::InvalidErrorContract,ty.range,"an Error contract requires distinct nominal Error types or Error; a bare type parameter is not an effect variable","use throws(E1, E2) with declared Error types, throws(Error), or nothrow"));
                 }
             }
             if seen.contains("Error") && seen.len() > 1 {
@@ -55,8 +52,35 @@ pub(crate) fn validate_annotations(module: &mut Module) -> Result<(), Vec<Diagno
                     DiagnosticCode::InvalidErrorContract,
                     contract.range,
                     "Error already includes all ordinary Error types",
-                    "use throws Error without redundant concrete types",
+                    "use throws(Error) without redundant concrete types",
                 ));
+            }
+        }
+    }
+    impl Visitor for Annotations<'_> {
+        fn enter_function(&mut self, function: &FunctionDecl) {
+            if let Some(contract) = &function.error_contract {
+                self.contract(contract);
+            }
+        }
+
+        fn ty(&mut self, ty: &mut TypeRef) {
+            if let TypeRefKind::Function {
+                error_contract: Some(contract),
+                supplant,
+                ..
+            } = &ty.kind
+            {
+                if *supplant {
+                    self.diagnostics.push(Diagnostic::error(
+                        DiagnosticCode::InvalidErrorContract,
+                        contract.range,
+                        "callback Error contracts apply to managed function types",
+                        "use the native supplant signature and observe its Future",
+                    ));
+                } else {
+                    self.contract(contract);
+                }
             }
         }
     }
@@ -79,6 +103,26 @@ pub(crate) fn validate_annotations(module: &mut Module) -> Result<(), Vec<Diagno
     for declaration in &mut module.declarations {
         visitor.parameters = match declaration {
             Declaration::Function(f) => f.type_parameters.iter().map(|p| p.name.clone()).collect(),
+            Declaration::TypeAlias(alias) => alias
+                .type_parameters
+                .iter()
+                .map(|p| p.name.clone())
+                .collect(),
+            Declaration::Record(record) => record
+                .type_parameters
+                .iter()
+                .map(|p| p.name.clone())
+                .collect(),
+            Declaration::Enum(enumeration) => enumeration
+                .type_parameters
+                .iter()
+                .map(|p| p.name.clone())
+                .collect(),
+            Declaration::Error(error) => error
+                .type_parameters
+                .iter()
+                .map(|p| p.name.clone())
+                .collect(),
             Declaration::Interface(i) => i
                 .type_parameters
                 .iter()
@@ -94,6 +138,39 @@ pub(crate) fn validate_annotations(module: &mut Module) -> Result<(), Vec<Diagno
     } else {
         Err(visitor.diagnostics)
     }
+}
+
+pub(crate) fn within_bound(actual: &[String], expected: &[String]) -> bool {
+    expected == ["Error"] || actual.iter().all(|name| expected.contains(name))
+}
+
+pub(crate) fn conversion_error(
+    range: SourceRange,
+    expected: &[String],
+    actual: Option<&[String]>,
+) -> Diagnostic {
+    let expected = error_bound_spelling(Some(expected));
+    let message = actual.map_or_else(
+        || {
+            format!(
+                "cannot establish callback Error contract `{}`",
+                expected.trim_start()
+            )
+        },
+        |actual| {
+            format!(
+                "callback contract `{}` exceeds expected `{}`",
+                error_bound_spelling(Some(actual)).trim_start(),
+                expected.trim_start()
+            )
+        },
+    );
+    Diagnostic::error(
+        DiagnosticCode::InvalidErrorContract,
+        range,
+        message,
+        "pass a callback whose declared or inferred ordinary Errors fit the expected upper bound",
+    )
 }
 
 pub(crate) fn public_types(summary: &Summary) -> Vec<String> {
@@ -114,11 +191,7 @@ pub(crate) fn public_types(summary: &Summary) -> Vec<String> {
     types.into_iter().collect()
 }
 
-pub(crate) fn analyze(
-    checked: &CheckedModule,
-    entry: bool,
-) -> Result<BTreeMap<String, Summary>, Vec<Diagnostic>> {
-    let _timing = crate::timing::span("frontend.effects");
+fn analysis_bound(checked: &CheckedModule) -> usize {
     struct Bound(usize);
     impl Visitor for Bound {
         fn enter_statement(&mut self, statement: &Statement) {
@@ -133,11 +206,15 @@ pub(crate) fn analyze(
     }
     let mut bound = Bound(1);
     ast_walk::module(&mut checked.syntax.clone(), &mut bound);
-    let functions: BTreeMap<_, _> = checked
-        .functions
-        .iter()
-        .map(|function| (function.declaration.name.clone(), function))
-        .collect();
+    bound.0
+}
+
+fn infer(
+    checked: &CheckedModule,
+    functions: &BTreeMap<String, &crate::CheckedFunction>,
+    bound: usize,
+    proof: bool,
+) -> BTreeMap<String, Summary> {
     let mut summaries = functions
         .keys()
         .map(|name| (name.clone(), Summary::default()))
@@ -151,11 +228,11 @@ pub(crate) fn analyze(
         let mut changed = false;
         for name in &order {
             evaluated += 1;
-            let mut next = flow::Analyzer::new(checked, &summaries, bound.0, false)
+            let mut next = flow::Analyzer::new(checked, &summaries, bound, false)
+                .proving_conversions(proof)
                 .function(functions[name])
                 .0;
-            if let Some(errors) =
-                contracts::declared(checked, &functions[name].declaration, bound.0)
+            if let Some(errors) = contracts::declared(checked, &functions[name].declaration, bound)
             {
                 next.errors = errors;
             }
@@ -171,11 +248,57 @@ pub(crate) fn analyze(
     timing.set_counter("functions", functions.len() as u64);
     timing.set_counter("evaluated", evaluated);
     timing.set_counter("rounds", rounds);
-    drop(timing);
+    summaries
+}
+
+fn functions_by_name(checked: &CheckedModule) -> BTreeMap<String, &crate::CheckedFunction> {
+    checked
+        .functions
+        .iter()
+        .map(|function| (function.declaration.name.clone(), function))
+        .collect()
+}
+
+pub(crate) fn verify_conversions(checked: &CheckedModule) -> Result<(), Vec<Diagnostic>> {
+    if checked.error_conversions.is_empty() {
+        return Ok(());
+    }
+    let functions = functions_by_name(checked);
+    let bound = analysis_bound(checked);
+    let summaries = infer(checked, &functions, bound, true);
+    let mut seen = std::collections::HashSet::new();
+    let diagnostics: Vec<_> = functions
+        .values()
+        .flat_map(|function| {
+            flow::Analyzer::new(checked, &summaries, bound, true)
+                .proving_conversions(true)
+                .function(function)
+                .1
+        })
+        .filter(|diagnostic| {
+            diagnostic.code == DiagnosticCode::InvalidErrorContract
+                && seen.insert(diagnostic.primary)
+        })
+        .collect();
+    if diagnostics.is_empty() {
+        Ok(())
+    } else {
+        Err(diagnostics)
+    }
+}
+
+pub(crate) fn analyze(
+    checked: &CheckedModule,
+    entry: bool,
+) -> Result<BTreeMap<String, Summary>, Vec<Diagnostic>> {
+    let _timing = crate::timing::span("frontend.effects");
+    let functions = functions_by_name(checked);
+    let bound = analysis_bound(checked);
+    let summaries = infer(checked, &functions, bound, false);
     let mut diagnostics = Vec::new();
     for function in functions.values() {
         let (actual, errors) =
-            flow::Analyzer::new(checked, &summaries, bound.0, true).function(function);
+            flow::Analyzer::new(checked, &summaries, bound, true).function(function);
         diagnostics.extend(errors);
         diagnostics.extend(contracts::validate(checked, &function.declaration, &actual));
     }
@@ -190,9 +313,7 @@ pub(crate) fn analyze(
         ))
     });
     if diagnostics.is_empty() {
-        diagnostics.extend(responsibility::validate(
-            checked, &summaries, bound.0, entry,
-        ));
+        diagnostics.extend(responsibility::validate(checked, &summaries, bound, entry));
     }
     if diagnostics.is_empty() {
         Ok(summaries)

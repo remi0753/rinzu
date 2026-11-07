@@ -223,14 +223,14 @@ import rinzu.map;
 import rinzu.option;
 
 interface Measured {
-    fn measure(self: Self) -> Int nothrow;
+    fn measure(self: Self) nothrow -> Int;
 }
 class Sample interface Measured {
     private const value: Int
     fn create(value: Int) -> Sample { return Sample(value: value); }
-    fn measure(self: Sample) -> Int nothrow { return self.value; }
+    fn measure(self: Sample) nothrow -> Int { return self.value; }
 }
-fn sum<T interface Measured>(values: List<T>) -> Int nothrow {
+fn sum<T interface Measured>(values: List<T>) nothrow -> Int {
     var total = 0;
     for value in values { total = total + value.measure(); }
     return total;

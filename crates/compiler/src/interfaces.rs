@@ -80,6 +80,7 @@ fn validate_declarations(
                                 | "Never"
                                 | "Error"
                                 | "ByteArray"
+                                | "Bytes"
                                 | "SourceLocation"
                                 | "$rinzu_SourceLocation"
                         ) =>
@@ -89,14 +90,14 @@ fn validate_declarations(
                     _ => {
                         return Err(error(
                             source.range,
-                            format!("unknown interface signature type `{name}`"),
+                            format!("unknown signature type `{name}`"),
                         ));
                     }
                 };
                 if args.len() != count {
                     return Err(error(
                         source.range,
-                        "interface signature type argument count mismatch",
+                        "signature type argument count mismatch",
                     ));
                 }
                 for a in args {
@@ -116,12 +117,18 @@ fn validate_declarations(
             TypeRefKind::Function {
                 parameters: args,
                 result,
+                error_contract,
                 ..
             } => {
                 for a in args {
                     ty(a, parameters, known, native)?;
                 }
                 ty(result, parameters, known, native)?;
+                if let Some(contract) = error_contract {
+                    for value in &contract.types {
+                        ty(value, parameters, known, native)?;
+                    }
+                }
             }
             TypeRefKind::Bytes(_) | TypeRefKind::ConcreteBytes(_) => {}
         }
@@ -138,6 +145,21 @@ fn validate_declarations(
         })
         .collect();
     for d in &module.declarations {
+        if let Declaration::TypeAlias(alias) = d
+            && !alias.type_parameters.is_empty()
+        {
+            let parameters = alias
+                .type_parameters
+                .iter()
+                .map(|parameter| parameter.name.clone())
+                .collect();
+            ty(&alias.ty, &parameters, known, &native).map_err(|error| Diagnostic::error(
+                DiagnosticCode::TypeMismatch,
+                error.primary,
+                format!("invalid target of type alias `{}`: {}", alias.name, error.message),
+                "use declared types or parameters of this alias with the correct type arguments",
+            ))?;
+        }
         let Declaration::Interface(i) = d else {
             continue;
         };
@@ -1190,6 +1212,11 @@ fn function_type(f: &FunctionDecl, range: SourceRange) -> TypeRef {
             } else {
                 f.result.clone()
             }),
+            error_contract: if f.is_async {
+                None
+            } else {
+                f.error_contract.clone().map(Box::new)
+            },
         },
     }
 }

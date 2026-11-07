@@ -12,7 +12,7 @@ struct Fixture(PathBuf);
 #[test]
 fn interface_constraints_and_error_contracts_navigate_to_source_declarations() {
     let fixture = Fixture::new();
-    let text = "error Failed{}interface Getter<T>{fn get(self:Self)->T throws Failed;}class Value interface Getter<Int>{fn get(self:Value)->Int nothrow{return 42;}}fn read<V interface Getter<Int>>(v:V)->Int throws Failed{return v.get();}fn main(){try{let result=read(Value());}catch problems{}}";
+    let text = "error Failed{}interface Getter<T>{fn get(self:Self) throws(Failed)->T;}class Value interface Getter<Int>{fn get(self:Value) nothrow->Int{return 42;}}fn read<V interface Getter<Int>>(v:V) throws(Failed)->Int{return v.get();}fn main(){try{let result=read(Value());}catch problems{}}";
     let entry = fixture.source("main.rinzu", text);
     let source = SourceFile::new(FileId(902), &entry, text);
     let artifact = rinzu_compiler::compile_source(&source).unwrap();
@@ -24,7 +24,7 @@ fn interface_constraints_and_error_contracts_navigate_to_source_declarations() {
     );
     for (usage, definition) in [
         ("interface Getter<Int>", "interface Getter<T>"),
-        ("throws Failed", "error Failed"),
+        ("throws(Failed)", "error Failed"),
     ] {
         let name = if usage.starts_with("interface") {
             "Getter"
@@ -50,7 +50,11 @@ fn interface_constraints_and_error_contracts_navigate_to_source_declarations() {
     let docs = rinzu_compiler::source_documentation(&source).unwrap();
     let interface = docs.iter().find(|d| d.name == "Getter").unwrap();
     assert_eq!(interface.kind, "interface");
-    assert!(interface.members[0].signature.ends_with("throws Failed;"));
+    assert!(
+        interface.members[0]
+            .signature
+            .ends_with("throws(Failed)->T;")
+    );
 }
 
 #[test]

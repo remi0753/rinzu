@@ -45,6 +45,37 @@ pub struct FunctionReferenceType {
     pub parameters: Vec<Type>,
     pub result: Box<Type>,
     pub supplant: bool,
+    /// None uses call-target inference. An empty bound is explicit nothrow.
+    pub error_bound: Option<Vec<String>>,
+}
+
+impl FunctionReferenceType {
+    pub(crate) fn same_signature(&self, other: &Self) -> bool {
+        self.supplant == other.supplant
+            && self.parameters == other.parameters
+            && self.result == other.result
+    }
+
+    pub(crate) fn contract(&self, range: SourceRange) -> Option<Box<crate::ast::ErrorContract>> {
+        self.error_bound.as_ref().map(|types| {
+            Box::new(crate::ast::ErrorContract {
+                types: types
+                    .iter()
+                    .map(|name| TypeRef {
+                        kind: TypeRefKind::Named(vec![name.clone()]),
+                        range,
+                    })
+                    .collect(),
+                range,
+            })
+        })
+    }
+
+    pub(crate) fn runtime_shape(&self) -> Self {
+        let mut signature = self.clone();
+        signature.error_bound = None;
+        signature
+    }
 }
 
 impl Type {
@@ -130,7 +161,12 @@ impl fmt::Display for Type {
                     }
                     write!(formatter, "{parameter}")?;
                 }
-                write!(formatter, ")->{}", signature.result)
+                write!(
+                    formatter,
+                    "){}->{}",
+                    crate::ast::error_bound_spelling(signature.error_bound.as_deref()),
+                    signature.result
+                )
             }
             Self::Error => formatter.write_str("Error"),
         }
@@ -230,6 +266,7 @@ pub struct CheckedModule {
     pub(crate) native_captures: HashMap<SourceRange, Type>,
     pub(crate) native_record_reads: HashSet<SourceRange>,
     pub source_types: std::collections::BTreeMap<String, SourceTypeSchema>,
+    pub(crate) source_values: std::collections::BTreeMap<String, Type>,
     pub core_lengths: HashMap<SourceRange, crate::CoreLengthKind>,
     pub task_controls: HashMap<SourceRange, crate::TaskControlKind>,
     pub data_operations: HashMap<SourceRange, crate::DataOperation>,
@@ -242,6 +279,8 @@ pub struct CheckedModule {
     pub source_native_calls: HashMap<SourceRange, crate::SourceNativeSignature>,
     pub reference_targets: HashMap<SourceRange, Vec<String>>,
     pub indirect_calls: HashMap<SourceRange, Vec<String>>,
+    pub(crate) indirect_signatures: HashMap<SourceRange, FunctionReferenceType>,
+    pub(crate) error_conversions: HashMap<SourceRange, Vec<String>>,
     pub supplant_calls: HashMap<SourceRange, SupplantCall>,
     pub source_native_signatures: Vec<crate::SourceNativeSignature>,
     pub constants: std::collections::BTreeMap<String, IntegerConstant>,
@@ -292,6 +331,7 @@ struct FunctionSignature {
     parameters: Vec<Type>,
     result: Type,
     is_async: bool,
+    error_bound: Option<Vec<String>>,
     range: SourceRange,
 }
 
@@ -417,6 +457,7 @@ pub(crate) fn probe_expression_type(
             supplant: false,
             parameters,
             result: Box::new(result),
+            error_bound: None,
         }));
     }
     fn source(checker: &Checker<'_>, ty: &Type, range: SourceRange) -> Option<TypeRef> {
@@ -460,6 +501,7 @@ pub(crate) fn probe_expression_type(
                     .map(|t| source(checker, t, range))
                     .collect::<Option<Vec<_>>>()?,
                 result: Box::new(source(checker, &signature.result, range)?),
+                error_contract: signature.contract(range),
             },
             _ => return Some(crate::core::type_ref(ty, range)),
         };
@@ -494,10 +536,11 @@ pub fn check_module_with_options(
         &options.sdk_files,
     )?;
     let option_shadow_modules = crate::core::option_shadow_modules(&module);
-    let module = crate::records::expand_aliases(&module)?;
+    let module = crate::records::expand_aliases(&module, true)?;
     let mut module = crate::value_constants::expand(&module)?;
     crate::error_effects::validate_annotations(&mut module)?;
-    let module = crate::interfaces::prepare(&module)?;
+    let mut module = crate::interfaces::prepare(&module)?;
+    module.declarations.retain(|declaration| !matches!(declaration, Declaration::TypeAlias(alias) if !alias.type_parameters.is_empty()));
     crate::methods::validate(&module)?;
     // Expansion removes template exports. Keep their visibility for both
     // inference probes and the checker of the specialized functions.
@@ -514,11 +557,21 @@ pub fn check_module_with_options(
     let mut checker = Checker::new(&module, &options, &option_shadow_modules);
     checker.generic_requirements = requirements;
     let checked = checker.run()?;
+    crate::error_effects::verify_conversions(&checked)?;
     let mut checked = if let Some((converted, file)) = crate::closures::convert(&checked)? {
         let mut checker = Checker::new(&converted, &options, &option_shadow_modules);
         checker.source_indirect_fields = checked.indirect_fields.clone();
         checker.closure_conversion = true;
         let mut result = checker.run()?;
+        result.source_values = checked.source_values;
+        // Runtime closure shapes erase bounds. Analyze each invocation with
+        // its source bound while retaining the lowered target and captures.
+        result.indirect_signatures.extend(
+            checked
+                .indirect_signatures
+                .into_iter()
+                .filter(|(_, signature)| signature.error_bound.is_some()),
+        );
         result.closure_source = Some(file);
         result
     } else {
@@ -590,6 +643,8 @@ struct Checker<'a> {
     native_captures: HashMap<SourceRange, Type>,
     reference_targets: HashMap<SourceRange, Vec<String>>,
     indirect_calls: HashMap<SourceRange, Vec<String>>,
+    indirect_signatures: HashMap<SourceRange, FunctionReferenceType>,
+    error_conversions: HashMap<SourceRange, Vec<String>>,
     supplant_calls: HashMap<SourceRange, SupplantCall>,
     constants: std::collections::BTreeMap<String, IntegerConstant>,
     constant_references: HashMap<SourceRange, IntegerConstant>,
@@ -639,6 +694,8 @@ impl<'a> Checker<'a> {
             native_captures: HashMap::new(),
             reference_targets: HashMap::new(),
             indirect_calls: HashMap::new(),
+            indirect_signatures: HashMap::new(),
+            error_conversions: HashMap::new(),
             supplant_calls: HashMap::new(),
             constants: std::collections::BTreeMap::new(),
             constant_references: HashMap::new(),
@@ -790,7 +847,7 @@ impl<'a> Checker<'a> {
                 .or_else(|| self.type_references.get(&t.range).cloned())
         });
         crate::methods::normalize(&mut syntax, &self.method_calls);
-        let functions = syntax
+        let functions: Vec<_> = syntax
             .declarations
             .iter()
             .filter_map(|declaration| {
@@ -808,6 +865,16 @@ impl<'a> Checker<'a> {
                 })
             })
             .collect();
+        let source_values = functions
+            .iter()
+            .filter_map(|function| {
+                let name = function
+                    .declaration
+                    .name
+                    .strip_prefix(crate::value_constants::ACCESSOR_PREFIX)?;
+                Some((name.to_owned(), function.result_type.clone()))
+            })
+            .collect();
         Ok(CheckedModule {
             error_upcasts: self.error_upcasts,
             error_patterns: self.error_patterns,
@@ -820,6 +887,7 @@ impl<'a> Checker<'a> {
             indirect_fields: self.indirect_fields,
             native_captures: self.native_captures,
             source_types,
+            source_values,
             core_lengths: self.core_lengths,
             task_controls: self.task_controls,
             data_operations: self.data_operations,
@@ -833,6 +901,8 @@ impl<'a> Checker<'a> {
             native_record_reads: self.native_record_reads,
             reference_targets: self.reference_targets,
             indirect_calls: self.indirect_calls,
+            indirect_signatures: self.indirect_signatures,
+            error_conversions: self.error_conversions,
             supplant_calls: self.supplant_calls,
             source_native_signatures,
             constants: self.constants,
@@ -999,6 +1069,7 @@ impl<'a> Checker<'a> {
             let Some(Declaration::Function(declaration)) = self.declarations.get(&name) else {
                 unreachable!()
             };
+            let error_bound = self.reference_bound(&signature);
             self.bindings.insert(
                 expression.range,
                 BoundFunction {
@@ -1011,6 +1082,7 @@ impl<'a> Checker<'a> {
                             signature.result
                         }),
                         supplant: false,
+                        error_bound,
                     },
                     captures: declaration
                         .parameters
@@ -1148,40 +1220,10 @@ impl<'a> Checker<'a> {
             else {
                 continue;
             };
-            if let Some(contract) = &function.error_contract {
-                let mut seen = HashSet::new();
-                let mut any = false;
-                for source in &contract.types {
-                    if let Some(ty) = self.resolve_type_with_constants(source, &signature_constants)
-                    {
-                        if !self.is_error_type(&ty) {
-                            self.diagnostics.push(Diagnostic::error(
-                                DiagnosticCode::InvalidErrorContract,
-                                source.range,
-                                format!("`{ty}` is not an Error type"),
-                                "list concrete Error types, Error, or use nothrow",
-                            ));
-                        }
-                        any |= ty == Type::Error;
-                        if !seen.insert(ty.to_string()) {
-                            self.diagnostics.push(Diagnostic::error(
-                                DiagnosticCode::InvalidErrorContract,
-                                source.range,
-                                "duplicate Error type in throws contract",
-                                "remove the duplicate type",
-                            ));
-                        }
-                    }
-                }
-                if any && contract.types.len() > 1 {
-                    self.diagnostics.push(Diagnostic::error(
-                        DiagnosticCode::InvalidErrorContract,
-                        contract.range,
-                        "throws Error already includes every ordinary Error",
-                        "write throws Error without additional types",
-                    ));
-                }
-            }
+            let error_bound = function
+                .error_contract
+                .as_ref()
+                .map(|contract| self.resolve_error_bound(contract, &signature_constants));
             if function.is_async && matches!(result, Type::Future(_)) {
                 self.diagnostics.push(Diagnostic::error(
                     DiagnosticCode::TypeMismatch,
@@ -1196,10 +1238,48 @@ impl<'a> Checker<'a> {
                     parameters,
                     result,
                     is_async: function.is_async,
+                    error_bound,
                     range: function.range,
                 },
             );
         }
+    }
+
+    fn resolve_error_bound(
+        &mut self,
+        contract: &crate::ast::ErrorContract,
+        constants: &std::collections::BTreeMap<String, IntegerConstant>,
+    ) -> Vec<String> {
+        let mut types = std::collections::BTreeSet::new();
+        for source in &contract.types {
+            if let Some(ty) = self.resolve_type_with_constants(source, constants) {
+                if !self.is_error_type(&ty) {
+                    self.diagnostics.push(Diagnostic::error(
+                        DiagnosticCode::InvalidErrorContract,
+                        source.range,
+                        format!("`{ty}` is not an Error type"),
+                        "list concrete Error types in throws(...), or use nothrow",
+                    ));
+                }
+                if !types.insert(ty.to_string()) {
+                    self.diagnostics.push(Diagnostic::error(
+                        DiagnosticCode::InvalidErrorContract,
+                        source.range,
+                        "duplicate Error type in throws contract",
+                        "remove the duplicate type",
+                    ));
+                }
+            }
+        }
+        if types.contains("Error") && contract.types.len() > 1 {
+            self.diagnostics.push(Diagnostic::error(
+                DiagnosticCode::InvalidErrorContract,
+                contract.range,
+                "throws(Error) already includes every ordinary Error",
+                "write throws(Error) without additional types",
+            ));
+        }
+        types.into_iter().collect()
     }
 
     fn validate_entry(&mut self) {
@@ -2229,6 +2309,34 @@ impl<'a> Checker<'a> {
                 }
             }
         };
+        let ty = if let (
+            Some(Type::FunctionReference(actual)),
+            Some(Type::FunctionReference(expected)),
+        ) = (&ty, expected)
+            && actual.same_signature(expected)
+        {
+            match (&actual.error_bound, &expected.error_bound) {
+                (Some(actual), Some(expected))
+                    if !crate::error_effects::within_bound(actual, expected) =>
+                {
+                    self.diagnostics
+                        .push(crate::error_effects::conversion_error(
+                            expression.range,
+                            expected,
+                            Some(actual),
+                        ));
+                    None
+                }
+                (None, Some(bound)) if bound != &["Error"] => {
+                    self.error_conversions
+                        .insert(expression.range, bound.clone());
+                    Some(Type::FunctionReference(expected.clone()))
+                }
+                _ => Some(Type::FunctionReference(expected.clone())),
+            }
+        } else {
+            ty
+        };
         let ty = if expected == Some(&Type::Error)
             && let Some(actual) = &ty
             && *actual != Type::Error
@@ -2401,6 +2509,7 @@ impl<'a> Checker<'a> {
                     signature.result.clone()
                 }),
                 supplant: false,
+                error_bound: self.reference_bound(signature),
             });
         }
         self.source_signatures
@@ -2413,25 +2522,49 @@ impl<'a> Checker<'a> {
                     source_abi_type(&signature.result)
                 }),
                 supplant: signature.is_supplant,
+                error_bound: None,
             })
     }
 
+    fn reference_bound(&self, signature: &FunctionSignature) -> Option<Vec<String>> {
+        if self.closure_conversion || signature.is_async {
+            None
+        } else {
+            signature.error_bound.clone()
+        }
+    }
+
     fn compatible_reference_targets(&self, expected: &FunctionReferenceType) -> Vec<String> {
+        let compatible = |actual: &FunctionReferenceType| {
+            actual.same_signature(expected)
+                && match (&actual.error_bound, &expected.error_bound) {
+                    (Some(actual), Some(expected)) => {
+                        crate::error_effects::within_bound(actual, expected)
+                    }
+                    _ => true,
+                }
+        };
         let mut targets: Vec<_> = self
             .functions
             .keys()
             .chain(self.source_signatures.keys())
-            .filter(|name| self.reference_signature(name).as_ref() == Some(expected))
+            .filter(|name| {
+                self.reference_signature(name)
+                    .as_ref()
+                    .is_some_and(compatible)
+            })
             .cloned()
             .collect();
         targets.extend(
             self.bindings
                 .values()
-                .filter(|binding| &binding.signature == expected)
+                .filter(|binding| compatible(&binding.signature))
                 .map(|binding| binding.target.clone()),
         );
         targets.sort();
-        if crate::core::reference_signature("rinzu.core::utf8ByteLength").as_ref() == Some(expected)
+        if crate::core::reference_signature("rinzu.core::utf8ByteLength")
+            .as_ref()
+            .is_some_and(compatible)
         {
             targets.push("rinzu.core::utf8ByteLength".to_owned());
             targets.sort();
@@ -2822,6 +2955,7 @@ impl<'a> Checker<'a> {
                 );
             } else {
                 self.indirect_calls.insert(range, possible);
+                self.indirect_signatures.insert(range, (*signature).clone());
             }
             context.facts.may_fail = true;
             return Some(*signature.result);
@@ -3812,6 +3946,10 @@ impl<'a> Checker<'a> {
             parameters.push(parameter);
         }
         let result = self.resolve_type_with_constants(&function.result, &constants)?;
+        let error_bound = function
+            .error_contract
+            .as_ref()
+            .map(|contract| self.resolve_error_bound(contract, &constants));
         function.result = self.generated_type_ref(&result, function.result.range);
         crate::lambdas::rewrite(&mut function, &names);
         function.parameters = parameters;
@@ -3821,6 +3959,7 @@ impl<'a> Checker<'a> {
                 parameters: parameter_types,
                 result: result.clone(),
                 is_async: function.is_async,
+                error_bound,
                 range,
             },
         );
@@ -3836,6 +3975,7 @@ impl<'a> Checker<'a> {
                 result
             }),
             supplant: false,
+            error_bound: self.reference_bound(&self.functions[&function.name]),
         };
         self.bindings.insert(
             range,
@@ -4324,16 +4464,21 @@ impl<'a> Checker<'a> {
                 supplant,
                 parameters,
                 result,
+                error_contract,
             } => {
                 let parameters = parameters
                     .iter()
                     .map(|parameter| self.resolve_type_with_constants(parameter, values))
                     .collect::<Option<Vec<_>>>()?;
                 let result = self.resolve_type_with_constants(result, values)?;
+                let error_bound = error_contract
+                    .as_ref()
+                    .map(|contract| self.resolve_error_bound(contract, values));
                 Some(Type::FunctionReference(Box::new(FunctionReferenceType {
                     parameters,
                     result: Box::new(result),
                     supplant: *supplant,
+                    error_bound,
                 })))
             }
             TypeRefKind::List(element) => {
@@ -4843,6 +4988,7 @@ impl<'a> Checker<'a> {
                 supplant,
                 parameters,
                 result,
+                error_contract,
             } => Some(Type::FunctionReference(Box::new(FunctionReferenceType {
                 supplant: *supplant,
                 parameters: parameters
@@ -4850,6 +4996,17 @@ impl<'a> Checker<'a> {
                     .map(|p| self.resolve_type_readonly(p))
                     .collect::<Option<Vec<_>>>()?,
                 result: Box::new(self.resolve_type_readonly(result)?),
+                error_bound: if let Some(contract) = error_contract {
+                    let mut types: Vec<_> = contract
+                        .types
+                        .iter()
+                        .map(|ty| self.resolve_type_readonly(ty).map(|ty| ty.to_string()))
+                        .collect::<Option<_>>()?;
+                    types.sort();
+                    Some(types)
+                } else {
+                    None
+                },
             }))),
             TypeRefKind::ConcreteBytes(length) => Some(Type::FixedBytes(*length)),
             TypeRefKind::Bytes(length) => {
@@ -4994,6 +5151,7 @@ pub(crate) fn source_abi_type(abi: &crate::SourceAbiType) -> Type {
         A::Record(name) | A::UserData(name) => Type::Named(name.clone()),
         A::Callback { parameters, result } => {
             Type::FunctionReference(Box::new(FunctionReferenceType {
+                error_bound: None,
                 parameters: parameters.iter().map(source_abi_type).collect(),
                 result: Box::new(source_abi_type(result)),
                 supplant: false,

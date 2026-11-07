@@ -70,7 +70,7 @@ fn checkOption() nothrow {
 }
 
 fn checkErrors() nothrow {
-    let validate = fn (digit: Int) -> Bool throws Rejected {
+    let validate = fn (digit: Int) throws(Rejected) -> Bool {
         if digit == 2 {
             throw Rejected(message: "rejected item", payload: digit);
         }
@@ -84,7 +84,7 @@ fn checkErrors() nothrow {
     catch [problem: Rejected, ...rest] {
         require(problem.payload == 2 && rinzu.list.length(rest) == 0, "predicate Error payload");
     }
-    let onNone = fn () -> Int throws Rejected {
+    let onNone = fn () throws(Rejected) -> Int {
         throw Rejected(message: "rejected default", payload: 7);
     };
     try {

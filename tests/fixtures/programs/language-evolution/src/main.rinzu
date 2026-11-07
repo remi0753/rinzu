@@ -2,17 +2,17 @@ import rinzu.list;
 import rinzu.map;
 
 interface Getter<T> {
-    fn get(self: Self) -> T nothrow;
+    fn get(self: Self) nothrow -> T;
 }
 
 class Box<T> interface Getter<T> {
     private const item: T
 
-    fn create(value: T) -> Box<T> nothrow {
+    fn create(value: T) nothrow -> Box<T> {
         return Box<T>(item: value);
     }
 
-    fn get(self: Box<T>) -> T nothrow {
+    fn get(self: Box<T>) nothrow -> T {
         return self.item;
     }
 
@@ -21,7 +21,7 @@ class Box<T> interface Getter<T> {
     }
 }
 
-fn unbox<T, B interface Getter<T>>(box: B, otherwise: T) -> T nothrow {
+fn unbox<T, B interface Getter<T>>(box: B, otherwise: T) nothrow -> T {
     return box.get();
 }
 
@@ -76,11 +76,11 @@ fn synchronous() -> Int {
 // async scenarios
 error Failed {}
 
-async fn fail() -> Int throws Failed {
+async fn fail() throws(Failed) -> Int {
     throw Failed(message: "expected failure");
 }
 
-async fn ready() -> Int nothrow {
+async fn ready() nothrow -> Int {
     return 7;
 }
 

@@ -49,12 +49,12 @@ fn declarations_have_one_blank_line_while_imports_and_exports_stay_grouped() {
 #[test]
 fn interface_bounds_self_and_error_clauses_keep_generic_delimiters_and_comments() {
     let text = formatted(
-        "// requirements\ninterface Reader<T interface Codec<Map<String,Int>>>{// instance\nfn read(self:Self,values:List<Self>)->Map<String,List<T>> throws ParseFailed<String,Int>,ReadFailed;async fn close(self:Self)nothrow;}class Buffer<T:Transferable interface Codec<Int>+Named> interface Reader<T>+Named{const value:T fn value(self:Buffer<T>)->T nothrow{return self.value;}}fn main()nothrow{}",
+        "// requirements\ninterface Reader<T interface Codec<Map<String,Int>>>{// instance\nfn read(self:Self,values:List<Self>)throws(ParseFailed<String,Int>,ReadFailed)->Map<String,List<T>>;async fn close(self:Self)nothrow;}class Buffer<T:Transferable interface Codec<Int>+Named> interface Reader<T>+Named{const value:T fn value(self:Buffer<T>) nothrow->T{return self.value;}}fn main()nothrow{}",
     );
     within_width_or_preserved(&file(&text));
     assert!(text.contains("interface Reader<"), "{text}");
     assert!(
-        text.contains("throws ParseFailed<String, Int>, ReadFailed;"),
+        text.contains("throws(ParseFailed<String, Int>, ReadFailed)"),
         "{text}"
     );
     assert!(
@@ -62,6 +62,36 @@ fn interface_bounds_self_and_error_clauses_keep_generic_delimiters_and_comments(
         "{text}"
     );
     assert!(text.contains("// instance"));
+}
+
+#[test]
+fn wraps_callback_parameters_and_error_lists_at_their_own_boundaries() {
+    let source = "fn parseAndTransform(source:ByteArray,limits:ParseLimits,first:fn(Value)throws(PrimaryTransformationFailed,TransformationLimitExceeded)->Value,second:fn(Value)throws(SecondaryTransformationFailed,OutputValidationFailed)->Value)throws(DecodeFailed,LimitExceeded,InvalidLimits,PrimaryTransformationFailed,TransformationLimitExceeded,SecondaryTransformationFailed,OutputValidationFailed)->Value{return second(first(parse(source,limits)));}";
+    let text = formatted(source);
+    within_width(&text);
+    assert!(
+        text.starts_with("fn parseAndTransform(\n    source: ByteArray,\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("\n) throws(\n    DecodeFailed,\n    LimitExceeded,"),
+        "{text}"
+    );
+    assert!(
+        text.contains("\n    OutputValidationFailed\n) -> Value {"),
+        "{text}"
+    );
+    assert_eq!(formatted(&text), text);
+    let text = formatted(
+        "fn loadDocumentMetadata(source:ByteArray,validation:MetadataValidationPolicy)throws(ReadFailed,InvalidDocument)->DocumentMetadataWithValidationResults{return read(source,validation);}",
+    );
+    assert!(
+        text.contains(
+            "throws(ReadFailed, InvalidDocument)\n    -> DocumentMetadataWithValidationResults {"
+        ),
+        "{text}"
+    );
+    assert_eq!(formatted(&text), text);
 }
 
 #[test]

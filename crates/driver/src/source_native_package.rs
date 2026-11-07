@@ -945,6 +945,7 @@ fn source_type(ty: &rinzu_compiler::Type) -> String {
         return scalar.name().to_owned();
     }
     match ty {
+        Type::FunctionReference(reference) if reference.error_bound.is_some() => ty.to_string(),
         Type::FunctionReference(reference) => format!(
             "{}({})->{}",
             if reference.supplant { "supplant" } else { "fn" },

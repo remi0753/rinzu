@@ -146,138 +146,146 @@ export EncodeLimits;
 export defaultParseLimits;
 export defaultEncodeLimits;
 
-fn parse(source: ByteArray) -> Value throws DecodeFailed, LimitExceeded {
+fn parse(source: ByteArray) throws(DecodeFailed, LimitExceeded) -> Value {
     return jsonParse(source);
 }
 
-fn parseString(source: String) -> Value throws DecodeFailed, LimitExceeded {
+fn parseString(source: String) throws(DecodeFailed, LimitExceeded) -> Value {
     return jsonParse(source);
 }
 
-fn parseWithLimits(source: ByteArray, limits: ParseLimits) -> Value throws DecodeFailed, LimitExceeded, InvalidLimits {
+fn parseWithLimits(source: ByteArray, limits: ParseLimits) throws(DecodeFailed, LimitExceeded, InvalidLimits) -> Value {
     return jsonParseWithLimits(source, limits);
 }
 
-fn parseStringWithLimits(source: String, limits: ParseLimits)
-    -> Value throws DecodeFailed, LimitExceeded, InvalidLimits {
+fn parseStringWithLimits(source: String, limits: ParseLimits) throws(DecodeFailed, LimitExceeded, InvalidLimits)
+    -> Value {
     return jsonParseWithLimits(source, limits);
 }
 
-fn parseWithTy<T>(source: ByteArray) -> T throws DecodeFailed, SchemaMismatch, LimitExceeded {
+fn parseWithTy<T>(source: ByteArray) throws(DecodeFailed, SchemaMismatch, LimitExceeded) -> T {
     return jsonDecode(source);
 }
 
-fn parseStringWithTy<T>(source: String) -> T throws DecodeFailed, SchemaMismatch, LimitExceeded {
+fn parseStringWithTy<T>(source: String) throws(DecodeFailed, SchemaMismatch, LimitExceeded) -> T {
     return jsonDecode(source);
 }
 
-fn parseWithTyAndLimits<T>(source: ByteArray, limits: ParseLimits)
-    -> T throws DecodeFailed, SchemaMismatch, LimitExceeded, InvalidLimits {
+fn parseWithTyAndLimits<T>(source: ByteArray, limits: ParseLimits) throws(
+    DecodeFailed,
+    SchemaMismatch,
+    LimitExceeded,
+    InvalidLimits
+) -> T {
     return jsonDecodeWithLimits(source, limits);
 }
 
-fn parseStringWithTyAndLimits<T>(source: String, limits: ParseLimits)
-    -> T throws DecodeFailed, SchemaMismatch, LimitExceeded, InvalidLimits {
+fn parseStringWithTyAndLimits<T>(source: String, limits: ParseLimits) throws(
+    DecodeFailed,
+    SchemaMismatch,
+    LimitExceeded,
+    InvalidLimits
+) -> T {
     return jsonDecodeWithLimits(source, limits);
 }
 
-fn kind(value: Value) -> Kind nothrow {
+fn kind(value: Value) nothrow -> Kind {
     return jsonKind(value);
 }
 
-fn field(object: Value, key: String) -> Option<Value> throws TypeMismatch {
+fn field(object: Value, key: String) throws(TypeMismatch) -> Option<Value> {
     return jsonField(object, key);
 }
 
-fn at(array: Value, index: Int) -> Option<Value> throws TypeMismatch {
+fn at(array: Value, index: Int) throws(TypeMismatch) -> Option<Value> {
     return jsonAt(array, index);
 }
 
-fn arrayLength(array: Value) -> Int throws TypeMismatch {
+fn arrayLength(array: Value) throws(TypeMismatch) -> Int {
     return jsonArrayLength(array);
 }
 
-fn objectLength(object: Value) -> Int throws TypeMismatch {
+fn objectLength(object: Value) throws(TypeMismatch) -> Int {
     return jsonObjectLength(object);
 }
 
-fn entryAt(object: Value, index: Int) -> Option<{ key: String, value: Value }> throws TypeMismatch {
+fn entryAt(object: Value, index: Int) throws(TypeMismatch) -> Option<{ key: String, value: Value }> {
     return jsonEntryAt(object, index);
 }
 
-fn asBool(value: Value) -> Bool throws TypeMismatch {
+fn asBool(value: Value) throws(TypeMismatch) -> Bool {
     return jsonBool(value);
 }
 
-fn asString(value: Value) -> String throws TypeMismatch {
+fn asString(value: Value) throws(TypeMismatch) -> String {
     return jsonString(value);
 }
 
-fn numberText(value: Value) -> String throws TypeMismatch {
+fn numberText(value: Value) throws(TypeMismatch) -> String {
     return jsonNumberText(value);
 }
 
-fn asInt(value: Value) -> Int throws TypeMismatch, NumberError {
+fn asInt(value: Value) throws(TypeMismatch, NumberError) -> Int {
     return jsonInt(value);
 }
 
-fn asFloat(value: Value) -> Float throws TypeMismatch, NumberError {
+fn asFloat(value: Value) throws(TypeMismatch, NumberError) -> Float {
     return jsonFloat(value);
 }
 
-fn intField(object: Value, key: String) -> Option<Int> throws TypeMismatch, NumberError {
+fn intField(object: Value, key: String) throws(TypeMismatch, NumberError) -> Option<Int> {
     return jsonIntField(object, key);
 }
 
-fn floatField(object: Value, key: String) -> Option<Float> throws TypeMismatch, NumberError {
+fn floatField(object: Value, key: String) throws(TypeMismatch, NumberError) -> Option<Float> {
     return jsonFloatField(object, key);
 }
 
-fn nullValue() -> Value nothrow {
+fn nullValue() nothrow -> Value {
     return jsonNull();
 }
 
-fn boolean(value: Bool) -> Value nothrow {
+fn boolean(value: Bool) nothrow -> Value {
     return jsonConstruct(value);
 }
 
-fn text(value: String) -> Value nothrow {
+fn text(value: String) nothrow -> Value {
     return jsonConstruct(value);
 }
 
-fn intValue(value: Int) -> Value nothrow {
+fn intValue(value: Int) nothrow -> Value {
     return jsonConstruct(value);
 }
 
-fn floatValue(value: Float) -> Value throws NumberError {
+fn floatValue(value: Float) throws(NumberError) -> Value {
     return jsonFloatValue(value);
 }
 
-fn number(token: String) -> Value throws NumberError {
+fn number(token: String) throws(NumberError) -> Value {
     return jsonNumber(token);
 }
 
-fn array(values: List<Value>) -> Value nothrow {
+fn array(values: List<Value>) nothrow -> Value {
     return jsonConstruct(values);
 }
 
-fn object(fields: Map<String, Value>) -> Value nothrow {
+fn object(fields: Map<String, Value>) nothrow -> Value {
     return jsonConstruct(fields);
 }
 
-fn encode(value: Value) -> ByteArray throws LimitExceeded {
+fn encode(value: Value) throws(LimitExceeded) -> ByteArray {
     return jsonEncode(value);
 }
 
-fn stringify(value: Value) -> String throws LimitExceeded {
+fn stringify(value: Value) throws(LimitExceeded) -> String {
     return jsonEncode(value);
 }
 
-fn encodeWithLimits(value: Value, limits: EncodeLimits) -> ByteArray throws LimitExceeded, InvalidLimits {
+fn encodeWithLimits(value: Value, limits: EncodeLimits) throws(LimitExceeded, InvalidLimits) -> ByteArray {
     return jsonEncodeWithLimits(value, limits);
 }
 
-fn stringifyWithLimits(value: Value, limits: EncodeLimits) -> String throws LimitExceeded, InvalidLimits {
+fn stringifyWithLimits(value: Value, limits: EncodeLimits) throws(LimitExceeded, InvalidLimits) -> String {
     return jsonEncodeWithLimits(value, limits);
 }
 

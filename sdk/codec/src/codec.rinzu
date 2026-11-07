@@ -1,6 +1,6 @@
 /// An immutable binary representation. Encoding may reject invalid field values.
 interface Encodable {
-    fn encode(self: Self) -> ByteArray throws Error;
+    fn encode(self: Self) throws(Error) -> ByteArray;
 }
 
 /// Text and a selection measured in Unicode scalar values, not UTF-8 bytes.
@@ -10,7 +10,7 @@ class Document interface Encodable {
     /// Position in the inclusive range 0..stringLength(text).
     const selection: Int
 
-    fn encode(self: Document) -> ByteArray throws Error {
+    fn encode(self: Document) throws(Error) -> ByteArray {
         if utf8ByteLength(self.text) > 1048576 {
             return failure<ByteArray>(502, "codec.document.limit");
         }
@@ -28,7 +28,7 @@ class Settings interface Encodable {
     const tabWidth: Int,
     const wrap: Bool
 
-    fn encode(self: Settings) -> ByteArray throws Error {
+    fn encode(self: Settings) throws(Error) -> ByteArray {
         if self.fontSize < 8 || self.fontSize > 96 || self.tabWidth < 1 || self.tabWidth > 16 {
             return failure<ByteArray>(503, "codec.settings.range");
         }
@@ -46,7 +46,7 @@ class Message interface Encodable {
     const operation: String,
     const payload: ByteArray
 
-    fn encode(self: Message) -> ByteArray throws Error {
+    fn encode(self: Message) throws(Error) -> ByteArray {
         if self.sequence < 0 || self.sequence > 4294967295 {
             return failure<ByteArray>(503, "codec.message.sequence");
         }
@@ -70,11 +70,11 @@ class Message interface Encodable {
     }
 }
 
-fn failure<T>(code: Int, context: String) -> T throws Error {
+fn failure<T>(code: Int, context: String) throws(Error) -> T {
     throw error(code, context);
 }
 
-fn byteAt(data: ByteArray, index: Int) -> Int throws Error {
+fn byteAt(data: ByteArray, index: Int) throws(Error) -> Int {
     switch bytesGet(data, index) {
         case Option.Some(value): {
             return Int(value);
@@ -158,11 +158,11 @@ fn slice(data: ByteArray, start: Int, end: Int) -> ByteArray {
 ///     }
 /// }
 /// ```
-fn encodeDocument(value: Document) -> ByteArray throws Error {
+fn encodeDocument(value: Document) throws(Error) -> ByteArray {
     return encode(value);
 }
 
-fn decodeDocument(data: ByteArray) -> Document throws Error {
+fn decodeDocument(data: ByteArray) throws(Error) -> Document {
     let resultValue8 = frame(data, 1, 14, 1048590);
     let length = uint32(data, 6);
     let selection = uint32(data, 10);
@@ -185,11 +185,11 @@ fn decodeDocument(data: ByteArray) -> Document throws Error {
     }
 }
 
-fn encodeSettings(value: Settings) -> ByteArray throws Error {
+fn encodeSettings(value: Settings) throws(Error) -> ByteArray {
     return encode(value);
 }
 
-fn decodeSettings(data: ByteArray) -> Settings throws Error {
+fn decodeSettings(data: ByteArray) throws(Error) -> Settings {
     let resultValue5 = frame(data, 2, 9, 9);
     let font = byteAt(data, 6);
     let tab = byteAt(data, 7);
@@ -200,11 +200,11 @@ fn decodeSettings(data: ByteArray) -> Settings throws Error {
     return (Settings(fontSize: font, tabWidth: tab, wrap: wrap == 1));
 }
 
-fn encodeMessage(value: Message) -> ByteArray throws Error {
+fn encodeMessage(value: Message) throws(Error) -> ByteArray {
     return encode(value);
 }
 
-fn decodeMessage(data: ByteArray) -> Message throws Error {
+fn decodeMessage(data: ByteArray) throws(Error) -> Message {
     let resultValue4 = frame(data, 3, 15, 65536);
     let sequence = uint32(data, 6);
     let nameLength = byteAt(data, 10);
@@ -230,7 +230,7 @@ fn decodeMessage(data: ByteArray) -> Message throws Error {
 }
 
 /// Encode any value with an explicit Encodable implementation.
-fn encode<T interface Encodable>(value: T) -> ByteArray throws Error {
+fn encode<T interface Encodable>(value: T) throws(Error) -> ByteArray {
     return value.encode();
 }
 

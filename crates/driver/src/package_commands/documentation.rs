@@ -114,15 +114,15 @@ fn code(output: &mut String, text: &str, language: &str) {
 
 fn checked_type(entry: &ApiEntry) -> Option<&str> {
     entry
-        .function
+        .source_template
         .as_ref()
-        .map(|function| function.source_type.as_str())
+        .filter(|template| !template.signature.is_empty())
+        .map(|template| template.signature.as_str())
         .or_else(|| {
             entry
-                .source_template
+                .function
                 .as_ref()
-                .filter(|template| !template.signature.is_empty())
-                .map(|template| template.signature.as_str())
+                .map(|function| function.source_type.as_str())
         })
         .or(entry.source_value.as_deref())
         .or_else(|| entry.constant.as_ref().map(|(ty, _)| ty.as_str()))
@@ -194,7 +194,7 @@ pub(super) fn render(
                 let bound = if types.is_empty() {
                     "nothrow".into()
                 } else {
-                    format!("throws {}", types.join(", "))
+                    format!("throws({})", types.join(", "))
                 };
                 result.push_str(&format!(
                     "Error contract: `{}` ({}).\n\n",

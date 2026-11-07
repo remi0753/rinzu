@@ -184,6 +184,7 @@ impl Parser<'_> {
         self.take(&TokenKind::LeftParen)?;
         let parameters = self.comma_list(TokenKind::RightParen, Self::parameter)?;
         self.take(&TokenKind::RightParen)?;
+        let error_contract = self.error_contract()?;
         let result = if self.consume(&TokenKind::Arrow).is_some() {
             self.type_ref()?
         } else {
@@ -194,7 +195,7 @@ impl Parser<'_> {
         } else {
             None
         };
-        let error_contract = self.error_contract()?;
+        self.reject_trailing_error_contract()?;
         if requirement
             && (error_contract.is_none()
                 || fallback.is_some()
@@ -241,12 +242,32 @@ impl Parser<'_> {
             return Ok(None);
         }
         let start = self.advance().range;
+        if self.consume(&TokenKind::LeftParen).is_none() {
+            return Err(Diagnostic::error(
+                DiagnosticCode::UnexpectedToken,
+                self.current().range,
+                "throws requires a parenthesized list of Error types",
+                "write `throws(ErrorType)` immediately after the parameter list",
+            ));
+        }
         let mut types = vec![self.type_ref()?];
         while self.consume(&TokenKind::Comma).is_some() {
             types.push(self.type_ref()?);
         }
-        let range = start.join(types.last().unwrap().range);
+        let range = start.join(self.take(&TokenKind::RightParen)?.range);
         Ok(Some(crate::ast::ErrorContract { types, range }))
+    }
+
+    fn reject_trailing_error_contract(&self) -> Result<(), Diagnostic> {
+        if self.at_identifier("throws") || self.at_identifier("nothrow") {
+            return Err(Diagnostic::error(
+                DiagnosticCode::UnexpectedToken,
+                self.current().range,
+                "an Error contract belongs immediately after the parameter list",
+                "move `throws(ErrorType)` or `nothrow` before `->` and `fallback`",
+            ));
+        }
+        Ok(())
     }
 
     fn interface(&mut self) -> Result<crate::ast::InterfaceDecl, Diagnostic> {
@@ -589,6 +610,7 @@ impl Parser<'_> {
             self.take(&TokenKind::LeftParen)?;
             let parameters = self.comma_list(TokenKind::RightParen, Self::type_ref)?;
             self.take(&TokenKind::RightParen)?;
+            let error_contract = self.error_contract()?;
             self.take(&TokenKind::Arrow)?;
             let result = self.type_ref()?;
             let range = start.join(result.range);
@@ -597,6 +619,7 @@ impl Parser<'_> {
                     supplant,
                     parameters,
                     result: Box::new(result),
+                    error_contract: error_contract.map(Box::new),
                 },
                 range,
             });
@@ -1307,6 +1330,7 @@ impl Parser<'_> {
         self.take(&TokenKind::LeftParen)?;
         let parameters = self.comma_list(TokenKind::RightParen, Self::parameter)?;
         self.take(&TokenKind::RightParen)?;
+        let error_contract = self.error_contract()?;
         let result = if self.consume(&TokenKind::Arrow).is_some() {
             self.type_ref()?
         } else {
@@ -1317,7 +1341,7 @@ impl Parser<'_> {
         } else {
             None
         };
-        let error_contract = self.error_contract()?;
+        self.reject_trailing_error_contract()?;
         let body = self.block()?;
         let range = start.join(body.range);
         Ok(Expression {

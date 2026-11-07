@@ -2,7 +2,7 @@
 
 Generated from checked public exports and captured source comments.
 
-Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r80`.
+Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r82`.
 
 [Machine-readable API v4 snapshot](../../sdk/codec/build/package-api-v4.json).
 
@@ -40,12 +40,12 @@ Position in the inclusive range 0..stringLength(text).
 
 Checked type: `fn(Document)->ByteArray`.
 
-Error contract: `throws Error` (declared).
+Error contract: `throws(Error)` (declared).
 
 method · [source](../../sdk/codec/src/codec.rinzu#L13).
 
 ```rinzu
-fn encode(self: Document) -> ByteArray throws Error
+fn encode(self: Document) throws(Error) -> ByteArray
 ```
 
 ## rinzu.codec.Encodable
@@ -63,7 +63,7 @@ An immutable binary representation. Encoding may reject invalid field values.
 [source](../../sdk/codec/src/codec.rinzu#L3).
 
 ```rinzu
-fn encode(self: Self) -> ByteArray throws Error;
+fn encode(self: Self) throws(Error) -> ByteArray;
 ```
 
 ## rinzu.codec.Message
@@ -102,12 +102,12 @@ const payload: ByteArray
 
 Checked type: `fn(Message)->ByteArray`.
 
-Error contract: `throws Error` (declared).
+Error contract: `throws(Error)` (declared).
 
 method · [source](../../sdk/codec/src/codec.rinzu#L49).
 
 ```rinzu
-fn encode(self: Message) -> ByteArray throws Error
+fn encode(self: Message) throws(Error) -> ByteArray
 ```
 
 ## rinzu.codec.Settings
@@ -146,60 +146,60 @@ const wrap: Bool
 
 Checked type: `fn(Settings)->ByteArray`.
 
-Error contract: `throws Error` (declared).
+Error contract: `throws(Error)` (declared).
 
 method · [source](../../sdk/codec/src/codec.rinzu#L31).
 
 ```rinzu
-fn encode(self: Settings) -> ByteArray throws Error
+fn encode(self: Settings) throws(Error) -> ByteArray
 ```
 
 ## rinzu.codec.decodeDocument
 
 Checked type: `fn(ByteArray)->Document`.
 
-Error contract: `throws Error` (declared).
+Error contract: `throws(Error)` (declared).
 
 function · [source](../../sdk/codec/src/codec.rinzu#L165).
 
 ```rinzu
-fn decodeDocument(data: ByteArray) -> Document throws Error
+fn decodeDocument(data: ByteArray) throws(Error) -> Document
 ```
 
 ## rinzu.codec.decodeMessage
 
 Checked type: `fn(ByteArray)->Message`.
 
-Error contract: `throws Error` (declared).
+Error contract: `throws(Error)` (declared).
 
 function · [source](../../sdk/codec/src/codec.rinzu#L207).
 
 ```rinzu
-fn decodeMessage(data: ByteArray) -> Message throws Error
+fn decodeMessage(data: ByteArray) throws(Error) -> Message
 ```
 
 ## rinzu.codec.decodeSettings
 
 Checked type: `fn(ByteArray)->Settings`.
 
-Error contract: `throws Error` (declared).
+Error contract: `throws(Error)` (declared).
 
 function · [source](../../sdk/codec/src/codec.rinzu#L192).
 
 ```rinzu
-fn decodeSettings(data: ByteArray) -> Settings throws Error
+fn decodeSettings(data: ByteArray) throws(Error) -> Settings
 ```
 
 ## rinzu.codec.encode
 
-Checked type: `fn(T)->ByteArray throws Error`.
+Checked type: `fn(T) throws(Error)->ByteArray`.
 
-Error contract: `throws Error` (declared).
+Error contract: `throws(Error)` (declared).
 
 function · [source](../../sdk/codec/src/codec.rinzu#L233).
 
 ```rinzu
-fn encode<T interface Encodable>(value: T) -> ByteArray throws Error
+fn encode<T interface Encodable>(value: T) throws(Error) -> ByteArray
 ```
 
 Encode any value with an explicit Encodable implementation.
@@ -208,12 +208,12 @@ Encode any value with an explicit Encodable implementation.
 
 Checked type: `fn(Document)->ByteArray`.
 
-Error contract: `throws Error` (declared).
+Error contract: `throws(Error)` (declared).
 
 function · [source](../../sdk/codec/src/codec.rinzu#L161).
 
 ```rinzu
-fn encodeDocument(value: Document) -> ByteArray throws Error
+fn encodeDocument(value: Document) throws(Error) -> ByteArray
 ```
 
 Encode version 1 document data, with at most 1 MiB of UTF-8 text.
@@ -242,22 +242,22 @@ fn main() {
 
 Checked type: `fn(Message)->ByteArray`.
 
-Error contract: `throws Error` (declared).
+Error contract: `throws(Error)` (declared).
 
 function · [source](../../sdk/codec/src/codec.rinzu#L203).
 
 ```rinzu
-fn encodeMessage(value: Message) -> ByteArray throws Error
+fn encodeMessage(value: Message) throws(Error) -> ByteArray
 ```
 
 ## rinzu.codec.encodeSettings
 
 Checked type: `fn(Settings)->ByteArray`.
 
-Error contract: `throws Error` (declared).
+Error contract: `throws(Error)` (declared).
 
 function · [source](../../sdk/codec/src/codec.rinzu#L188).
 
 ```rinzu
-fn encodeSettings(value: Settings) -> ByteArray throws Error
+fn encodeSettings(value: Settings) throws(Error) -> ByteArray
 ```

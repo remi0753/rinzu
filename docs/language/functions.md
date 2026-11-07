@@ -21,7 +21,7 @@ fn main() {
 
 All arguments are required. Ordinary calls use positional arguments. Class and enum constructors use named arguments. Overloads, default arguments and partial application are unavailable. Methods can have generic owner and method parameters.
 
-A function or function expression can put `throws E1, E2` or `nothrow` after its result and optional `fallback`. Omission keeps inference. See [Error contracts](errors.md#declare-an-error-upper-bound).
+Function declarations, expressions and types can put `throws(E1, E2)` or `nothrow` immediately after the parameter list. Omission keeps inference. See [Error contracts](errors.md#declare-an-error-upper-bound).
 
 ## Capture values at creation
 

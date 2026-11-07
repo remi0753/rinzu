@@ -326,12 +326,20 @@ impl Expander<'_> {
                 }
             }
             TypeRefKind::Function {
-                parameters, result, ..
+                parameters,
+                result,
+                error_contract,
+                ..
             } => {
                 for p in parameters {
                     *p = self.abstract_type(p);
                 }
                 **result = self.abstract_type(result);
+                if let Some(contract) = error_contract {
+                    for ty in &mut contract.types {
+                        *ty = self.abstract_type(ty);
+                    }
+                }
             }
             _ => {}
         }
@@ -571,6 +579,7 @@ impl Expander<'_> {
                 supplant: false,
                 parameters: function.parameters.iter().map(|p| p.ty.clone()).collect(),
                 result: Box::new(result),
+                error_contract: None,
             },
         };
         let mut constraints: HashMap<_, _> = function
@@ -708,12 +717,20 @@ pub(super) fn substitute(ty: &TypeRef, bindings: &HashMap<String, TypeRef>) -> T
             }
         }
         TypeRefKind::Function {
-            parameters, result, ..
+            parameters,
+            result,
+            error_contract,
+            ..
         } => {
             for t in parameters {
                 *t = substitute(t, bindings);
             }
             **result = substitute(result, bindings);
+            if let Some(contract) = error_contract {
+                for ty in &mut contract.types {
+                    *ty = substitute(ty, bindings);
+                }
+            }
         }
         _ => {}
     }
@@ -788,11 +805,13 @@ fn constrain(
                 supplant: a,
                 parameters: ap,
                 result: ar,
+                ..
             },
             TypeRefKind::Function {
                 supplant: b,
                 parameters: bp,
                 result: br,
+                ..
             },
         ) if a == b && ap.len() == bp.len() => {
             for (a, b) in ap.iter().zip(bp) {
@@ -835,10 +854,14 @@ fn key(ty: &TypeRef) -> String {
                 supplant,
                 parameters,
                 result,
+                error_contract,
             } => format!(
-                "{}fn({})->{}",
+                "{}fn({}){}->{}",
                 supplant,
                 parameters.iter().map(key).collect::<Vec<_>>().join(","),
+                error_contract
+                    .as_ref()
+                    .map_or_else(String::new, |contract| contract.spelling(key)),
                 key(result)
             ),
             _ => spelling(ty),

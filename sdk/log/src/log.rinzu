@@ -6,13 +6,13 @@ class Logger {
     closed: Bool
 }
 
-async fn open(path: String) -> Logger throws Error {
+async fn open(path: String) throws(Error) -> Logger {
     let resultValue1 = await rinzu.io.openWrite(path);
     return (Logger(file: resultValue1, busy: false, closed: false));
     throw error(-7404, "log.open");
 }
 
-fn available(logger: Logger) -> Int nothrow {
+fn available(logger: Logger) nothrow -> Int {
     if logger.closed {
         return -7402;
     }
@@ -22,7 +22,7 @@ fn available(logger: Logger) -> Int nothrow {
     return 0;
 }
 
-async fn emit(logger: Logger, level: Int, operationId: Int, event: Int, status: Int) -> Int throws Error {
+async fn emit(logger: Logger, level: Int, operationId: Int, event: Int, status: Int) throws(Error) -> Int {
     let check = available(logger);
     if check != 0 {
         throw error(check, "log.emit");
@@ -46,7 +46,7 @@ async fn emit(logger: Logger, level: Int, operationId: Int, event: Int, status: 
     throw error(-7404, "log.emit");
 }
 
-async fn flush(logger: Logger) -> Int throws Error {
+async fn flush(logger: Logger) throws(Error) -> Int {
     let check = available(logger);
     if check != 0 {
         throw error(check, "log.flush");
@@ -61,7 +61,7 @@ async fn flush(logger: Logger) -> Int throws Error {
     throw error(-7404, "log.flush");
 }
 
-async fn close(logger: Logger) -> Int throws Error {
+async fn close(logger: Logger) throws(Error) -> Int {
     let check = available(logger);
     if check != 0 {
         throw error(check, "log.close");

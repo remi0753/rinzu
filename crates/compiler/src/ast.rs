@@ -98,6 +98,22 @@ pub struct ErrorContract {
     pub range: SourceRange,
 }
 
+impl ErrorContract {
+    pub(crate) fn spelling(&self, render: impl Fn(&TypeRef) -> String) -> String {
+        let mut types: Vec<_> = self.types.iter().map(render).collect();
+        types.sort();
+        error_bound_spelling(Some(&types))
+    }
+}
+
+pub(crate) fn error_bound_spelling(bound: Option<&[String]>) -> String {
+    match bound {
+        None => String::new(),
+        Some([]) => " nothrow".into(),
+        Some(types) => format!(" throws({})", types.join(",")),
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct InterfaceDecl {
     pub name: String,
@@ -196,6 +212,7 @@ pub enum TypeRefKind {
         supplant: bool,
         parameters: Vec<TypeRef>,
         result: Box<TypeRef>,
+        error_contract: Option<Box<ErrorContract>>,
     },
 }
 

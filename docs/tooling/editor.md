@@ -19,6 +19,8 @@ Formatting requires valid syntax but no manifest or main. Comments and literal s
 2. If a group needs to wrap, break after its opening delimiter, at each top-level comma, and before its closing delimiter. Indent the items by four spaces and align the closing delimiter with the line that opened the group.
 3. Apply the same fit check to each item at its new indentation. If an item still needs to wrap, use its own delimiters or an expression or type continuation point, such as after `=` or `:`.
 
+Treat a function's parameter list and its `throws(...)` list as separate groups. When both wrap, the parameter list ends on the line that opens `throws(`, and the Error list ends on the line with `-> Result` when the result fits. A break before `->` indents the continuation by four spaces.
+
 Structural record types, literals, and updates also wrap when they have three or more items or their inline form exceeds 40 Unicode code points. The width includes both braces and the spaces inside them. Count the items directly inside each record, including the base expression of a record update as one item. Each item in a wrapped record starts on its own line. Comments and multiline literals inside a record force the wrapped form.
 
 ## Use the local VS Code extension

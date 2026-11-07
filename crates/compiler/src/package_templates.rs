@@ -38,10 +38,54 @@ fn type_parameters(values: &[TypeParameter]) -> Vec<(String, Vec<String>)> {
         })
         .collect()
 }
+
+fn has_callback_contract(ty: &TypeRef) -> bool {
+    match &ty.kind {
+        TypeRefKind::Function {
+            parameters,
+            result,
+            error_contract,
+            ..
+        } => {
+            error_contract.is_some()
+                || parameters.iter().any(has_callback_contract)
+                || has_callback_contract(result)
+        }
+        TypeRefKind::Generic { arguments, .. } => arguments.iter().any(has_callback_contract),
+        TypeRefKind::Record(fields) => fields.iter().any(|field| has_callback_contract(&field.ty)),
+        TypeRefKind::List(ty) | TypeRefKind::Future(ty) => has_callback_contract(ty),
+        TypeRefKind::Map(key, value) => has_callback_contract(key) || has_callback_contract(value),
+        _ => false,
+    }
+}
+
 pub(crate) fn schema(declaration: &Declaration) -> Option<SourceTemplateSchema> {
     let mut interfaces = Vec::new();
     let mut error_contract = None;
     let mut methods = Vec::new();
+    let callback_contract = match declaration {
+        Declaration::Function(function) => {
+            function
+                .parameters
+                .iter()
+                .any(|parameter| has_callback_contract(&parameter.ty))
+                || has_callback_contract(&function.result)
+        }
+        Declaration::Record(record) => record
+            .fields
+            .iter()
+            .any(|field| has_callback_contract(&field.ty)),
+        Declaration::Enum(enumeration) => enumeration
+            .variants
+            .iter()
+            .flat_map(|variant| &variant.fields)
+            .any(|field| has_callback_contract(&field.ty)),
+        Declaration::Error(error) => error
+            .payload
+            .as_ref()
+            .is_some_and(|payload| has_callback_contract(&payload.ty)),
+        _ => false,
+    };
     let (parameters, kind, signature, members, variants) = match declaration {
         Declaration::Function(function) => {
             error_contract = function
@@ -96,7 +140,7 @@ pub(crate) fn schema(declaration: &Declaration) -> Option<SourceTemplateSchema> 
             )
         }
         Declaration::Error(error) => {
-            if error.type_parameters.is_empty() {
+            if error.type_parameters.is_empty() && !callback_contract {
                 return None;
             }
             let mut fields = vec![
@@ -143,6 +187,7 @@ pub(crate) fn schema(declaration: &Declaration) -> Option<SourceTemplateSchema> 
         && kind != "interface"
         && interfaces.is_empty()
         && error_contract.is_none()
+        && !callback_contract
     {
         return None;
     }
@@ -195,27 +240,22 @@ fn interface_constraints(
 }
 
 fn signature(f: &crate::ast::FunctionDecl) -> String {
-    let mut result = format!(
-        "{}({})->{}{}",
+    format!(
+        "{}({}){}->{}{}",
         if f.is_async { "async" } else { "fn" },
         f.parameters
             .iter()
             .map(|p| ty(&p.ty))
             .collect::<Vec<_>>()
             .join(","),
+        f.error_contract
+            .as_ref()
+            .map_or_else(String::new, |contract| contract.spelling(ty)),
         ty(&f.result),
         f.fallback
             .as_ref()
             .map_or_else(String::new, |e| format!(" fallback {}", expression(e)))
-    );
-    if let Some(c) = &f.error_contract {
-        if c.types.is_empty() {
-            result.push_str(" nothrow");
-        } else {
-            result.push_str(&format!(" throws {}", canonical_types(&c.types).join(",")));
-        }
-    }
-    result
+    )
 }
 
 fn ty(value: &TypeRef) -> String {
@@ -243,10 +283,14 @@ fn ty(value: &TypeRef) -> String {
             supplant,
             parameters,
             result,
+            error_contract,
         } => format!(
-            "{}fn({})->{}",
+            "{}fn({}){}->{}",
             if *supplant { "supplant " } else { "" },
             parameters.iter().map(ty).collect::<Vec<_>>().join(","),
+            error_contract
+                .as_ref()
+                .map_or_else(String::new, |contract| contract.spelling(ty)),
             ty(result)
         ),
     }

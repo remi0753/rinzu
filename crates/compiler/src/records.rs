@@ -20,7 +20,7 @@ pub(crate) fn identity(fields: &[(String, Type)]) -> String {
     format!("$rinzu_record_{a:016x}{b:016x}")
 }
 
-pub(crate) fn expand_aliases(module: &Module) -> Result<Module, Vec<Diagnostic>> {
+pub(crate) fn expand_aliases(module: &Module, retain: bool) -> Result<Module, Vec<Diagnostic>> {
     let aliases = module
         .declarations
         .iter()
@@ -89,9 +89,11 @@ pub(crate) fn expand_aliases(module: &Module) -> Result<Module, Vec<Diagnostic>>
         }
     }
     let mut output = module.clone();
-    output
-        .declarations
-        .retain(|d| !matches!(d, Declaration::TypeAlias(a) if !a.type_parameters.is_empty()));
+    if !retain {
+        output
+            .declarations
+            .retain(|d| !matches!(d, Declaration::TypeAlias(a) if !a.type_parameters.is_empty()));
+    }
     let mut expander = Expander {
         aliases: &aliases,
         errors: Vec::new(),
@@ -103,6 +105,7 @@ pub(crate) fn expand_aliases(module: &Module) -> Result<Module, Vec<Diagnostic>>
             Declaration::Record(r) => &r.type_parameters,
             Declaration::Enum(e) => &e.type_parameters,
             Declaration::Error(error) => &error.type_parameters,
+            Declaration::TypeAlias(alias) => &alias.type_parameters,
             _ => &Vec::new(),
         };
         let mut visible = aliases.clone();
@@ -220,12 +223,20 @@ fn expand_type(
             expand_type(v, aliases, substitution, stack)?;
         }
         TypeRefKind::Function {
-            parameters, result, ..
+            parameters,
+            result,
+            error_contract,
+            ..
         } => {
             for p in parameters {
                 expand_type(p, aliases, substitution, stack)?;
             }
             expand_type(result, aliases, substitution, stack)?;
+            if let Some(contract) = error_contract {
+                for ty in &mut contract.types {
+                    expand_type(ty, aliases, substitution, stack)?;
+                }
+            }
         }
         _ => {}
     }

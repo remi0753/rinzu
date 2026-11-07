@@ -8,15 +8,15 @@ class FileStream {
     failure: Option<Error>
 }
 
-fn problem(code: Int) -> Error nothrow {
+fn problem(code: Int) nothrow -> Error {
     return error(code, "stream.file");
 }
 
-async fn openFile(path: String) -> FileStream throws Error {
+async fn openFile(path: String) throws(Error) -> FileStream {
     return await openFileWithLimit(path, 65536);
 }
 
-async fn openFileWithLimit(path: String, maximum: Int) -> FileStream throws Error {
+async fn openFileWithLimit(path: String, maximum: Int) throws(Error) -> FileStream {
     if maximum < 1 || maximum > 65536 {
         throw problem(-7204);
     }
@@ -25,7 +25,7 @@ async fn openFileWithLimit(path: String, maximum: Int) -> FileStream throws Erro
     throw problem(-7204);
 }
 
-async fn next(stream: FileStream) -> Option<ByteArray> throws Error {
+async fn next(stream: FileStream) throws(Error) -> Option<ByteArray> {
     if stream.busy {
         throw problem(-7203);
     }
@@ -63,7 +63,7 @@ async fn next(stream: FileStream) -> Option<ByteArray> throws Error {
     throw problem(-7204);
 }
 
-async fn close(stream: FileStream) -> Int throws Error {
+async fn close(stream: FileStream) throws(Error) -> Int {
     if stream.busy {
         throw problem(-7203);
     }

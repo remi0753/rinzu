@@ -4568,6 +4568,7 @@ fn reference_signature(module: &IrModule, target: &str) -> Option<crate::Functio
     }
     if let Some(function) = module.functions.iter().find(|f| f.name == target) {
         return Some(crate::FunctionReferenceType {
+            error_bound: None,
             parameters: function.parameter_types.clone(),
             result: Box::new(if function.is_async {
                 Type::Future(Box::new(function.result_type.clone()))
@@ -4582,6 +4583,7 @@ fn reference_signature(module: &IrModule, target: &str) -> Option<crate::Functio
         .iter()
         .find(|signature| signature.name == target)
         .map(|signature| crate::FunctionReferenceType {
+            error_bound: None,
             parameters: signature
                 .parameters
                 .iter()

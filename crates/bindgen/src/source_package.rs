@@ -694,11 +694,6 @@ impl SourceInterface {
                         == fields.len()
             };
             if identity.is_empty()
-                || schema.type_parameters.is_empty()
-                    && schema.owner_type_parameters.is_empty()
-                    && schema.kind != "interface"
-                    && schema.interfaces.is_empty()
-                    && schema.error_contract.is_none()
                 || !schema.owner_type_parameters.is_empty() && schema.kind != "function"
                 || schema
                     .type_parameters

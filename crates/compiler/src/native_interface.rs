@@ -211,7 +211,7 @@ pub fn source_native_signatures(
     module: &Module,
 ) -> Result<Vec<SourceNativeSignature>, Vec<Diagnostic>> {
     let option_shadow_modules = crate::core::option_shadow_modules(module);
-    let module = crate::records::expand_aliases(module)?;
+    let module = crate::records::expand_aliases(module, false)?;
     let (module, _) = crate::generics::expand(
         &module,
         &crate::CompilerOptions::default(),
@@ -377,6 +377,7 @@ impl AbiResolver<'_> {
                 supplant: false,
                 parameters,
                 result,
+                error_contract: None,
             } if callback => SourceAbiType::Callback {
                 parameters: parameters
                     .iter()

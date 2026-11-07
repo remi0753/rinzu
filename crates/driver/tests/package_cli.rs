@@ -9,9 +9,106 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 struct Fixture(PathBuf);
 
 #[test]
+fn exported_callback_contracts_constrain_consumers_and_api_diffs() {
+    let f = Fixture::new();
+    let source = r#"
+        error InvalidPort {}
+        error ReadFailed {}
+        let defaultValidator: fn (Int) throws(InvalidPort) -> Int = fn (value: Int) nothrow -> Int { return value; };
+        fn apply(op: fn (Int) throws(InvalidPort) -> Int, value: Int) throws(InvalidPort) -> Int { return op(value); }
+        fn adapt(op: fn (Int) throws(InvalidPort, ReadFailed) -> Int) {}
+        export InvalidPort;
+        export ReadFailed;
+        export defaultValidator;
+        export apply;
+        export adapt;
+    "#;
+    std::fs::write(f.path("sdk/src/model.rinzu"), source).unwrap();
+    std::fs::write(
+        f.path("app/src/main.rinzu"),
+        r#"
+        import model;
+        fn main() {
+            let minimum = 0;
+            let validator: fn (Int) throws(model.InvalidPort) -> Int = fn (value: Int) throws(model.InvalidPort) -> Int {
+                if value < minimum { throw model.InvalidPort(message: "negative"); }
+                return value;
+            };
+            var rejected = false;
+            try {
+                if model.apply(validator, 42) != 42 { panic("callback"); }
+                if model.apply(model.defaultValidator, 42) != 42 { panic("default callback"); }
+                let invalidResult = model.apply(validator, -1);
+            }
+            catch [invalid: model.InvalidPort, ...rest] { rejected = true; }
+            if !rejected { panic("missing Error"); }
+        }
+    "#,
+    )
+    .unwrap();
+    success(f.cli("run", "app", &[]));
+    success(f.cli("verify-aot", "app", &[]));
+
+    let baseline = f.path("callbacks.json");
+    success(f.cli("api", "sdk", &["--output", baseline.to_str().unwrap()]));
+    let api = json(&baseline);
+    assert!(
+        api["exports"]["model.defaultValidator"]["source_value"]
+            .as_str()
+            .unwrap()
+            .contains("throws(InvalidPort)")
+    );
+    assert!(
+        api["exports"]["model.adapt"]["source_template"]["signature"]
+            .as_str()
+            .unwrap()
+            .contains("throws(")
+    );
+    let after = f.path("callbacks-after.json");
+    let reordered = source.replace(
+        "throws(InvalidPort, ReadFailed)",
+        "throws(ReadFailed, InvalidPort)",
+    );
+    std::fs::write(f.path("sdk/src/model.rinzu"), reordered).unwrap();
+    success(f.cli(
+        "api",
+        "sdk",
+        &[
+            "--output",
+            after.to_str().unwrap(),
+            "--compare",
+            baseline.to_str().unwrap(),
+        ],
+    ));
+    assert_eq!(
+        json(&f.path("callbacks-after.report.json"))["breaking_candidates"],
+        serde_json::json!([])
+    );
+    let narrower = source.replace("throws(InvalidPort, ReadFailed) -> Int", "nothrow -> Int");
+    std::fs::write(f.path("sdk/src/model.rinzu"), narrower).unwrap();
+    success(f.cli(
+        "api",
+        "sdk",
+        &[
+            "--output",
+            after.to_str().unwrap(),
+            "--compare",
+            baseline.to_str().unwrap(),
+        ],
+    ));
+    assert!(
+        json(&f.path("callbacks-after.report.json"))["breaking_candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|change| change.as_str().unwrap().contains("model.adapt"))
+    );
+}
+
+#[test]
 fn interfaces_and_error_contracts_survive_sdk_cache_api_and_aot() {
     let f = Fixture::new();
-    let source = "error ReadFailed{}interface Reader{fn read(self:Self)->String throws ReadFailed;}class Memory interface Reader{const text:String fn read(self:Memory)->String nothrow{return self.text;}}enum Input interface Reader{Text(text:String),fn read(self:Input)->String nothrow{switch self{case Input.Text(text):{return text;}}}}fn read<R interface Reader>(reader:R)->String throws ReadFailed{return reader.read();}export Reader;export ReadFailed;export Memory;export Input;export read;";
+    let source = "error ReadFailed{}interface Reader{fn read(self:Self) throws(ReadFailed)->String;}class Memory interface Reader{const text:String fn read(self:Memory) nothrow->String{return self.text;}}enum Input interface Reader{Text(text:String),fn read(self:Input) nothrow->String{switch self{case Input.Text(text):{return text;}}}}fn read<R interface Reader>(reader:R) throws(ReadFailed)->String{return reader.read();}export Reader;export ReadFailed;export Memory;export Input;export read;";
     std::fs::write(f.path("sdk/src/model.rinzu"), source).unwrap();
     std::fs::write(f.path("app/src/main.rinzu"),"import model;fn main(){let memory=model.Memory(text:\"ok\");if memory.read()!=\"ok\"{panic(\"direct\");}try{if model.read(memory)!=model.read(model.Input.Text(text:\"ok\")){panic(\"generic\");}}catch errors{panic(\"unexpected\");}}").unwrap();
     for _ in 0..2 {
@@ -53,8 +150,8 @@ fn interfaces_and_error_contracts_survive_sdk_cache_api_and_aot() {
     std::fs::write(
         f.path("sdk/src/model.rinzu"),
         source.replace(
-            "fn read(self:Memory)->String nothrow",
-            "fn read(self:Memory)->String throws ReadFailed",
+            "fn read(self:Memory) nothrow->String",
+            "fn read(self:Memory) throws(ReadFailed)->String",
         ),
     )
     .unwrap();

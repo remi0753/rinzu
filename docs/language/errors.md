@@ -35,16 +35,16 @@ Error retains its concrete type when stored as Error. `name`, `message`, and pay
 
 ## Declare an Error upper bound
 
-Place the contract after the result and any callback `fallback`, before the body:
+Place the contract immediately after the parameter list, before `->` and any callback `fallback`. For a Unit function with an omitted result type, the contract still follows the parameters.
 
 ```rinzu-test
 error ReadFailed {}
 
-fn read() -> String throws ReadFailed {
+fn read() throws(ReadFailed) -> String {
     return "ready";
 }
 
-fn recover() -> String nothrow {
+fn recover() nothrow -> String {
     try {
         return read();
     }
@@ -58,13 +58,42 @@ fn main() nothrow {
 }
 ```
 
-`throws ReadFailed` permits escaping ReadFailed values; it does not require a failure path. Callers use the declared bound even when the current body always succeeds. They must recover the possible Error, propagate it through their own `throws` contract, or let inference propagate it. Local try/catch is optional; leaking an Error from main, a Worker, or a native callback remains forbidden.
+`throws(ReadFailed)` permits escaping ReadFailed values. Callers use the declared bound even when the current body always succeeds. They must recover the possible Error, propagate it through their own `throws` contract, or let inference propagate it. Local try/catch is optional. Error escape from main, a Worker, or a native callback is forbidden.
 
-Use `throws First, Second` for several concrete Error types, `throws Error` for any ordinary Error, and `nothrow` for an empty bound. The compiler checks the body, catch handlers and finally against the bound. Duplicate types, redundant `Error` plus concrete types, non-Error types and bare type parameters are rejected. Generic nominal Errors such as `Failure<T>` are allowed. A declared set does not promise an exact failure count or ordering: typed catches generally need a rest pattern or an exhaustive final binding.
+Use `throws(First, Second)` for several concrete Error types, `throws(Error)` for any ordinary Error, and `nothrow` for an empty bound. The compiler checks the body, catch handlers and finally against the bound. Duplicate types, redundant `Error` plus concrete types, non-Error types and bare type parameters are rejected. Generic nominal Errors such as `Failure<T>` are allowed. Typed catches generally need a rest pattern or an exhaustive final binding because the declared set bounds the types of Errors that can escape.
 
-Named functions, methods and `fn` expressions support these contracts. Omitting the annotation retains inference. Interface requirements have no body and must explicitly declare `throws` or `nothrow`. Function types have no effect annotation; function values retain their checked target and capture provenance.
+Named functions, methods, `fn` expressions and function types use the same syntax. Omitting the annotation retains inference. Interface requirements must explicitly declare `throws(...)` or `nothrow`.
 
 For an async function, the bound describes the ordinary Errors observed from that task's body and cleanup. Argument evaluation occurs before the call, and returned or captured Futures retain their separate observation responsibilities. A nothrow factory can return a failing Future. `nothrow` does not cover panic, cancellation, traps, OOM or fatal native faults.
+
+## Bound a callback's Errors
+
+```rinzu-test
+error InvalidPort {}
+type PortValidator = fn (Int) throws(InvalidPort) -> Int;
+
+fn apply(validate: PortValidator, value: Int) throws(InvalidPort) -> Int {
+    return validate(value);
+}
+
+fn clamp(value: Int) nothrow -> Int {
+    if value < 1 { return 1; }
+    return value;
+}
+
+fn main() {
+    try {
+        if apply(clamp, 42) != 42 { panic("unexpected port"); }
+    }
+    catch problems {
+        panic("validation failed");
+    }
+}
+```
+
+A function value fits a destination with the same parameter and result types when its ordinary Error bound is a subset of the destination bound. For example, `nothrow` fits `throws(InvalidPort)`. For an unannotated function value, the compiler must establish a finite bound from its possible targets. A call through `PortValidator` uses the type's declared bound. The bound on `fn () nothrow -> Future<Int>` applies when calling the function. Observe the returned Future separately.
+
+Each contract applies to the parameter list immediately before it. In `fn (Int) throws(InvalidPort) -> fn () nothrow -> Int`, the factory can throw `InvalidPort` and the returned function has an empty ordinary Error bound. Each element in a collection literal is checked against its expected type. An existing `List<fn (Int) nothrow -> Int>` and `List<PortValidator>` have distinct element types.
 
 ## Catch an entire failure list
 

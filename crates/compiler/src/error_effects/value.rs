@@ -85,6 +85,7 @@ pub(super) enum Value {
     Plain,
     Opaque(String),
     Callable(BTreeSet<String>),
+    BoundedCallable(Vec<String>),
     Union(BTreeSet<Value>),
     Conditional {
         guards: language::Guards,

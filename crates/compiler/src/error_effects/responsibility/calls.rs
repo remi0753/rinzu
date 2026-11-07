@@ -213,6 +213,12 @@ impl Engine<'_> {
         spawn: bool,
     ) -> Vec<Evaluation> {
         let indirect = self.checked.indirect_calls.get(&expression.range);
+        let invocation_bound = self
+            .checked
+            .indirect_signatures
+            .get(&expression.range)
+            .and_then(|signature| signature.error_bound.as_ref())
+            .map(|bound| super::super::contracts::for_bound(bound, self.bound));
         let callee = if indirect.is_some() && state.env.contains_key(&target[0]) {
             self.expression(
                 &Expression {
@@ -240,6 +246,11 @@ impl Engine<'_> {
             let (normal, errors) = self.sequence(inputs.into_iter(), callee.state);
             result.extend(errors);
             for (state, values) in normal {
+                let start = result.len();
+                let before = invocation_bound
+                    .as_ref()
+                    .filter(|bound| !bound.is_empty())
+                    .map(|_| state.clone());
                 let targets = indirect.cloned().unwrap_or_else(|| vec![target.join(".")]);
                 if targets.is_empty() {
                     result.extend(self.unknown_call(
@@ -250,84 +261,99 @@ impl Engine<'_> {
                         &values,
                         &target.join("."),
                     ));
-                    continue;
-                }
-                for name in targets {
-                    let conditions = if indirect.is_some() {
-                        function.effect().target_guards(&name)
-                    } else {
-                        vec![BTreeMap::new()]
-                    };
-                    for guards in conditions {
-                        let Some(state) = state.condition(&guards) else {
-                            continue;
-                        };
-                        if let Some(contract) = self.contracts.get(&name).filter(|_| {
-                            super::super::operations::scalar_constructor(
-                                self.checked,
-                                expression,
-                                target,
-                            )
-                            .is_none()
-                        }) {
-                            let asynchronous = spawn
-                                || self
-                                    .checked
-                                    .functions
-                                    .iter()
-                                    .find(|function| function.declaration.name == name)
-                                    .is_some_and(|function| function.declaration.is_async);
-                            let calls = if !asynchronous
-                                && !self.stack.contains(&name)
-                                && let Some(function) = self
-                                    .checked
-                                    .functions
-                                    .iter()
-                                    .find(|function| function.declaration.name == name)
-                                && function
-                                    .declaration
-                                    .error_contract
-                                    .as_ref()
-                                    .is_none_or(|c| c.types.is_empty())
-                                && (values.iter().any(Tracked::contains_iteration)
-                                    || contract.disrupts_observers
-                                    || (!self.can_use_data_contract(&name)
-                                        && function
-                                            .parameter_types
-                                            .iter()
-                                            .chain(std::iter::once(&function.result_type))
-                                            .any(|ty| {
-                                                self.contains_mutable_class(
-                                                    ty,
-                                                    &mut BTreeSet::new(),
-                                                )
-                                            })))
-                            {
-                                self.inline_synchronous(expression, function, &values, state)
-                            } else {
-                                self.invoke_contract(
-                                    expression,
-                                    &name,
-                                    contract,
-                                    &values,
-                                    state,
-                                    asynchronous,
-                                )
-                            };
-                            result.extend(calls.into_iter().map(|mut evaluated| {
-                                if let Ok(value) = &mut evaluated.result
-                                    && let Some(map) =
-                                        self.constructed_map(expression, &name, &values, value)
-                                {
-                                    *value = map;
-                                }
-                                evaluated
-                            }));
+                } else {
+                    for name in targets {
+                        let conditions = if indirect.is_some() {
+                            function.effect().target_guards(&name)
                         } else {
-                            result.extend(self.unknown_call(
-                                expression, target, arguments, state, &values, &name,
-                            ));
+                            vec![BTreeMap::new()]
+                        };
+                        for guards in conditions {
+                            let Some(state) = state.condition(&guards) else {
+                                continue;
+                            };
+                            if let Some(contract) = self.contracts.get(&name).filter(|_| {
+                                super::super::operations::scalar_constructor(
+                                    self.checked,
+                                    expression,
+                                    target,
+                                )
+                                .is_none()
+                            }) {
+                                let asynchronous = spawn
+                                    || self
+                                        .checked
+                                        .functions
+                                        .iter()
+                                        .find(|function| function.declaration.name == name)
+                                        .is_some_and(|function| function.declaration.is_async);
+                                let calls = if !asynchronous
+                                    && !self.stack.contains(&name)
+                                    && let Some(function) = self
+                                        .checked
+                                        .functions
+                                        .iter()
+                                        .find(|function| function.declaration.name == name)
+                                    && function
+                                        .declaration
+                                        .error_contract
+                                        .as_ref()
+                                        .is_none_or(|c| c.types.is_empty())
+                                    && (values.iter().any(Tracked::contains_iteration)
+                                        || contract.disrupts_observers
+                                        || (!self.can_use_data_contract(&name)
+                                            && function
+                                                .parameter_types
+                                                .iter()
+                                                .chain(std::iter::once(&function.result_type))
+                                                .any(|ty| {
+                                                    self.contains_mutable_class(
+                                                        ty,
+                                                        &mut BTreeSet::new(),
+                                                    )
+                                                })))
+                                {
+                                    self.inline_synchronous(expression, function, &values, state)
+                                } else {
+                                    self.invoke_contract(
+                                        expression,
+                                        &name,
+                                        contract,
+                                        &values,
+                                        state,
+                                        asynchronous,
+                                    )
+                                };
+                                result.extend(calls.into_iter().map(|mut evaluated| {
+                                    if let Ok(value) = &mut evaluated.result
+                                        && let Some(map) =
+                                            self.constructed_map(expression, &name, &values, value)
+                                    {
+                                        *value = map;
+                                    }
+                                    evaluated
+                                }));
+                            } else {
+                                result.extend(self.unknown_call(
+                                    expression, target, arguments, state, &values, &name,
+                                ));
+                            }
                         }
+                    }
+                }
+                if let Some(bound) = &invocation_bound {
+                    // Apply the callback contract after operand and argument
+                    // evaluation. Keep successful values and their Future
+                    // obligations, as well as panic and divergence paths.
+                    for evaluated in result.split_off(start) {
+                        if let Err(Stop::Error(_, token)) = evaluated.result {
+                            result.extend(self.errors(evaluated.state, bound, token));
+                        } else {
+                            result.push(evaluated);
+                        }
+                    }
+                    if let Some(state) = before {
+                        result.extend(self.errors(state, bound, None));
                     }
                 }
             }

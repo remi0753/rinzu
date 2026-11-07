@@ -10,29 +10,29 @@ const SOURCE: &str =
 fn interface_dispatch_and_error_contracts_execute_with_gc_and_async_cleanup() {
     let source = r#"
         error Failed{}
-        interface Getter<T>{fn get(self:Self)->T nothrow;}
+        interface Getter<T>{fn get(self:Self) nothrow->T;}
         class Box<T> interface Getter<T>{private const value:T
-            fn create(value:T)->Box<T> nothrow{return Box(value:value);}
-            fn get(self:Box<T>)->T nothrow{let read=fn()->T nothrow{return self.value;};return read();}
+            fn create(value:T) nothrow->Box<T>{return Box(value:value);}
+            fn get(self:Box<T>) nothrow->T{let read=fn() nothrow->T{return self.value;};return read();}
         }
         enum Number interface Getter<Int>{Empty,Value(value:Int),
-            fn get(self:Number)->Int nothrow{switch self{case Number.Empty:{return 0;}case Number.Value(value):{return value;}}}
+            fn get(self:Number) nothrow->Int{switch self{case Number.Empty:{return 0;}case Number.Value(value):{return value;}}}
         }
-        fn unbox<T,B interface Getter<T>>(box:B,otherwise:T)->T nothrow{return box.get();}
-        fn read<G interface Getter<Int>>(value:G)->Int nothrow{let get=G.get;return get(value);}
-        fn synchronous()->Int nothrow{
+        fn unbox<T,B interface Getter<T>>(box:B,otherwise:T) nothrow->T{return box.get();}
+        fn read<G interface Getter<Int>>(value:G) nothrow->Int{let get=G.get;return get(value);}
+        fn synchronous() nothrow->Int{
             let box=Box.create(42);
             if unbox(Number.Value(value:42),0)!=unbox(box,0){panic("interface dispatch");}
             return read(box);
         }
-        interface AsyncValue{async fn get(self:Self)->Int throws Failed;}
+        interface AsyncValue{async fn get(self:Self) throws(Failed)->Int;}
         class Ready interface AsyncValue{
-            async fn get(self:Ready)->Int nothrow{return 42;}
+            async fn get(self:Ready) nothrow->Int{return 42;}
         }
         class Broken interface AsyncValue{
-            async fn get(self:Broken)->Int throws Failed{throw Failed(message:"expected");}
+            async fn get(self:Broken) throws(Failed)->Int{throw Failed(message:"expected");}
         }
-        async fn observe<R interface AsyncValue>(reader:R)->Int throws Failed{return await reader.get();}
+        async fn observe<R interface AsyncValue>(reader:R) throws(Failed)->Int{return await reader.get();}
         async fn main()nothrow{
             if synchronous()!=42{panic("sync result");}
             try{if await observe(Ready())!=42{panic("async result");}}catch errors{panic("unexpected failure");}

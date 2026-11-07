@@ -444,12 +444,20 @@ impl<'a> Expander<'a> {
                 self.ty(value, substitution, instance)?;
             }
             TypeRefKind::Function {
-                parameters, result, ..
+                parameters,
+                result,
+                error_contract,
+                ..
             } => {
                 for parameter in parameters {
                     self.ty(parameter, substitution, instance)?;
                 }
                 self.ty(result, substitution, instance)?;
+                if let Some(contract) = error_contract {
+                    for ty in &mut contract.types {
+                        self.ty(ty, substitution, instance)?;
+                    }
+                }
             }
             TypeRefKind::Bytes(length) => {
                 self.expression(length, substitution, instance)?;
@@ -493,12 +501,20 @@ impl<'a> Expander<'a> {
                 self.canonical_argument(value)?;
             }
             TypeRefKind::Function {
-                parameters, result, ..
+                parameters,
+                result,
+                error_contract,
+                ..
             } => {
                 for parameter in parameters {
                     self.canonical_argument(parameter)?;
                 }
                 self.canonical_argument(result)?;
+                if let Some(contract) = error_contract {
+                    for ty in &mut contract.types {
+                        self.canonical_argument(ty)?;
+                    }
+                }
             }
             _ => {}
         }
@@ -1132,37 +1148,7 @@ impl<'a> Expander<'a> {
             }
         }
         match &mut expression.kind {
-            ExpressionKind::Function(f) => {
-                let saved_constants = self.constants.clone();
-                let saved_locals = self.locals.clone();
-                let saved_types = self.type_locals.clone();
-                let saved_result = self.expected_result.clone();
-                for parameter in &f.parameters {
-                    self.constants.remove(&parameter.name);
-                    self.locals.insert(parameter.name.clone());
-                }
-                for p in &mut f.parameters {
-                    self.ty(&mut p.ty, substitution, instance)?;
-                    self.type_locals.insert(p.name.clone(), p.ty.clone());
-                }
-                self.ty(&mut f.result, substitution, instance)?;
-                if let Some(contract) = &mut f.error_contract {
-                    contract.range.instance = instance;
-                    for ty in &mut contract.types {
-                        self.ty(ty, substitution, instance)?;
-                    }
-                }
-                self.expected_result = Some(f.result.clone());
-                self.block(&mut f.body, substitution, instance)?;
-                if let Some(e) = &mut f.fallback {
-                    self.expression(e, substitution, instance)?;
-                }
-                self.constants = saved_constants;
-                self.locals = saved_locals;
-                self.type_locals = saved_types;
-                self.expected_result = saved_result;
-                f.range.instance = instance;
-            }
+            ExpressionKind::Function(f) => self.function_expression(f, substitution, instance)?,
             ExpressionKind::Record(fields) => {
                 for field in fields {
                     field.range.instance = instance;
@@ -1359,6 +1345,46 @@ impl<'a> Expander<'a> {
         Ok(())
     }
 
+    // Keep the lambda's saved scopes off the recursive specialization stack
+    // for expressions that are not lambdas.
+    fn function_expression(
+        &mut self,
+        f: &mut FunctionDecl,
+        substitution: &HashMap<String, TypeRef>,
+        instance: u32,
+    ) -> Result<(), Diagnostic> {
+        let saved_constants = self.constants.clone();
+        let saved_locals = self.locals.clone();
+        let saved_types = self.type_locals.clone();
+        let saved_result = self.expected_result.clone();
+        for parameter in &f.parameters {
+            self.constants.remove(&parameter.name);
+            self.locals.insert(parameter.name.clone());
+        }
+        for p in &mut f.parameters {
+            self.ty(&mut p.ty, substitution, instance)?;
+            self.type_locals.insert(p.name.clone(), p.ty.clone());
+        }
+        self.ty(&mut f.result, substitution, instance)?;
+        if let Some(contract) = &mut f.error_contract {
+            contract.range.instance = instance;
+            for ty in &mut contract.types {
+                self.ty(ty, substitution, instance)?;
+            }
+        }
+        self.expected_result = Some(f.result.clone());
+        self.block(&mut f.body, substitution, instance)?;
+        if let Some(e) = &mut f.fallback {
+            self.expression(e, substitution, instance)?;
+        }
+        self.constants = saved_constants;
+        self.locals = saved_locals;
+        self.type_locals = saved_types;
+        self.expected_result = saved_result;
+        f.range.instance = instance;
+        Ok(())
+    }
+
     fn local_target(&self, path: &[String]) -> bool {
         path.first().is_some_and(|name| self.locals.contains(name))
     }
@@ -1407,14 +1433,18 @@ pub(crate) fn spelling(ty: &TypeRef) -> String {
             supplant,
             parameters,
             result,
+            error_contract,
         } => format!(
-            "{}fn({})->{}",
+            "{}fn({}){}->{}",
             if *supplant { "supplant " } else { "" },
             parameters
                 .iter()
                 .map(spelling)
                 .collect::<Vec<_>>()
                 .join(","),
+            error_contract
+                .as_ref()
+                .map_or_else(String::new, |contract| contract.spelling(spelling)),
             spelling(result)
         ),
         TypeRefKind::Generic { path, arguments } => format!(

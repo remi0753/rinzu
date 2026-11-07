@@ -58,12 +58,20 @@ fn ty(t: &mut TypeRef, bound: &HashSet<String>, visit: &mut impl FnMut(&mut Stri
             ty(v, bound, visit);
         }
         TypeRefKind::Function {
-            parameters, result, ..
+            parameters,
+            result,
+            error_contract,
+            ..
         } => {
             for p in parameters {
                 ty(p, bound, visit);
             }
             ty(result, bound, visit);
+            if let Some(contract) = error_contract {
+                for value in &mut contract.types {
+                    ty(value, bound, visit);
+                }
+            }
         }
         TypeRefKind::Bytes(e) => expression(e, bound, visit),
         _ => {}

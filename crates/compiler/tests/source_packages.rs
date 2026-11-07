@@ -158,7 +158,7 @@ fn interface_and_error_contracts_keep_canonical_identities_across_sdk_reexports(
             ),
             (
                 "model",
-                "error ReadFailed{}interface Reader{fn read(self:Self)->String throws ReadFailed;}class Memory interface Reader{const text:String fn read(self:Memory)->String nothrow{return self.text;}}fn read<R interface Reader>(reader:R)->String throws ReadFailed{return reader.read();}export Reader;export ReadFailed;export Memory;export read;",
+                "error ReadFailed{}interface Reader{fn read(self:Self) throws(ReadFailed)->String;}class Memory interface Reader{const text:String fn read(self:Memory) nothrow->String{return self.text;}}fn read<R interface Reader>(reader:R) throws(ReadFailed)->String{return reader.read();}export Reader;export ReadFailed;export Memory;export read;",
             ),
         ],
     );
@@ -168,7 +168,7 @@ fn interface_and_error_contracts_keep_canonical_identities_across_sdk_reexports(
     assert_eq!(source.templates["model::Reader"].kind, "interface");
     assert_eq!(
         source.templates["model::Reader"].methods[0].1,
-        "fn(Self)->String throws model::ReadFailed"
+        "fn(Self) throws(model::ReadFailed)->String"
     );
     assert_eq!(
         source.templates["model::Memory"].interfaces,
@@ -203,10 +203,11 @@ fn interface_and_error_contracts_keep_canonical_identities_across_sdk_reexports(
 #[test]
 fn exported_interfaces_owners_bounds_and_error_contracts_cannot_expose_private_types() {
     for source in [
-        "error Hidden{}interface I{fn read(self:Self)throws Hidden;}export I;",
+        "error Hidden{}interface I{fn read(self:Self)throws(Hidden);}export I;",
         "interface Hidden{}class C interface Hidden{}export C;",
         "interface Hidden{}fn use<T interface Hidden>(value:T){}export use;",
-        "error Hidden{}fn f()throws Hidden{}export f;",
+        "error Hidden{}fn f()throws(Hidden){}export f;",
+        "error Hidden{}fn f(operation:fn()throws(Hidden)->Unit){}export f;",
     ] {
         let sdk = Package::new("sdk", "api", &[("api", source)]);
         assert!(check_package(&sdk.0).is_err(), "{source}");

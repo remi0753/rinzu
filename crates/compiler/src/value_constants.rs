@@ -193,6 +193,11 @@ fn constant_type(
                 } else {
                     function.result.clone()
                 }),
+                error_contract: if function.is_async {
+                    None
+                } else {
+                    function.error_contract.clone().map(Box::new)
+                },
             },
         }),
         ExpressionKind::Record(fields) => {

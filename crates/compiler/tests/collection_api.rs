@@ -21,21 +21,21 @@ fn collection_modules_require_imports_and_preserve_nominal_error_bounds() {
         import rinzu.list;
         import rinzu.map;
         error Callback {}
-        fn transform(value: Int) -> Int throws Callback { return value; }
-        fn key(value: Int) -> String throws Callback { return f"{value}"; }
+        fn transform(value: Int) throws(Callback) -> Int { return value; }
+        fn key(value: Int) throws(Callback) -> String { return f"{value}"; }
         fn converted(values: List<Int>) -> List<Int> {
             return rinzu.list.map(values, transform);
         }
         fn indexed(values: List<Int>) -> Map<String, Int> {
             return rinzu.map.fromList(values, key);
         }
-        fn grow(values: List<Int>) -> List<Int> throws rinzu.list.LengthOverflow {
+        fn grow(values: List<Int>) throws(rinzu.list.LengthOverflow) -> List<Int> {
             return rinzu.list.append(values, 1);
         }
-        fn insert(values: Map<Int,Int>) -> Map<Int,Int> throws rinzu.map.LengthOverflow {
+        fn insert(values: Map<Int,Int>) throws(rinzu.map.LengthOverflow) -> Map<Int,Int> {
             return rinzu.map.insert(values, 1, 2);
         }
-        fn concat(parts: List<List<Int>>) -> List<Int> throws rinzu.list.LengthOverflow {
+        fn concat(parts: List<List<Int>>) throws(rinzu.list.LengthOverflow) -> List<Int> {
             return rinzu.list.concatAll(parts);
         }
         fn main() {}

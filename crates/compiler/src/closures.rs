@@ -23,7 +23,7 @@ struct Shape {
 fn collect(ty: &Type, out: &mut HashSet<FunctionReferenceType>) {
     match ty {
         Type::FunctionReference(s) => {
-            if out.insert((**s).clone()) {
+            if out.insert(s.runtime_shape()) {
                 for p in &s.parameters {
                     collect(p, out);
                 }
@@ -87,7 +87,12 @@ pub(crate) fn convert(
             collect(ty, &mut selected);
         }
     }
-    if selected.is_empty() {
+    let annotated = checked
+        .type_references
+        .values()
+        .chain(checked.expression_types.values())
+        .any(|ty| matches!(ty, Type::FunctionReference(s) if s.error_bound.is_some()));
+    if selected.is_empty() && !annotated {
         return Ok(None);
     }
     let mut signatures = selected.into_iter().collect::<Vec<_>>();
@@ -160,7 +165,7 @@ pub(crate) fn convert(
         for binding in checked
             .bindings
             .values()
-            .filter(|b| b.signature == signature)
+            .filter(|b| b.signature.same_signature(&signature))
         {
             variants.push(Variant {
                 target: binding.target.clone(),
@@ -168,8 +173,7 @@ pub(crate) fn convert(
             });
         }
         for (range, target) in &checked.static_references {
-            if checked.expression_types.get(range)
-                == Some(&Type::FunctionReference(Box::new(signature.clone())))
+            if matches!(checked.expression_types.get(range), Some(Type::FunctionReference(s)) if s.same_signature(&signature))
                 && target.starts_with("rinzu.core::")
             {
                 variants.push(Variant {
@@ -246,13 +250,16 @@ impl Converter<'_> {
     }
     fn type_ref(&mut self, ty: &Type) -> TypeRef {
         let kind = match ty {
-            Type::FunctionReference(signature) if self.shapes.contains_key(signature.as_ref()) => {
-                TypeRefKind::Named(vec![self.shapes[signature.as_ref()].name.clone()])
+            Type::FunctionReference(signature)
+                if self.shapes.contains_key(&signature.runtime_shape()) =>
+            {
+                TypeRefKind::Named(vec![self.shapes[&signature.runtime_shape()].name.clone()])
             }
             Type::FunctionReference(s) => TypeRefKind::Function {
                 supplant: s.supplant,
                 parameters: s.parameters.iter().map(|t| self.type_ref(t)).collect(),
                 result: Box::new(self.type_ref(&s.result)),
+                error_contract: None,
             },
             Type::List(t) => TypeRefKind::List(Box::new(self.type_ref(t))),
             Type::Map(k, v) => {
@@ -501,17 +508,25 @@ impl Converter<'_> {
 }
 impl Visitor for Converter<'_> {
     fn ty(&mut self, ty: &mut TypeRef) {
-        if let Some(Type::FunctionReference(signature)) =
-            self.checked.type_references.get(&ty.range)
-            && let Some(shape) = self.shapes.get(signature.as_ref())
+        if let Some(
+            resolved @ (Type::FunctionReference(_)
+            | Type::List(_)
+            | Type::Map(_, _)
+            | Type::Future(_)),
+        ) = self.checked.type_references.get(&ty.range)
         {
-            ty.kind = TypeRefKind::Named(vec![shape.name.clone()]);
+            // An expanded alias can reuse the same nested source ranges for
+            // several type arguments. Lower the complete resolved type at
+            // this use site so another instantiation cannot change its shape.
+            ty.kind = self.type_ref(resolved).kind;
+        } else if let TypeRefKind::Function { error_contract, .. } = &mut ty.kind {
+            *error_contract = None;
         }
     }
     fn expression(&mut self, e: &mut Expression) {
         if let ExpressionKind::Bind { arguments, .. } = &e.kind {
             let binding = &self.checked.bindings[&e.range];
-            let shape = self.shapes[&binding.signature].clone();
+            let shape = self.shapes[&binding.signature.runtime_shape()].clone();
             let Arguments::Positional(captures) = arguments else {
                 unreachable!()
             };
@@ -522,7 +537,7 @@ impl Visitor for Converter<'_> {
             && let Some(target) = self.checked.static_references.get(&e.range)
             && let Some(Type::FunctionReference(signature)) =
                 self.checked.expression_types.get(&e.range)
-            && let Some(shape) = self.shapes.get(signature.as_ref()).cloned()
+            && let Some(shape) = self.shapes.get(&signature.runtime_shape()).cloned()
         {
             *e = self.value(&shape, target, Vec::new(), e.range);
             return;
@@ -531,22 +546,12 @@ impl Visitor for Converter<'_> {
             target,
             arguments: Arguments::Positional(arguments),
         } = &mut e.kind
-            && self.checked.indirect_calls.contains_key(&e.range)
+            && let Some(signature) = self.checked.indirect_signatures.get(&e.range)
+            && let Some(shape) = self.shapes.get(&signature.runtime_shape()).cloned()
         {
-            let parameters = arguments
-                .iter()
-                .map(|a| self.checked.expression_types[&a.range].clone())
-                .collect::<Vec<_>>();
-            let signature = FunctionReferenceType {
-                parameters,
-                result: Box::new(self.checked.expression_types[&e.range].clone()),
-                supplant: false,
-            };
-            if let Some(shape) = self.shapes.get(&signature).cloned() {
-                let callee = self.name(target.clone());
-                arguments.insert(0, callee);
-                *target = vec![shape.dispatch];
-            }
+            let callee = self.name(target.clone());
+            arguments.insert(0, callee);
+            *target = vec![shape.dispatch];
         }
         if let ExpressionKind::Call {
             arguments: Arguments::Positional(arguments),

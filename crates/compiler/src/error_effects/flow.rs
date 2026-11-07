@@ -67,6 +67,7 @@ pub(super) struct Analyzer<'a> {
     summaries: &'a BTreeMap<String, Summary>,
     pub(super) bound: usize,
     diagnose: bool,
+    proof: bool,
     diagnostics: Vec<Diagnostic>,
     all: bool,
 }
@@ -83,9 +84,15 @@ impl<'a> Analyzer<'a> {
             summaries,
             bound,
             diagnose,
+            proof: false,
             diagnostics: Vec::new(),
             all: false,
         }
+    }
+
+    pub fn proving_conversions(mut self, proof: bool) -> Self {
+        self.proof = proof;
+        self
     }
 
     pub fn function(mut self, function: &crate::CheckedFunction) -> (Summary, Vec<Diagnostic>) {
@@ -147,11 +154,25 @@ impl<'a> Analyzer<'a> {
             Type::List(element) | Type::Map(_, element) => {
                 Value::Collection(Box::new(self.typed(element)))
             }
+            Type::FunctionReference(signature) if self.proof => signature
+                .error_bound
+                .as_ref()
+                .map_or(Value::Plain, |bound| Value::BoundedCallable(bound.clone())),
             _ => Value::Plain,
         }
     }
 
     fn expression_value(&self, expression: &Expression) -> Value {
+        // The contextual type of a pending conversion is only its destination.
+        // Its value must establish the bound independently of that annotation.
+        if self.proof
+            && self
+                .checked
+                .error_conversions
+                .contains_key(&expression.range)
+        {
+            return Value::Plain;
+        }
         self.checked
             .error_upcasts
             .get(&expression.range)
@@ -616,6 +637,68 @@ impl<'a> Analyzer<'a> {
         env: &Environment,
         immediate_await: bool,
     ) -> Evaluated {
+        let evaluated = self.expression_inner(expression, env, immediate_await);
+        if self.proof
+            && self.diagnose
+            && evaluated.success
+            && let Some(expected) = self.checked.error_conversions.get(&expression.range)
+        {
+            let actual = self.proven_bound(&evaluated.value);
+            if actual
+                .as_ref()
+                .is_none_or(|actual| !within_bound(actual, expected))
+            {
+                self.diagnostics.push(conversion_error(
+                    expression.range,
+                    expected,
+                    actual.as_deref(),
+                ));
+            }
+        }
+        evaluated
+    }
+
+    fn proven_bound(&self, value: &Value) -> Option<Vec<String>> {
+        let mut bound = BTreeSet::new();
+        match value {
+            Value::BoundedCallable(types) => bound.extend(types.iter().cloned()),
+            Value::Callable(targets) => {
+                for target in targets {
+                    if self.checked.functions.iter().any(|function| {
+                        function.declaration.name == *target && function.declaration.is_async
+                    }) || crate::core::reference_signature(target).is_some()
+                    {
+                        continue;
+                    }
+                    bound.extend(public_types(self.summaries.get(target)?));
+                }
+            }
+            Value::Parameter { fallback, .. }
+            | Value::Conditional {
+                value: fallback, ..
+            } => {
+                return self.proven_bound(fallback);
+            }
+            Value::Union(values) => {
+                for value in values {
+                    bound.extend(self.proven_bound(value)?);
+                }
+            }
+            _ => return None,
+        }
+        if bound.contains("Error") {
+            Some(vec!["Error".into()])
+        } else {
+            Some(bound.into_iter().collect())
+        }
+    }
+
+    fn expression_inner(
+        &mut self,
+        expression: &Expression,
+        env: &Environment,
+        immediate_await: bool,
+    ) -> Evaluated {
         match &expression.kind {
             ExpressionKind::GenericReference { .. } => {
                 unreachable!("generic references are specialized before effects")
@@ -756,7 +839,10 @@ impl<'a> Analyzer<'a> {
             ExpressionKind::Bind { arguments, .. } => {
                 let (_, errors, success) = self.arguments(arguments, env);
                 Evaluated {
-                    value: self.expression_value(expression),
+                    value: self.checked.bindings.get(&expression.range).map_or_else(
+                        || self.expression_value(expression),
+                        |binding| Value::Callable(BTreeSet::from([binding.target.clone()])),
+                    ),
                     errors,
                     success,
                 }
@@ -861,6 +947,28 @@ impl<'a> Analyzer<'a> {
         if matches!(unbound, Some(Value::Unbound(_))) {
             errors.extend(one(Tag::Any));
         }
+        let invocation = self
+            .checked
+            .indirect_signatures
+            .get(&expression.range)
+            .and_then(|signature| {
+                if self.proof {
+                    let value = self.project_name(target, env, Value::Plain);
+                    Some(self.proven_bound(&value).map_or_else(
+                        || unknown(self.bound),
+                        |bound| contracts::for_bound(&bound, self.bound),
+                    ))
+                } else {
+                    signature
+                        .error_bound
+                        .as_ref()
+                        .map(|bound| contracts::for_bound(bound, self.bound))
+                }
+            });
+        let bounded_invocation = invocation.is_some();
+        if argument_success && let Some(invocation) = invocation {
+            errors.extend(invocation);
+        }
         let name = target.join(".");
         let mut targets = self
             .checked
@@ -870,7 +978,7 @@ impl<'a> Analyzer<'a> {
             .unwrap_or_else(|| vec![name.clone()]);
         if targets.is_empty() {
             targets.push(name.clone());
-            if argument_success {
+            if argument_success && !bounded_invocation {
                 errors.extend(unknown(self.bound));
             }
         }
@@ -910,7 +1018,7 @@ impl<'a> Analyzer<'a> {
                     result.join(future);
                     success = true;
                 } else {
-                    if argument_success {
+                    if argument_success && !bounded_invocation {
                         errors.extend(restrict(&summary.errors));
                     }
                     result.join(self.condition_value(summary.returned, &paths));
@@ -922,12 +1030,16 @@ impl<'a> Analyzer<'a> {
                     .or_else(|| self.collection_operation(expression, &values))
                     .unwrap_or_else(|| self.expression_value(expression));
                 let primitive = self.primitive_errors(expression, target, arguments, name);
-                if !primitive.is_empty() && argument_success {
+                if !primitive.is_empty() && argument_success && !bounded_invocation {
                     errors.extend(restrict(&primitive));
                 }
                 result.join(self.condition_value(value, &paths));
                 success = true;
             }
+        }
+        if bounded_invocation && !success {
+            result.join(self.expression_value(expression));
+            success = true;
         }
         Evaluated {
             value: result,
