@@ -1,7 +1,7 @@
 {
   "schema": "rinzu.standard-library-license-inventory-v1",
   "revision": 3,
-  "toolchainVersion": "0.1.0",
+  "toolchainVersion": "0.2.0",
   "ownSource": {
     "includes": [
       "Rinzu standard source",

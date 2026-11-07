@@ -5,7 +5,7 @@
 | Interface | Current form |
 | --- | --- |
 | Source language | 0.5 |
-| Toolchain crate / `rinzu --version` | 0.1.0 |
+| Toolchain crate / `rinzu --version` | 0.2.0 |
 | Runtime execution and AOT target | macOS arm64, `aarch64-apple-darwin` |
 | Build toolchain | Rust 1.97.1 |
 | Native ABI | C-compatible ABI 1.1 with checked source-package descriptors |

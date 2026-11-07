@@ -32,7 +32,7 @@ export PATH="$PWD/target/release:$PATH"
 rinzu --version
 ```
 
-The remaining pages use `rinzu` in commands. Toolchain version `0.1.0` and source language version `0.5` describe different interfaces. For installation outside this checkout, see [Toolchain bundles](../tooling/distribution.md).
+The remaining pages use `rinzu` in commands. Toolchain version `0.2.0` and source language version `0.5` describe different interfaces. For installation outside this checkout, see [Toolchain bundles](../tooling/distribution.md).
 
 ## Optional dependencies
 
