@@ -19,5 +19,6 @@ __pycache__/
 /.local/
 /.agents/
 /.codex/
+/AGENTS.md
 .env
 .env.*
