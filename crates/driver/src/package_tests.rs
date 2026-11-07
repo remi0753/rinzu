@@ -12,6 +12,8 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::cli_diagnostics;
+
 const OUTPUT_LIMIT: usize = 1024 * 1024;
 const REPORT_OUTPUT_LIMIT: usize = 4 * OUTPUT_LIMIT;
 thread_local! {
@@ -193,19 +195,21 @@ fn parse(arguments: &[String]) -> Result<Option<Options>, String> {
 }
 
 fn location(range: rinzu_compiler::SourceRange, sources: &SourceSnapshot<'_>) -> Value {
-    let path = sources.path_for_id(range.file_id);
-    let position = path
-        .and_then(|path| sources.sources().get(path))
-        .and_then(|source| {
-            // Semantic ranges are physical UTF-8 boundaries; manifest has no source.
-            (range.start_byte as usize <= source.original_offset(source.text().len()))
-                .then(|| source.line_column(range.start_byte as usize))
-        });
+    let input = cli_diagnostics::snapshot_input(sources, range.file_id);
+    let path = input.map(cli_diagnostics::Input::path);
+    let position = input.and_then(|input| input.position(range.start_byte as usize));
     json!({"path":path,"startByte":range.start_byte,"endByte":range.end_byte,"line":position.map(|p|p.0),"column":position.map(|p|p.1)})
 }
 
 fn diagnostics(errors: &[rinzu_compiler::Diagnostic], sources: &SourceSnapshot<'_>) -> Vec<Value> {
-    errors.iter().map(|d|json!({"code":d.code.as_str(),"message":d.message,"location":location(d.primary,sources),"related":d.secondary.iter().map(|(range,message)|json!({"location":location(*range,sources),"message":message})).collect::<Vec<_>>()})).collect()
+    errors.iter().map(|d| {
+        let mut primary = location(d.primary, sources);
+        if let Some(path) = d.primary_path() {
+            primary["path"] = json!(path);
+        }
+        json!({"code":d.code.as_str(),"message":d.message,"location":primary,
+            "related":d.secondary.iter().map(|(range,message)|json!({"location":location(*range,sources),"message":message})).collect::<Vec<_>>()})
+    }).collect()
 }
 
 fn case_metadata(case: &PackageTestCase, sources: &SourceSnapshot<'_>) -> Value {
@@ -236,16 +240,17 @@ fn print_report(report: &Value, json_output: bool) -> Result<(), String> {
                             .iter()
                             .filter_map(|b| b.as_u64().map(|b| b as u8))
                             .collect::<Vec<_>>();
-                        print!("{}", String::from_utf8_lossy(&bytes));
+                        if key == "stderrBytes" {
+                            let _ = std::io::stderr().lock().write_all(&bytes);
+                        } else {
+                            let _ = std::io::stdout().lock().write_all(&bytes);
+                        }
                     }
                 }
                 if let Some(message) = case["worker"]["error"].as_str() {
                     eprintln!("{message}");
                 }
             }
-        }
-        for error in report["diagnostics"].as_array().into_iter().flatten() {
-            eprintln!("{error}");
         }
         println!(
             "tests: {} selected, {} passed, {} failed",
@@ -274,21 +279,25 @@ pub(crate) fn run(arguments: impl Iterator<Item = String>) -> Result<(), String>
     let mut cache = SourceCache::default();
     let mut sources = SourceSnapshot::new(&mut cache, Default::default());
     let checked =
-        rinzu_compiler::check_package_tests(&options.start, &mut sources, &options.compiler);
+        rinzu_compiler::check_package_tests(&options.start, &mut sources, &options.compiler)
+            .and_then(|(manifest, mut artifact, cases)| {
+                artifact.native_inputs = options.native.normalize(&manifest)?;
+                Ok((manifest, artifact, cases))
+            });
     let mut report = json!({"schema":"rinzu.test-report","version":1,"mode":if options.list {"list"} else {"run"},"target":rinzu_runtime::current_target(),"semantics":rinzu_compiler::LANGUAGE_SEMANTICS_REVISION,"cases":[],"diagnostics":[],"summary":{"selected":0,"passed":0,"failed":0,"notRun":0}});
-    let (manifest, mut artifact, cases) = match checked {
+    let (manifest, _, cases) = match checked {
         Ok(value) => value,
         Err(errors) => {
-            report["diagnostics"] = json!(diagnostics(&errors, &sources));
+            if options.json {
+                report["diagnostics"] = json!(diagnostics(&errors, &sources));
+            } else {
+                cli_diagnostics::emit_snapshot(&errors, &sources);
+            }
             print_report(&report, options.json)?;
             crate::PROGRAM_EXIT_STATUS.with(|s| s.set(1));
             return Ok(());
         }
     };
-    artifact.native_inputs = options
-        .native
-        .normalize(&manifest)
-        .map_err(|errors| format!("{:?}", diagnostics(&errors, &sources)))?;
     let cases = cases
         .into_iter()
         .filter(|case| {
@@ -301,14 +310,19 @@ pub(crate) fn run(arguments: impl Iterator<Item = String>) -> Result<(), String>
     report["package"] = json!(manifest.name);
     if cases.is_empty() {
         report["diagnostics"] = json!([{"message":"no matching test cases"}]);
+        if !options.json {
+            eprintln!("no matching test cases");
+        }
         print_report(&report, options.json)?;
         crate::PROGRAM_EXIT_STATUS.with(|s| s.set(1));
         return Ok(());
     }
     report["summary"]["selected"] = json!(cases.len());
     let mut rows = Vec::new();
+    let mut worker_diagnostics = Vec::new();
     let mut output_remaining = REPORT_OUTPUT_LIMIT;
     let _signals = Signals::install()?;
+    let diagnostic_cwd = std::env::current_dir().map_err(|error| error.to_string())?;
     for case in &cases {
         let mut row = case_metadata(case, &sources);
         if options.list || INTERRUPTED.load(Ordering::SeqCst) != 0 {
@@ -322,18 +336,30 @@ pub(crate) fn run(arguments: impl Iterator<Item = String>) -> Result<(), String>
             documents: options.compiler.documents.clone(),
             identity: case.identity.clone(),
             native_flags: native_flags(&options.native),
+            json: options.json,
+            diagnostic_cwd: diagnostic_cwd.clone(),
             receipts: sources
                 .input_receipts()
                 .into_iter()
                 .map(|(p, k, n, h)| (p, k.to_owned(), n, h))
                 .collect(),
         };
-        let outcome = supervise(
+        let mut outcome = supervise(
             &scratch.0,
             &specification,
             options.timeout_ms,
             (output_remaining / 2).min(OUTPUT_LIMIT),
         )?;
+        if let Some(worker) = outcome["worker"].as_object_mut() {
+            if let Some(Value::Array(errors)) = worker.remove("diagnostics") {
+                worker_diagnostics.extend(errors);
+            }
+            if let Some(Value::Array(blocks)) = worker.remove("diagnosticBlocks") {
+                for block in blocks.iter().filter_map(Value::as_str) {
+                    cli_diagnostics::write_block(block);
+                }
+            }
+        }
         output_remaining -= outcome["stdoutBytes"].as_array().map_or(0, Vec::len)
             + outcome["stderrBytes"].as_array().map_or(0, Vec::len);
         for (key, value) in outcome.as_object().unwrap() {
@@ -345,6 +371,7 @@ pub(crate) fn run(arguments: impl Iterator<Item = String>) -> Result<(), String>
     let not_run = rows.iter().filter(|r| r["status"] == "not-run").count();
     let failed = rows.len() - passed - not_run;
     report["cases"] = json!(rows);
+    report["diagnostics"] = json!(worker_diagnostics);
     report["outputByteBudget"] = json!(REPORT_OUTPUT_LIMIT);
     report["summary"] =
         json!({"selected":cases.len(),"passed":passed,"failed":failed,"notRun":not_run});
@@ -373,6 +400,9 @@ fn native_flags(inputs: &NativeCliInputs) -> Vec<String> {
     for path in &inputs.objects {
         result.extend(["--native-object".into(), path.display().to_string()]);
     }
+    for path in &inputs.headers {
+        result.extend(["--native-header".into(), path.display().to_string()]);
+    }
     result
 }
 
@@ -383,6 +413,8 @@ struct WorkerSpec {
     documents: Vec<PathBuf>,
     identity: String,
     native_flags: Vec<String>,
+    json: bool,
+    diagnostic_cwd: PathBuf,
     receipts: Vec<(PathBuf, String, usize, u64)>,
 }
 
@@ -409,10 +441,15 @@ pub(crate) fn worker(mut arguments: impl Iterator<Item = String>) -> Result<(), 
     };
     let mut source_files = Value::Null;
     let mut source_paths = Value::Null;
+    let mut compilation_errors = Vec::new();
     let outcome = (|| {
         let (manifest, mut artifact, _) =
-            rinzu_compiler::check_package_tests(&spec.root, &mut sources, &options)
-                .map_err(|e| format!("{}", json!(diagnostics(&e, &sources))))?;
+            rinzu_compiler::check_package_tests(&spec.root, &mut sources, &options).map_err(
+                |errors| {
+                    compilation_errors = errors;
+                    "input failed to check".to_owned()
+                },
+            )?;
         let mut labels = artifact.ir.source_files.iter().collect::<Vec<_>>();
         labels.sort_by(|a, b| a.1.cmp(b.1));
         source_files = json!(
@@ -442,7 +479,10 @@ pub(crate) fn worker(mut arguments: impl Iterator<Item = String>) -> Result<(), 
         artifact.native_inputs = crate::native_cli::parse("test", spec.native_flags.into_iter())?
             .native
             .normalize(&manifest)
-            .map_err(|e| format!("{e:?}"))?;
+            .map_err(|errors| {
+                compilation_errors = errors;
+                "input failed to check".to_owned()
+            })?;
         crate::native_contract::check_artifact(&manifest, &artifact)?;
         let config = rinzu_runtime::resource_report::Config {
             path: scratch.join("resource.jsonl"),
@@ -493,7 +533,21 @@ pub(crate) fn worker(mut arguments: impl Iterator<Item = String>) -> Result<(), 
     result["sourcePaths"] = source_paths;
     result["inputReceipts"] = json!(spec.receipts);
     if let Err(error) = outcome {
-        result["error"] = json!(error);
+        if compilation_errors.is_empty() {
+            result["error"] = json!(error);
+        } else if spec.json {
+            result["diagnostics"] = json!(diagnostics(&compilation_errors, &sources));
+        } else {
+            let renderer = cli_diagnostics::Renderer::at(spec.diagnostic_cwd);
+            result["diagnosticBlocks"] = json!(
+                compilation_errors
+                    .iter()
+                    .map(|error| {
+                        renderer.render(error, |id| cli_diagnostics::snapshot_input(&sources, id))
+                    })
+                    .collect::<Vec<_>>()
+            );
+        }
         if result["status"] == "pass" {
             result["status"] = json!("fail");
         }

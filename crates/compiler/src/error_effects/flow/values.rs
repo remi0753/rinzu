@@ -31,10 +31,11 @@ impl Analyzer<'_> {
         paths: &[language::Guards],
     ) -> Flow {
         let restrict = |errors: &Language| {
-            paths
-                .iter()
-                .flat_map(|guards| language::restricted(errors, guards))
-                .collect()
+            let mut restricted = Language::new();
+            for guards in paths {
+                restricted.extend(language::restricted(errors, guards));
+            }
+            restricted
         };
         let restrict_value = |value: &Value| {
             let mut result = Value::Bottom;

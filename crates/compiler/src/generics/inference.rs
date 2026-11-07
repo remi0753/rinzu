@@ -101,7 +101,7 @@ impl Expander<'_> {
         arguments: &mut Arguments,
         substitution: &HashMap<String, TypeRef>,
         instance: u32,
-    ) -> Result<(), Diagnostic> {
+    ) -> ExpansionResult<()> {
         let mut formals = self.argument_types(target);
         // Data intrinsics derive their remaining parameter types from the
         // first argument. Use the checker's shared signature rules so nested
@@ -134,7 +134,7 @@ impl Expander<'_> {
         formals: &[(String, TypeRef)],
         substitution: &HashMap<String, TypeRef>,
         instance: u32,
-    ) -> Result<(), Diagnostic> {
+    ) -> ExpansionResult<()> {
         match arguments {
             Arguments::Positional(values) => {
                 for (index, value) in values.iter_mut().enumerate() {
@@ -357,7 +357,7 @@ impl Expander<'_> {
         instance: u32,
         range: SourceRange,
         fixed: &[TypeRef],
-    ) -> Result<Vec<TypeRef>, Diagnostic> {
+    ) -> ExpansionResult<Vec<TypeRef>> {
         let template = self.templates.get(name).expect("known template").clone();
         let variables: HashSet<_> = parameters(&template)
             .iter()
@@ -550,7 +550,7 @@ impl Expander<'_> {
         expected: Option<&TypeRef>,
         instance: u32,
         range: SourceRange,
-    ) -> Result<Vec<TypeRef>, Diagnostic> {
+    ) -> ExpansionResult<Vec<TypeRef>> {
         let Some(Declaration::Function(function)) = self.templates.get(name).cloned() else {
             return Err(error(range, "generic reference must name a function"));
         };
@@ -626,7 +626,7 @@ impl Expander<'_> {
         instance: u32,
         range: SourceRange,
         required: bool,
-    ) -> Result<(), Diagnostic> {
+    ) -> ExpansionResult<()> {
         let mut expected = substitute(formal, constraints);
         let expected = if contains_variable(&expected, variables) {
             None
@@ -743,7 +743,7 @@ fn constrain(
     variables: &HashSet<String>,
     bindings: &mut HashMap<String, TypeRef>,
     range: SourceRange,
-) -> Result<(), Diagnostic> {
+) -> ExpansionResult<()> {
     if let TypeRefKind::Named(path) = &formal.kind
         && path.len() == 1
         && variables.contains(&path[0])
@@ -759,7 +759,8 @@ fn constrain(
                         key(actual)
                     ),
                 )
-                .with_secondary(previous.range, "previous type constraint is here"));
+                .with_secondary(previous.range, "previous type constraint is here")
+                .into());
             }
         } else {
             bindings.insert(path[0].clone(), actual.clone());

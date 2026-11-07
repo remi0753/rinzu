@@ -774,10 +774,13 @@ impl ReferenceIndex {
                 .arg(directory.join("native-selection.dylib"));
             // All selections use the same search paths and target. A single
             // linker trace still proves each explicit name unambiguously.
-            let trace = run(
-                command,
-                "resolve explicit native libraries/frameworks for aarch64-apple-darwin",
+            let output = crate::cli_diagnostics::tool_output(
+                command.output(),
+                None,
+                "native library selection (linking)",
+                "clang",
             )?;
+            let trace = String::from_utf8(output.stdout).map_err(|error| error.to_string())?;
             for (kind, name) in selections {
                 let selected: BTreeSet<_> = trace
                     .lines()
@@ -951,10 +954,13 @@ impl ReferenceIndex {
                 command.args(["-Xlinker", "-rpath", "-Xlinker"]).arg(path);
             }
             command.arg("-o").arg(&output);
-            let trace = run(
-                command,
-                "link exact native provider (including implementation dependencies)",
+            let linked = crate::cli_diagnostics::tool_output(
+                command.output(),
+                Some(&output),
+                "native provider linking",
+                "clang",
             )?;
+            let trace = String::from_utf8(linked.stdout).map_err(|error| error.to_string())?;
             self.verify_inputs()?;
             inputs.extend(crate::native_fingerprint::link_inputs(
                 directory,
@@ -1076,12 +1082,12 @@ impl ReferenceIndex {
         for path in &self.runtime_paths {
             command.args(["-Xlinker", "-rpath", "-Xlinker"]).arg(path);
         }
-        command
-            .arg("-o")
-            .arg(directory.join("explicit-inputs.dylib"));
-        run(
-            command,
-            "validate explicit native implementation dependencies",
+        let output = directory.join("explicit-inputs.dylib");
+        crate::cli_diagnostics::tool_output(
+            command.arg("-o").arg(&output).output(),
+            Some(&output),
+            "explicit native input linking",
+            "clang",
         )?;
         self.verify_inputs()
     }

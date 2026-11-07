@@ -202,13 +202,12 @@ pub fn validate_package_with_toolchain(
         .args(["-M", "-MT", "rinzu", "-std=c11"])
         .args(&flags)
         .arg(&query);
-    let dependencies = command.output().map_err(|error| error.to_string())?;
-    if !dependencies.status.success() {
-        return Err(format!(
-            "Clang include dependency query failed: {}",
-            String::from_utf8_lossy(&dependencies.stderr)
-        ));
-    }
+    let dependencies = crate::cli_diagnostics::tool_output(
+        command.output(),
+        Some(&query),
+        "native include dependency query",
+        "clang",
+    )?;
     crate::native_fingerprint::include_inputs(
         &manifest.root,
         &toolchain.sysroot,
@@ -311,15 +310,12 @@ pub fn validate(
     std::fs::write(&query_path, &query).map_err(|error| error.to_string())?;
     let mut query_command = command(toolchain, flags, &query_path);
     query_command.args(["-Xclang", "-ast-dump=json"]);
-    let output = query_command
-        .output()
-        .map_err(|error| format!("start target Clang ABI query: {error}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "provided header/ABI query failed:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
+    let output = crate::cli_diagnostics::tool_output(
+        query_command.output(),
+        Some(&query_path),
+        "native header ABI query",
+        "clang",
+    )?;
     let _ast_timing = rinzu_compiler::timing::span("native.contract.ast");
     let ast: Value = serde_json::from_slice(&output.stdout)
         .map_err(|error| format!("decode target Clang AST: {error}"))?;
@@ -379,17 +375,14 @@ pub fn validate(
         );
     }
     drop(_ast_timing);
-    std::fs::write(directory.join("abi-assert.c"), query + &assertions)
-        .map_err(|error| error.to_string())?;
-    let output = command(toolchain, flags, &directory.join("abi-assert.c"))
-        .output()
-        .map_err(|error| error.to_string())?;
-    if !output.status.success() {
-        return Err(format!(
-            "native prototype/layout mismatch:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
+    let assertion_path = directory.join("abi-assert.c");
+    std::fs::write(&assertion_path, query + &assertions).map_err(|error| error.to_string())?;
+    crate::cli_diagnostics::tool_output(
+        command(toolchain, flags, &assertion_path).output(),
+        Some(&assertion_path),
+        "native prototype/layout validation",
+        "clang",
+    )?;
     let mut layouts = BTreeMap::new();
     for (index, (identity, name)) in record_names.iter().enumerate() {
         let read = |key: &str| {

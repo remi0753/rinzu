@@ -1,5 +1,7 @@
-//! Common CLI input options; package-only commands keep their existing APIs.
+//! Common CLI input checks and options.
 use std::path::{Path, PathBuf};
+
+use rinzu_compiler::{FrontendArtifact, Manifest, NativeCliInputs, SourceCache, SourceSnapshot};
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -29,9 +31,44 @@ pub fn check(
     native: &rinzu_compiler::NativeCliInputs,
 ) -> Result<rinzu_compiler::CompilationContext, String> {
     let _timing = rinzu_compiler::timing::span("frontend");
-    rinzu_compiler::check_input(path, &options.compiler()?, native).map_err(|errors| {
-        crate::print_diagnostics(errors);
-        "input failed to check".into()
+    let mut cache = SourceCache::default();
+    let mut sources = SourceSnapshot::new(&mut cache, Default::default());
+    rinzu_compiler::check_input_with_sources(path, &options.compiler()?, native, &mut sources)
+        .map_err(|errors| {
+            crate::cli_diagnostics::emit_snapshot(&errors, &sources);
+            "input failed to check".into()
+        })
+}
+
+pub fn check_package(
+    path: &Path,
+    native: &NativeCliInputs,
+) -> Result<(Manifest, FrontendArtifact), String> {
+    let mut cache = SourceCache::default();
+    let mut sources = SourceSnapshot::new(&mut cache, Default::default());
+    let report = |errors: &[rinzu_compiler::Diagnostic], sources: &SourceSnapshot<'_>| {
+        crate::cli_diagnostics::emit_snapshot(errors, sources);
+        "input failed to check".to_owned()
+    };
+    let (mut manifest, mut artifact) =
+        rinzu_compiler::check_package_with_sources(path, &mut sources)
+            .map_err(|errors| report(&errors, &sources))?;
+    artifact.native_inputs = native
+        .normalize(&manifest)
+        .map_err(|errors| report(&errors, &sources))?;
+    manifest
+        .native
+        .headers
+        .extend(artifact.native_inputs.headers.clone());
+    Ok((manifest, artifact))
+}
+
+pub fn load_manifest(path: &Path) -> Result<Manifest, String> {
+    let mut cache = SourceCache::default();
+    let mut sources = SourceSnapshot::new(&mut cache, Default::default());
+    rinzu_compiler::load_manifest_with_sources(path, &mut sources).map_err(|errors| {
+        crate::cli_diagnostics::emit_snapshot(&errors, &sources);
+        "input failed to check".to_owned()
     })
 }
 

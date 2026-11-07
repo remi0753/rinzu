@@ -25,14 +25,12 @@ impl Analyzer<'_> {
             body.returned.clone(),
         );
         if all {
-            let words = body.exit_words();
+            let mut words = body.exit_words();
             let clean = words
                 .iter()
                 .any(|word| word.prefix.is_empty() && !word.longer);
-            body.errors = words
-                .into_iter()
-                .filter(|word| !word.prefix.is_empty() || word.longer)
-                .collect();
+            words.retain(|word| !word.prefix.is_empty() || word.longer);
+            body.errors = words;
             body.collected = None;
             if !clean {
                 body.normal = false;

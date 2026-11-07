@@ -314,3 +314,259 @@ fn old_contract_positions_and_missing_delimiters_are_syntax_errors() {
     }
     ok("fn callback(value:CInt)nothrow->CInt fallback 0{return value;}fn main(){}");
 }
+
+fn contract_diagnostic(
+    source: &str,
+    primary: &str,
+    declaration: &str,
+) -> rinzu_compiler::Diagnostic {
+    let errors = compile_source(&file(source)).unwrap_err();
+    let contracts: Vec<_> = errors
+        .iter()
+        .filter(|error| error.code == DiagnosticCode::InvalidErrorContract)
+        .collect();
+    assert_eq!(contracts.len(), 1, "{source}\n{errors:#?}");
+    let diagnostic = contracts[0].clone();
+    assert_eq!(diagnostic.primary.file_id, FileId(701));
+    let slice = |range: rinzu_compiler::SourceRange| {
+        &source[range.start_byte as usize..range.end_byte as usize]
+    };
+    assert_eq!(
+        slice(diagnostic.primary),
+        primary,
+        "{source}\n{diagnostic:#?}"
+    );
+    assert_eq!(diagnostic.secondary.len(), 1, "{diagnostic:#?}");
+    assert_eq!(diagnostic.secondary[0].0.file_id, FileId(701));
+    assert_eq!(slice(diagnostic.secondary[0].0), declaration);
+    diagnostic
+}
+
+#[test]
+fn escaping_expression_owns_its_error_instead_of_the_surrounding_expression() {
+    let cases = [
+        (
+            "fn read() throws(E) -> Int { return 1; } fn boundary() nothrow -> Int { return read(); }",
+            "read()",
+            "recover the Error from this call",
+        ),
+        (
+            "fn read() throws(E) -> Int { return 1; } fn consume(value: Int) -> Int { return value; } fn boundary() nothrow -> Int { return consume(read()); }",
+            "read()",
+            "recover the Error from this call",
+        ),
+        (
+            "async fn read() throws(E) -> Int { return 1; } async fn boundary() nothrow -> Int { return await read(); }",
+            "await read()",
+            "recover the Error from this await",
+        ),
+        (
+            "async fn ready() -> Int { return 1; } fn start() throws(E) -> Future<Int> { return ready(); } async fn boundary() nothrow -> Int { return await start(); }",
+            "start()",
+            "recover the Error from this call",
+        ),
+        (
+            "fn boundary() nothrow { try { throw E(message: \"caught\"); } catch [problem: E] { throw problem; } }",
+            "throw problem;",
+            "handle the Error before it leaves this function",
+        ),
+        (
+            "fn read() throws(E) -> E { throw E(message: \"evaluation\"); } fn boundary() nothrow { throw read(); }",
+            "read()",
+            "recover the Error from this call",
+        ),
+    ];
+    for (declarations, primary, help) in cases {
+        let source = format!("error E {{}} {declarations} fn main() {{}}");
+        let diagnostic = contract_diagnostic(&source, primary, "nothrow");
+        assert_eq!(
+            diagnostic.message,
+            "E can escape `boundary`, which declares `nothrow`"
+        );
+        assert_eq!(
+            diagnostic.suggestions[0].message,
+            format!("{help}, or use `throws(E)` if callers should handle it")
+        );
+    }
+}
+
+#[test]
+fn recovered_and_unreachable_errors_are_excluded_from_origins_and_suggestions() {
+    let source = r#"error A {}
+error B {}
+error Recovered {}
+error Unreachable {}
+fn boundary(flag: Bool) nothrow {
+    try { throw Recovered(message: "recovered"); } catch failures {}
+    if flag { throw A(message: "first"); }
+    else { throw B(message: "second"); }
+    throw Unreachable(message: "unreachable");
+}
+fn main() {}
+"#;
+    let diagnostic = contract_diagnostic(source, "throw A(message: \"first\");", "nothrow");
+    assert_eq!(
+        diagnostic.message,
+        "A can escape `boundary`, which declares `nothrow`"
+    );
+    assert_eq!(
+        diagnostic.suggestions[0].message,
+        "handle the Error before it leaves this function, or use `throws(A, B)` if callers should handle it",
+    );
+}
+
+#[test]
+fn cleanup_and_collecting_paths_keep_the_origin_of_errors_beyond_the_prefix() {
+    for (body, expected, recovery) in [
+        (
+            r#"try { throw A(message: "primary"); } finally { throw B(message: "cleanup"); }"#,
+            "throw B(message: \"cleanup\");",
+            "recover the Error in `finally`",
+        ),
+        (
+            r#"try all { throw A(message: "primary"); throw A(message: "more"); throw B(message: "collected"); } finally {}"#,
+            "throw B(message: \"collected\");",
+            "handle the Error before it leaves this function",
+        ),
+        (
+            r#"try all { while flag { throw A(message: "primary"); throw B(message: "loop"); break; } } finally {}"#,
+            "throw B(message: \"loop\");",
+            "handle the Error before it leaves this function",
+        ),
+    ] {
+        let source = format!(
+            "error A {{}} error B {{}} fn boundary(flag: Bool) throws(A) {{ {body} }} fn main() {{}}"
+        );
+        let diagnostic = contract_diagnostic(&source, expected, "throws(A)");
+        assert_eq!(
+            diagnostic.message,
+            "B can escape `boundary`, which declares `throws(A)`"
+        );
+        assert_eq!(
+            diagnostic.suggestions[0].message,
+            format!("{recovery}, or use `throws(A, B)` if callers should handle it"),
+        );
+    }
+}
+
+#[test]
+fn typed_catch_subtracts_only_the_recovered_types_and_joins_keep_a_stable_origin() {
+    let source = r#"error A {} error B {}
+fn boundary(load: fn () throws(A, B) -> Unit, flag: Bool) throws(A) {
+    try {
+        if flag { load(); } else { load(); }
+    } catch [caught: A, ...rest] {}
+}
+fn main() {}
+"#;
+    let diagnostic = contract_diagnostic(source, "load()", "throws(A)");
+    assert_eq!(
+        diagnostic.message,
+        "B can escape `boundary`, which declares `throws(A)`"
+    );
+    assert_eq!(
+        diagnostic.primary.start_byte as usize,
+        source.find("load();").unwrap()
+    );
+    for _ in 0..3 {
+        assert_eq!(
+            contract_diagnostic(source, "load()", "throws(A)"),
+            diagnostic
+        );
+    }
+}
+
+#[test]
+fn unknown_callback_bound_and_interface_requirement_are_explained_at_the_origin() {
+    let unknown = contract_diagnostic(
+        "fn boundary(load: fn () -> Int) nothrow -> Int { return load(); } fn main() {}",
+        "load()",
+        "nothrow",
+    );
+    assert!(
+        unknown
+            .message
+            .contains("the ordinary Error bound of this callback cannot be established")
+    );
+    assert_eq!(
+        unknown.suggestions[0].message,
+        "recover the Error from this call; the full ordinary Error bound could not be established",
+    );
+
+    let source = r#"error E {}
+interface I { fn run(self: Self) nothrow; }
+class C interface I { fn run(self: C) { throw E(message: "bad"); } }
+fn main() {}"#;
+    let interface = contract_diagnostic(source, "throw E(message: \"bad\");", "nothrow");
+    assert_eq!(
+        interface.message,
+        "E can escape `C.run`, whose interface requires `nothrow`"
+    );
+    assert_eq!(
+        interface.secondary[0].1,
+        "the interface requires `nothrow` here"
+    );
+}
+
+#[test]
+fn primitive_error_origins_keep_the_operation_range() {
+    let diagnostic = contract_diagnostic(
+        "fn narrow(value: Int) nothrow -> CInt { return CInt(value); } fn main() {}",
+        "CInt(value)",
+        "nothrow",
+    );
+    assert_eq!(
+        diagnostic.message,
+        "an ordinary Error of unknown type can escape `narrow`, which declares `nothrow`",
+    );
+    assert_eq!(
+        diagnostic.suggestions[0].message,
+        "recover the Error from this operation; the full ordinary Error bound could not be established",
+    );
+}
+
+#[test]
+fn callback_conversion_preserves_annotation_site_when_the_bound_requires_inference() {
+    let cases = [
+        (
+            r#"fn load() -> Int { throw E(message: "bad"); } fn boundary() { let value: fn () nothrow -> Int = load; }"#,
+            "load",
+            "fn () nothrow -> Int",
+            "callback contract `throws(E)` exceeds expected `nothrow`",
+            "this type annotation requires `nothrow`",
+        ),
+        (
+            r#"fn boundary(load: fn () -> Int) { let value: fn () nothrow -> Int = load; }"#,
+            "load",
+            "fn () nothrow -> Int",
+            "cannot establish that the callback's ordinary Errors fit `nothrow`",
+            "this type annotation requires `nothrow`",
+        ),
+        (
+            r#"fn apply(load: fn () nothrow -> Int) {} fn load() -> Int { throw E(message: "bad"); } fn boundary() { apply(load); }"#,
+            "load",
+            "fn () nothrow -> Int",
+            "callback contract `throws(E)` exceeds expected `nothrow`",
+            "parameter `load` expects `nothrow`",
+        ),
+    ];
+    for (declarations, primary, expected, message, note) in cases {
+        let source = format!("error E {{}} {declarations} fn main() {{}}");
+        let diagnostic = contract_diagnostic(&source, primary, expected);
+        assert_eq!(diagnostic.message, message);
+        assert_eq!(diagnostic.secondary[0].1, note);
+    }
+}
+
+#[test]
+fn malformed_contract_still_points_to_the_duplicate_annotation() {
+    let source = "error E {} fn boundary() throws(E, E) {} fn main() {}";
+    let errors = compile_source(&file(source)).unwrap_err();
+    assert_eq!(errors.len(), 1, "{errors:#?}");
+    let error = &errors[0];
+    assert_eq!(error.code, DiagnosticCode::InvalidErrorContract);
+    let duplicate = source.find(", E").unwrap() + 2;
+    assert_eq!(error.primary.start_byte as usize, duplicate);
+    assert_eq!(error.primary.end_byte as usize, duplicate + 1);
+    assert!(error.secondary.is_empty());
+}

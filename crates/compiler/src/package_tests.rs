@@ -117,20 +117,27 @@ pub(crate) fn documents(
     let mut result = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
     for path in paths {
-        let path = root.join(path).canonicalize().map_err(|e| {
-            vec![error(
-                SourceRange::empty(crate::FileId::MANIFEST, 0),
-                e.to_string(),
-            )]
+        let requested = root.join(path);
+        let path = sources.canonical_path(&requested).map_err(|e| {
+            vec![
+                error(
+                    SourceRange::empty(crate::FileId::MANIFEST, 0),
+                    e.to_string(),
+                )
+                .with_path(&requested),
+            ]
         })?;
         if !seen.insert(path.clone()) {
             continue;
         }
         let bytes = sources.read_bytes(&path).map_err(|e| {
-            vec![error(
-                SourceRange::empty(crate::FileId::MANIFEST, 0),
-                e.to_string(),
-            )]
+            vec![
+                error(
+                    SourceRange::empty(crate::FileId::MANIFEST, 0),
+                    e.to_string(),
+                )
+                .with_path(&path),
+            ]
         })?;
         let source = sources.source(&path, bytes.clone())?;
         let text = source.text();
@@ -150,13 +157,10 @@ pub(crate) fn documents(
                     && tail[length..].trim().is_empty()
                 {
                     if executable {
-                        let mut padded = bytes.clone();
                         let bom = source.original_offset(0);
-                        for (index, byte) in padded.iter_mut().enumerate() {
-                            if index >= bom
-                                && (index < start + bom || index >= offset + bom)
-                                && !matches!(*byte, b'\n' | b'\r')
-                            {
+                        let mut padded = bytes[..offset + bom].to_vec();
+                        for byte in &mut padded[bom..start + bom] {
+                            if !matches!(*byte, b'\n' | b'\r') {
                                 *byte = b' ';
                             }
                         }

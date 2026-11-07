@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use crate::SourceRange;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -110,6 +112,8 @@ pub struct Diagnostic {
     pub code: DiagnosticCode,
     pub severity: Severity,
     pub primary: SourceRange,
+    // Keep file-only metadata off the recursive checker stacks.
+    primary_path: Option<Box<PathBuf>>,
     pub secondary: Vec<(SourceRange, String)>,
     pub message: String,
     pub suggestions: Vec<Suggestion>,
@@ -127,6 +131,7 @@ impl Diagnostic {
             code,
             severity: Severity::Error,
             primary,
+            primary_path: None,
             secondary: Vec::new(),
             message: message.into(),
             suggestions: vec![Suggestion {
@@ -135,6 +140,18 @@ impl Diagnostic {
                 replacement: None,
             }],
         }
+    }
+
+    #[must_use]
+    pub fn with_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.primary_path = Some(Box::new(path.into()));
+        self
+    }
+
+    /// The affected input when there is no primary byte range.
+    #[must_use]
+    pub fn primary_path(&self) -> Option<&Path> {
+        self.primary_path.as_deref().map(PathBuf::as_path)
     }
 
     #[must_use]

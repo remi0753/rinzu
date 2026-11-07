@@ -8,7 +8,7 @@ impl Expander<'_> {
         substitution: &HashMap<String, TypeRef>,
         instance: u32,
         expected: Option<&TypeRef>,
-    ) -> Result<bool, Diagnostic> {
+    ) -> ExpansionResult<bool> {
         let (target, owner_args, member, method_args, reference) = match &expression.kind {
             ExpressionKind::GenericCall {
                 target,

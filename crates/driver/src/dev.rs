@@ -3,7 +3,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus};
+use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
@@ -127,16 +127,21 @@ pub struct PackageWatcher {
 
 impl PackageWatcher {
     pub fn new(package: &Path) -> Result<Self, String> {
-        let manifest_path = rinzu_compiler::find_manifest(package)
-            .map_err(|error| format!("find package manifest: {error:?}"))?;
-        let manifest = rinzu_compiler::load_manifest(&manifest_path)
-            .map_err(|error| format!("load package manifest: {error:?}"))?;
+        let manifest_path = rinzu_compiler::find_manifest(package).map_err(|error| {
+            crate::cli_diagnostics::emit(&[error.into_diagnostic()], |_| None);
+            "input failed to check".to_owned()
+        })?;
+        let manifest = crate::input::load_manifest(&manifest_path)?;
+        let source_root = manifest.root.join("src");
+        let source_root = source_root.canonicalize().map_err(|error| {
+            crate::cli_diagnostics::file_failure(
+                &source_root,
+                format!("cannot resolve source directory: {error}"),
+                "make the package source directory readable",
+            )
+        })?;
         Ok(Self {
-            source_root: manifest
-                .root
-                .join("src")
-                .canonicalize()
-                .map_err(|error| format!("resolve source directory: {error}"))?,
+            source_root,
             package: manifest.root,
             modules: BTreeMap::new(),
         })
@@ -224,11 +229,11 @@ pub fn run_dev(package: PathBuf, options: DevOptions) -> Result<(), String> {
         }
         if options.once {
             if let Some(status) = child.poll()? {
-                return if status.success() {
-                    Ok(())
-                } else {
-                    Err(format_child_failure(status))
-                };
+                if status.code().is_some() {
+                    crate::PROGRAM_EXIT_STATUS.with(|exit| exit.set(u8::from(!status.success())));
+                    return Ok(());
+                }
+                return Err(format!("development process exited with {status}"));
             }
             thread::sleep(options.poll);
             continue;
@@ -260,10 +265,6 @@ fn start_child(package: &Path, options: &DevOptions) -> Result<OwnedChild, Strin
     Ok(child)
 }
 
-fn format_child_failure(status: ExitStatus) -> String {
-    format!("development process exited with {status}")
-}
-
 fn print_invalidation(invalidation: &Invalidation) {
     eprintln!(
         "dev changed=[{}] invalidated=[{}]",
@@ -288,8 +289,13 @@ fn read_modules(source_root: &Path) -> Result<BTreeMap<String, ModuleSnapshot>, 
     let mut modules = BTreeMap::new();
     for path in files {
         let module = module_name(source_root, &path).unwrap();
-        let source = fs::read_to_string(&path)
-            .map_err(|error| format!("read module {}: {error}", path.display()))?;
+        let source = fs::read(&path).map_err(|error| {
+            crate::cli_diagnostics::file_failure(
+                &path,
+                format!("cannot read module: {error}"),
+                "make the source file readable",
+            )
+        })?;
         let mut hasher = std::hash::DefaultHasher::new();
         source.hash(&mut hasher);
         let canonical = path
@@ -348,9 +354,11 @@ fn collect_sources(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), Str
     Ok(())
 }
 
-fn parse_imports(source_root: &Path, path: &Path, source: &str) -> BTreeSet<String> {
-    let file = rinzu_compiler::SourceFile::new(rinzu_compiler::FileId(1), path, source);
-    let Ok(syntax) = rinzu_compiler::parse_source(&file) else {
+fn parse_imports(source_root: &Path, path: &Path, source: &[u8]) -> BTreeSet<String> {
+    let Ok(syntax) =
+        rinzu_compiler::SourceFile::from_utf8(rinzu_compiler::FileId(1), path, source.to_vec())
+            .and_then(|file| rinzu_compiler::parse_source(&file))
+    else {
         return BTreeSet::new();
     };
     syntax

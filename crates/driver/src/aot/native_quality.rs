@@ -53,12 +53,15 @@ pub(crate) fn write_sources(directory: &Path) -> Result<(), String> {
     )
     .map_err(|error| error.to_string())?;
 
-    let artifact = rinzu_compiler::compile_source(&rinzu_compiler::SourceFile::new(
+    let source = rinzu_compiler::SourceFile::new(
         rinzu_compiler::FileId(1),
-        "typed-worker-resources.rinzu",
+        root.join("crates/driver/tests/fixtures/typed_worker_resources.rinzu"),
         include_str!("../../tests/fixtures/typed_worker_resources.rinzu"),
-    ))
-    .map_err(|errors| format_diagnostics(&errors))?;
+    );
+    let artifact = rinzu_compiler::compile_source(&source).map_err(|errors| {
+        crate::cli_diagnostics::emit_file(&errors, &source);
+        "input failed to check".to_owned()
+    })?;
     let object = emit_source_async_aot_object(&artifact.ir, "main", &HashMap::new())
         .map_err(|error| error.to_string())?;
     let plan = async_aot_plan(&artifact, &object)?.ok_or("missing async tooling plan")?;
@@ -146,12 +149,15 @@ fn write_fixture_sources(root: &Path, directory: &Path) -> Result<(), String> {
     let lengths = renamed(runtime(&fixtures.join("scalar_lengths.rinzu"))?);
     let virtual_bytes = runtime(&fixtures.join("virtual_bytes_option_kernel.rinzu"))?;
 
-    let artifact = rinzu_compiler::compile_source(&rinzu_compiler::SourceFile::new(
+    let source = rinzu_compiler::SourceFile::new(
         rinzu_compiler::FileId(1),
-        "async-result-pin-identity.rinzu",
+        "<async-result-pin-identity>",
         "async fn main() {}",
-    ))
-    .map_err(|errors| format_diagnostics(&errors))?;
+    );
+    let artifact = rinzu_compiler::compile_source(&source).map_err(|errors| {
+        crate::cli_diagnostics::emit_file(&errors, &source);
+        "input failed to check".to_owned()
+    })?;
     let object = emit_source_async_aot_object(&artifact.ir, "main", &HashMap::new())
         .map_err(|error| error.to_string())?;
     let plan = async_aot_plan(&artifact, &object)?.ok_or("missing result pin tooling plan")?;

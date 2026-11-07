@@ -221,10 +221,13 @@ pub fn check_input_with_sources(
 }
 
 fn input_error(path: &Path, message: impl Into<String>) -> Vec<Diagnostic> {
-    vec![Diagnostic::error(
-        DiagnosticCode::PackageIo,
-        SourceRange::empty(FileId::MANIFEST, 0),
-        format!("{}: {}", path.display(), message.into()),
-        "pass a readable source file or package directory explicitly",
-    )]
+    vec![
+        Diagnostic::error(
+            DiagnosticCode::PackageIo,
+            SourceRange::empty(FileId::MANIFEST, 0),
+            message,
+            "pass a readable source file or package directory explicitly",
+        )
+        .with_path(path),
+    ]
 }

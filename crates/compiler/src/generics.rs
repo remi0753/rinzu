@@ -13,6 +13,10 @@ pub(crate) struct Requirement {
     pub instance: String,
 }
 
+// Expansion can recurse through the full specialization depth. Keep the
+// diagnostic payload off those stack frames until the public entry returns.
+type ExpansionResult<T> = Result<T, Box<Diagnostic>>;
+
 pub(crate) fn expand(
     module: &Module,
     options: &CompilerOptions,
@@ -21,7 +25,7 @@ pub(crate) fn expand(
     let _timing = crate::timing::span("frontend.generics");
     Expander::new(module, options, option_shadow_modules)
         .run()
-        .map_err(|error| vec![error])
+        .map_err(|error| vec![*error])
 }
 
 fn parameters(declaration: &Declaration) -> &[TypeParameter] {
@@ -130,7 +134,7 @@ impl<'a> Expander<'a> {
         }
     }
 
-    fn run(mut self) -> Result<(Module, Vec<Requirement>), Diagnostic> {
+    fn run(mut self) -> ExpansionResult<(Module, Vec<Requirement>)> {
         let declarations = std::mem::take(&mut self.module.declarations);
         let mut names = HashSet::new();
         for declaration in &declarations {
@@ -140,7 +144,8 @@ impl<'a> Expander<'a> {
                     declaration.range(),
                     "duplicate declaration before generic expansion",
                     "use a unique declaration name",
-                ));
+                )
+                .into());
             }
             let mut seen = HashSet::new();
             for parameter in parameters(declaration) {
@@ -219,7 +224,7 @@ impl<'a> Expander<'a> {
         name: &str,
         args: &[TypeRef],
         range: SourceRange,
-    ) -> Result<String, Diagnostic> {
+    ) -> ExpansionResult<String> {
         let Some(mut declaration) = self.templates.get(name).cloned() else {
             return Err(error(
                 range,
@@ -398,7 +403,7 @@ impl<'a> Expander<'a> {
         ty: &mut TypeRef,
         substitution: &HashMap<String, TypeRef>,
         instance: u32,
-    ) -> Result<(), Diagnostic> {
+    ) -> ExpansionResult<()> {
         ty.range.instance = instance;
         match &mut ty.kind {
             TypeRefKind::Record(fields) => {
@@ -467,7 +472,7 @@ impl<'a> Expander<'a> {
         Ok(())
     }
 
-    fn canonical_argument(&self, ty: &mut TypeRef) -> Result<(), Diagnostic> {
+    fn canonical_argument(&self, ty: &mut TypeRef) -> ExpansionResult<()> {
         match &mut ty.kind {
             TypeRefKind::Record(fields) => {
                 for field in fields.iter_mut() {
@@ -526,7 +531,7 @@ impl<'a> Expander<'a> {
         declaration: &mut Declaration,
         substitution: &HashMap<String, TypeRef>,
         instance: u32,
-    ) -> Result<(), Diagnostic> {
+    ) -> ExpansionResult<()> {
         let saved_constants = std::mem::replace(&mut self.constants, self.module_constants.clone());
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_types = std::mem::take(&mut self.type_locals);
@@ -628,7 +633,7 @@ impl<'a> Expander<'a> {
         ty: &TypeRef,
         expected: &TypeRef,
         range: SourceRange,
-    ) -> Result<(), Diagnostic> {
+    ) -> ExpansionResult<()> {
         let (base, args) = match &ty.kind {
             TypeRefKind::Named(path) => self
                 .instance_types
@@ -654,7 +659,7 @@ impl<'a> Expander<'a> {
                 spelling(expected)
             ),
             "declare the interface on the concrete class or enum; matching methods alone do not imply conformance",
-        ))
+        ).into())
     }
 
     fn interface_application(
@@ -663,7 +668,7 @@ impl<'a> Expander<'a> {
         substitution: &HashMap<String, TypeRef>,
         instance: u32,
         visited: &mut HashSet<String>,
-    ) -> Result<(), Diagnostic> {
+    ) -> ExpansionResult<()> {
         let (name, args) = match &mut source.kind {
             TypeRefKind::Named(path) => (path.join("."), &mut Vec::new()),
             TypeRefKind::Generic { path, arguments } => (path.join("."), arguments),
@@ -719,7 +724,7 @@ impl<'a> Expander<'a> {
         block: &mut Block,
         substitution: &HashMap<String, TypeRef>,
         instance: u32,
-    ) -> Result<(), Diagnostic> {
+    ) -> ExpansionResult<()> {
         let saved_constants = self.constants.clone();
         let saved_locals = self.locals.clone();
         let saved_types = self.type_locals.clone();
@@ -743,7 +748,7 @@ impl<'a> Expander<'a> {
         bindings: impl IntoIterator<Item = (&'b str, Option<TypeRef>)>,
         substitution: &HashMap<String, TypeRef>,
         instance: u32,
-    ) -> Result<(), Diagnostic> {
+    ) -> ExpansionResult<()> {
         let saved_constants = self.constants.clone();
         let saved_locals = self.locals.clone();
         let saved_types = self.type_locals.clone();
@@ -768,7 +773,7 @@ impl<'a> Expander<'a> {
         statement: &mut Statement,
         substitution: &HashMap<String, TypeRef>,
         instance: u32,
-    ) -> Result<(), Diagnostic> {
+    ) -> ExpansionResult<()> {
         statement.range.instance = instance;
         match &mut statement.kind {
             StatementKind::Block(block) => self.block(block, substitution, instance)?,
@@ -1018,7 +1023,7 @@ impl<'a> Expander<'a> {
         arguments: &mut Arguments,
         substitution: &HashMap<String, TypeRef>,
         instance: u32,
-    ) -> Result<(), Diagnostic> {
+    ) -> ExpansionResult<()> {
         match arguments {
             Arguments::Positional(values) => {
                 for value in values {
@@ -1040,7 +1045,7 @@ impl<'a> Expander<'a> {
         expression: &mut Expression,
         substitution: &HashMap<String, TypeRef>,
         instance: u32,
-    ) -> Result<(), Diagnostic> {
+    ) -> ExpansionResult<()> {
         self.expression_expected(expression, substitution, instance, None)
     }
 
@@ -1050,7 +1055,7 @@ impl<'a> Expander<'a> {
         substitution: &HashMap<String, TypeRef>,
         instance: u32,
         expected: Option<&TypeRef>,
-    ) -> Result<(), Diagnostic> {
+    ) -> ExpansionResult<()> {
         expression.range.instance = instance;
         if let ExpressionKind::Spawn { target, .. }
         | ExpressionKind::GenericCall {
@@ -1060,7 +1065,7 @@ impl<'a> Expander<'a> {
         } = &expression.kind
             && self.local_target(target)
         {
-            return Err(crate::sema::local_spawn_error(expression.range));
+            return Err(crate::sema::local_spawn_error(expression.range).into());
         }
         // Unbound requirements such as R.read retain their interface contract
         // just like receiver calls. Resolve the owner after selecting R.
@@ -1352,7 +1357,7 @@ impl<'a> Expander<'a> {
         f: &mut FunctionDecl,
         substitution: &HashMap<String, TypeRef>,
         instance: u32,
-    ) -> Result<(), Diagnostic> {
+    ) -> ExpansionResult<()> {
         let saved_constants = self.constants.clone();
         let saved_locals = self.locals.clone();
         let saved_types = self.type_locals.clone();
@@ -1389,11 +1394,7 @@ impl<'a> Expander<'a> {
         path.first().is_some_and(|name| self.locals.contains(name))
     }
 
-    fn require_template_visible(
-        &self,
-        path: &[String],
-        range: SourceRange,
-    ) -> Result<(), Diagnostic> {
+    fn require_template_visible(&self, path: &[String], range: SourceRange) -> ExpansionResult<()> {
         if self.local_target(path) {
             Err(error(
                 range,
@@ -1455,11 +1456,12 @@ pub(crate) fn spelling(ty: &TypeRef) -> String {
     }
 }
 
-fn error(range: SourceRange, message: &str) -> Diagnostic {
+fn error(range: SourceRange, message: &str) -> Box<Diagnostic> {
     Diagnostic::error(
         DiagnosticCode::TypeMismatch,
         range,
         message,
         "use explicit concrete type arguments within the supported generic contract",
     )
+    .into()
 }

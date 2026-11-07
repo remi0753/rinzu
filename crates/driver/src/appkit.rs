@@ -18,8 +18,8 @@ pub struct AppKitVerification {
 pub fn verify(package: &Path, bundle: PathBuf) -> Result<AppKitVerification, String> {
     crate::input::require_package("verify-appkit", package)?;
     rinzu_runtime::validate_v1_target().map_err(|error| error.to_string())?;
-    let (manifest, _) = rinzu_compiler::check_package(package)
-        .map_err(|diagnostics| format_diagnostics(&diagnostics))?;
+    let (manifest, _) =
+        crate::input::check_package(package, &rinzu_compiler::NativeCliInputs::default())?;
     let equivalence = aot::verify_equivalence(package, None)?;
     if equivalence.outcome != "success" {
         return Err(format!(
@@ -166,20 +166,4 @@ mod tests {
         );
         assert!(Command::new(&executable).status().unwrap().success());
     }
-}
-
-fn format_diagnostics(diagnostics: &[rinzu_compiler::Diagnostic]) -> String {
-    diagnostics
-        .iter()
-        .map(|diagnostic| {
-            format!(
-                "{}: {} (bytes {}..{})",
-                diagnostic.code.as_str(),
-                diagnostic.message,
-                diagnostic.primary.start_byte,
-                diagnostic.primary.end_byte
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }

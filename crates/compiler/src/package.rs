@@ -290,23 +290,40 @@ fn append_sdk_declarations(
     }
 }
 
-fn snapshot_manifest(
+/// Read configuration from the same snapshot used to resolve its diagnostics.
+pub fn load_manifest_with_sources(
     path: &Path,
     sources: &mut SourceSnapshot<'_>,
 ) -> Result<Manifest, Vec<Diagnostic>> {
-    let bytes = sources.read_config(path).map_err(|error| {
-        vec![package_diagnostic(
-            format!("{}: {error}", path.display()),
-            "make the manifest readable",
-        )]
-    })?;
-    let text = std::str::from_utf8(&bytes).map_err(|error| {
-        vec![package_diagnostic(
-            format!("{}: {error}", path.display()),
+    let read_error = |error: std::io::Error| {
+        vec![
+            package_diagnostic(
+                format!("cannot read manifest: {error}"),
+                "make the manifest readable",
+            )
+            .with_path(path),
+        ]
+    };
+    let canonical = sources.canonical_path(path).map_err(read_error)?;
+    let bytes = sources.read_config(&canonical).map_err(read_error)?;
+    let text_bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes);
+    let text = std::str::from_utf8(text_bytes).map_err(|error| {
+        let start = bytes.len() - text_bytes.len() + error.valid_up_to();
+        vec![Diagnostic::error(
+            DiagnosticCode::PackageIo,
+            SourceRange::new(sources.file_id(&canonical), start, start + 1),
+            "manifest is not valid UTF-8",
             "save the manifest as UTF-8",
         )]
     })?;
-    crate::manifest::load_manifest_text(path, text).map_err(|error| vec![error.into_diagnostic()])
+    match crate::manifest::load_manifest_text(path, text) {
+        Ok(manifest) => Ok(manifest),
+        Err(error) if error.has_span() => {
+            let file = sources.source(&canonical, bytes)?;
+            Err(vec![error.diagnostic(Some(&file))])
+        }
+        Err(error) => Err(vec![error.into_diagnostic()]),
+    }
 }
 
 fn check_namespaced(
@@ -333,11 +350,16 @@ fn check_request(
     tests: Option<&crate::PackageTestOptions>,
 ) -> Result<(Manifest, FrontendArtifact, Vec<crate::PackageTestCase>), Vec<Diagnostic>> {
     let manifest_path = find_manifest(start).map_err(|error| vec![error.into_diagnostic()])?;
-    let mut manifest = snapshot_manifest(&manifest_path, sources)?;
+    let mut manifest = load_manifest_with_sources(&manifest_path, sources)?;
     crate::canonicalize_native_inputs(&mut manifest)
         .map_err(|error| vec![error.into_diagnostic()])?;
     let _timing = crate::timing::span("frontend.package").detail(&manifest.name);
-    let entry_module = module_name_from_entry(&manifest.entry)?;
+    let entry_module = module_name_from_entry(&manifest.entry).map_err(|errors| {
+        errors
+            .into_iter()
+            .map(|error| error.with_path(&manifest_path))
+            .collect::<Vec<_>>()
+    })?;
     let mut sdk_packages = if manifest.language != "0.1" {
         resolve_sdk_packages(&manifest, sources)?
     } else {
@@ -372,16 +394,19 @@ fn check_request(
                             "dependency public module `{name}` conflicts with a registered standard module"
                         ),
                         "rename the additional SDK public module",
-                    )]);
+                    ).with_path(package.manifest.root.join("rinzu.toml"))]);
                 }
                 if external_symbols
                     .insert(name.clone(), symbols.clone())
                     .is_some()
                 {
-                    return Err(vec![package_diagnostic(
-                        format!("ambiguous dependency public module `{name}`"),
-                        "use unambiguous package and public module names",
-                    )]);
+                    return Err(vec![
+                        package_diagnostic(
+                            format!("ambiguous dependency public module `{name}`"),
+                            "use unambiguous package and public module names",
+                        )
+                        .with_path(&manifest_path),
+                    ]);
                 }
             }
         } else {
@@ -411,10 +436,13 @@ fn check_request(
         let mut unique = HashSet::new();
         for name in &public_modules {
             if !unique.insert(name.clone()) {
-                return Err(vec![package_diagnostic(
-                    format!("duplicate public module `{name}`"),
-                    "list each public module once",
-                )]);
+                return Err(vec![
+                    package_diagnostic(
+                        format!("duplicate public module `{name}`"),
+                        "list each public module once",
+                    )
+                    .with_path(&manifest_path),
+                ]);
             }
             let key = loader.load(
                 name,
@@ -427,10 +455,13 @@ fn check_request(
             public_bindings.insert(name.clone(), key);
         }
         if !unique.contains(&entry_module) {
-            return Err(vec![package_diagnostic(
-                "public modules must include the SDK entry module",
-                "include the entry module in exports.modules",
-            )]);
+            return Err(vec![
+                package_diagnostic(
+                    "public modules must include the SDK entry module",
+                    "include the entry module in exports.modules",
+                )
+                .with_path(&manifest_path),
+            ]);
         }
         let mut source_paths = Vec::new();
         collect_source_paths(&loader.source_root, &mut source_paths)?;
@@ -512,19 +543,22 @@ fn check_request(
             cases.push(document.case);
         }
         if cases.len() > 256 {
-            return Err(vec![package_diagnostic(
-                "test case limit exceeded (256)",
-                "split the test package",
-            )]);
+            return Err(vec![
+                package_diagnostic("test case limit exceeded (256)", "split the test package")
+                    .with_path(&manifest_path),
+            ]);
         }
         cases.sort_by(|a, b| a.identity.cmp(&b.identity));
         if manifest.kind != PackageKind::Sdk {
             link_entry = "rinzu_test_entry".into();
             if loader.loaded.contains(&link_entry) {
-                return Err(vec![package_diagnostic(
-                    "reserved test entry conflicts with a source module",
-                    "rename rinzu_test_entry",
-                )]);
+                return Err(vec![
+                    package_diagnostic(
+                        "reserved test entry conflicts with a source module",
+                        "rename rinzu_test_entry",
+                    )
+                    .with_path(&manifest_path),
+                ]);
             }
             let range = loader.modules.first().unwrap().syntax.range;
             loader.modules.push(ParsedModule {
@@ -1334,10 +1368,7 @@ pub(crate) fn validate_public_signatures(
 
 fn collect_source_paths(root: &Path, paths: &mut Vec<PathBuf>) -> Result<(), Vec<Diagnostic>> {
     let canonical_root = root.canonicalize().map_err(|error| {
-        vec![package_diagnostic(
-            error.to_string(),
-            "make SDK sources readable",
-        )]
+        vec![package_diagnostic(error.to_string(), "make SDK sources readable").with_path(root)]
     })?;
     collect_source_directory(root, &canonical_root, &mut HashSet::new(), paths)
 }
@@ -1349,39 +1380,35 @@ fn collect_source_directory(
     paths: &mut Vec<PathBuf>,
 ) -> Result<(), Vec<Diagnostic>> {
     let canonical = root.canonicalize().map_err(|error| {
-        vec![package_diagnostic(
-            error.to_string(),
-            "make SDK sources readable",
-        )]
+        vec![package_diagnostic(error.to_string(), "make SDK sources readable").with_path(root)]
     })?;
     if !canonical.starts_with(canonical_root) || !visiting.insert(canonical.clone()) {
-        return Err(vec![package_diagnostic(
-            "SDK source directory escapes src or creates a symlink cycle",
-            "keep source directories inside src without cycles",
-        )]);
+        return Err(vec![
+            package_diagnostic(
+                "SDK source directory escapes src or creates a symlink cycle",
+                "keep source directories inside src without cycles",
+            )
+            .with_path(root),
+        ]);
     }
     let entries = std::fs::read_dir(root).map_err(|error| {
-        vec![package_diagnostic(
-            format!(
-                "cannot enumerate SDK source directory `{}`: {error}",
-                root.display()
-            ),
-            "make the source directory readable",
-        )]
+        vec![
+            package_diagnostic(
+                format!("cannot enumerate SDK source directory: {error}"),
+                "make the source directory readable",
+            )
+            .with_path(root),
+        ]
     })?;
     for entry in entries {
         let entry = entry.map_err(|error| {
-            vec![package_diagnostic(
-                error.to_string(),
-                "make SDK sources readable",
-            )]
+            vec![package_diagnostic(error.to_string(), "make SDK sources readable").with_path(root)]
         })?;
         let path = entry.path();
         let kind = entry.file_type().map_err(|error| {
-            vec![package_diagnostic(
-                error.to_string(),
-                "make SDK sources readable",
-            )]
+            vec![
+                package_diagnostic(error.to_string(), "make SDK sources readable").with_path(&path),
+            ]
         })?;
         if kind.is_dir() || (kind.is_symlink() && path.is_dir()) {
             collect_source_directory(&path, canonical_root, visiting, paths)?;
@@ -1417,14 +1444,17 @@ fn resolve_dependencies(
     for dependency in &parent.dependencies {
         let root = parent.root.join(&dependency.path);
         let canonical = root.canonicalize().map_err(|error| {
-            vec![package_diagnostic(
-                format!(
-                    "cannot resolve dependency `{}` at `{}`: {error}",
-                    dependency.name,
-                    root.display()
-                ),
-                "correct the path dependency or create the package directory",
-            )]
+            vec![
+                package_diagnostic(
+                    format!(
+                        "cannot resolve dependency `{}` at `{}`: {error}",
+                        dependency.name,
+                        root.display()
+                    ),
+                    "correct the path dependency or create the package directory",
+                )
+                .with_path(&root),
+            ]
         })?;
         if let Some(index) = visiting.iter().position(|path| path == &canonical) {
             let cycle = visiting[index..]
@@ -1433,56 +1463,71 @@ fn resolve_dependencies(
                 .map(|path| path.display().to_string())
                 .collect::<Vec<_>>()
                 .join(" -> ");
-            return Err(vec![package_diagnostic(
-                format!("package dependency cycle: {cycle}"),
-                "remove a path dependency so the package graph is acyclic",
-            )]);
+            return Err(vec![
+                package_diagnostic(
+                    format!("package dependency cycle: {cycle}"),
+                    "remove a path dependency so the package graph is acyclic",
+                )
+                .with_path(&canonical),
+            ]);
         }
         if let Some(existing) = visited.get(&canonical) {
             if existing != &dependency.name {
-                return Err(vec![package_diagnostic(
-                    format!(
-                        "dependency path `{}` is named both `{existing}` and `{}`",
-                        canonical.display(),
-                        dependency.name
-                    ),
-                    "use the package's declared name consistently",
-                )]);
+                return Err(vec![
+                    package_diagnostic(
+                        format!(
+                            "dependency path `{}` is named both `{existing}` and `{}`",
+                            canonical.display(),
+                            dependency.name
+                        ),
+                        "use the package's declared name consistently",
+                    )
+                    .with_path(&canonical),
+                ]);
             }
             continue;
         }
         let manifest_path = canonical.join("rinzu.toml");
-        let mut manifest = snapshot_manifest(&manifest_path, sources)?;
+        let mut manifest = load_manifest_with_sources(&manifest_path, sources)?;
         crate::canonicalize_native_inputs(&mut manifest)
             .map_err(|error| vec![error.into_diagnostic()])?;
         if packages.iter().any(|package| {
             package.manifest.name == manifest.name
                 && package.manifest.root.canonicalize().ok().as_ref() != Some(&canonical)
         }) {
-            return Err(vec![package_diagnostic(
-                format!("package `{}` resolves to multiple roots", manifest.name),
-                "use one canonical dependency root for each package name",
-            )]);
+            return Err(vec![
+                package_diagnostic(
+                    format!("package `{}` resolves to multiple roots", manifest.name),
+                    "use one canonical dependency root for each package name",
+                )
+                .with_path(&manifest_path),
+            ]);
         }
         if manifest.name != dependency.name {
-            return Err(vec![package_diagnostic(
-                format!(
-                    "dependency key `{}` resolves to package `{}`",
-                    dependency.name, manifest.name
-                ),
-                "make the dependency key equal the dependency package name",
-            )]);
+            return Err(vec![
+                package_diagnostic(
+                    format!(
+                        "dependency key `{}` resolves to package `{}`",
+                        dependency.name, manifest.name
+                    ),
+                    "make the dependency key equal the dependency package name",
+                )
+                .with_path(&manifest_path),
+            ]);
         }
         if !matches!(manifest.language.as_str(), "0.2" | "0.3" | "0.4" | "0.5")
             || manifest.kind != PackageKind::Sdk
         {
-            return Err(vec![package_diagnostic(
-                format!(
-                    "dependency `{}` is not a supported source SDK package",
-                    manifest.name
-                ),
-                "set `language = \"0.5\"` and `kind = \"sdk\"` in the dependency",
-            )]);
+            return Err(vec![
+                package_diagnostic(
+                    format!(
+                        "dependency `{}` is not a supported source SDK package",
+                        manifest.name
+                    ),
+                    "set `language = \"0.5\"` and `kind = \"sdk\"` in the dependency",
+                )
+                .with_path(&manifest_path),
+            ]);
         }
         visiting.push(canonical.clone());
         resolve_dependencies(&manifest, packages, visited, visiting, sources)?;
@@ -1510,13 +1555,16 @@ fn merge_packages(
             .find(|p| p.manifest.name == package.manifest.name)
         {
             if previous.manifest.root != package.manifest.root {
-                return Err(vec![package_diagnostic(
-                    format!(
-                        "package `{}` resolves to multiple roots",
-                        package.manifest.name
-                    ),
-                    "use one canonical package identity",
-                )]);
+                return Err(vec![
+                    package_diagnostic(
+                        format!(
+                            "package `{}` resolves to multiple roots",
+                            package.manifest.name
+                        ),
+                        "use one canonical package identity",
+                    )
+                    .with_path(package.manifest.root.join("rinzu.toml")),
+                ]);
             }
         } else {
             packages.push(package);
@@ -1583,10 +1631,10 @@ fn resolve_standard_imports(
             .unwrap()
             .join("registry.json");
         sources.read_config(&registry).map_err(|e| {
-            vec![package_diagnostic(
-                e.to_string(),
-                "restore the standard-library registry",
-            )]
+            vec![
+                package_diagnostic(e.to_string(), "restore the standard-library registry")
+                    .with_path(&registry),
+            ]
         })?;
         let (manifest, artifact) = check_namespaced(&root, &name, sources)?;
         merge_packages(&mut packages, artifact.sdk_packages)?;
@@ -1753,6 +1801,9 @@ impl<'a, 'b> Loader<'a, 'b> {
             format!("{message}; import chain: {}", chain.join(" -> ")),
             "correct the import path and keep the module graph acyclic and readable",
         );
+        if range.is_none() {
+            error = error.with_path(path);
+        }
         for (_, edge) in &self.visiting {
             if let Some(edge) = edge {
                 error = error.with_secondary(*edge, "imported from here");
@@ -1767,6 +1818,9 @@ impl<'a, 'b> Loader<'a, 'b> {
         path: &Path,
         range: Option<SourceRange>,
     ) -> Vec<Diagnostic> {
+        if self.visiting.is_empty() && range.is_none() {
+            return errors;
+        }
         let mut paths: Vec<_> = self
             .visiting
             .iter()

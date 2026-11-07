@@ -57,37 +57,42 @@ fn normalize_paths(
     kind: &str,
     directory: bool,
 ) -> Result<Vec<PathBuf>, Vec<Diagnostic>> {
-    let error = |message: String| {
+    let error = |path: &Path, message: String| {
         vec![Diagnostic::error(
             DiagnosticCode::ManifestInvalid,
             SourceRange::empty(FileId::MANIFEST, 0),
             message,
             "pass an existing regular native file or search directory; CLI paths may be absolute",
-        )]
+        ).with_path(path)]
     };
     let mut seen = BTreeSet::new();
     let mut output = Vec::new();
     for path in paths {
         if path.as_os_str().is_empty() {
-            return Err(error(format!("native {kind} path is empty")));
+            return Err(error(root, format!("native {kind} path is empty")));
         }
         let full = root.join(path);
         let canonical = full
             .canonicalize()
-            .map_err(|failure| error(format!("native {kind} {}: {failure}", full.display())))?;
+            .map_err(|failure| error(&full, format!("cannot resolve native {kind}: {failure}")))?;
         let metadata = canonical.metadata().map_err(|failure| {
-            error(format!("native {kind} {}: {failure}", canonical.display()))
+            error(
+                &canonical,
+                format!("cannot inspect native {kind}: {failure}"),
+            )
         })?;
         if (directory && !metadata.is_dir()) || (!directory && !metadata.is_file()) {
-            return Err(error(format!(
-                "native {kind} has the wrong file kind (requires {}): {}",
-                if directory {
-                    "directory"
-                } else {
-                    "regular file"
-                },
-                canonical.display()
-            )));
+            return Err(error(
+                &canonical,
+                format!(
+                    "native {kind} has the wrong file kind (requires {})",
+                    if directory {
+                        "directory"
+                    } else {
+                        "regular file"
+                    },
+                ),
+            ));
         }
         if kind == "object"
             && !matches!(
@@ -95,10 +100,10 @@ fn normalize_paths(
                 Some("o" | "a" | "dylib" | "so" | "dll" | "lib")
             )
         {
-            return Err(error(format!(
-                "unsupported native object extension: {}",
-                canonical.display()
-            )));
+            return Err(error(
+                &canonical,
+                "unsupported native object extension".into(),
+            ));
         }
         #[cfg(unix)]
         let identity = {

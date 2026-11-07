@@ -76,6 +76,14 @@ struct Response {
     result: Option<i64>,
     outcome: Option<String>,
     error: Option<String>,
+    diagnostic_blocks: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BuildResponse {
+    result: Result<crate::aot::AotBuild, String>,
+    diagnostic_blocks: Vec<String>,
 }
 
 pub(crate) struct TemporaryDirectory(pub PathBuf);
@@ -183,8 +191,13 @@ pub fn build_aot(
             String::from_utf8_lossy(&output.stderr)
         ));
     }
-    serde_json::from_slice(&fs::read(response).map_err(|error| error.to_string())?)
-        .map_err(|error| format!("invalid verification build protocol: {error}"))
+    let response: BuildResponse =
+        serde_json::from_slice(&fs::read(response).map_err(|error| error.to_string())?)
+            .map_err(|error| format!("invalid verification build protocol: {error}"))?;
+    for block in response.diagnostic_blocks {
+        crate::cli_diagnostics::write_block(&block);
+    }
+    response.result
 }
 
 pub fn build_worker(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
@@ -207,11 +220,17 @@ pub fn build_worker(mut arguments: impl Iterator<Item = String>) -> Result<(), S
     if request.version != 2 {
         return Err("unsupported verification build request protocol".into());
     }
-    let context = request.input.check()?;
-    let build = crate::aot::build_checked_input(&context, Some(request.executable))?;
+    let (result, diagnostic_blocks) = crate::cli_diagnostics::capture(|| {
+        let context = request.input.check()?;
+        crate::aot::build_checked_input(&context, Some(request.executable))
+    });
     fs::write(
         response,
-        serde_json::to_vec(&build).map_err(|error| error.to_string())?,
+        serde_json::to_vec(&BuildResponse {
+            result,
+            diagnostic_blocks,
+        })
+        .map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())
 }
@@ -325,6 +344,9 @@ pub fn verify_with_input(
     if response.version != 1 {
         return Err("unsupported verification result protocol".into());
     }
+    for block in response.diagnostic_blocks {
+        crate::cli_diagnostics::write_block(&block);
+    }
     if let Some(error) = response.error {
         return Err(error);
     }
@@ -385,21 +407,23 @@ pub fn worker(
         return Err("unsupported verification request protocol".into());
     }
     WORKER_DIRECTORY.with(|slot| *slot.borrow_mut() = Some(directory.clone()));
-    let result = request.input.check().and_then(|context| {
-        if let Some(limit) = request.cancel_worker_after_polls {
-            crate::aot::verify_worker_cancel_checked(&context, limit, program_arguments)
-        } else {
-            crate::aot::verify_checked_input(
-                &context,
-                BaselineOptions {
-                    cancel_after_polls: request.cancel_after_polls,
-                    max_allocations: request.max_allocations,
-                    shutdown_after_polls: request.shutdown_after_polls,
-                    ..BaselineOptions::default()
-                },
-                program_arguments,
-            )
-        }
+    let (result, diagnostic_blocks) = crate::cli_diagnostics::capture(|| {
+        request.input.check().and_then(|context| {
+            if let Some(limit) = request.cancel_worker_after_polls {
+                crate::aot::verify_worker_cancel_checked(&context, limit, program_arguments)
+            } else {
+                crate::aot::verify_checked_input(
+                    &context,
+                    BaselineOptions {
+                        cancel_after_polls: request.cancel_after_polls,
+                        max_allocations: request.max_allocations,
+                        shutdown_after_polls: request.shutdown_after_polls,
+                        ..BaselineOptions::default()
+                    },
+                    program_arguments,
+                )
+            }
+        })
     });
     let response = match result {
         Ok(report) => Response {
@@ -407,12 +431,14 @@ pub fn worker(
             result: Some(report.result),
             outcome: Some(report.outcome.into()),
             error: None,
+            diagnostic_blocks,
         },
         Err(error) => Response {
             version: 1,
             result: None,
             outcome: None,
             error: Some(error),
+            diagnostic_blocks,
         },
     };
     fs::write(

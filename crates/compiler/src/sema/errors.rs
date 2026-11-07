@@ -134,6 +134,7 @@ impl Checker<'_> {
                     context.locals.insert(
                         binding.name.clone(),
                         Local {
+                            callback_contract: None,
                             ty,
                             mutable: false,
                             constant: None,

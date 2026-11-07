@@ -1384,7 +1384,14 @@ fn build_checked_layout(
     } else {
         emit_baseline_aot_object_with_native_bindings(&artifact.ir, "main", &native_bindings)
     }
-    .map_err(|error| format!("emit baseline AOT object: {error:#}"))?;
+    .map_err(|error| {
+        crate::cli_diagnostics::stage_failure(
+            Some(&context.entry),
+            "AOT code generation",
+            None,
+            &format!("{error:#}"),
+        )
+    })?;
     let async_plan = if uses_source_async {
         async_aot_plan(artifact, &aot)?
     } else {
@@ -1538,17 +1545,12 @@ fn build_checked_layout(
     if !native_build.artifacts.is_empty() {
         linker.arg("-Wl,-rpath,@executable_path");
     }
-    let output_result = linker
-        .arg("-o")
-        .arg(&executable)
-        .output()
-        .map_err(|error| format!("start system linker through clang: {error}"))?;
-    if !output_result.status.success() {
-        return Err(format!(
-            "system linker failed:\n{}",
-            String::from_utf8_lossy(&output_result.stderr)
-        ));
-    }
+    crate::cli_diagnostics::tool_output(
+        linker.arg("-o").arg(&executable).output(),
+        Some(&executable),
+        "AOT linking",
+        "clang",
+    )?;
     link_toolchain.verify()?;
     native_build.verify_inputs()?;
     let mut saved: serde_json::Value =
@@ -1591,22 +1593,6 @@ pub(super) fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
     let mut value = path.as_os_str().to_owned();
     value.push(suffix);
     PathBuf::from(value)
-}
-
-fn format_diagnostics(diagnostics: &[rinzu_compiler::Diagnostic]) -> String {
-    diagnostics
-        .iter()
-        .map(|diagnostic| {
-            format!(
-                "{}: {} (bytes {}..{})",
-                diagnostic.code.as_str(),
-                diagnostic.message,
-                diagnostic.primary.start_byte,
-                diagnostic.primary.end_byte
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 pub(crate) fn main_uses_source_async(artifact: &rinzu_compiler::FrontendArtifact) -> bool {

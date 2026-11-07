@@ -11,11 +11,17 @@ pub fn build<T: Send>(
     let mut scheduled = vec![false; names.len()];
     let mut outputs: Vec<Option<T>> = std::iter::repeat_with(|| None).take(names.len()).collect();
     let mut digests = BTreeMap::new();
+    let attempt = |index, inputs: &BTreeMap<String, String>| {
+        crate::cli_diagnostics::capture(|| {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build_one(index, inputs)))
+                .unwrap_or_else(|_| Err("native SDK compiler worker panicked".into()))
+        })
+    };
     std::thread::scope(|scope| {
         let (sender, receiver) = std::sync::mpsc::channel();
         let mut active = 0;
         let mut completed = 0;
-        let mut errors = BTreeMap::new();
+        let mut errors = BTreeMap::<usize, (String, Vec<String>)>::new();
         loop {
             for index in 0..names.len() {
                 if active == jobs {
@@ -31,34 +37,34 @@ pub fn build<T: Send>(
                 scheduled[index] = true;
                 active += 1;
                 if jobs == 1 || names.len() == 1 {
-                    let _ = sender.send((index, build_one(index, &digests)));
+                    let _ = sender.send((index, attempt(index, &digests)));
                 } else {
                     let send = sender.clone();
                     let snapshot = digests.clone();
-                    let build_one = &build_one;
+                    let attempt = &attempt;
                     if std::thread::Builder::new()
                         .name(format!("rinzu-sdk-{index}"))
                         .stack_size(8 * 1024 * 1024)
                         .spawn_scoped(scope, move || {
                             // A failed worker must always release its scheduler slot,
                             // including under the test harness's unwind strategy.
-                            let result =
-                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                    build_one(index, &snapshot)
-                                }))
-                                .unwrap_or_else(|_| {
-                                    Err("native SDK compiler worker panicked".into())
-                                });
-                            let _ = send.send((index, result));
+                            let _ = send.send((index, attempt(index, &snapshot)));
                         })
                         .is_err()
                     {
-                        let _ = sender.send((index, build_one(index, &digests)));
+                        let _ = sender.send((index, attempt(index, &digests)));
                     }
                 }
             }
             if active == 0 {
-                if let Some((_, error)) = errors.into_iter().next() {
+                let mut first_error = None;
+                for (error, blocks) in errors.into_values() {
+                    first_error.get_or_insert(error);
+                    for block in blocks {
+                        crate::cli_diagnostics::write_block(&block);
+                    }
+                }
+                if let Some(error) = first_error {
                     return Err(error);
                 }
                 if completed != names.len() {
@@ -66,7 +72,7 @@ pub fn build<T: Send>(
                 }
                 return Ok((outputs.into_iter().map(Option::unwrap).collect(), digests));
             }
-            let (index, result) = receiver.recv().map_err(|error| error.to_string())?;
+            let (index, (result, blocks)) = receiver.recv().map_err(|error| error.to_string())?;
             active -= 1;
             completed += 1;
             match result {
@@ -77,7 +83,7 @@ pub fn build<T: Send>(
                 Err(error) => {
                     // Finish independent work, but never start consumers of a
                     // failed dependency. Report errors in checked graph order.
-                    errors.insert(index, error);
+                    errors.insert(index, (error, blocks));
                 }
             }
         }

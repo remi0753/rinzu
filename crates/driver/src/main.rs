@@ -27,6 +27,7 @@ mod aot;
 mod aot_source_native;
 mod app_layout;
 mod appkit;
+mod cli_diagnostics;
 mod compile_cache;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod compiled_async;
@@ -433,10 +434,7 @@ fn run(mut arguments: impl Iterator<Item = OsString>) -> Result<(), String> {
             }
             input::require_package("verify-async", &path)?;
             let (manifest, artifact) =
-                rinzu_compiler::check_package(&path).map_err(|diagnostics| {
-                    print_diagnostics(diagnostics);
-                    "package failed to compile".to_owned()
-                })?;
+                input::check_package(&path, &rinzu_compiler::NativeCliInputs::default())?;
             let options = rinzu_codegen::SourceAsyncOptions::from_sdk_packages(
                 &manifest.root,
                 &artifact.sdk_packages,
@@ -516,14 +514,7 @@ fn run_package_with_native_inputs(
     resource_config: Option<&rinzu_runtime::resource_report::Config>,
 ) -> Result<(), String> {
     PROGRAM_EXIT_STATUS.with(|status| status.set(0));
-    let (manifest, artifact) = match rinzu_compiler::check_package_with_native_inputs(&path, inputs)
-    {
-        Ok(compiled) => compiled,
-        Err(diagnostics) => {
-            print_diagnostics(diagnostics);
-            return Err("package failed to compile".into());
-        }
-    };
+    let (manifest, artifact) = input::check_package(&path, inputs)?;
     run_checked_package(&manifest, &artifact, show_trace, resource_config, &[])
 }
 
@@ -743,6 +734,15 @@ fn run_package_engines(
     }
     let arguments = argument_bytes(program_arguments);
     let options = rinzu_codegen::BaselineOptions::default();
+    let entry = manifest.root.join(&manifest.entry);
+    let jit_error = |error| {
+        cli_diagnostics::stage_failure(
+            Some(&entry),
+            "baseline JIT preparation",
+            None,
+            &format!("{error:#}"),
+        )
+    };
     let execution =
         if has_native_artifacts || has_source_packages || !artifact.native_inputs.is_empty() {
             let built = native_package::build_artifact(manifest, artifact)?;
@@ -761,7 +761,7 @@ fn run_package_engines(
                 Some(built.load_source_packages()?),
                 arguments,
             )
-            .map_err(|error| format!("baseline native-package JIT failed: {error:#}"));
+            .map_err(jit_error);
             let _ = std::fs::remove_dir_all(&built.directory);
             execution?
         } else {
@@ -773,7 +773,7 @@ fn run_package_engines(
                 None,
                 arguments,
             )
-            .map_err(|error| format!("baseline JIT failed: {error:#}"))?
+            .map_err(jit_error)?
         };
     eprintln!("ran {} with baseline JIT", manifest.name);
     package_tests::observe_baseline(&execution);
@@ -923,21 +923,6 @@ pub(crate) fn normalized_source_async_trace(run: &rinzu_codegen::SourceAsyncRun)
             ),
         ]),
         events,
-    }
-}
-
-fn print_diagnostics(diagnostics: Vec<rinzu_compiler::Diagnostic>) {
-    for diagnostic in diagnostics {
-        eprintln!(
-            "{}: {} (bytes {}..{})",
-            diagnostic.code.as_str(),
-            diagnostic.message,
-            diagnostic.primary.start_byte,
-            diagnostic.primary.end_byte
-        );
-        for suggestion in diagnostic.suggestions {
-            eprintln!("  help: {}", suggestion.message);
-        }
     }
 }
 

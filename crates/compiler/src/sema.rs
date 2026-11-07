@@ -7,6 +7,7 @@ use crate::ast::{
     Arguments, BinaryOperator, Block, Declaration, Expression, ExpressionKind, FunctionDecl,
     Literal, Module, Statement, StatementKind, TypeRef, TypeRefKind, UnaryOperator,
 };
+use crate::error_effects::{ErrorConversion, conversion_error, display_bound};
 use crate::{
     AbiScalar, Diagnostic, DiagnosticCode, IntegerConstant, SourceRange, evaluate_module_constants,
 };
@@ -280,7 +281,7 @@ pub struct CheckedModule {
     pub reference_targets: HashMap<SourceRange, Vec<String>>,
     pub indirect_calls: HashMap<SourceRange, Vec<String>>,
     pub(crate) indirect_signatures: HashMap<SourceRange, FunctionReferenceType>,
-    pub(crate) error_conversions: HashMap<SourceRange, Vec<String>>,
+    pub(crate) error_conversions: HashMap<SourceRange, ErrorConversion>,
     pub supplant_calls: HashMap<SourceRange, SupplantCall>,
     pub source_native_signatures: Vec<crate::SourceNativeSignature>,
     pub constants: std::collections::BTreeMap<String, IntegerConstant>,
@@ -341,6 +342,34 @@ struct Local {
     mutable: bool,
     constant: Option<IntegerConstant>,
     targets: Vec<String>,
+    callback_contract: Option<SourceRange>,
+}
+
+fn callback_type_contract(ty: &Type, source: Option<&TypeRef>) -> Option<SourceRange> {
+    let Type::FunctionReference(signature) = ty else {
+        return None;
+    };
+    signature.error_bound.as_ref()?;
+    let source = source?;
+    let range = source.range;
+    if let TypeRefKind::Function {
+        error_contract: Some(contract),
+        ..
+    } = &source.kind
+        && contract.range.file_id == range.file_id
+        && range.start_byte <= contract.range.start_byte
+        && contract.range.end_byte <= range.end_byte
+    {
+        return Some(contract.range);
+    }
+    Some(range)
+}
+
+#[derive(Clone, Copy)]
+enum ExpectedErrorBound<'a> {
+    Parameter { function: &'a str, index: usize },
+    Annotation(SourceRange),
+    Result(SourceRange),
 }
 
 #[derive(Clone, Default)]
@@ -441,6 +470,7 @@ pub(crate) fn probe_expression_type(
                     mutable: false,
                     constant: None,
                     targets,
+                    callback_contract: None,
                 },
             );
         }
@@ -538,6 +568,7 @@ pub fn check_module_with_options(
         &options.sdk_files,
     )?;
     let option_shadow_modules = crate::core::option_shadow_modules(&module);
+    let source_syntax = &module;
     let module = crate::records::expand_aliases(&module, true)?;
     let mut module = crate::value_constants::expand(&module)?;
     crate::error_effects::validate_annotations(&mut module)?;
@@ -557,11 +588,13 @@ pub fn check_module_with_options(
     let (module, requirements) =
         crate::generics::expand(&module, &options, &option_shadow_modules)?;
     let mut checker = Checker::new(&module, &options, &option_shadow_modules);
+    checker.source_syntax = source_syntax;
     checker.generic_requirements = requirements;
     let checked = checker.run()?;
     crate::error_effects::verify_conversions(&checked)?;
     let mut checked = if let Some((converted, file)) = crate::closures::convert(&checked)? {
         let mut checker = Checker::new(&converted, &options, &option_shadow_modules);
+        checker.source_syntax = source_syntax;
         checker.source_indirect_fields = checked.indirect_fields.clone();
         checker.closure_conversion = true;
         let mut result = checker.run()?;
@@ -630,6 +663,7 @@ struct Checker<'a> {
     task_controls: HashMap<SourceRange, crate::TaskControlKind>,
     data_operations: HashMap<SourceRange, crate::DataOperation>,
     module: &'a Module,
+    source_syntax: &'a Module,
     options: &'a CompilerOptions,
     declarations: HashMap<String, Declaration>,
     functions: HashMap<String, FunctionSignature>,
@@ -646,7 +680,7 @@ struct Checker<'a> {
     reference_targets: HashMap<SourceRange, Vec<String>>,
     indirect_calls: HashMap<SourceRange, Vec<String>>,
     indirect_signatures: HashMap<SourceRange, FunctionReferenceType>,
-    error_conversions: HashMap<SourceRange, Vec<String>>,
+    error_conversions: HashMap<SourceRange, ErrorConversion>,
     supplant_calls: HashMap<SourceRange, SupplantCall>,
     constants: std::collections::BTreeMap<String, IntegerConstant>,
     constant_references: HashMap<SourceRange, IntegerConstant>,
@@ -681,6 +715,7 @@ impl<'a> Checker<'a> {
             option_shadow_modules,
             stdout_calls: HashMap::new(),
             module,
+            source_syntax: module,
             options,
             declarations: HashMap::new(),
             functions: HashMap::new(),
@@ -1387,6 +1422,7 @@ impl<'a> Checker<'a> {
                     ty: ty.clone(),
                     mutable: false,
                     constant: None,
+                    callback_contract: callback_type_contract(ty, Some(&parameter.ty)),
                     targets: if let Type::FunctionReference(expected) = ty {
                         self.compatible_reference_targets(expected)
                     } else {
@@ -1453,8 +1489,14 @@ impl<'a> Checker<'a> {
                 let expected = annotation
                     .as_ref()
                     .and_then(|value| self.resolve_type_with_constants(value, &values));
-                let initializer_type =
-                    self.check_expression(initializer, expected.as_ref(), context);
+                let initializer_type = self.check_expression_with_bound(
+                    initializer,
+                    expected.as_ref(),
+                    annotation
+                        .as_ref()
+                        .map(|ty| ExpectedErrorBound::Annotation(ty.range)),
+                    context,
+                );
                 let ty = match (expected, initializer_type) {
                     (Some(expected), Some(actual)) => {
                         self.require_same(&expected, &actual, initializer.range);
@@ -1504,6 +1546,7 @@ impl<'a> Checker<'a> {
                             ty: ty.clone(),
                             mutable: *mutable,
                             constant,
+                            callback_contract: callback_type_contract(&ty, annotation.as_ref()),
                             targets: if *mutable {
                                 if let Type::FunctionReference(expected) = &ty {
                                     self.compatible_reference_targets(expected)
@@ -1580,7 +1623,12 @@ impl<'a> Checker<'a> {
                         "declare it with `var` if reassignment is required",
                     ));
                 }
-                if let Some(actual) = self.check_expression(value, Some(&local.ty), context) {
+                if let Some(actual) = self.check_expression_with_bound(
+                    value,
+                    Some(&local.ty),
+                    local.callback_contract.map(ExpectedErrorBound::Annotation),
+                    context,
+                ) {
                     if self.contains_call_only_type(&actual, &mut HashSet::new()) {
                         self.diagnostics.push(Diagnostic::error(
                             DiagnosticCode::CallOnlyEscape,
@@ -1617,12 +1665,19 @@ impl<'a> Checker<'a> {
                     self.invalid_finally(statement.range, "`return` is not allowed in `finally`");
                 }
                 let result_type = context.result.clone();
-                let actual = value
-                    .as_ref()
-                    .and_then(|expression| {
-                        self.check_expression(expression, Some(&result_type), context)
-                    })
-                    .unwrap_or(Type::Unit);
+                let actual = if let Some(expression) = value {
+                    let Some(actual) = self.check_expression_with_bound(
+                        expression,
+                        Some(&result_type),
+                        Some(ExpectedErrorBound::Result(context.function.result.range)),
+                        context,
+                    ) else {
+                        return;
+                    };
+                    actual
+                } else {
+                    Type::Unit
+                };
                 if self.contains_call_only_type(&actual, &mut HashSet::new()) {
                     self.diagnostics.push(Diagnostic::error(
                         DiagnosticCode::CallOnlyEscape,
@@ -1722,6 +1777,7 @@ impl<'a> Checker<'a> {
                             mutable: false,
                             constant: None,
                             targets,
+                            callback_contract: None,
                         },
                     );
                 }
@@ -1876,6 +1932,7 @@ impl<'a> Checker<'a> {
                     context.locals.insert(
                         name.clone(),
                         Local {
+                            callback_contract: callback_type_contract(&ty, Some(&field.ty)),
                             ty,
                             mutable: false,
                             constant: None,
@@ -2028,10 +2085,21 @@ impl<'a> Checker<'a> {
         ty.filter(|ty| ty.is_numeric())
     }
 
+    #[inline(always)]
     fn check_expression(
         &mut self,
         expression: &Expression,
         expected: Option<&Type>,
+        context: &mut FunctionContext<'_>,
+    ) -> Option<Type> {
+        self.check_expression_with_bound(expression, expected, None, context)
+    }
+
+    fn check_expression_with_bound(
+        &mut self,
+        expression: &Expression,
+        expected: Option<&Type>,
+        bound_site: Option<ExpectedErrorBound<'_>>,
         context: &mut FunctionContext<'_>,
     ) -> Option<Type> {
         let ty = match &expression.kind {
@@ -2317,25 +2385,14 @@ impl<'a> Checker<'a> {
         ) = (&ty, expected)
             && actual.same_signature(expected)
         {
-            match (&actual.error_bound, &expected.error_bound) {
-                (Some(actual), Some(expected))
-                    if !crate::error_effects::within_bound(actual, expected) =>
-                {
-                    self.diagnostics
-                        .push(crate::error_effects::conversion_error(
-                            expression.range,
-                            expected,
-                            Some(actual),
-                        ));
-                    None
-                }
-                (None, Some(bound)) if bound != &["Error"] => {
-                    self.error_conversions
-                        .insert(expression.range, bound.clone());
-                    Some(Type::FunctionReference(expected.clone()))
-                }
-                _ => Some(Type::FunctionReference(expected.clone())),
-            }
+            self.check_callback_bound(
+                expression,
+                actual.error_bound.as_deref(),
+                expected.error_bound.as_deref(),
+                bound_site,
+                context,
+            )
+            .then(|| Type::FunctionReference(expected.clone()))
         } else {
             ty
         };
@@ -2372,6 +2429,149 @@ impl<'a> Checker<'a> {
             self.expression_types.insert(expression.range, ty.clone());
         }
         ty
+    }
+
+    fn check_callback_bound(
+        &mut self,
+        expression: &Expression,
+        actual: Option<&[String]>,
+        expected: Option<&[String]>,
+        site: Option<ExpectedErrorBound<'_>>,
+        context: &FunctionContext<'_>,
+    ) -> bool {
+        let Some(expected) = expected else {
+            return true;
+        };
+        match actual {
+            Some(actual) if !crate::error_effects::within_bound(actual, expected) => {
+                let related = site
+                    .and_then(|site| self.expected_callback_contract(site, expected))
+                    .into_iter()
+                    .chain(self.actual_callback_contract(expression, actual, context))
+                    .collect();
+                self.diagnostics.push(conversion_error(
+                    expression.range,
+                    expected,
+                    Some(actual),
+                    related,
+                ));
+                false
+            }
+            None if expected != ["Error"] => {
+                let related = site
+                    .and_then(|site| self.expected_callback_contract(site, expected))
+                    .into_iter()
+                    .collect();
+                self.error_conversions.insert(
+                    expression.range,
+                    ErrorConversion {
+                        expected: expected.to_vec(),
+                        related,
+                    },
+                );
+                true
+            }
+            _ => true,
+        }
+    }
+
+    fn expected_callback_contract(
+        &self,
+        site: ExpectedErrorBound<'_>,
+        expected: &[String],
+    ) -> Option<(SourceRange, String)> {
+        match site {
+            ExpectedErrorBound::Parameter { function, index } => {
+                let Declaration::Function(declaration) = self.declarations.get(function)? else {
+                    return None;
+                };
+                let parameter = declaration.parameters.get(index)?;
+                // Alias expansion preserves the use's range but replaces its
+                // kind. Recover the spelling in the selected declaration.
+                let source = self.source_syntax.declarations.iter().find_map(|source| {
+                    let Declaration::Function(source) = source else {
+                        return None;
+                    };
+                    (source.range.file_id == declaration.range.file_id
+                        && source.range.start_byte == declaration.range.start_byte
+                        && source.range.end_byte == declaration.range.end_byte)
+                        .then(|| source.parameters.get(index))
+                        .flatten()
+                });
+                let spelling = source
+                    .and_then(|source| match &source.ty.kind {
+                        TypeRefKind::Named(path) => path
+                            .last()
+                            .map(|name| name.rsplit("::").next().unwrap().to_owned()),
+                        TypeRefKind::Generic { .. } => {
+                            Some(crate::interfaces::spelling(&source.ty).replace("::", "."))
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| display_bound(expected));
+                Some((
+                    parameter.ty.range,
+                    format!("parameter `{}` expects `{spelling}`", parameter.name),
+                ))
+            }
+            ExpectedErrorBound::Annotation(range) => Some((
+                range,
+                format!(
+                    "this type annotation requires `{}`",
+                    display_bound(expected)
+                ),
+            )),
+            ExpectedErrorBound::Result(range) => Some((
+                range,
+                format!("this return type requires `{}`", display_bound(expected)),
+            )),
+        }
+    }
+
+    fn actual_callback_contract(
+        &self,
+        expression: &Expression,
+        actual: &[String],
+        context: &FunctionContext<'_>,
+    ) -> Option<(SourceRange, String)> {
+        let actual_note = match &expression.kind {
+            ExpressionKind::Function(function) => function
+                .error_contract
+                .as_ref()
+                .map(|contract| (contract.range, "this callback".to_owned())),
+            ExpressionKind::Name(path)
+                if path.len() == 1 && context.locals.contains_key(&path[0]) =>
+            {
+                context.locals[&path[0]]
+                    .callback_contract
+                    .map(|range| (range, format!("`{}`", path[0])))
+            }
+            _ => self
+                .static_references
+                .get(&expression.range)
+                .or_else(|| {
+                    self.bindings
+                        .get(&expression.range)
+                        .map(|binding| &binding.target)
+                })
+                .and_then(|name| match self.declarations.get(name)? {
+                    Declaration::Function(function) => {
+                        function.error_contract.as_ref().map(|contract| {
+                            (
+                                contract.range,
+                                format!("`{}`", function.name.replace("::", ".")),
+                            )
+                        })
+                    }
+                    _ => None,
+                }),
+        };
+        actual_note.map(|(range, name)| {
+            (
+                range,
+                format!("{name} declares `{}` here", display_bound(actual)),
+            )
+        })
     }
 
     fn check_name(
@@ -2895,7 +3095,8 @@ impl<'a> Checker<'a> {
                     "pass one argument per parameter",
                 ));
             }
-            for (value, parameter) in values.iter().zip(&signature.parameters) {
+            for (index, (value, parameter)) in values.iter().zip(&signature.parameters).enumerate()
+            {
                 if signature.supplant {
                     self.expect_native_callback_argument(value, parameter, context);
                     if let Some(targets) = self.reference_targets.get(&value.range) {
@@ -2907,7 +3108,16 @@ impl<'a> Checker<'a> {
                         );
                     }
                 } else {
-                    self.expect_expression(value, parameter, context);
+                    let site = if let [function] = possible.as_slice() {
+                        Some(ExpectedErrorBound::Parameter { function, index })
+                    } else {
+                        None
+                    };
+                    if let Some(actual) =
+                        self.check_expression_with_bound(value, Some(parameter), site, context)
+                    {
+                        self.require_same(parameter, &actual, value.range);
+                    }
                 }
             }
             let path = if target.len() > 1 {
@@ -3694,8 +3904,18 @@ impl<'a> Checker<'a> {
                 "pass exactly one positional argument for each parameter",
             ));
         }
-        for (argument, parameter) in arguments.iter().zip(&signature.parameters) {
-            if let Some(actual) = self.check_expression(argument, Some(parameter), context) {
+        for (index, (argument, parameter)) in
+            arguments.iter().zip(&signature.parameters).enumerate()
+        {
+            if let Some(actual) = self.check_expression_with_bound(
+                argument,
+                Some(parameter),
+                Some(ExpectedErrorBound::Parameter {
+                    function: &name,
+                    index,
+                }),
+                context,
+            ) {
                 self.require_same(parameter, &actual, argument.range);
                 if from_spawn && !self.is_transferable(&actual, &mut HashSet::new()) {
                     self.diagnostics.push(Diagnostic::error(

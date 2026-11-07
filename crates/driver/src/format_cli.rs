@@ -5,7 +5,9 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use rinzu_compiler::{Diagnostic, FileId, SourceFile, format_source};
+use rinzu_compiler::{FileId, SourceFile, format_source};
+
+use crate::cli_diagnostics::{self, Input as DiagnosticInput, Renderer};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Mode {
@@ -78,7 +80,7 @@ pub fn run(arguments: impl Iterator<Item = String>) -> Result<bool, String> {
             .map_err(|error| format!("write formatted stdout: {error}"))?;
         return Ok(false);
     }
-    if mode == Mode::Stdout && (paths.len() != 1 || !paths[0].is_file()) {
+    if mode == Mode::Stdout && (paths.len() != 1 || paths[0].is_dir()) {
         return Err(
             "fmt stdout requires one file; use --check or --write for directories/multiple files"
                 .into(),
@@ -96,8 +98,13 @@ pub fn run(arguments: impl Iterator<Item = String>) -> Result<bool, String> {
     let inputs = files
         .into_iter()
         .map(|path| {
-            let original =
-                fs::read(&path).map_err(|error| format!("read {}: {error}", path.display()))?;
+            let original = fs::read(&path).map_err(|error| {
+                cli_diagnostics::file_failure(
+                    &path,
+                    format!("cannot read source: {error}"),
+                    "make the source file readable",
+                )
+            })?;
             let formatted = format_bytes(&path, &original)?;
             let permissions = fs::metadata(&path)
                 .map_err(|error| format!("inspect {}: {error}", path.display()))?
@@ -137,8 +144,13 @@ pub fn run(arguments: impl Iterator<Item = String>) -> Result<bool, String> {
 }
 
 fn collect(path: &Path, files: &mut BTreeSet<PathBuf>) -> Result<(), String> {
-    let metadata =
-        fs::metadata(path).map_err(|error| format!("inspect {}: {error}", path.display()))?;
+    let metadata = fs::metadata(path).map_err(|error| {
+        cli_diagnostics::file_failure(
+            path,
+            format!("cannot inspect source: {error}"),
+            "pass a readable source file or directory",
+        )
+    })?;
     if metadata.is_file() {
         if path.extension().is_none_or(|value| value != "rinzu") {
             return Err(format!(
@@ -181,34 +193,26 @@ fn collect(path: &Path, files: &mut BTreeSet<PathBuf>) -> Result<(), String> {
     Ok(())
 }
 
-fn diagnostics(path: &Path, errors: Vec<Diagnostic>) -> String {
-    errors
-        .into_iter()
-        .map(|error| {
-            format!(
-                "{}: {}: {} (bytes {}..{})",
-                path.display(),
-                error.code.as_str(),
-                error.message,
-                error.primary.start_byte,
-                error.primary.end_byte
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 fn format_bytes(path: &Path, bytes: &[u8]) -> Result<Vec<u8>, String> {
-    let source = SourceFile::from_utf8(FileId(1), path, bytes.to_vec())
-        .map_err(|errors| diagnostics(path, errors))?;
-    let text = format_source(&source).map_err(|errors| diagnostics(path, errors))?;
-    // Refuse to publish invalid output if a formatter regression is introduced.
-    rinzu_compiler::parse_source(&SourceFile::new(FileId(1), path, &text)).map_err(|errors| {
-        format!(
-            "formatter produced invalid output: {}",
-            diagnostics(path, errors)
-        )
+    let id = FileId(1);
+    let source = SourceFile::from_utf8(id, path, bytes.to_vec()).map_err(|errors| {
+        cli_diagnostics::emit(&errors, |file| {
+            (file == id).then_some(DiagnosticInput::Bytes(path, Some(bytes)))
+        });
+        "input failed to format".to_owned()
     })?;
+    let text = format_source(&source).map_err(|errors| {
+        cli_diagnostics::emit_file(&errors, &source);
+        "input failed to format".to_owned()
+    })?;
+    // Refuse to publish invalid output if a formatter regression is introduced.
+    let generated = format!("<formatted {}>", Renderer::new().path(path));
+    let formatted = SourceFile::new(id, generated, text);
+    rinzu_compiler::parse_source(&formatted).map_err(|errors| {
+        cli_diagnostics::emit_file(&errors, &formatted);
+        "formatter produced invalid output".to_owned()
+    })?;
+    let text = formatted.text();
     let mut result = Vec::with_capacity(text.len() + source.original_offset(0));
     if source.original_offset(0) != 0 {
         result.extend_from_slice(&[0xef, 0xbb, 0xbf]);

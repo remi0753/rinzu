@@ -77,83 +77,145 @@ pub(super) fn validate(
     checked: &CheckedModule,
     function: &FunctionDecl,
     actual: &Summary,
-) -> Vec<Diagnostic> {
-    let Some(contract) = &function.error_contract else {
-        return Vec::new();
-    };
+    trace: impl FnOnce(BTreeSet<Tag>) -> Language,
+) -> Option<Diagnostic> {
+    use language::{OriginKind, outside};
+
+    let contract = function.error_contract.as_ref()?;
     let allowed = allowed(checked, contract);
     if allowed.contains(&Tag::Any) {
-        return Vec::new();
+        return None;
     }
-    let Some(invalid) = actual.errors.iter().find(|word| {
-        word.prefix.iter().chain(&word.tail).any(|tag| match tag {
-            Tag::Named(_) => !allowed.contains(tag),
-            Tag::Set(names) => names
-                .iter()
-                .any(|n| !allowed.contains(&Tag::Named(n.clone()))),
-            _ => true,
-        })
-    }) else {
-        return Vec::new();
-    };
-    let (name, primary, secondary, explanation) =
-        if let Some((owner, generated)) = function.name.split_once(".$interface_") {
+    let first = actual
+        .errors
+        .iter()
+        .flat_map(|word| word.prefix.iter().chain(&word.tail))
+        .find(|tag| outside(tag, &allowed))?;
+    let traced = trace(allowed.clone());
+    debug_assert_eq!(
+        traced, actual.errors,
+        "tracing changed the escaping Error language"
+    );
+    let traced_violation = traced.iter().find_map(|word| {
+        let origins = traced.origins(word)?;
+        word.prefix
+            .iter()
+            .zip(origins.prefix.iter().copied())
+            .chain(
+                word.tail
+                    .iter()
+                    .map(|tag| (tag, origins.tail.get(tag).copied())),
+            )
+            .find_map(|(tag, origin)| {
+                outside(tag, &allowed)
+                    .then_some(origin)
+                    .flatten()
+                    .map(|origin| (tag, origin))
+            })
+    });
+    let (invalid, origin) =
+        traced_violation.map_or((first, None), |(tag, origin)| (tag, Some(origin)));
+    let interface = function.name.split_once(".$interface_");
+    let name = interface.map_or_else(
+        || display_identity(&function.name),
+        |(owner, generated)| {
             let member = generated
                 .split_once('_')
                 .map_or(generated, |(_, member)| member);
-            (
-                format!("{owner}.{member}"),
-                function.range,
-                contract.range,
-                "the interface requires this Error upper bound",
-            )
-        } else {
-            (
-                function.name.clone(),
-                contract.range,
-                function.body.range,
-                "the body, catch handlers and finally must all satisfy this contract",
-            )
-        };
-    let types: BTreeSet<_> = invalid
-        .prefix
-        .iter()
-        .chain(&invalid.tail)
-        .flat_map(|tag| match tag {
-            Tag::Named(name) => vec![name.clone()],
-            Tag::Set(names) => names.iter().cloned().collect(),
-            _ => vec!["Error".into()],
-        })
-        .collect();
-    let mut diagnostic = Diagnostic::error(
-        DiagnosticCode::InvalidErrorContract,
-        primary,
-        format!("function `{name}` can propagate {} in {} outside its declared Error contract",
-            types.iter().cloned().collect::<Vec<_>>().join(", "), invalid.display()),
-        "recover the Error inside the function, or widen its throws contract; nothrow requires no escaping ordinary Errors",
-    ).with_secondary(secondary, explanation);
-    let body = function.body.range;
-    if let Some((range, _)) = checked
-        .indirect_signatures
-        .iter()
-        .filter(|(range, signature)| {
-            range.file_id == body.file_id
-                && range.instance == body.instance
-                && body.start_byte <= range.start_byte
-                && range.end_byte <= body.end_byte
-                && signature.error_bound.as_ref().is_some_and(|bound| {
-                    bound.iter().any(|name| {
-                        !allowed.contains(&Tag::Named(name.clone()))
-                            && (name == "Error" || types.contains("Error") || types.contains(name))
-                    })
-                })
-        })
-        .min_by_key(|(range, _)| (range.start_byte, range.end_byte))
-    {
-        diagnostic = diagnostic.with_secondary(
-            *range,
-            "this callback type permits an Error outside the declared bound",
-        );
+            display_identity(&format!("{owner}.{member}"))
+        },
+    );
+    let declared = display_bound(
+        &contract
+            .types
+            .iter()
+            .map(crate::interfaces::spelling)
+            .collect::<Vec<_>>(),
+    );
+    let types = match invalid {
+        Tag::Named(name) => Some(display_identity(name)),
+        Tag::Set(names) => Some(
+            names
+                .iter()
+                .filter(|name| !allowed.contains(&Tag::Named((*name).clone())))
+                .map(|name| display_identity(name))
+                .collect::<Vec<_>>()
+                .join(" or "),
+        ),
+        _ => None,
+    };
+    let subject = types
+        .as_deref()
+        .unwrap_or("an ordinary Error of unknown type");
+    let contract_owner = if interface.is_some() {
+        format!("whose interface requires `{declared}`")
+    } else {
+        format!("which declares `{declared}`")
+    };
+    let mut message = format!("{subject} can escape `{name}`, {contract_owner}");
+    if origin.is_some_and(|origin| origin.kind == OriginKind::UnknownCallback) {
+        message.push_str("; the ordinary Error bound of this callback cannot be established");
     }
-    vec![diagnostic]
+    let recover = match origin {
+        Some(origin) if origin.in_finally => "recover the Error in `finally`",
+        Some(origin) => match origin.kind {
+            OriginKind::Call | OriginKind::UnknownCallback => "recover the Error from this call",
+            OriginKind::Await => "recover the Error from this await",
+            OriginKind::Throw => "handle the Error before it leaves this function",
+            OriginKind::Operation => "recover the Error from this operation",
+        },
+        None => "recover the Error inside the function",
+    };
+    let escaping = public_types(actual);
+    let help = if escaping == ["Error"] {
+        format!("{recover}; the full ordinary Error bound could not be established")
+    } else {
+        let widened = allowed
+            .into_iter()
+            .filter_map(|tag| {
+                if let Tag::Named(name) = tag {
+                    Some(name)
+                } else {
+                    None
+                }
+            })
+            .chain(escaping)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let widened = display_bound(&widened);
+        if interface.is_some() {
+            format!("{recover} to satisfy the interface's `{declared}` contract")
+        } else {
+            format!("{recover}, or use `{widened}` if callers should handle it")
+        }
+    };
+    let primary = origin.map_or(contract.range, |origin| origin.range);
+    let mut diagnostic =
+        Diagnostic::error(DiagnosticCode::InvalidErrorContract, primary, message, help);
+    if primary != contract.range {
+        let note = if interface.is_some() {
+            format!("the interface requires `{declared}` here")
+        } else {
+            format!("`{name}` declares `{declared}` here")
+        };
+        diagnostic = diagnostic.with_secondary(contract.range, note);
+    }
+    Some(diagnostic)
+}
+
+pub(super) fn display_identity(name: &str) -> String {
+    name.replace("::", ".")
+}
+
+pub(crate) fn display_bound(types: &[String]) -> String {
+    if types.is_empty() {
+        return "nothrow".into();
+    }
+    let mut names = types
+        .iter()
+        .map(|name| display_identity(name))
+        .collect::<Vec<_>>();
+    names.sort();
+    format!("throws({})", names.join(", "))
 }

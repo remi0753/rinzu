@@ -269,8 +269,9 @@ pub fn build_with_mode(
                         .arg(package.manifest.root.join(header));
                 }
             }
+            let source = package.manifest.root.join(source_path);
             command
-                .arg(package.manifest.root.join(source_path))
+                .arg(&source)
                 .arg("-o")
                 .arg(if analyze_consumption { &ir } else { &output });
             crate::compile_cache::compile(
@@ -278,12 +279,18 @@ pub fn build_with_mode(
                 command,
                 directory,
                 if analyze_consumption { &ir } else { &output },
+                &source,
                 "compile source SDK object",
             )?;
             if analyze_consumption {
                 let mut backend = toolchain.command();
                 backend.args(["-c", "-O0"]).arg(&ir).arg("-o").arg(&output);
-                run(backend, "compile analyzed SDK IR")?;
+                crate::cli_diagnostics::tool_output(
+                    backend.output(),
+                    Some(&ir),
+                    "native compilation",
+                    "clang",
+                )?;
                 crate::native_consumption::analyze(package, &mut consumption, &ir, &output)?;
             }
             crate::native_fingerprint::include_inputs(
@@ -598,13 +605,12 @@ pub fn build_with_mode(
                 .arg(path);
         }
         command.arg("-o").arg(&library);
-        let first_link = command.output().map_err(|error| error.to_string())?;
-        if !first_link.status.success() {
-            return Err(format!(
-                "link source SDK facade failed:\n{}",
-                String::from_utf8_lossy(&first_link.stderr)
-            ));
-        }
+        let first_link = crate::cli_diagnostics::tool_output(
+            command.output(),
+            Some(&library),
+            "source SDK linking",
+            "clang",
+        )?;
         let linked = crate::native_fingerprint::link_inputs(
             &package.manifest.root,
             &toolchain.sysroot,
@@ -650,13 +656,12 @@ pub fn build_with_mode(
             )?;
         }
         if !cache_hit {
-            let final_link = command.output().map_err(|error| error.to_string())?;
-            if !final_link.status.success() {
-                return Err(format!(
-                    "link final source SDK facade failed:\n{}",
-                    String::from_utf8_lossy(&final_link.stderr)
-                ));
-            }
+            let final_link = crate::cli_diagnostics::tool_output(
+                command.output(),
+                Some(&library),
+                "source SDK linking",
+                "clang",
+            )?;
             let final_inputs = crate::native_fingerprint::link_inputs(
                 &package.manifest.root,
                 &toolchain.sysroot,
@@ -875,6 +880,7 @@ fn cache_files(
     ])
 }
 
+#[cfg(test)]
 fn run(mut command: std::process::Command, action: &str) -> Result<(), String> {
     let output = command
         .output()

@@ -1,6 +1,7 @@
 use super::substitution::instantiate;
 use super::*;
-use language::{concatenate, one, unknown};
+use language::{Origin, OriginKind, concatenate, one, unknown};
+use std::sync::Arc;
 mod all;
 mod values;
 
@@ -70,6 +71,8 @@ pub(super) struct Analyzer<'a> {
     proof: bool,
     diagnostics: Vec<Diagnostic>,
     all: bool,
+    trace_bound: Option<Arc<BTreeSet<Tag>>>,
+    in_finally: bool,
 }
 
 impl<'a> Analyzer<'a> {
@@ -87,12 +90,38 @@ impl<'a> Analyzer<'a> {
             proof: false,
             diagnostics: Vec::new(),
             all: false,
+            trace_bound: None,
+            in_finally: false,
         }
     }
 
     pub fn proving_conversions(mut self, proof: bool) -> Self {
         self.proof = proof;
         self
+    }
+
+    pub fn traced_function(
+        mut self,
+        function: &crate::CheckedFunction,
+        allowed: BTreeSet<Tag>,
+    ) -> Language {
+        self.trace_bound = Some(Arc::new(allowed));
+        self.function(function).0.errors
+    }
+
+    fn at(&self, errors: Language, range: SourceRange, kind: OriginKind) -> Language {
+        if let Some(allowed) = &self.trace_bound {
+            errors.at(
+                allowed,
+                Origin {
+                    range,
+                    kind,
+                    in_finally: self.in_finally,
+                },
+            )
+        } else {
+            errors
+        }
     }
 
     pub fn function(mut self, function: &crate::CheckedFunction) -> (Summary, Vec<Diagnostic>) {
@@ -256,7 +285,11 @@ impl<'a> Analyzer<'a> {
                 let value = self.expression(expression, env, false);
                 let mut errors = value.errors;
                 if value.success {
-                    errors.extend(value.value.thrown_errors());
+                    errors.extend(self.at(
+                        value.value.thrown_errors(),
+                        statement.range,
+                        OriginKind::Throw,
+                    ));
                 }
 
                 Flow {
@@ -613,7 +646,9 @@ impl<'a> Analyzer<'a> {
         let Some(cleanup) = cleanup else {
             return flow;
         };
+        let in_finally = std::mem::replace(&mut self.in_finally, true);
         let cleaned = self.block(cleanup, env);
+        self.in_finally = in_finally;
         let mut errors = concatenate(&flow.errors, &cleaned.errors, self.bound);
         if flow.has_non_error_exit() {
             errors.extend(cleaned.errors);
@@ -641,17 +676,18 @@ impl<'a> Analyzer<'a> {
         if self.proof
             && self.diagnose
             && evaluated.success
-            && let Some(expected) = self.checked.error_conversions.get(&expression.range)
+            && let Some(conversion) = self.checked.error_conversions.get(&expression.range)
         {
             let actual = self.proven_bound(&evaluated.value);
             if actual
                 .as_ref()
-                .is_none_or(|actual| !within_bound(actual, expected))
+                .is_none_or(|actual| !within_bound(actual, &conversion.expected))
             {
                 self.diagnostics.push(conversion_error(
                     expression.range,
-                    expected,
+                    &conversion.expected,
                     actual.as_deref(),
+                    conversion.related.clone(),
                 ));
             }
         }
@@ -725,21 +761,26 @@ impl<'a> Analyzer<'a> {
                     Value::Unbound(value) => Evaluated {
                         success: *value != Value::Bottom,
                         value: *value,
-                        errors: one(Tag::Any),
+                        errors: self.at(one(Tag::Any), expression.range, OriginKind::Operation),
                     },
                     value => {
                         let mut result = Evaluated::pure(value);
                         if path.len() > 1
                             && let Some(Value::Unbound(inner)) = env.get(&path[0])
                         {
-                            result.errors = one(Tag::Any);
+                            result.errors =
+                                self.at(one(Tag::Any), expression.range, OriginKind::Operation);
                             result.success = **inner != Value::Bottom;
                         }
                         result
                     }
                 };
                 if self.checked.native_record_reads.contains(&expression.range) {
-                    result.errors.extend(one(Tag::Any));
+                    result.errors.extend(self.at(
+                        one(Tag::Any),
+                        expression.range,
+                        OriginKind::Operation,
+                    ));
                 }
                 result
             }
@@ -755,7 +796,7 @@ impl<'a> Analyzer<'a> {
                         .value
                         .awaited(self.bound, self.expression_value(expression), &ty);
                 if operand.success {
-                    errors.extend(failed);
+                    errors.extend(self.at(failed, expression.range, OriginKind::Await));
                 }
                 Evaluated {
                     value,
@@ -854,7 +895,11 @@ impl<'a> Analyzer<'a> {
                         crate::sema::display_reads_native_record(&self.checked.source_types, ty)
                     })
                 }) {
-                    result.errors.extend(one(Tag::Any));
+                    result.errors.extend(self.at(
+                        one(Tag::Any),
+                        expression.range,
+                        OriginKind::Operation,
+                    ));
                 }
                 result
             }
@@ -931,7 +976,7 @@ impl<'a> Analyzer<'a> {
         if matches!(unbound, Some(Value::Unbound(inner)) if **inner == Value::Bottom) {
             return Evaluated {
                 value: Value::Bottom,
-                errors: one(Tag::Any),
+                errors: self.at(one(Tag::Any), expression.range, OriginKind::Operation),
                 success: false,
             };
         }
@@ -945,7 +990,7 @@ impl<'a> Analyzer<'a> {
             };
         }
         if matches!(unbound, Some(Value::Unbound(_))) {
-            errors.extend(one(Tag::Any));
+            errors.extend(self.at(one(Tag::Any), expression.range, OriginKind::Operation));
         }
         let invocation = self
             .checked
@@ -967,7 +1012,7 @@ impl<'a> Analyzer<'a> {
             });
         let bounded_invocation = invocation.is_some();
         if argument_success && let Some(invocation) = invocation {
-            errors.extend(invocation);
+            errors.extend(self.at(invocation, expression.range, OriginKind::Call));
         }
         let name = target.join(".");
         let mut targets = self
@@ -979,7 +1024,11 @@ impl<'a> Analyzer<'a> {
         if targets.is_empty() {
             targets.push(name.clone());
             if argument_success && !bounded_invocation {
-                errors.extend(unknown(self.bound));
+                errors.extend(self.at(
+                    unknown(self.bound),
+                    expression.range,
+                    OriginKind::UnknownCallback,
+                ));
             }
         }
         let mut result = Value::Bottom;
@@ -1019,7 +1068,11 @@ impl<'a> Analyzer<'a> {
                     success = true;
                 } else {
                     if argument_success && !bounded_invocation {
-                        errors.extend(restrict(&summary.errors));
+                        errors.extend(self.at(
+                            restrict(&summary.errors),
+                            expression.range,
+                            OriginKind::Call,
+                        ));
                     }
                     result.join(self.condition_value(summary.returned, &paths));
                     success |= summary.success;
@@ -1031,7 +1084,11 @@ impl<'a> Analyzer<'a> {
                     .unwrap_or_else(|| self.expression_value(expression));
                 let primitive = self.primitive_errors(expression, target, arguments, name);
                 if !primitive.is_empty() && argument_success && !bounded_invocation {
-                    errors.extend(restrict(&primitive));
+                    errors.extend(self.at(
+                        restrict(&primitive),
+                        expression.range,
+                        OriginKind::Operation,
+                    ));
                 }
                 result.join(self.condition_value(value, &paths));
                 success = true;

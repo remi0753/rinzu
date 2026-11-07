@@ -77,7 +77,7 @@ pub use native_interface::{
 };
 pub use package::{
     ResolvedSdkPackage, ResolvedSourceImport, ResolvedSourceModule, SourceNativeInterface,
-    SourceSdkInterface,
+    SourceSdkInterface, load_manifest_with_sources,
 };
 pub use package_metadata::{NativeImport, canonical_import_key, fnv1a64};
 pub use package_templates::SourceTemplateSchema;

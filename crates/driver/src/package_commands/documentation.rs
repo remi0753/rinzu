@@ -30,11 +30,18 @@ fn collect(
             .source_inputs
             .get(path)
             .ok_or_else(|| format!("documentation snapshot is missing `{logical}`"))?;
-        let file = SourceFile::from_utf8(FileId(*id), logical, bytes.clone())
-            .map_err(|errors| format!("documentation UTF-8 error: {errors:?}"))?;
-        for declaration in source_documentation(&file)
-            .map_err(|errors| format!("documentation syntax error: {errors:?}"))?
-        {
+        let path = manifest.root.join(path);
+        let id = FileId(*id);
+        let file = SourceFile::from_utf8(id, &path, bytes.clone()).map_err(|errors| {
+            crate::cli_diagnostics::emit(&errors, |file| {
+                (file == id).then_some(crate::cli_diagnostics::Input::Bytes(&path, Some(bytes)))
+            });
+            "documentation input failed to check".to_owned()
+        })?;
+        for declaration in source_documentation(&file).map_err(|errors| {
+            crate::cli_diagnostics::emit_file(&errors, &file);
+            "documentation input failed to check".to_owned()
+        })? {
             let identity = source
                 .syntax
                 .declarations
@@ -71,7 +78,7 @@ fn collect(
             docs.insert(
                 identity,
                 Origin {
-                    path: manifest.root.join(path),
+                    path: path.clone(),
                     declaration,
                 },
             );

@@ -212,8 +212,15 @@ fn run_built(
         .cloned()
         .collect::<Vec<_>>();
     let plans_timing = rinzu_compiler::timing::span("jit.plans");
-    let aot = emit_source_async_aot_plans(&artifact.ir, "main", &native_bindings)
-        .map_err(|error| format!("prepare compiled async plans: {error:#}"))?;
+    let aot =
+        emit_source_async_aot_plans(&artifact.ir, "main", &native_bindings).map_err(|error| {
+            crate::cli_diagnostics::stage_failure(
+                Some(&manifest.root.join(&manifest.entry)),
+                "async runtime code generation",
+                None,
+                &format!("{error:#}"),
+            )
+        })?;
     let plan =
         crate::aot::async_aot_plan(artifact, &aot)?.ok_or("compiled async requires async Main")?;
     drop(plans_timing);
@@ -310,7 +317,14 @@ fn run_built(
         if foreign_return_probe.is_some() {
             command.arg("-DRINZU_DISPATCHER_TESTING");
         }
-        crate::compile_cache::compile(&toolchain, command, &built.directory, &output, action)?;
+        crate::compile_cache::compile(
+            &toolchain,
+            command,
+            &built.directory,
+            &output,
+            &source,
+            action,
+        )?;
         objects.push(output);
     }
     let mut command = toolchain.command();
@@ -321,14 +335,13 @@ fn run_built(
     for artifact in &built.artifacts {
         command.arg(&artifact.library);
     }
-    let result = checked(command.arg("-o").arg(&library).output())?;
+    crate::cli_diagnostics::tool_output(
+        command.arg("-o").arg(&library).output(),
+        Some(&library),
+        "async runtime linking",
+        "clang",
+    )?;
     drop(compile_timing);
-    if !result.status.success() {
-        return Err(format!(
-            "link async runtime image:\n{}",
-            String::from_utf8_lossy(&result.stderr)
-        ));
-    }
     toolchain.verify()?;
     rinzu_compiler::standard_library::verify(&resources)?;
     let mut library = CompiledRuntimeLibrary::open(&library)
@@ -433,8 +446,15 @@ fn run_built(
         }
     }
     let managed_timing = rinzu_compiler::timing::span("jit.managed");
-    let code = compile_source_async_jit(&artifact.ir, &symbols, &native_bindings)
-        .map_err(|error| format!("compile async managed JIT: {error:#}"))?;
+    let code =
+        compile_source_async_jit(&artifact.ir, &symbols, &native_bindings).map_err(|error| {
+            crate::cli_diagnostics::stage_failure(
+                None,
+                "async JIT code generation",
+                None,
+                &format!("{error:#}"),
+            )
+        })?;
     drop(managed_timing);
     let functions = aot
         .functions

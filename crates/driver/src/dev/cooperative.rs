@@ -152,8 +152,7 @@ impl InputWatcher {
             }
             Err(errors) => {
                 self.paths.extend(paths);
-                crate::print_diagnostics(errors);
-                eprintln!("dev preflight failed; old run retained");
+                crate::cli_diagnostics::emit_snapshot(&errors, &snapshot);
                 false
             }
         }
@@ -474,6 +473,7 @@ pub(super) fn run(package: PathBuf, options: DevOptions) -> Result<(), String> {
                             json!({"event":"valid-edit","coalesced":run.notified.is_some()}),
                         )?;
                     } else {
+                        eprintln!("dev preflight failed; old run retained");
                         if run.notified.is_none() {
                             pending = false;
                         }

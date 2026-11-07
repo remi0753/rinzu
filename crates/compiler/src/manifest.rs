@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
+use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 
-use crate::{Diagnostic, DiagnosticCode, FileId, SourceRange};
+use crate::{Diagnostic, DiagnosticCode, FileId, SourceFile, SourceRange};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PackageKind {
@@ -46,9 +47,11 @@ pub struct Manifest {
 
 #[derive(Debug)]
 pub struct ManifestError {
+    code: DiagnosticCode,
     path: PathBuf,
     message: String,
     suggestion: String,
+    span: Option<Range<usize>>,
 }
 
 impl ManifestError {
@@ -58,24 +61,52 @@ impl ManifestError {
         suggestion: impl Into<String>,
     ) -> Self {
         Self {
+            code: DiagnosticCode::ManifestInvalid,
             path: path.into(),
             message: message.into(),
             suggestion: suggestion.into(),
+            span: None,
         }
+    }
+
+    fn at(mut self, span: Range<usize>) -> Self {
+        self.span = Some(span);
+        self
+    }
+
+    fn at_value(mut self, values: &Entries, key: &str) -> Self {
+        self.span = values.get(key).map(|entry| entry.value.clone());
+        self
+    }
+
+    pub(crate) fn has_span(&self) -> bool {
+        self.span.is_some()
     }
 
     #[must_use]
     pub fn into_diagnostic(self) -> Diagnostic {
-        Diagnostic::error(
-            if self.message.contains("not found") {
-                DiagnosticCode::ManifestNotFound
-            } else {
-                DiagnosticCode::ManifestInvalid
-            },
-            SourceRange::empty(FileId::MANIFEST, 0),
-            format!("{}: {}", self.path.display(), self.message),
+        self.diagnostic(None)
+    }
+
+    pub(crate) fn diagnostic(self, source: Option<&SourceFile>) -> Diagnostic {
+        let range = self.span.zip(source).map(|(span, file)| {
+            SourceRange::new(
+                file.id(),
+                file.original_offset(span.start),
+                file.original_offset(span.end),
+            )
+        });
+        let diagnostic = Diagnostic::error(
+            self.code,
+            range.unwrap_or_else(|| SourceRange::empty(FileId::MANIFEST, 0)),
+            self.message,
             self.suggestion,
-        )
+        );
+        if range.is_some() {
+            diagnostic
+        } else {
+            diagnostic.with_path(self.path)
+        }
     }
 }
 
@@ -91,11 +122,14 @@ pub fn find_manifest(start: &Path) -> Result<PathBuf, ManifestError> {
             return Ok(candidate);
         }
         if !current.pop() {
-            return Err(ManifestError::new(
-                start,
-                "`rinzu.toml` was not found",
-                "run `rinzu init` or invoke the command inside a Rinzu package",
-            ));
+            return Err(ManifestError {
+                code: DiagnosticCode::ManifestNotFound,
+                ..ManifestError::new(
+                    start,
+                    "`rinzu.toml` was not found",
+                    "run `rinzu init` or invoke the command inside a Rinzu package",
+                )
+            });
         }
     }
 }
@@ -108,25 +142,29 @@ pub fn load_manifest(path: &Path) -> Result<Manifest, ManifestError> {
             "make the manifest readable",
         )
     })?;
-    load_manifest_text(path, &text)
+    load_manifest_text(path, text.strip_prefix('\u{feff}').unwrap_or(&text))
 }
 
 pub(crate) fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, ManifestError> {
     let sections = parse_sections(path, text)?;
-    let package = sections.get("package").ok_or_else(|| {
-        ManifestError::new(
-            path,
-            "missing `[package]` section",
-            "add package name and language under `[package]`",
-        )
-    })?;
+    let package = &sections
+        .get("package")
+        .ok_or_else(|| {
+            ManifestError::new(
+                path,
+                "missing `[package]` section",
+                "add package name and language under `[package]`",
+            )
+        })?
+        .entries;
     let name = required_string(package, "name", path)?;
     if !valid_package_name(&name) {
         return Err(ManifestError::new(
             path,
             format!("invalid package name `{name}`"),
             "use a dotted package name whose segments match `[a-z][a-z0-9_]*`",
-        ));
+        )
+        .at_value(package, "name"));
     }
     let language = required_string(package, "language", path)?;
     if !matches!(language.as_str(), "0.1" | "0.2" | "0.3" | "0.4" | "0.5") {
@@ -134,7 +172,8 @@ pub(crate) fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, Ma
             path,
             format!("unsupported language version `{language}`"),
             "set `language` to a supported version: 0.1, 0.2, 0.3, 0.4, or 0.5",
-        ));
+        )
+        .at_value(package, "language"));
     }
     let kind = match optional_string(package, "kind", path)?.as_deref() {
         None | Some("application") => PackageKind::Application,
@@ -144,7 +183,8 @@ pub(crate) fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, Ma
                 path,
                 format!("unknown package kind `{value}`"),
                 "use `application` or `sdk`",
-            ));
+            )
+            .at_value(package, "kind"));
         }
     };
     let default_entry = if kind == PackageKind::Sdk {
@@ -153,16 +193,16 @@ pub(crate) fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, Ma
         "src/main.rinzu".to_owned()
     };
     let entry = PathBuf::from(optional_string(package, "entry", path)?.unwrap_or(default_entry));
-    validate_entry(path, &entry)?;
+    validate_entry(path, &entry).map_err(|error| error.at_value(package, "entry"))?;
 
     let allowed_sections: &[&str] = if language == "0.1" {
         &["package"]
     } else {
         &["package", "dependencies", "exports", "native"]
     };
-    if let Some(section) = sections
-        .keys()
-        .find(|section| !allowed_sections.contains(&section.as_str()))
+    if let Some((section, location)) = sections
+        .iter()
+        .find(|(section, _)| !allowed_sections.contains(&section.as_str()))
     {
         return Err(ManifestError::new(
             path,
@@ -172,7 +212,8 @@ pub(crate) fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, Ma
             } else {
                 "use `[package]`, `[dependencies]`, `[exports]`, or `[native]`"
             },
-        ));
+        )
+        .at(location.span.clone()));
     }
     let allowed_package: &[&str] = if language == "0.1" {
         &["name", "language", "entry"]
@@ -185,39 +226,44 @@ pub(crate) fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, Ma
             path,
             "language 0.1 does not support SDK packages",
             "set `language = \"0.5\"` or remove `package.kind`",
-        ));
+        )
+        .at_value(package, "kind"));
     }
 
     let mut dependencies = Vec::new();
-    if let Some(values) = sections.get("dependencies") {
-        for (dependency, raw) in values {
+    if let Some(section) = sections.get("dependencies") {
+        for (dependency, entry) in &section.entries {
             if crate::standard_library::registered(dependency) {
                 return Err(ManifestError::new(
                     path,
                     format!("{dependency} is a toolchain module and cannot be replaced"),
                     format!("remove the {dependency} dependency"),
-                ));
+                )
+                .at(entry.key.clone()));
             }
             if !valid_package_name(dependency) {
                 return Err(ManifestError::new(
                     path,
                     format!("invalid dependency name `{dependency}`"),
                     "use the dependency package's dotted lowercase name",
-                ));
+                )
+                .at(entry.key.clone()));
             }
-            let dependency_path = inline_path(raw).map_err(|message| {
+            let dependency_path = inline_path(&entry.text).map_err(|message| {
                 ManifestError::new(
                     path,
                     format!("dependency `{dependency}` {message}"),
                     "write `{ path = \"../sdk/package\" }`",
                 )
+                .at(entry.value.clone())
             })?;
             if dependency_path.is_absolute() {
                 return Err(ManifestError::new(
                     path,
                     format!("dependency `{dependency}` path must be relative"),
                     "use a path relative to this package",
-                ));
+                )
+                .at(entry.value.clone()));
             }
             dependencies.push(PathDependency {
                 name: dependency.clone(),
@@ -226,7 +272,8 @@ pub(crate) fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, Ma
         }
     }
 
-    let exports = if let Some(values) = sections.get("exports") {
+    let exports = if let Some(section) = sections.get("exports") {
+        let values = &section.entries;
         reject_unknown_keys(path, "exports", values, &["modules"])?;
         PackageExports {
             modules: optional_array(values, "modules", path)?.unwrap_or_default(),
@@ -240,11 +287,13 @@ pub(crate) fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, Ma
                 path,
                 format!("invalid exported module `{module}`"),
                 "use a dotted lowercase module name",
-            ));
+            )
+            .at_value(&sections["exports"].entries, "modules"));
         }
     }
 
-    let native = if let Some(values) = sections.get("native") {
+    let native = if let Some(section) = sections.get("native") {
+        let values = &section.entries;
         reject_unknown_keys(
             path,
             "native",
@@ -293,27 +342,35 @@ pub(crate) fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, Ma
     } else {
         NativeManifest::default()
     };
-    for native_path in native
-        .sources
-        .iter()
-        .chain(&native.headers)
-        .chain(&native.objects)
-        .chain(&native.include_dirs)
-        .chain(&native.search_paths)
-    {
-        validate_package_relative(path, native_path, "native input")?;
+    for (key, paths) in [
+        ("sources", &native.sources),
+        ("headers", &native.headers),
+        ("objects", &native.objects),
+        ("include-dirs", &native.include_dirs),
+        ("search-paths", &native.search_paths),
+    ] {
+        for native_path in paths {
+            validate_package_relative(path, native_path, "native input")
+                .map_err(|error| error.at_value(&sections["native"].entries, key))?;
+        }
     }
-    for name in native.frameworks.iter().chain(&native.libraries) {
-        if name.is_empty()
-            || !name.chars().all(|character| {
-                character.is_ascii_alphanumeric() || matches!(character, '_' | '+')
-            })
-        {
-            return Err(ManifestError::new(
-                path,
-                format!("invalid native library/framework name `{name}`"),
-                "use an explicit ASCII library or framework name",
-            ));
+    for (key, names) in [
+        ("frameworks", &native.frameworks),
+        ("libraries", &native.libraries),
+    ] {
+        for name in names {
+            if name.is_empty()
+                || !name.chars().all(|character| {
+                    character.is_ascii_alphanumeric() || matches!(character, '_' | '+')
+                })
+            {
+                return Err(ManifestError::new(
+                    path,
+                    format!("invalid native library/framework name `{name}`"),
+                    "use an explicit ASCII library or framework name",
+                )
+                .at_value(&sections["native"].entries, key));
+            }
         }
     }
     for tool in &native.config_tools {
@@ -322,17 +379,24 @@ pub(crate) fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, Ma
                 path,
                 format!("invalid native config tool `{tool}`"),
                 "use only sdl2-config",
-            ));
+            )
+            .at_value(&sections["native"].entries, "config-tools"));
         }
     }
     if kind != PackageKind::Sdk
         && (!exports.modules.is_empty() || native != NativeManifest::default())
     {
+        let section = if exports.modules.is_empty() {
+            "native"
+        } else {
+            "exports"
+        };
         return Err(ManifestError::new(
             path,
             "application package cannot declare SDK exports or native inputs",
             "move native declarations and inputs into a `kind = \"sdk\"` dependency",
-        ));
+        )
+        .at(sections[section].span.clone()));
     }
 
     Ok(Manifest {
@@ -422,63 +486,95 @@ pub fn canonicalize_native_inputs(manifest: &mut Manifest) -> Result<(), Manifes
     Ok(())
 }
 
-type Sections = BTreeMap<String, BTreeMap<String, String>>;
+struct Entry {
+    text: String,
+    key: Range<usize>,
+    value: Range<usize>,
+}
+
+type Entries = BTreeMap<String, Entry>;
+type Sections = BTreeMap<String, Section>;
+
+struct Section {
+    span: Range<usize>,
+    entries: Entries,
+}
 
 fn parse_sections(path: &Path, text: &str) -> Result<Sections, ManifestError> {
     let mut sections = Sections::new();
     let mut section: Option<String> = None;
-    for (line_index, raw_line) in text.lines().enumerate() {
-        let line = strip_comment(raw_line).trim();
+    let mut offset = 0;
+    for raw_line in text.split_inclusive('\n') {
+        let content = strip_comment(raw_line);
+        let left = content.trim_start();
+        let line = left.trim_end();
+        let start = offset + content.len() - left.len();
+        offset += raw_line.len();
         if line.is_empty() {
             continue;
         }
+        let span = start..start + line.len();
         if line.starts_with('[') && line.ends_with(']') {
             let name = line[1..line.len() - 1].trim();
             if name.is_empty() || sections.contains_key(name) {
                 return Err(ManifestError::new(
                     path,
-                    format!("invalid or duplicate section on line {}", line_index + 1),
+                    "invalid or duplicate section",
                     "declare each manifest section once",
-                ));
+                )
+                .at(span));
             }
-            sections.insert(name.to_owned(), BTreeMap::new());
+            sections.insert(
+                name.to_owned(),
+                Section {
+                    span,
+                    entries: Entries::new(),
+                },
+            );
             section = Some(name.to_owned());
             continue;
         }
         let section_name = section.as_ref().ok_or_else(|| {
             ManifestError::new(
                 path,
-                format!("key outside a section on line {}", line_index + 1),
+                "key outside a section",
                 "add a `[package]` section before package keys",
             )
+            .at(span.clone())
         })?;
         let (raw_key, raw_value) = line.split_once('=').ok_or_else(|| {
-            ManifestError::new(
-                path,
-                format!("invalid key/value on line {}", line_index + 1),
-                "write `key = value`",
-            )
+            ManifestError::new(path, "invalid key/value", "write `key = value`").at(span)
         })?;
         let key = unquote(raw_key.trim()).unwrap_or_else(|| raw_key.trim().to_owned());
         if key.is_empty() {
-            return Err(ManifestError::new(
-                path,
-                format!("empty key on line {}", line_index + 1),
-                "name the manifest key",
-            ));
+            return Err(
+                ManifestError::new(path, "empty key", "name the manifest key").at(start..start),
+            );
         }
-        let values = sections
+        let values = &mut sections
             .get_mut(section_name)
-            .expect("section was inserted");
+            .expect("section was inserted")
+            .entries;
+        let key_span = start..start + raw_key.trim_end().len();
+        let value = raw_value.trim();
+        let value_start = start + line.len() - value.len();
         if values
-            .insert(key.clone(), raw_value.trim().to_owned())
+            .insert(
+                key.clone(),
+                Entry {
+                    text: value.to_owned(),
+                    key: key_span.clone(),
+                    value: value_start..value_start + value.len(),
+                },
+            )
             .is_some()
         {
             return Err(ManifestError::new(
                 path,
                 format!("duplicate key `{key}` in `[{section_name}]`"),
                 "keep exactly one value for each manifest key",
-            ));
+            )
+            .at(key_span));
         }
     }
     Ok(sections)
@@ -498,11 +594,7 @@ fn strip_comment(line: &str) -> &str {
     line
 }
 
-fn required_string(
-    values: &BTreeMap<String, String>,
-    key: &str,
-    path: &Path,
-) -> Result<String, ManifestError> {
+fn required_string(values: &Entries, key: &str, path: &Path) -> Result<String, ManifestError> {
     optional_string(values, key, path)?.ok_or_else(|| {
         ManifestError::new(
             path,
@@ -513,38 +605,40 @@ fn required_string(
 }
 
 fn optional_string(
-    values: &BTreeMap<String, String>,
+    values: &Entries,
     key: &str,
     path: &Path,
 ) -> Result<Option<String>, ManifestError> {
     values
         .get(key)
         .map(|value| {
-            unquote(value).ok_or_else(|| {
+            unquote(&value.text).ok_or_else(|| {
                 ManifestError::new(
                     path,
                     format!("value for `{key}` must be a quoted string"),
                     "surround the value with double quotes",
                 )
+                .at(value.value.clone())
             })
         })
         .transpose()
 }
 
 fn optional_array(
-    values: &BTreeMap<String, String>,
+    values: &Entries,
     key: &str,
     path: &Path,
 ) -> Result<Option<Vec<String>>, ManifestError> {
     values
         .get(key)
         .map(|value| {
-            parse_string_array(value).ok_or_else(|| {
+            parse_string_array(&value.text).ok_or_else(|| {
                 ManifestError::new(
                     path,
                     format!("value for `{key}` must be an array of strings"),
                     "write `[\"value\", \"value\"]`",
                 )
+                .at(value.value.clone())
             })
         })
         .transpose()
@@ -589,15 +683,19 @@ fn parse_string_array(value: &str) -> Option<Vec<String>> {
 fn reject_unknown_keys(
     path: &Path,
     section: &str,
-    values: &BTreeMap<String, String>,
+    values: &Entries,
     allowed: &[&str],
 ) -> Result<(), ManifestError> {
-    if let Some(key) = values.keys().find(|key| !allowed.contains(&key.as_str())) {
+    if let Some((key, entry)) = values
+        .iter()
+        .find(|(key, _)| !allowed.contains(&key.as_str()))
+    {
         return Err(ManifestError::new(
             path,
             format!("unknown {section} key `{key}`"),
             format!("remove `{key}` or use a supported {section} key"),
-        ));
+        )
+        .at(entry.key.clone()));
     }
     Ok(())
 }

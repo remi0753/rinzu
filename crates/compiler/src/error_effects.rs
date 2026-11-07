@@ -144,33 +144,38 @@ pub(crate) fn within_bound(actual: &[String], expected: &[String]) -> bool {
     expected == ["Error"] || actual.iter().all(|name| expected.contains(name))
 }
 
+pub(crate) use contracts::display_bound;
+
+#[derive(Clone, Debug)]
+pub(crate) struct ErrorConversion {
+    pub expected: Vec<String>,
+    pub related: Vec<(SourceRange, String)>,
+}
+
 pub(crate) fn conversion_error(
     range: SourceRange,
     expected: &[String],
     actual: Option<&[String]>,
+    related: Vec<(SourceRange, String)>,
 ) -> Diagnostic {
-    let expected = error_bound_spelling(Some(expected));
+    let expected = display_bound(expected);
     let message = actual.map_or_else(
-        || {
-            format!(
-                "cannot establish callback Error contract `{}`",
-                expected.trim_start()
-            )
-        },
+        || format!("cannot establish that the callback's ordinary Errors fit `{expected}`"),
         |actual| {
             format!(
-                "callback contract `{}` exceeds expected `{}`",
-                error_bound_spelling(Some(actual)).trim_start(),
-                expected.trim_start()
+                "callback contract `{}` exceeds expected `{expected}`",
+                display_bound(actual),
             )
         },
     );
-    Diagnostic::error(
+    let mut diagnostic = Diagnostic::error(
         DiagnosticCode::InvalidErrorContract,
         range,
         message,
-        "pass a callback whose declared or inferred ordinary Errors fit the expected upper bound",
-    )
+        "pass a callback whose ordinary Errors fit the expected bound",
+    );
+    diagnostic.secondary = related;
+    diagnostic
 }
 
 pub(crate) fn public_types(summary: &Summary) -> Vec<String> {
@@ -300,7 +305,15 @@ pub(crate) fn analyze(
         let (actual, errors) =
             flow::Analyzer::new(checked, &summaries, bound, true).function(function);
         diagnostics.extend(errors);
-        diagnostics.extend(contracts::validate(checked, &function.declaration, &actual));
+        diagnostics.extend(contracts::validate(
+            checked,
+            &function.declaration,
+            &actual,
+            |allowed| {
+                flow::Analyzer::new(checked, &summaries, bound, false)
+                    .traced_function(function, allowed)
+            },
+        ));
     }
     let mut seen = BTreeSet::new();
     diagnostics.retain(|diagnostic| {

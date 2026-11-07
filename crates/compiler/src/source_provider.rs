@@ -191,13 +191,17 @@ impl<'a> SourceSnapshot<'a> {
             .collect()
     }
 
-    pub fn source(&mut self, path: &Path, bytes: Vec<u8>) -> Result<SourceFile, Vec<Diagnostic>> {
+    pub(crate) fn file_id(&mut self, path: &Path) -> FileId {
         static NEXT_FILE: AtomicU32 = AtomicU32::new(1);
-        let id = *self
+        *self
             .cache
             .ids
             .entry(path.to_owned())
-            .or_insert_with(|| FileId(NEXT_FILE.fetch_add(1, Ordering::Relaxed)));
+            .or_insert_with(|| FileId(NEXT_FILE.fetch_add(1, Ordering::Relaxed)))
+    }
+
+    pub fn source(&mut self, path: &Path, bytes: Vec<u8>) -> Result<SourceFile, Vec<Diagnostic>> {
+        let id = self.file_id(path);
         let source = SourceFile::from_utf8(id, path, bytes)?;
         self.sources.insert(path.to_owned(), source.clone());
         Ok(source)
@@ -235,6 +239,14 @@ impl<'a> SourceSnapshot<'a> {
             .ids
             .iter()
             .find_map(|(path, candidate)| (*candidate == id).then_some(path.as_path()))
+    }
+
+    #[must_use]
+    pub fn bytes_for_path(&self, path: &Path) -> Option<&[u8]> {
+        self.reads
+            .get(path)
+            .or_else(|| self.config_reads.get(path))
+            .map(Vec::as_slice)
     }
 
     #[must_use]

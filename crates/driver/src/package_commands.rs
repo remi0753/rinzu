@@ -278,8 +278,7 @@ pub fn check_application_lock(
     if !has_lock(root)? {
         return Ok(());
     }
-    let manifest = rinzu_compiler::load_manifest(&root.join("rinzu.toml"))
-        .map_err(|e| format!("{:?}", e.into_diagnostic()))?;
+    let manifest = crate::input::load_manifest(&root.join("rinzu.toml"))?;
     if manifest.kind == PackageKind::Application {
         verify(root, &snapshot(&manifest, inputs, packages, built, None)?)?;
     }
@@ -595,9 +594,7 @@ pub fn run(command: &str, mut arguments: impl Iterator<Item = String>) -> Result
         .path
         .map_or_else(|| std::env::current_dir().map_err(|e| e.to_string()), Ok)?;
     crate::input::require_package(command, &path)?;
-    let (manifest, artifact) =
-        rinzu_compiler::check_package_with_native_inputs(&path, &parsed.native)
-            .map_err(|e| format!("package failed to check: {e:?}"))?;
+    let (manifest, artifact) = crate::input::check_package(&path, &parsed.native)?;
     if command == "api" && manifest.kind != PackageKind::Sdk {
         return Err("`rinzu api` requires a source SDK/library package".into());
     }

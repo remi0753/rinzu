@@ -640,7 +640,11 @@ fn diagnostic(
     sources: &BTreeMap<PathBuf, SourceFile>,
     paths: &BTreeMap<u32, PathBuf>,
 ) -> Value {
-    json!({"code":d.code.as_str(),"severity":"error","message":d.message,"primary":location(d.primary,sources,paths),
+    let mut primary = location(d.primary, sources, paths);
+    if let Some(path) = d.primary_path() {
+        primary["path"] = json!(std::path::absolute(path).unwrap_or_else(|_| path.to_owned()));
+    }
+    json!({"code":d.code.as_str(),"severity":"error","message":d.message,"primary":primary,
         "secondary":d.secondary.iter().take(128).map(|(r,m)|json!({"location":location(*r,sources,paths),"message":m})).collect::<Vec<_>>(),
         "suggestions":d.suggestions.iter().take(128).map(|s|json!({"applicability":format!("{:?}",s.applicability),"message":s.message,
             "replacement":s.replacement.as_ref().map(|(r,text)|json!({"location":location(*r,sources,paths),"newText":text}))})).collect::<Vec<_>>(),

@@ -151,6 +151,7 @@ pub fn compile(
     mut command: Command,
     generated: &Path,
     output: &Path,
+    source: &Path,
     action: &str,
 ) -> Result<(), String> {
     let _timing = rinzu_compiler::timing::span("native.compile").detail(action);
@@ -236,16 +237,13 @@ pub fn compile(
         return Ok(());
     }
     let compile_timing = rinzu_compiler::timing::span("native.compile.clang").detail(action);
-    let result = command
-        .output()
-        .map_err(|error| format!("{action}: {error}"))?;
+    crate::cli_diagnostics::tool_output(
+        command.output(),
+        Some(source),
+        "native compilation",
+        "clang",
+    )?;
     drop(compile_timing);
-    if !result.status.success() {
-        return Err(format!(
-            "{action}:\n{}",
-            String::from_utf8_lossy(&result.stderr)
-        ));
-    }
     if let Some((directory, key)) = cache {
         // Cache failures never prevent a successful compilation.
         let _ = store(&directory, &key, output);

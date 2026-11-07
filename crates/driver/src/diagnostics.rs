@@ -312,8 +312,8 @@ pub(crate) fn run_package(
         &mut snapshot,
     )
     .map_err(|errors| {
-        crate::print_diagnostics(errors);
-        "package failed to compile".to_owned()
+        crate::cli_diagnostics::emit_snapshot(&errors, &snapshot);
+        "input failed to check".to_owned()
     })?;
     crate::input::protect_outputs(
         &context,
@@ -452,8 +452,12 @@ pub(crate) fn run_package(
     save(&output, &report).map_err(|error| format!("save initial diagnostic report: {error}"))?;
     OBSERVATION.with(|slot| *slot.borrow_mut() = Some(Value::Null));
     let _capture = Capture;
-    let outcome =
-        crate::run_checked_package(&manifest, &artifact, trace, resources, program_arguments);
+    let (outcome, diagnostic_blocks) = crate::cli_diagnostics::capture(|| {
+        crate::run_checked_package(&manifest, &artifact, trace, resources, program_arguments)
+    });
+    for block in &diagnostic_blocks {
+        crate::cli_diagnostics::write_block(block);
+    }
     report.phase = "finished".into();
     report.process_memory = Some(process_memory());
     report.outcome = OBSERVATION.with(|slot| {
@@ -465,7 +469,7 @@ pub(crate) fn run_package(
     report.driver_error = outcome
         .as_ref()
         .err()
-        .map(|error| clipped(error, RAW_LIMIT));
+        .map(|error| clipped(&format!("{}{error}", diagnostic_blocks.concat()), RAW_LIMIT));
     report.exit_code = Some(if outcome.is_ok() {
         crate::PROGRAM_EXIT_STATUS.with(|status| status.get())
     } else {

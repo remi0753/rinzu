@@ -635,3 +635,74 @@ fn imported_collection_modules_offer_qualified_completions() {
     assert!(!items.contains(&"listLength"));
     client.shutdown();
 }
+
+#[test]
+fn rz0414_uses_the_edited_propagation_site_and_original_contract_coordinates() {
+    let fixture = Fixture::new();
+    let path = fixture.file("src/編集中 の例.rinzu", "fn main() {}\n");
+    let text = concat!(
+        "error E {}\r\n",
+        "fn boundary(load: fn () throws(E) -> Int) nothrow -> Int {\r\n",
+        "    try { let preview = load(); } catch failures {}\r\n",
+        "    let label = \"😀\"; return load();\r\n",
+        "}\r\n",
+        "fn main() {}\r\n",
+    );
+    let mut client = Client::new(None);
+    client.ok(
+        "open",
+        json!({"path":path,"version":1,"text":text,"bom":true}),
+    );
+    let response = client.query("diagnostics", &path, 1, json!(null));
+    let diagnostics = response["result"]["diagnostics"].as_array().unwrap();
+    assert_eq!(diagnostics.len(), 1, "{response:#}");
+    let diagnostic = &diagnostics[0];
+    assert_eq!(diagnostic["code"], "RZ0414");
+    assert_eq!(
+        diagnostic["message"],
+        "E can escape `boundary`, which declares `nothrow`"
+    );
+    for (location, offset, length) in [
+        (
+            &diagnostic["primary"],
+            text.rfind("load()").unwrap(),
+            "load()".len(),
+        ),
+        (
+            &diagnostic["secondary"][0]["location"],
+            text.find("nothrow").unwrap(),
+            "nothrow".len(),
+        ),
+    ] {
+        let before = &text[..offset];
+        let line = before.bytes().filter(|&byte| byte == b'\n').count();
+        let on_line = before.rsplit('\n').next().unwrap();
+        let utf16 = on_line.encode_utf16().count();
+        assert_eq!(
+            *location,
+            json!({
+                "path":path,
+                "range":{"start":{"line":line,"character":utf16},"end":{"line":line,"character":utf16+length}},
+                "scalarStart":{"line":line+1,"column":on_line.chars().count()+1},
+                "originalBytes":{"start":offset+3,"end":offset+length+3},
+                "fileLevel":false
+            })
+        );
+    }
+    assert_eq!(diagnostic["secondary"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        diagnostic["secondary"][0]["message"],
+        "`boundary` declares `nothrow` here"
+    );
+    assert_eq!(
+        diagnostic["suggestions"][0]["message"],
+        "recover the Error from this call, or use `throws(E)` if callers should handle it"
+    );
+
+    let fixed = text.replace("return load();", "return 0;");
+    client.ok("change", json!({"path":path,"version":2,"text":fixed}));
+    let response = client.query("diagnostics", &path, 2, json!(null));
+    assert_eq!(response["result"]["diagnostics"], json!([]));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "fn main() {}\n");
+    client.shutdown();
+}
