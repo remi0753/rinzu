@@ -25,19 +25,22 @@ static int interrupted(void) {
 }
 static ssize_t fixture_write(int fd, const void *bytes, size_t count) {
   int injected = interrupted();
-  if (injected) return injected < 0 ? -1 : 0;
+  if (injected)
+    return injected < 0 ? -1 : 0;
   return write(fd, bytes, count > 3 ? 3 : count);
 }
 static ssize_t fixture_writev(int fd, const struct iovec *parts, int count) {
   int injected = interrupted();
-  if (injected) return injected < 0 ? -1 : 0;
+  if (injected)
+    return injected < 0 ? -1 : 0;
   assert(count >= 1 && count <= 2);
   struct iovec partial[2];
   size_t remaining = 3;
   int used = 0;
   while (used < count && remaining) {
     partial[used] = parts[used];
-    if (partial[used].iov_len > remaining) partial[used].iov_len = remaining;
+    if (partial[used].iov_len > remaining)
+      partial[used].iov_len = remaining;
     remaining -= partial[used].iov_len;
     used++;
   }

@@ -155,12 +155,14 @@ static int rinzu_native_same_image(const char *a, const char *b) {
   struct stat left, right;
   errno = 0;
   if (stat(a, &left)) {
-    if (errno == ENOMEM) _Exit(71);
+    if (errno == ENOMEM)
+      _Exit(71);
     return 0;
   }
   errno = 0;
   if (stat(b, &right)) {
-    if (errno == ENOMEM) _Exit(71);
+    if (errno == ENOMEM)
+      _Exit(71);
     return 0;
   }
   return left.st_dev == right.st_dev && left.st_ino == right.st_ino;
@@ -172,11 +174,14 @@ static int rinzu_native_uuid(const struct mach_header *header, const char *expec
   const unsigned char *cursor = (const unsigned char *)header + sizeof(struct mach_header_64);
   const unsigned char *end = cursor + header->sizeofcmds;
   for (uint32_t i = 0; i < header->ncmds; ++i) {
-    if ((size_t)(end - cursor) < sizeof(struct load_command)) return 0;
+    if ((size_t)(end - cursor) < sizeof(struct load_command))
+      return 0;
     const struct load_command *command = (const struct load_command *)cursor;
-    if (command->cmdsize < sizeof(*command) || command->cmdsize > (size_t)(end - cursor)) return 0;
+    if (command->cmdsize < sizeof(*command) || command->cmdsize > (size_t)(end - cursor))
+      return 0;
     if (command->cmd == LC_UUID) {
-      if (command->cmdsize != sizeof(struct uuid_command)) return 0;
+      if (command->cmdsize != sizeof(struct uuid_command))
+        return 0;
       const struct uuid_command *uuid = (const struct uuid_command *)command;
       static const char hex[] = "0123456789abcdef";
       char actual[33];
@@ -202,17 +207,19 @@ static int rinzu_native_loaded(const char *path, const char *uuid) {
 static int rinzu_native_address(const char *path, const char *uuid, void *address) {
   Dl_info info;
   return address && dladdr(address, &info) && info.dli_fname && info.dli_fbase &&
-      rinzu_native_same_image(path, info.dli_fname) && rinzu_native_uuid(info.dli_fbase, uuid);
+         rinzu_native_same_image(path, info.dli_fname) && rinzu_native_uuid(info.dli_fbase, uuid);
 }
 static void rinzu_native_initialize(const char *facade, void *facade_handle, const char *directory,
-    const RinzuNativeImage *images, size_t image_count,
-    const RinzuNativeSlot *slots, size_t slot_count, const char *digest) {
+                                    const RinzuNativeImage *images, size_t image_count,
+                                    const RinzuNativeSlot *slots, size_t slot_count,
+                                    const char *digest) {
   if (!digest) {
-    if (image_count || slot_count) rinzu_source_package_failure();
+    if (image_count || slot_count)
+      rinzu_source_package_failure();
     return;
   }
-  if (!image_count || !slot_count || !images || !slots ||
-      image_count > SIZE_MAX / sizeof(void *) || slot_count > SIZE_MAX / sizeof(uintptr_t))
+  if (!image_count || !slot_count || !images || !slots || image_count > SIZE_MAX / sizeof(void *) ||
+      slot_count > SIZE_MAX / sizeof(uintptr_t))
     rinzu_source_package_failure();
   void **handles = rinzu_failure_allocate(image_count * sizeof(*handles));
   uintptr_t *addresses = rinzu_failure_allocate(slot_count * sizeof(*addresses));
@@ -221,31 +228,39 @@ static void rinzu_native_initialize(const char *facade, void *facade_handle, con
   for (size_t i = 0; i < image_count; ++i) {
     const RinzuNativeImage *image = &images[i];
     char *bundled = image->bundled ? rinzu_source_path(directory, image->path) : NULL;
-    if (image->check_digest) rinzu_source_file(bundled ? bundled : image->path, image->digest);
+    if (image->check_digest)
+      rinzu_source_file(bundled ? bundled : image->path, image->digest);
     free(bundled);
   }
   for (size_t i = 0; i < image_count; ++i) {
     const RinzuNativeImage *image = &images[i];
     char *bundled = image->bundled ? rinzu_source_path(directory, image->path) : NULL;
     const char *path = bundled ? bundled : image->path;
-    if (image->check_digest) rinzu_source_file(path, image->digest);
+    if (image->check_digest)
+      rinzu_source_file(path, image->digest);
     errno = 0;
     handles[i] = dlopen(path, RTLD_NOW | RTLD_LOCAL | RTLD_FIRST);
     if (!handles[i]) {
-      if (errno == ENOMEM) _Exit(71);
+      if (errno == ENOMEM)
+        _Exit(71);
       rinzu_native_binding_failure("cannot open explicit provider", path);
     }
-    if (!rinzu_native_loaded(path, image->uuid)) rinzu_native_binding_failure("provider UUID mismatch", path);
-    if (image->check_digest) rinzu_source_file(path, image->digest);
+    if (!rinzu_native_loaded(path, image->uuid))
+      rinzu_native_binding_failure("provider UUID mismatch", path);
+    if (image->check_digest)
+      rinzu_source_file(path, image->digest);
     free(bundled);
   }
   for (size_t i = 0; i < slot_count; ++i) {
     const RinzuNativeSlot *slot = &slots[i];
-    if (slot->image >= image_count) rinzu_source_package_failure();
+    if (slot->image >= image_count)
+      rinzu_source_package_failure();
     char *bundled = slot->owner_bundled ? rinzu_source_path(directory, slot->owner) : NULL;
     const char *owner = bundled ? bundled : slot->owner;
-    if (slot->check_digest) rinzu_source_file(owner, slot->digest);
-    void *address = rinzu_source_symbol(handles[slot->image], slot->resolver ? slot->resolver : slot->symbol);
+    if (slot->check_digest)
+      rinzu_source_file(owner, slot->digest);
+    void *address =
+        rinzu_source_symbol(handles[slot->image], slot->resolver ? slot->resolver : slot->symbol);
     if (slot->resolver) {
       if (!rinzu_native_address(owner, slot->uuid, address))
         rinzu_native_binding_failure("address getter provider mismatch", slot->symbol);
@@ -259,10 +274,12 @@ static void rinzu_native_initialize(const char *facade, void *facade_handle, con
     free(bundled);
   }
   void *address = rinzu_source_symbol(facade_handle, "__rinzu_bind_native_v1");
-  if (!rinzu_source_owns(facade, address)) rinzu_native_binding_failure("initializer provider mismatch", facade);
+  if (!rinzu_source_owns(facade, address))
+    rinzu_native_binding_failure("initializer provider mismatch", facade);
   int (*initialize)(const char *, const uintptr_t *, size_t);
   memcpy(&initialize, &address, sizeof initialize);
-  if (initialize(digest, addresses, slot_count) != 1) rinzu_native_binding_failure("initializer rejected plan", facade);
+  if (initialize(digest, addresses, slot_count) != 1)
+    rinzu_native_binding_failure("initializer rejected plan", facade);
   /* Providers and facade are pinned; only temporary arrays are released. */
   free(handles);
   free(addresses);
@@ -271,7 +288,8 @@ static void rinzu_source_table(const char *path, const uint8_t *wire, size_t wir
                                const RinzuExpectedImport *expected, size_t count,
                                const void **staged, const char *directory,
                                const RinzuNativeImage *images, size_t image_count,
-                               const RinzuNativeSlot *slots, size_t slot_count, const char *digest) {
+                               const RinzuNativeSlot *slots, size_t slot_count,
+                               const char *digest) {
   errno = 0;
   void *handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
   if (!handle) {

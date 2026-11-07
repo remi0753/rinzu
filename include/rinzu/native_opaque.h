@@ -65,7 +65,8 @@ static inline void *rinzu_managed_opaque_pointer(rinzu_managed_data_t *data, uin
                                                  size_t type) {
   rinzu_managed_native_owner(data);
   rinzu_managed_value_t *value = rinzu_managed_lookup(data, identity);
-  if (!value || value->kind != RINZU_MANAGED_NATIVE_OPAQUE || value->type != type || !value->native_pointer)
+  if (!value || value->kind != RINZU_MANAGED_NATIVE_OPAQUE || value->type != type ||
+      !value->native_pointer)
     rinzu_interop_fatal();
   return (void *)value->native_pointer;
 }

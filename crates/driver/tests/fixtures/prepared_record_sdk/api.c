@@ -4,7 +4,8 @@ static _Thread_local struct Wide wide;
 static _Thread_local struct Single single;
 static _Thread_local struct Mixed mixed;
 const struct Wide *prepared_wide(int64_t seed, int64_t (*callback)(int64_t)) {
-  if (seed < 0) return NULL;
+  if (seed < 0)
+    return NULL;
   wide.left = callback(seed);
   wide.right = UINT64_MAX;
   return &wide;

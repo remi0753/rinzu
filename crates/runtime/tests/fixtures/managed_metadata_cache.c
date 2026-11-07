@@ -10,13 +10,15 @@ static _Atomic size_t metadata_allocations, watched_frees;
 static unsigned fail_allocations;
 static void *watched;
 static void *counted_calloc(size_t n, size_t size) {
-  if (fail_allocations) return NULL;
+  if (fail_allocations)
+    return NULL;
   if (metadata_size && n && size == metadata_size / n && n * size == metadata_size)
     ++metadata_allocations;
   return calloc(n, size);
 }
 static void counted_free(void *pointer) {
-  if (pointer && pointer == watched) ++watched_frees;
+  if (pointer && pointer == watched)
+    ++watched_frees;
   free(pointer);
 }
 #define calloc counted_calloc
@@ -53,7 +55,7 @@ static void *own_worker(void *unused) {
   (void)unused;
   rinzu_managed_data_t data = {0};
   uint64_t previous = 0;
-  for (unsigned i=0; i<40; ++i) {
+  for (unsigned i = 0; i < 40; ++i) {
     uint64_t current = rinzu_managed_string(&data, (const unsigned char *)"worker", 6);
     assert(current != previous && !rinzu_managed_lookup(&data, previous));
     retire_head(&data);
@@ -67,36 +69,39 @@ static void check_gc_sequence(void) {
   rinzu_managed_data_t data = {0};
   rinzu_managed_roots_t roots = {0};
   rinzu_managed_enter(&roots);
-  for (unsigned i=0; i<10000; ++i) {
-    unsigned char byte=(unsigned char)i;
-    uint64_t value=rinzu_managed_string(&data,&byte,1);
-    rinzu_managed_publish(&roots,&value,1);
-    rinzu_managed_safepoint(&data,&roots);
+  for (unsigned i = 0; i < 10000; ++i) {
+    unsigned char byte = (unsigned char)i;
+    uint64_t value = rinzu_managed_string(&data, &byte, 1);
+    rinzu_managed_publish(&roots, &value, 1);
+    rinzu_managed_safepoint(&data, &roots);
   }
-  printf("PACE:%llu:%zu:%zu:%zu:%zu:%zu\n", (unsigned long long)data.collections,
-         data.gc.allocated,data.gc.budget,data.objects,data.peak_objects,data.heap_bytes);
+  printf("PACE:%llu:%zu:%zu:%zu:%zu:%zu\n", (unsigned long long)data.collections, data.gc.allocated,
+         data.gc.budget, data.objects, data.peak_objects, data.heap_bytes);
   rinzu_managed_leave(&roots);
-  rinzu_managed_collect(&data,&roots);
+  rinzu_managed_collect(&data, &roots);
   rinzu_managed_dispose(&roots);
   rinzu_managed_data_dispose(&data);
 }
 static void check_error_reuse(rinzu_managed_data_t *data) {
-  rinzu_source_position_t source={.file=42,.start_byte=3,.end_byte=8,.present=1};
-  rinzu_error_trace_frame_t frame={"guard",5,source};
-  rinzu_error_trace_t *trace=rinzu_error_trace_capture(&frame,1);
-  rinzu_diagnostic_node_t cleanup={.cause=12,.source=source,.trace=trace};
-  rinzu_failure_t failure={.primary=5,.primary_source=source,.primary_trace=trace,
-                           .head=&cleanup,.tail=&cleanup};
-  uint64_t identity=rinzu_managed_error(data,&failure);
-  rinzu_managed_value_t *error=rinzu_managed_find(data,identity);
+  rinzu_source_position_t source = {.file = 42, .start_byte = 3, .end_byte = 8, .present = 1};
+  rinzu_error_trace_frame_t frame = {"guard", 5, source};
+  rinzu_error_trace_t *trace = rinzu_error_trace_capture(&frame, 1);
+  rinzu_diagnostic_node_t cleanup = {.cause = 12, .source = source, .trace = trace};
+  rinzu_failure_t failure = {.primary = 5,
+                             .primary_source = source,
+                             .primary_trace = trace,
+                             .head = &cleanup,
+                             .tail = &cleanup};
+  uint64_t identity = rinzu_managed_error(data, &failure);
+  rinzu_managed_value_t *error = rinzu_managed_find(data, identity);
   assert(error == data->values && atomic_load(&trace->references) == 3);
   retire_head(data);
   assert(atomic_load(&trace->references) == 1);
-  rinzu_managed_value_t *fresh=rinzu_managed_new(data,RINZU_MANAGED_COMPOSITE);
+  rinzu_managed_value_t *fresh = rinzu_managed_new(data, RINZU_MANAGED_COMPOSITE);
 #if RINZU_MANAGED_METADATA_CACHE_CAPACITY
   assert(fresh == error);
 #endif
-  assert(fresh->identity != identity && !rinzu_managed_lookup(data,identity));
+  assert(fresh->identity != identity && !rinzu_managed_lookup(data, identity));
   check_zeroed(fresh);
   rinzu_error_trace_release(trace);
 }
@@ -181,15 +186,17 @@ int main(int argc, char **argv) {
   rinzu_managed_discard_opaque(&data, &reservation);
   fail_allocations = 0;
   assert(!reservation.identity && !rinzu_managed_lookup(&data, opaque));
-  while (data.values) retire_head(&data);
+  while (data.values)
+    retire_head(&data);
   assert(!data.heap_bytes && !data.objects);
   rinzu_managed_index_trim(&data);
   /* A collection neither traces idle metadata nor changes mutator pacing. */
   rinzu_managed_collect(&data, &roots);
   assert(!data.objects && !data.heap_bytes && !data.gc.allocated);
-  for (size_t i=0; i<RINZU_MANAGED_METADATA_CACHE_CAPACITY+3; ++i)
+  for (size_t i = 0; i < RINZU_MANAGED_METADATA_CACHE_CAPACITY + 3; ++i)
     (void)rinzu_managed_new(&data, RINZU_MANAGED_COMPOSITE);
-  while (data.values) retire_head(&data);
+  while (data.values)
+    retire_head(&data);
   assert(data.metadata_cache_count == RINZU_MANAGED_METADATA_CACHE_CAPACITY);
   assert(rinzu_resource_counters[RINZU_RESOURCE_RUNTIME_CONTROL].live ==
          (accounting ? data.metadata_cache_count * metadata_size : 0));
@@ -202,11 +209,12 @@ int main(int argc, char **argv) {
   assert(!rinzu_resource_counters[RINZU_RESOURCE_RUNTIME_CONTROL].live);
   check_gc_sequence();
   pthread_t threads[4];
-  for (unsigned i=0; i<4; ++i)
+  for (unsigned i = 0; i < 4; ++i)
     assert(!pthread_create(&threads[i], NULL, own_worker, NULL));
-  for (unsigned i=0; i<4; ++i)
+  for (unsigned i = 0; i < 4; ++i)
     assert(!pthread_join(threads[i], NULL));
   assert(!rinzu_resource_counters[RINZU_RESOURCE_RUNTIME_CONTROL].live);
-  printf("PASS metadata=%zu capacity=%u accounting=%u reuse, zeroing, weak IDs, pacing, discard and disposal\n",
+  printf("PASS metadata=%zu capacity=%u accounting=%u reuse, zeroing, weak IDs, pacing, discard "
+         "and disposal\n",
          metadata_size, (unsigned)RINZU_MANAGED_METADATA_CACHE_CAPACITY, accounting);
 }

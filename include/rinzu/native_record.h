@@ -35,8 +35,10 @@ typedef struct {
 enum { RINZU_RECORD_PREPARED, RINZU_RECORD_ENTERED, RINZU_RECORD_RETURNED, RINZU_RECORD_COMMITTED };
 static inline int rinzu_native_record_same_layout(const rinzu_native_record_layout_t *left,
                                                   const rinzu_native_record_layout_t *right) {
-  if (left == right) return left != NULL;
-  if (!left || !right) return 0;
+  if (left == right)
+    return left != NULL;
+  if (!left || !right)
+    return 0;
   if (left->type != right->type || left->size != right->size ||
       left->alignment != right->alignment || left->count != right->count)
     return 0;
@@ -179,9 +181,10 @@ static inline int rinzu_managed_receive_record(rinzu_managed_data_t *data,
       rinzu_interop_fatal();
     for (size_t index = 0; index < link->count; ++index) {
       const rinzu_native_record_entry_t *entry = &loan->entries[index];
-      if (entry->buffer.pointer == pointer && rinzu_native_record_same_layout(entry->layout, layout)) {
-          *output = link->identities[index];
-          return RINZU_NATIVE_RECORD_OK;
+      if (entry->buffer.pointer == pointer &&
+          rinzu_native_record_same_layout(entry->layout, layout)) {
+        *output = link->identities[index];
+        return RINZU_NATIVE_RECORD_OK;
       }
     }
   }
@@ -202,13 +205,14 @@ static inline int rinzu_managed_receive_record(rinzu_managed_data_t *data,
   return RINZU_NATIVE_RECORD_OK;
 }
 
-static inline rinzu_managed_value_t *rinzu_native_record_target(
-    rinzu_managed_data_t *data, const rinzu_native_record_layout_t *layout, uint64_t identity) {
+static inline rinzu_managed_value_t *
+rinzu_native_record_target(rinzu_managed_data_t *data, const rinzu_native_record_layout_t *layout,
+                           uint64_t identity) {
   rinzu_native_record_validate(data, layout);
   rinzu_managed_value_t *value = NULL;
   if (data->schema->types[layout->type].kind != RINZU_VALUE_STATE ||
-      rinzu_managed_composite_resolve_owned(data, layout->type, identity, &value) ||
-      !value || value->has_variant || value->count != layout->count)
+      rinzu_managed_composite_resolve_owned(data, layout->type, identity, &value) || !value ||
+      value->has_variant || value->count != layout->count)
     rinzu_interop_fatal();
   for (size_t field = 0; field < layout->count; ++field)
     if (value->slots[field].reference ||
@@ -219,8 +223,8 @@ static inline rinzu_managed_value_t *rinzu_native_record_target(
 #define RINZU_NATIVE_RECORD_SCRATCH_LIMIT ((size_t)64 * 1024)
 /* One allocation owns batch, alias map, staging and all distinct C structs.
    Common managed root frames keep their existing separately measured cache. */
-static inline size_t rinzu_native_record_region(size_t *bytes, size_t count,
-                                                size_t width, size_t alignment) {
+static inline size_t rinzu_native_record_region(size_t *bytes, size_t count, size_t width,
+                                                size_t alignment) {
   size_t padding = (alignment - *bytes % alignment) % alignment;
   if (padding > SIZE_MAX - *bytes || count > (SIZE_MAX - *bytes - padding) / width)
     rinzu_resource_fatal();
@@ -228,11 +232,10 @@ static inline size_t rinzu_native_record_region(size_t *bytes, size_t count,
   *bytes = offset + count * width;
   return offset;
 }
-static inline rinzu_native_record_loan_t *rinzu_native_record_scratch(
-    rinzu_managed_data_t *data, size_t bytes, size_t alignment) {
+static inline rinzu_native_record_loan_t *
+rinzu_native_record_scratch(rinzu_managed_data_t *data, size_t bytes, size_t alignment) {
   rinzu_managed_record_loan_t **cursor = &data->native_record_pool;
-  while (*cursor && ((*cursor)->storage_bytes < bytes ||
-                     (*cursor)->storage_alignment < alignment))
+  while (*cursor && ((*cursor)->storage_bytes < bytes || (*cursor)->storage_alignment < alignment))
     cursor = &(*cursor)->next;
   rinzu_native_record_loan_t *loan;
   if (*cursor) {
@@ -245,14 +248,16 @@ static inline rinzu_native_record_loan_t *rinzu_native_record_scratch(
     loan = (rinzu_native_record_loan_t *)cached;
   } else {
     void *pointer = NULL;
-    if (alignment < sizeof(void *)) alignment = sizeof(void *);
+    if (alignment < sizeof(void *))
+      alignment = sizeof(void *);
     if (posix_memalign(&pointer, alignment, bytes) || !pointer)
       rinzu_resource_fatal();
     loan = pointer;
     memset(loan, 0, sizeof(*loan));
     loan->link.storage_bytes = bytes;
     loan->link.storage_alignment = alignment;
-    if (data->native_record_allocations == SIZE_MAX) rinzu_resource_fatal();
+    if (data->native_record_allocations == SIZE_MAX)
+      rinzu_resource_fatal();
     ++data->native_record_allocations;
   }
   if (!loan->link.storage_accounted &&
@@ -264,37 +269,49 @@ static inline rinzu_native_record_loan_t *rinzu_native_record_scratch(
 }
 /* Check the complete set before scratch allocation, roots or Busy state. */
 static inline int rinzu_native_record_prepare(rinzu_managed_data_t *data,
-    const rinzu_native_record_argument_t *arguments, size_t count,
-    rinzu_native_record_loan_t **output) {
+                                              const rinzu_native_record_argument_t *arguments,
+                                              size_t count, rinzu_native_record_loan_t **output) {
   rinzu_managed_native_owner(data);
-  if (!arguments || !count || !output) rinzu_interop_fatal();
+  if (!arguments || !count || !output)
+    rinzu_interop_fatal();
   *output = NULL;
   size_t distinct = 0, fields = 0, payload = 0, alignment = _Alignof(rinzu_native_record_loan_t);
   for (size_t index = 0; index < count; ++index) {
     const rinzu_native_record_layout_t *layout = arguments[index].layout;
     size_t previous = 0;
-    while (previous < index && arguments[previous].identity != arguments[index].identity) ++previous;
+    while (previous < index && arguments[previous].identity != arguments[index].identity)
+      ++previous;
     if (previous < index) {
       /* The same target was fully checked before any allocation or reentry.
          A different contract must still prove the complete matching layout. */
-      if (arguments[previous].layout != layout) rinzu_native_record_validate(data, layout);
-      if (!rinzu_native_record_same_layout(arguments[previous].layout, layout)) rinzu_interop_fatal();
+      if (arguments[previous].layout != layout)
+        rinzu_native_record_validate(data, layout);
+      if (!rinzu_native_record_same_layout(arguments[previous].layout, layout))
+        rinzu_interop_fatal();
     } else {
       rinzu_native_record_target(data, layout, arguments[index].identity);
-      if (rinzu_managed_record_busy(data, arguments[index].identity)) return RINZU_VALUE_BUSY;
-      if (distinct == SIZE_MAX || fields > SIZE_MAX - layout->count) rinzu_resource_fatal();
-      ++distinct; fields += layout->count;
+      if (rinzu_managed_record_busy(data, arguments[index].identity))
+        return RINZU_VALUE_BUSY;
+      if (distinct == SIZE_MAX || fields > SIZE_MAX - layout->count)
+        rinzu_resource_fatal();
+      ++distinct;
+      fields += layout->count;
       (void)rinzu_native_record_region(&payload, 1, layout->size, layout->alignment);
-      if (alignment < layout->alignment) alignment = layout->alignment;
+      if (alignment < layout->alignment)
+        alignment = layout->alignment;
     }
   }
   size_t bytes = sizeof(rinzu_native_record_loan_t);
-  size_t entries_offset = rinzu_native_record_region(&bytes, distinct, sizeof(rinzu_native_record_entry_t), _Alignof(rinzu_native_record_entry_t));
-  size_t arguments_offset = rinzu_native_record_region(&bytes, count, sizeof(size_t), _Alignof(size_t));
-  size_t staged_offset = rinzu_native_record_region(&bytes, fields, sizeof(rinzu_managed_slot_t), _Alignof(rinzu_managed_slot_t));
+  size_t entries_offset = rinzu_native_record_region(
+      &bytes, distinct, sizeof(rinzu_native_record_entry_t), _Alignof(rinzu_native_record_entry_t));
+  size_t arguments_offset =
+      rinzu_native_record_region(&bytes, count, sizeof(size_t), _Alignof(size_t));
+  size_t staged_offset = rinzu_native_record_region(&bytes, fields, sizeof(rinzu_managed_slot_t),
+                                                    _Alignof(rinzu_managed_slot_t));
   size_t payload_offset = rinzu_native_record_region(&bytes, 1, payload, alignment);
   rinzu_native_record_loan_t *loan = rinzu_native_record_scratch(data, bytes, alignment);
-  loan->owner = data; loan->argument_count = count;
+  loan->owner = data;
+  loan->argument_count = count;
   loan->entries = (void *)((unsigned char *)loan + entries_offset);
   loan->arguments = (void *)((unsigned char *)loan + arguments_offset);
   rinzu_managed_slot_t *staged = (void *)((unsigned char *)loan + staged_offset);
@@ -305,13 +322,17 @@ static inline int rinzu_native_record_prepare(rinzu_managed_data_t *data,
   size_t used = 0;
   for (size_t argument = 0; argument < count; ++argument) {
     size_t index = 0;
-    while (index < loan->link.count && identities[index] != arguments[argument].identity) ++index;
+    while (index < loan->link.count && identities[index] != arguments[argument].identity)
+      ++index;
     loan->arguments[argument] = index;
-    if (index < loan->link.count) continue;
+    if (index < loan->link.count)
+      continue;
     identities[index] = arguments[argument].identity;
     rinzu_native_record_entry_t *entry = &loan->entries[index];
     const rinzu_native_record_layout_t *layout = arguments[argument].layout;
-    entry->layout = layout; entry->staged = staged; staged += layout->count;
+    entry->layout = layout;
+    entry->staged = staged;
+    staged += layout->count;
     size_t offset = rinzu_native_record_region(&used, 1, layout->size, layout->alignment);
     entry->buffer.pointer = storage + offset;
     memset(entry->buffer.pointer, 0, layout->size);
@@ -319,16 +340,22 @@ static inline int rinzu_native_record_prepare(rinzu_managed_data_t *data,
        uses system allocation only: no managed collection, entry or mutation
        can intervene. Resolve the stable identity instead of checking it twice. */
     rinzu_managed_value_t *value = rinzu_managed_lookup_owned(data, identities[index]);
-    if (!value) rinzu_interop_fatal();
+    if (!value)
+      rinzu_interop_fatal();
     for (size_t field = 0; field < layout->count; ++field)
-      rinzu_native_record_write(entry->buffer.pointer, layout->fields[field], value->slots[field].bits);
+      rinzu_native_record_write(entry->buffer.pointer, layout->fields[field],
+                                value->slots[field].bits);
     ++loan->link.count;
   }
-  if (loan->link.count != distinct || used != payload) rinzu_interop_fatal();
+  if (loan->link.count != distinct || used != payload)
+    rinzu_interop_fatal();
   rinzu_managed_set_count(&loan->roots, distinct);
-  loan->link.identities = identities; loan->link.busy = 1;
-  loan->link.next = data->native_record_loans; data->native_record_loans = &loan->link;
-  *output = loan; return RINZU_NATIVE_RECORD_OK;
+  loan->link.identities = identities;
+  loan->link.busy = 1;
+  loan->link.next = data->native_record_loans;
+  data->native_record_loans = &loan->link;
+  *output = loan;
+  return RINZU_NATIVE_RECORD_OK;
 }
 static inline void rinzu_native_record_loan_owner(rinzu_managed_data_t *data,
                                                   rinzu_native_record_loan_t *loan) {
@@ -341,19 +368,22 @@ static inline void rinzu_native_record_loan_owner(rinzu_managed_data_t *data,
   rinzu_interop_fatal();
 }
 static inline unsigned char *rinzu_native_record_argument_pointer(rinzu_managed_data_t *data,
-    rinzu_native_record_loan_t *loan, size_t argument) {
+                                                                  rinzu_native_record_loan_t *loan,
+                                                                  size_t argument) {
   rinzu_native_record_loan_owner(data, loan);
   if (argument >= loan->argument_count)
     rinzu_interop_fatal();
   return loan->entries[loan->arguments[argument]].buffer.pointer;
 }
-static inline void rinzu_native_record_enter(rinzu_managed_data_t *data, rinzu_native_record_loan_t *loan) {
+static inline void rinzu_native_record_enter(rinzu_managed_data_t *data,
+                                             rinzu_native_record_loan_t *loan) {
   rinzu_native_record_loan_owner(data, loan);
   if (loan->phase != RINZU_RECORD_PREPARED)
     rinzu_interop_fatal();
   loan->phase = RINZU_RECORD_ENTERED;
 }
-static inline void rinzu_native_record_returned(rinzu_managed_data_t *data, rinzu_native_record_loan_t *loan) {
+static inline void rinzu_native_record_returned(rinzu_managed_data_t *data,
+                                                rinzu_native_record_loan_t *loan) {
   rinzu_native_record_loan_owner(data, loan);
   if (loan->phase != RINZU_RECORD_ENTERED)
     rinzu_interop_fatal();
@@ -361,7 +391,8 @@ static inline void rinzu_native_record_returned(rinzu_managed_data_t *data, rinz
 }
 /* Caller has settled every accepted callback. Stage every output before any
    publication; no allocation, collection or managed reentry occurs here. */
-static inline void rinzu_native_record_commit(rinzu_managed_data_t *data, rinzu_native_record_loan_t *loan) {
+static inline void rinzu_native_record_commit(rinzu_managed_data_t *data,
+                                              rinzu_native_record_loan_t *loan) {
   rinzu_native_record_loan_owner(data, loan);
   if (loan->phase != RINZU_RECORD_RETURNED)
     rinzu_interop_fatal();
@@ -402,12 +433,15 @@ static inline void rinzu_native_record_release(rinzu_managed_data_t *data,
     /* No managed reference or root-set pointer remains live in cached storage.
        C payload and staging contain ABI scalars only, never Rinzu references. */
     memset(loan, 0, sizeof(*loan));
-    loan->link.storage_bytes = bytes; loan->link.storage_alignment = alignment;
+    loan->link.storage_bytes = bytes;
+    loan->link.storage_alignment = alignment;
     loan->link.storage_accounted = accounted;
-    loan->link.next = data->native_record_pool; data->native_record_pool = &loan->link;
+    loan->link.next = data->native_record_pool;
+    data->native_record_pool = &loan->link;
     data->native_record_pool_bytes += bytes;
   } else {
-    if (accounted) rinzu_resource_release(RINZU_RESOURCE_RUNTIME_CONTROL, bytes);
+    if (accounted)
+      rinzu_resource_release(RINZU_RESOURCE_RUNTIME_CONTROL, bytes);
     free(loan);
   }
 }

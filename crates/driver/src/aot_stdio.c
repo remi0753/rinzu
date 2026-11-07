@@ -45,8 +45,10 @@ static int rinzu_aot_display_load(void *raw, size_t type, uint64_t bits,
     return 0;
   case RINZU_VALUE_ERROR_RECORD:
   case RINZU_VALUE_ERROR:
-    if (value->kind == RINZU_MANAGED_COMPOSITE && reader->data->schema->types[value->type].kind == RINZU_VALUE_ERROR_RECORD) {
-      value = rinzu_managed_string_value(reader->data, rinzu_managed_message(reader->data, value->identity));
+    if (value->kind == RINZU_MANAGED_COMPOSITE &&
+        reader->data->schema->types[value->type].kind == RINZU_VALUE_ERROR_RECORD) {
+      value = rinzu_managed_string_value(reader->data,
+                                         rinzu_managed_message(reader->data, value->identity));
       break;
     }
     if (value->kind == RINZU_MANAGED_ERROR) {
@@ -103,7 +105,7 @@ int64_t rinzu_baseline_format_string(void *raw, const uint64_t *bits, const uint
     part->owned = NULL;
     if (rinzu_program_schema.types[index].kind == RINZU_VALUE_STRING) {
       rinzu_managed_value_t *value = NULL;
-      if (rinzu_managed_slot_resolve_owned(reader.data, index, slot, &value))
+      if (rinzu_managed_slot_resolve_owned(reader.data, index, slot, &value) || !value)
         rinzu_failure_fatal();
       part->bytes = value->bytes;
       part->length = value->length;

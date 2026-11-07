@@ -26,7 +26,8 @@ int main(int argc, char **argv) {
     } else if (!strcmp(argv[1], "child-oom")) {
       fail_allocation = 1;
       rinzu_child_admit(&scope, 0);
-    } else return 2;
+    } else
+      return 2;
     return 3;
   }
   enum { COUNT = 4096 };
@@ -36,7 +37,7 @@ int main(int argc, char **argv) {
     uint64_t handles[COUNT];
     for (unsigned i = 0; i < COUNT; ++i) {
       futures[i] = rinzu_async_new(&runtime, RINZU_ASYNC_READY, RINZU_SCALAR_I64,
-                                  (rinzu_source_position_t){0});
+                                   (rinzu_source_position_t){0});
       handles[i] = rinzu_async_handle(futures[i]);
       assert(handles[i] > last);
       last = handles[i];

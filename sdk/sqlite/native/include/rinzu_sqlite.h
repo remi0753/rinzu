@@ -35,7 +35,8 @@ void rinzu_sqlite_column_int(void *statement, int64_t index, struct ValueResult 
 int32_t rinzu_sqlite_finalize(void *statement);
 int32_t rinzu_sqlite_close(void *connection);
 int32_t rinzu_sqlite_close_owner_connections(void);
-int32_t rinzu_sqlite_observe(void *connection, const char *sql, void *context, int32_t (*handler)(void *));
+int32_t rinzu_sqlite_observe(void *connection, const char *sql, void *context,
+                             int32_t (*handler)(void *));
 int64_t rinzu_sqlite_retained_control_bytes(void);
 int32_t rinzu_sqlite_owned_ready(void *connection);
 int32_t rinzu_sqlite_owned_begin(void *connection, const char *sql, bool text);

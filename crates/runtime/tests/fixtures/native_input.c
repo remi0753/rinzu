@@ -33,15 +33,19 @@ static void run_dynamic(void) {
   rinzu_native_byte_array_t view = {original, sizeof(original)};
   assert(!rinzu_managed_receive_byte_array(&data, &view, &output));
   memset(original, 90, sizeof(original));
-  view.data = NULL; view.length = SIZE_MAX;
-  rinzu_managed_enter(&roots); rinzu_managed_publish(&roots, &output, 1);
+  view.data = NULL;
+  view.length = SIZE_MAX;
+  rinzu_managed_enter(&roots);
+  rinzu_managed_publish(&roots, &output, 1);
   rinzu_managed_collect(&data, &roots);
   const unsigned char expected[] = {0, 255, 128, 0};
   rinzu_managed_value_t *value = rinzu_managed_find(&data, output);
   assert(value->length == sizeof(expected) && !memcmp(value->bytes, expected, sizeof(expected)));
-  rinzu_managed_leave(&roots); rinzu_managed_collect(&data, &roots);
+  rinzu_managed_leave(&roots);
+  rinzu_managed_collect(&data, &roots);
   assert(!data.objects);
-  rinzu_managed_dispose(&roots); rinzu_managed_data_dispose(&data);
+  rinzu_managed_dispose(&roots);
+  rinzu_managed_data_dispose(&data);
 }
 static void run(void) {
   rinzu_managed_data_t data = {0};
@@ -112,15 +116,19 @@ int main(int argc, char **argv) {
         void *page = mmap(NULL, 16384, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
         assert(page != MAP_FAILED);
         view.data = page;
-        if (!strcmp(mode, "array-zero-unreadable")) view.length = 0;
-        (void)rinzu_managed_receive_byte_array(&data,
-            !strcmp(mode, "array-descriptor") ? page : &view, &output);
+        if (!strcmp(mode, "array-zero-unreadable"))
+          view.length = 0;
+        (void)rinzu_managed_receive_byte_array(
+            &data, !strcmp(mode, "array-descriptor") ? page : &view, &output);
         if (!strcmp(mode, "array-zero-unreadable")) {
           assert(rinzu_managed_find(&data, output)->length == 0);
-          rinzu_managed_collect(&data, &roots); rinzu_managed_data_dispose(&data);
-          assert(!munmap(page, 16384)); return 0;
+          rinzu_managed_collect(&data, &roots);
+          rinzu_managed_data_dispose(&data);
+          assert(!munmap(page, 16384));
+          return 0;
         }
-      } else (void)rinzu_managed_receive_byte_array(&data, &view, &output);
+      } else
+        (void)rinzu_managed_receive_byte_array(&data, &view, &output);
       abort();
     }
     rinzu_native_length_callback_t callback = rinzu_native_length_prepare(
@@ -148,7 +156,8 @@ int main(int argc, char **argv) {
       (void)entry(!strcmp(mode, "size") || !strncmp(mode, "oom-", 4) ? bytes : NULL);
     abort();
   }
-  run_dynamic(); run();
+  run_dynamic();
+  run();
   pthread_t threads[8];
   for (size_t index = 0; index < 8; ++index)
     assert(!pthread_create(&threads[index], NULL, worker, NULL));

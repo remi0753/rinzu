@@ -9,16 +9,21 @@ static const rinzu_value_type_t types[] = {
     {.kind = RINZU_VALUE_STRING},
     {.kind = RINZU_VALUE_SCALAR, .scalar_kind = RINZU_SCALAR_I64},
     {.kind = RINZU_VALUE_ERROR},
-    {.kind = RINZU_VALUE_ENUM, .identity = "Option<SourceLocation>",
-     .variant_count = 2, .variants = source_variants},
-    {.kind = RINZU_VALUE_RECORD, .identity = "SourceLocation", .field_count = 3,
+    {.kind = RINZU_VALUE_ENUM,
+     .identity = "Option<SourceLocation>",
+     .variant_count = 2,
+     .variants = source_variants},
+    {.kind = RINZU_VALUE_RECORD,
+     .identity = "SourceLocation",
+     .field_count = 3,
      .fields = location_fields},
-    {.kind = RINZU_VALUE_ENUM, .identity = "Option<Error>", .variant_count = 2,
+    {.kind = RINZU_VALUE_ENUM,
+     .identity = "Option<Error>",
+     .variant_count = 2,
      .variants = cause_variants},
-    {.kind = RINZU_VALUE_ERROR_RECORD, .identity = "A", .field_count = 4,
-     .fields = error_fields}};
-static const rinzu_source_entry_t sources[] = {
-    {1, 17, 2, 9, "absent.rinzu", 12}, {2, 33, 3, 8, "other.rinzu", 11}};
+    {.kind = RINZU_VALUE_ERROR_RECORD, .identity = "A", .field_count = 4, .fields = error_fields}};
+static const rinzu_source_entry_t sources[] = {{1, 17, 2, 9, "absent.rinzu", 12},
+                                               {2, 33, 3, 8, "other.rinzu", 11}};
 
 static void inspect(rinzu_managed_data_t *data, uint64_t error) {
   uint64_t option = rinzu_managed_error_metadata(data, 3, error, 2);
@@ -67,7 +72,8 @@ int main(void) {
   assert(rinzu_managed_first_error_trace(&data, legacy, trace) == trace);
   assert(rinzu_managed_first_error_trace(&data, operation, trace) == trace);
   inspect(&data, operation);
-  uint64_t unknown = rinzu_managed_source_option(&data, 3,
+  uint64_t unknown = rinzu_managed_source_option(
+      &data, 3,
       (rinzu_source_position_t){.present = 1, .file = 1, .start_byte = 18, .end_byte = 20});
   assert(rinzu_managed_find(&data, unknown)->variant == 0);
   uint64_t live[] = {error, legacy, operation};

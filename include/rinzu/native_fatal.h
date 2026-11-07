@@ -19,7 +19,7 @@ static __attribute__((unused, cold, noinline)) _Noreturn void rinzu_native_fatal
 #ifdef S_ISSOCK
        || S_ISSOCK(status.st_mode)
 #endif
-       )) {
+           )) {
     int flags = fcntl(STDERR_FILENO, F_GETFL);
     if (flags >= 0 && !fcntl(STDERR_FILENO, F_SETFL, flags | O_NONBLOCK)) {
       /* On macOS a closed pipe can signal another thread before _Exit. */
@@ -34,6 +34,10 @@ static __attribute__((unused, cold, noinline)) _Noreturn void rinzu_native_fatal
   }
   _Exit(code == 71 ? 71 : 86);
 }
-static inline _Noreturn void rinzu_interop_fatal(void) { rinzu_native_fatal(86); }
-static inline _Noreturn void rinzu_resource_fatal(void) { rinzu_native_fatal(71); }
+static inline _Noreturn void rinzu_interop_fatal(void) {
+  rinzu_native_fatal(86);
+}
+static inline _Noreturn void rinzu_resource_fatal(void) {
+  rinzu_native_fatal(71);
+}
 #endif

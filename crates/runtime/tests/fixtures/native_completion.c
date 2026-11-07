@@ -27,11 +27,11 @@ static void immediate_completion(void) {
     assert(native);
     rinzu_native_completion_init(native);
     atomic_store_explicit(&native->done, 1, memory_order_release);
-    rinzu_async_future_t *future = rinzu_async_new(&runtime, RINZU_ASYNC_COMPLETION,
-                                                  RINZU_TRANSFER_UNIT,
-                                                  (rinzu_source_position_t){0});
+    rinzu_async_future_t *future = rinzu_async_new(
+        &runtime, RINZU_ASYNC_COMPLETION, RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
     future->native_completion = native;
-    rinzu_async_set_readiness(future, rinzu_ready_prepare(board, "native.immediate", 1, 2, 3, 0, 0));
+    rinzu_async_set_readiness(future,
+                              rinzu_ready_prepare(board, "native.immediate", 1, 2, 3, 0, 0));
     if (index % 2) {
       assert(rinzu_async_cancel(future));
       assert(!atomic_load(&future->physical_done));
@@ -63,9 +63,8 @@ static void owner_progress_without_reactor(void) {
     }
     rinzu_native_completion_t native;
     rinzu_native_completion_init(&native);
-    rinzu_async_future_t *future = rinzu_async_new(&runtime, RINZU_ASYNC_COMPLETION,
-                                                  RINZU_TRANSFER_UNIT,
-                                                  (rinzu_source_position_t){0});
+    rinzu_async_future_t *future = rinzu_async_new(
+        &runtime, RINZU_ASYNC_COMPLETION, RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
     future->native_completion = &native;
     /* Simulate completion in the registration/Owner-progress gap, without a
        helper thread that could accidentally make a lost-wake test pass. */
@@ -74,13 +73,18 @@ static void owner_progress_without_reactor(void) {
     assert(rinzu_async_cancel(future));
     assert(!rinzu_async_try_collect(future));
     atomic_store_explicit(&native.done, 1, memory_order_release);
-    if (mode == 0) assert(rinzu_async_has_completion(&runtime));
-    if (mode == 1) assert(rinzu_async_try_collect(future));
-    if (mode == 2) assert(rinzu_async_completion_epoch(&runtime) == 1);
-    if (mode == 3) rinzu_async_wait_progress(&runtime, 0);
+    if (mode == 0)
+      assert(rinzu_async_has_completion(&runtime));
+    if (mode == 1)
+      assert(rinzu_async_try_collect(future));
+    if (mode == 2)
+      assert(rinzu_async_completion_epoch(&runtime) == 1);
+    if (mode == 3)
+      rinzu_async_wait_progress(&runtime, 0);
     assert(atomic_load(&future->physical_done));
     assert(runtime.completion_epoch == 1 && !runtime.reactor_started);
-    if (!future->settled) assert(rinzu_async_try_collect(future));
+    if (!future->settled)
+      assert(rinzu_async_try_collect(future));
     assert(future->failure.primary == 2);
     rinzu_async_release(future);
     rinzu_async_dispose(&runtime);
@@ -93,7 +97,7 @@ static void shared_carrier_cleanup(void) {
   assert(native);
   rinzu_native_completion_init(native);
   rinzu_async_future_t *first = rinzu_async_new(&runtime, RINZU_ASYNC_COMPLETION,
-                                               RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
+                                                RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
   first->native_completion = native;
   if (runtime.direct_native_completion) {
     first->executed = 1;
@@ -103,8 +107,8 @@ static void shared_carrier_cleanup(void) {
   }
   assert(rinzu_async_cancel(first));
   atomic_store_explicit(&native->done, 1, memory_order_release);
-  rinzu_async_future_t *cleanup = rinzu_async_new(&runtime, RINZU_ASYNC_COMPLETION,
-                                                 RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
+  rinzu_async_future_t *cleanup = rinzu_async_new(
+      &runtime, RINZU_ASYNC_COMPLETION, RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
   cleanup->native_completion = native;
   rinzu_async_start(cleanup);
   while (!cleanup->settled) {
@@ -147,7 +151,7 @@ static void collection_joins_publication(void) {
   rinzu_async_future_t *futures[2];
   for (size_t index = 0; index < 2; ++index) {
     futures[index] = rinzu_async_new(&runtime, RINZU_ASYNC_COMPLETION, RINZU_TRANSFER_UNIT,
-                                      (rinzu_source_position_t){0});
+                                     (rinzu_source_position_t){0});
     futures[index]->native_completion = native;
     futures[index]->executed = 1;
     futures[index]->completion_next = runtime.native_completions;

@@ -27,7 +27,8 @@ int main(void) {
   sqlite3_int64 baseline = sqlite3_memory_used();
   void *connection = rinzu_sqlite_open(":memory:");
   assert(rinzu_sqlite_connection_status(connection) == SQLITE_OK);
-  assert(rinzu_sqlite_observe(connection, "SELECT 1 UNION ALL SELECT 2", connection, reentry) == SQLITE_OK);
+  assert(rinzu_sqlite_observe(connection, "SELECT 1 UNION ALL SELECT 2", connection, reentry) ==
+         SQLITE_OK);
   struct ValueResult value = query(connection, "SELECT 9223372036854775807");
   assert(value.status == SQLITE_OK && value.value == INT64_MAX);
   assert(query(connection, "SELECT 'borrowed text'").status == RINZU_SQLITE_TYPE);

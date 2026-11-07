@@ -13,7 +13,8 @@ static void *admitted(int64_t id) {
   return rinzu_socket_operation(id);
 }
 static void wait_operation(void *token) {
-  for (unsigned count = 0; !rinzu_native_completion_is_done(rinzu_socket_completion(token)); ++count) {
+  for (unsigned count = 0; !rinzu_native_completion_is_done(rinzu_socket_completion(token));
+       ++count) {
     assert(count < 10000);
     pause_once();
   }
@@ -31,7 +32,9 @@ static void close_stream(void *stream) {
   assert(!rinzu_socket_status(token));
   finish(token);
 }
-static uint8_t pattern(size_t index) { return (uint8_t)(index * 139); }
+static uint8_t pattern(size_t index) {
+  return (uint8_t)(index * 139);
+}
 static void check_prefix(const uint8_t *bytes, size_t prefix, size_t received) {
   for (size_t index = 0; index < prefix; ++index)
     assert(bytes[index] == (index < received ? pattern(index) : 0));
@@ -46,7 +49,8 @@ static void run_case(enum Outcome outcome, size_t maximum, size_t sent, bool des
   handle->fd = pair[0];
   void *stream = (void *)handle->id;
   pthread_mutex_unlock(&lock);
-  void *reading = admitted(rinzu_socket_read(stream, (int64_t)maximum, outcome == DEADLINE ? 1000 : 0));
+  void *reading =
+      admitted(rinzu_socket_read(stream, (int64_t)maximum, outcome == DEADLINE ? 1000 : 0));
   pthread_mutex_lock(&lock);
   struct Operation *op = owned(reading);
   assert(!op->ready && op->buffer && op->capacity == CHUNK);
@@ -54,7 +58,8 @@ static void run_case(enum Outcome outcome, size_t maximum, size_t sent, bool des
   pthread_mutex_unlock(&lock);
   uint8_t input[4096];
   assert(sent <= sizeof(input));
-  for (size_t index = 0; index < sent; ++index) input[index] = pattern(index);
+  for (size_t index = 0; index < sent; ++index)
+    input[index] = pattern(index);
   bool data = outcome == DATA || outcome == READY_CANCEL;
   if (data) {
     assert(write(pair[1], input, sent) == (ssize_t)sent);
@@ -65,7 +70,9 @@ static void run_case(enum Outcome outcome, size_t maximum, size_t sent, bool des
   }
   wait_operation(reading);
   int32_t status = rinzu_socket_status(reading);
-  assert(status == (outcome == DEADLINE ? RINZU_SOCKET_DEADLINE : outcome == CANCEL ? ECANCELED : 0));
+  assert(status == (outcome == DEADLINE ? RINZU_SOCKET_DEADLINE
+                    : outcome == CANCEL ? ECANCELED
+                                        : 0));
   size_t received = (size_t)rinzu_socket_length(reading);
   assert(data ? received && received <= sent && received <= maximum : !received);
   check_accounting();
@@ -73,9 +80,9 @@ static void run_case(enum Outcome outcome, size_t maximum, size_t sent, bool des
   assert(view->length == received);
   check_prefix(view->data, received, received);
   size_t small = received <= 256 ? 256 : 4096;
-  const uint8_t *bytes = descending ? rinzu_socket_bytes(reading)
-                                  : small == 256 ? rinzu_socket_bytes_256(reading)
-                                                 : rinzu_socket_bytes_4096(reading);
+  const uint8_t *bytes = descending     ? rinzu_socket_bytes(reading)
+                         : small == 256 ? rinzu_socket_bytes_256(reading)
+                                        : rinzu_socket_bytes_4096(reading);
   check_prefix(bytes, descending ? CHUNK : small, received);
   uint8_t snapshot[4096];
   memcpy(snapshot, bytes, small);
@@ -87,8 +94,8 @@ static void run_case(enum Outcome outcome, size_t maximum, size_t sent, bool des
   assert(bytes == large && view->data == large && view->length == received &&
          !memcmp(snapshot, bytes, small));
   check_prefix(large, CHUNK, received);
-  const uint8_t *again = small == 256 ? rinzu_socket_bytes_256(reading)
-                                     : rinzu_socket_bytes_4096(reading);
+  const uint8_t *again =
+      small == 256 ? rinzu_socket_bytes_256(reading) : rinzu_socket_bytes_4096(reading);
   assert(again == bytes && !memcmp(snapshot, again, small));
   check_prefix(again, small, received);
   finish(reading);
@@ -115,5 +122,6 @@ int main(void) {
     run_case(CANCEL, CHUNK, 0, order != 0);
     run_case(READY_CANCEL, CHUNK, 257, order != 0);
   }
-  puts("read-padding:36;poison:all;small/full/descending:stable;EOF/deadline/cancel:zero;ready-cancel:stable;cleanup:zero");
+  puts("read-padding:36;poison:all;small/full/descending:stable;EOF/deadline/"
+       "cancel:zero;ready-cancel:stable;cleanup:zero");
 }

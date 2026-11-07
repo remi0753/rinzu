@@ -149,7 +149,8 @@ static inline void rinzu_userdata_open(rinzu_userdata_registry_t *registry,
   scope->phase = RINZU_USERDATA_OPEN;
 }
 static inline void rinzu_userdata_expect_result(rinzu_userdata_registry_t *registry,
-    rinzu_managed_data_t *data, uint64_t identity, size_t type) {
+                                                rinzu_managed_data_t *data, uint64_t identity,
+                                                size_t type) {
   rinzu_userdata_owner(registry, data);
   rinzu_userdata_mapping(data, type);
   rinzu_userdata_scope_t *scope = rinzu_userdata_scope(registry, identity);
@@ -159,7 +160,9 @@ static inline void rinzu_userdata_expect_result(rinzu_userdata_registry_t *regis
   scope->result_type = type;
 }
 static inline int rinzu_userdata_receive_result(rinzu_userdata_registry_t *registry,
-    rinzu_managed_data_t *data, uint64_t identity, size_t type, const void *pointer, uint64_t *output) {
+                                                rinzu_managed_data_t *data, uint64_t identity,
+                                                size_t type, const void *pointer,
+                                                uint64_t *output) {
   rinzu_userdata_owner(registry, data);
   rinzu_userdata_scope_t *scope = rinzu_userdata_scope(registry, identity);
   if (scope->phase != RINZU_USERDATA_SETTLING || scope->admissions || scope->result != 1 ||
@@ -255,7 +258,7 @@ static inline void rinzu_userdata_discard_prepared(rinzu_userdata_registry_t *re
   rinzu_userdata_release_scope(registry, data, scope);
 }
 static inline void rinzu_userdata_finish_result(rinzu_userdata_registry_t *registry,
-    rinzu_managed_data_t *data, uint64_t identity) {
+                                                rinzu_managed_data_t *data, uint64_t identity) {
   rinzu_userdata_owner(registry, data);
   rinzu_userdata_scope_t *scope = rinzu_userdata_scope(registry, identity);
   if (scope->phase != RINZU_USERDATA_SETTLING || scope->admissions || !scope->result)

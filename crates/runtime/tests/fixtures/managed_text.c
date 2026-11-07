@@ -94,8 +94,8 @@ int main(void) {
     assert(rinzu_managed_find(&data, handles[4])->bytes != old_bytes);
     rinzu_managed_value_t *received = rinzu_managed_string_value(&data, handles[7]);
     assert(received->scalar_length == 4 && !memcmp(received->bytes, texts[4], 13));
-    size_t accounted = data.heap_bytes + data.index_accounted_bytes +
-                       foreign.heap_bytes + foreign.index_accounted_bytes;
+    size_t accounted = data.heap_bytes + data.index_accounted_bytes + foreign.heap_bytes +
+                       foreign.index_accounted_bytes;
     assert(rinzu_resource_counters[RINZU_RESOURCE_MANAGED].live == accounted);
   }
   rinzu_managed_leave(&roots);

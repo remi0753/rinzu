@@ -2,6 +2,10 @@
 mod frozen_cli;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[path = "fixtures/ready_snapshot.rs"]
+mod ready_snapshot;
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn ready_snapshots_preserve_creation_order_aliases_and_gc() {
     use std::{path::Path, process::Command};
@@ -52,30 +56,8 @@ fn generated_ready_snapshots_survive_nested_resume_and_retired_handles() {
         .unwrap();
     assert!(built.status.success(), "{built:?}");
     let source = fs::read_to_string(root.join("fixture.runtime.c")).unwrap();
-    let wrapper = source
-        .find("static void rinzu_aot_async_resume_ready(")
-        .unwrap();
-    let begin = source
-        .find("static __attribute__((noinline)) void rinzu_aot_async_resume_snapshot(")
-        .unwrap_or(wrapper);
-    let end = source[wrapper..].find("\n}\n").unwrap() + wrapper + 3;
-    let body = &source[begin..end];
-    let indexed = source.contains("static void rinzu_aot_async_queue_ready(");
-    let resume = "rinzu_aot_async_resume(";
-    assert_eq!(
-        body.matches(resume).count(),
-        if begin == wrapper { 1 } else { 2 }
-    );
-    let source = format!(
-        "#define TEST_READY_INDEX {}\n{}\nstatic __attribute__((noinline)) void ready_probe_resume(RinzuContext *, RinzuAsyncTask *);\n{}{}{}",
-        usize::from(indexed),
-        &source[..begin],
-        body.replace(resume, "ready_probe_resume("),
-        &source[end..],
-        include_str!("fixtures/ready_snapshot_guards.c"),
-    );
-    assert_eq!(source.matches("int main(").count(), 2);
-    let source = source.replacen("int main(", "int unused_source_main(", 1);
+    let source = ready_snapshot::ready_snapshot_prefix(&source)
+        + include_str!("fixtures/ready_snapshot_guards.c");
     fs::write(root.join("guards.c"), source).unwrap();
     for sanitized in [false, true] {
         let mut command = Command::new("clang");

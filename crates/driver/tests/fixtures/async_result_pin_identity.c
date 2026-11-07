@@ -13,13 +13,13 @@ static int pin_identity_case(int consume, unsigned identity) {
   rinzu_managed_attach_roots(data, &context.domain_roots, &context.roots);
   rinzu_managed_enter(&context.roots);
   if (identity) {
-    rinzu_async_future_t *first = rinzu_async_new(
-        &async.runtime, RINZU_ASYNC_READY, RINZU_SCALAR_BOOL, (rinzu_source_position_t){0});
+    rinzu_async_future_t *first = rinzu_async_new(&async.runtime, RINZU_ASYNC_READY,
+                                                  RINZU_SCALAR_BOOL, (rinzu_source_position_t){0});
     rinzu_async_materialize(first);
     rinzu_async_release(first);
   }
-  rinzu_async_future_t *future = rinzu_async_new(
-      &async.runtime, RINZU_ASYNC_READY, RINZU_SCALAR_BOOL, (rinzu_source_position_t){0});
+  rinzu_async_future_t *future = rinzu_async_new(&async.runtime, RINZU_ASYNC_READY,
+                                                 RINZU_SCALAR_BOOL, (rinzu_source_position_t){0});
   assert(future->identity == identity);
   future->result_slot = 1;
   rinzu_async_materialize(future);
@@ -37,8 +37,7 @@ static int pin_identity_case(int consume, unsigned identity) {
     rinzu_aot_future_sweep(&async);
   }
   if (async.result_roots != pin) {
-    fprintf(stderr, "UNRELATED_PIN_LOST:future=%u:path=%s\n", identity,
-            consume ? "consume" : "gc");
+    fprintf(stderr, "UNRELATED_PIN_LOST:future=%u:path=%s\n", identity, consume ? "consume" : "gc");
     return 17;
   }
   assert(!rinzu_async_lookup(&async.runtime, handle));
@@ -60,7 +59,8 @@ int main(void) {
   for (unsigned identity = 0; identity < 2; ++identity)
     for (int consume = 0; consume < 2; ++consume) {
       int status = pin_identity_case(consume, identity);
-      if (status) return status;
+      if (status)
+        return status;
     }
   puts("ASYNC_RESULT_PIN_IDENTITY=4:baseline");
   return 0;

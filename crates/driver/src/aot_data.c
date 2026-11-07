@@ -1111,7 +1111,8 @@ int64_t rinzu_baseline_project_owner_proven(void *raw, int64_t bits, int64_t typ
   if (field < 0)
     rinzu_failure_fatal();
   rinzu_managed_slot_t result = {0};
-  int status = rinzu_managed_project_owned(data, (uint64_t)bits, index, variant, (size_t)field, &result);
+  int status =
+      rinzu_managed_project_owned(data, (uint64_t)bits, index, variant, (size_t)field, &result);
   if (status == RINZU_VALUE_BUSY)
     return rinzu_aot_record_busy(raw);
   if (status)

@@ -18,8 +18,8 @@ static void *wrong_owner(void *raw) {
   rinzu_managed_bytes_literal(raw, ascii, sizeof(ascii) - 1);
   return NULL;
 }
-static void assert_bytes(rinzu_managed_data_t *data, uint64_t identity,
-                         const unsigned char *bytes, size_t length) {
+static void assert_bytes(rinzu_managed_data_t *data, uint64_t identity, const unsigned char *bytes,
+                         size_t length) {
   rinzu_managed_value_t *value = rinzu_managed_find(data, identity);
   assert(value->kind == RINZU_MANAGED_BYTES && value->length == length);
   assert(!value->bytes[length]);
@@ -32,7 +32,8 @@ static void child_exit(pid_t child, int expected) {
 }
 int main(void) {
   atomic_store(&rinzu_resource_enabled, 1);
-  for (size_t i = 0; i < sizeof(binary); ++i) binary[i] = (unsigned char)i;
+  for (size_t i = 0; i < sizeof(binary); ++i)
+    binary[i] = (unsigned char)i;
   rinzu_managed_data_t data = {0}, foreign = {0};
   rinzu_managed_roots_t roots = {0};
   uint64_t handle = rinzu_managed_bytes_literal(&data, binary, sizeof(binary));
@@ -103,13 +104,14 @@ int main(void) {
   }
   for (unsigned repeat = 0; repeat < 3; ++repeat) {
     for (size_t i = 0; i < sizeof(many) / sizeof(*many); ++i)
-      assert_bytes(&data, rinzu_managed_bytes_literal(&data, many[i], sizeof(*many)),
-                   many[i], sizeof(*many));
+      assert_bytes(&data, rinzu_managed_bytes_literal(&data, many[i], sizeof(*many)), many[i],
+                   sizeof(*many));
     rinzu_managed_collect(&data, &roots);
     assert(!data.objects);
   }
   assert(rinzu_resource_counters[RINZU_RESOURCE_MANAGED].live ==
-         data.heap_bytes + data.index_accounted_bytes + foreign.heap_bytes + foreign.index_accounted_bytes);
+         data.heap_bytes + data.index_accounted_bytes + foreign.heap_bytes +
+             foreign.index_accounted_bytes);
   rinzu_managed_leave(&roots);
   rinzu_managed_dispose(&roots);
   rinzu_managed_data_dispose(&data);
@@ -119,7 +121,7 @@ int main(void) {
 
   /* Cache, index, lookup cache, metadata and external payload all fail fatally. */
   const char *cache = getenv("RINZU_MANAGED_LOOKUP_CACHE");
-  size_t allocations = !cache || strcmp(cache, "0") ? 5 : 4;
+  size_t allocations = !cache || strcmp(cache, "0") != 0 ? 5 : 4;
   for (size_t failure = 1; failure <= allocations; ++failure) {
     child = fork();
     assert(child >= 0);
@@ -132,5 +134,6 @@ int main(void) {
     }
     child_exit(child, 71);
   }
-  puts("PASS byte literals: weak cache, kinds, snapshots, GC, rollback, collisions, Owner, Domain, OOM");
+  puts("PASS byte literals: weak cache, kinds, snapshots, GC, rollback, collisions, Owner, Domain, "
+       "OOM");
 }

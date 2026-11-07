@@ -81,12 +81,11 @@ struct RinzuAsyncTask {
   uint64_t argument_storage[];
 };
 static RinzuAsyncTask *rinzu_aot_async_allocate_task(rinzu_async_runtime_t *runtime,
-                                                   const uint64_t *arguments, size_t count) {
-  if ((count && !arguments) ||
-      count > (SIZE_MAX - sizeof(RinzuAsyncTask)) / (2 * sizeof(uint64_t)))
+                                                     const uint64_t *arguments, size_t count) {
+  if ((count && !arguments) || count > (SIZE_MAX - sizeof(RinzuAsyncTask)) / (2 * sizeof(uint64_t)))
     rinzu_failure_fatal();
-  RinzuAsyncTask *task = rinzu_async_control_allocate(
-      runtime, sizeof(*task) + count * 2 * sizeof(uint64_t));
+  RinzuAsyncTask *task =
+      rinzu_async_control_allocate(runtime, sizeof(*task) + count * 2 * sizeof(uint64_t));
   task->count = count;
   task->argument_frame.allocation = 1;
   if (count) {
@@ -106,8 +105,7 @@ static void rinzu_aot_async_detach_argument_frame(RinzuAsyncTask *task) {
      the head of the inactive chain, including when the body failed/cancelled. */
   if (roots->current || roots->depth || roots->free_frames != &task->argument_frame ||
       task->argument_frame.count || task->argument_frame.writing ||
-      task->argument_frame.allocation != 1 ||
-      task->argument_frame.capacity != task->count ||
+      task->argument_frame.allocation != 1 || task->argument_frame.capacity != task->count ||
       task->argument_frame.roots != (task->count ? task->argument_storage + task->count : NULL))
     rinzu_failure_fatal();
   roots->free_frames = task->argument_frame.previous;
@@ -127,7 +125,7 @@ struct RinzuAsyncState {
   unsigned ready_order;
   RinzuAsyncResultRoot *result_roots;
   size_t next_future_gc;
-  size_t peak_future_records,gc_retired_futures;
+  size_t peak_future_records, gc_retired_futures;
   rinzu_continuation_t root_continuation;
   rinzu_activity_t *root_activity;
   rinzu_source_position_t root_source;
@@ -160,7 +158,8 @@ static void rinzu_aot_async_queue_ready(RinzuAsyncTask *task) {
   if (state->ready_tail) {
     if (state->ready_order)
       state->ready_order &= state->ready_tail->future->identity < task->future->identity
-                                ? RINZU_TASK_READY_ASCENDING : RINZU_TASK_READY_DESCENDING;
+                                ? RINZU_TASK_READY_ASCENDING
+                                : RINZU_TASK_READY_DESCENDING;
     state->ready_tail->ready_next = task;
   } else {
     if (state->ready_head || state->ready_count)
@@ -181,13 +180,18 @@ static void rinzu_aot_async_unqueue_ready(RinzuAsyncTask *task) {
   }
   RinzuAsyncState *state = task->context.async;
   if (!state->ready_count ||
-      (task->ready_previous ? task->ready_previous->ready_next != task : state->ready_head != task) ||
+      (task->ready_previous ? task->ready_previous->ready_next != task
+                            : state->ready_head != task) ||
       (task->ready_next ? task->ready_next->ready_previous != task : state->ready_tail != task))
     rinzu_failure_fatal();
-  if (task->ready_previous) task->ready_previous->ready_next = task->ready_next;
-  else state->ready_head = task->ready_next;
-  if (task->ready_next) task->ready_next->ready_previous = task->ready_previous;
-  else state->ready_tail = task->ready_previous;
+  if (task->ready_previous)
+    task->ready_previous->ready_next = task->ready_next;
+  else
+    state->ready_head = task->ready_next;
+  if (task->ready_next)
+    task->ready_next->ready_previous = task->ready_previous;
+  else
+    state->ready_tail = task->ready_previous;
   task->ready_next = task->ready_previous = NULL;
   task->ready_queued = 0;
   /* Removing from a monotonic run preserves its direction. An unknown order
@@ -196,8 +200,8 @@ static void rinzu_aot_async_unqueue_ready(RinzuAsyncTask *task) {
     state->ready_order = RINZU_TASK_READY_ASCENDING | RINZU_TASK_READY_DESCENDING;
 }
 static void rinzu_aot_async_waiter_ready(rinzu_async_ready_waiter_t *waiter) {
-  RinzuAsyncTask *task = (RinzuAsyncTask *)((unsigned char *)waiter -
-                                          offsetof(RinzuAsyncTask, readiness));
+  RinzuAsyncTask *task =
+      (RinzuAsyncTask *)((unsigned char *)waiter - offsetof(RinzuAsyncTask, readiness));
   if (task->waiting != waiter->future)
     rinzu_failure_fatal();
   rinzu_aot_async_queue_ready(task);
@@ -221,7 +225,8 @@ static void rinzu_aot_async_event(void *raw, unsigned kind, uint64_t future) {
 #define ASYNC_EVENT(raw, kind, future) rinzu_aot_async_event(raw, kind, future)
 static void rinzu_aot_async_admission(rinzu_async_future_t *future, void *raw) {
   RinzuAsyncState *state = raw;
-  if(state->runtime.records>state->peak_future_records)state->peak_future_records=state->runtime.records;
+  if (state->runtime.records > state->peak_future_records)
+    state->peak_future_records = state->runtime.records;
   if (!state->runtime.record_evidence)
     return;
   RinzuFutureAdmission *entry = rinzu_failure_allocate(sizeof *entry);
@@ -289,13 +294,14 @@ static void rinzu_aot_async_credit_evidence(RinzuAsyncState *state) {
   }
   printf("\nRINZU_CANCELLED_CHILDREN=");
   separator = "";
-  for(unsigned group=0;group<2;++group)
-  for (rinzu_async_future_t *future = group ? state->retired_evidence : state->runtime.futures; future; future = future->next) {
-    if (atomic_load_explicit(&future->cancel_requested, memory_order_acquire)) {
-      printf("%s%llu", separator, (unsigned long long)future->identity);
-      separator = ",";
+  for (unsigned group = 0; group < 2; ++group)
+    for (rinzu_async_future_t *future = group ? state->retired_evidence : state->runtime.futures;
+         future; future = future->next) {
+      if (atomic_load_explicit(&future->cancel_requested, memory_order_acquire)) {
+        printf("%s%llu", separator, (unsigned long long)future->identity);
+        separator = ",";
+      }
     }
-  }
   printf("\n");
 }
 /* Each catch keeps its local Error snapshot. The Main report records the
@@ -383,76 +389,87 @@ static void rinzu_aot_async_release_result(RinzuAsyncState *state, RinzuAsyncRes
     rinzu_failure_fatal();
   *cursor = root->next;
   rinzu_async_future_t *future = rinzu_async_lookup(&state->runtime, root->future_handle);
-  if (future) future->gc_result = 0;
+  if (future)
+    future->gc_result = 0;
   rinzu_managed_leave(&root->roots);
   rinzu_managed_detach_roots(state->root->shared_data, &root->entry);
   rinzu_managed_dispose(&root->roots);
   free(root);
 }
-static uint64_t rinzu_aot_future_mark(void *raw,uint64_t handle) {
-  RinzuAsyncState *state=raw;
+static uint64_t rinzu_aot_future_mark(void *raw, uint64_t handle) {
+  RinzuAsyncState *state = raw;
   rinzu_async_future_t *future = rinzu_async_lookup(&state->runtime, handle);
   if (future) {
-    if(future->gc_reached)return 0;
-    future->gc_reached=1;return future->gc_result;
+    if (future->gc_reached)
+      return 0;
+    future->gc_reached = 1;
+    return future->gc_result;
   }
   /* A direct consuming await may leave a stale, statically dead root word. */
   return 0;
 }
 static void rinzu_aot_future_begin(void *raw) {
-  RinzuAsyncState *state=raw;
-  for(rinzu_async_future_t *future=state->runtime.futures;future;future=future->next)
-    future->gc_reached=0;
-  for(rinzu_async_future_t *future=state->runtime.futures;future;future=future->next)
-    if(!future->settled || future->ready_waiters) {
-      future->gc_reached=1;
-      if(future->gc_result)rinzu_managed_mark(state->root->shared_data,future->gc_result);
+  RinzuAsyncState *state = raw;
+  for (rinzu_async_future_t *future = state->runtime.futures; future; future = future->next)
+    future->gc_reached = 0;
+  for (rinzu_async_future_t *future = state->runtime.futures; future; future = future->next)
+    if (!future->settled || future->ready_waiters) {
+      future->gc_reached = 1;
+      if (future->gc_result)
+        rinzu_managed_mark(state->root->shared_data, future->gc_result);
     }
 }
-static void rinzu_aot_future_evidence(RinzuAsyncState *state,const rinzu_async_future_t *future) {
-  int cancelled=atomic_load_explicit(&future->cancel_requested,memory_order_acquire);
-  if(!state->runtime.record_evidence || (!future->heap_evidence && !cancelled)) return;
+static void rinzu_aot_future_evidence(RinzuAsyncState *state, const rinzu_async_future_t *future) {
+  int cancelled = atomic_load_explicit(&future->cancel_requested, memory_order_acquire);
+  if (!state->runtime.record_evidence || (!future->heap_evidence && !cancelled))
+    return;
   /* Zero-owned scalar snapshot: never a task, Future, packet, root or resource. */
-  rinzu_async_future_t *snapshot=rinzu_failure_allocate(sizeof(*snapshot));
-  snapshot->identity=future->identity;
-  snapshot->heap_evidence=future->heap_evidence;
-  snapshot->worker_body_entered=future->worker_body_entered;
-  snapshot->worker_objects=future->worker_objects;
-  snapshot->worker_roots=future->worker_roots;
-  snapshot->worker_peak_objects=future->worker_peak_objects;
-  snapshot->worker_peak_frames=future->worker_peak_frames;
-  snapshot->worker_collections=future->worker_collections;
-  snapshot->worker_userdata_scopes=future->worker_userdata_scopes;
-  snapshot->worker_userdata_tokens=future->worker_userdata_tokens;
-  snapshot->worker_userdata_roots=future->worker_userdata_roots;
-  snapshot->worker_userdata_in_flight=future->worker_userdata_in_flight;
-  snapshot->worker_userdata_created=future->worker_userdata_created;
-  snapshot->worker_userdata_released=future->worker_userdata_released;
-  atomic_init(&snapshot->cancel_requested,cancelled);
-  snapshot->next=state->retired_evidence;state->retired_evidence=snapshot;
+  rinzu_async_future_t *snapshot = rinzu_failure_allocate(sizeof(*snapshot));
+  snapshot->identity = future->identity;
+  snapshot->heap_evidence = future->heap_evidence;
+  snapshot->worker_body_entered = future->worker_body_entered;
+  snapshot->worker_objects = future->worker_objects;
+  snapshot->worker_roots = future->worker_roots;
+  snapshot->worker_peak_objects = future->worker_peak_objects;
+  snapshot->worker_peak_frames = future->worker_peak_frames;
+  snapshot->worker_collections = future->worker_collections;
+  snapshot->worker_userdata_scopes = future->worker_userdata_scopes;
+  snapshot->worker_userdata_tokens = future->worker_userdata_tokens;
+  snapshot->worker_userdata_roots = future->worker_userdata_roots;
+  snapshot->worker_userdata_in_flight = future->worker_userdata_in_flight;
+  snapshot->worker_userdata_created = future->worker_userdata_created;
+  snapshot->worker_userdata_released = future->worker_userdata_released;
+  atomic_init(&snapshot->cancel_requested, cancelled);
+  snapshot->next = state->retired_evidence;
+  state->retired_evidence = snapshot;
 }
 static void rinzu_aot_future_sweep(void *raw) {
-  RinzuAsyncState *state=raw;
-  rinzu_async_future_t *future=state->runtime.futures;
-  while(future) {
-    rinzu_async_future_t *next=future->next;
-    if(!future->gc_reached && future->settled && !future->ready_waiters &&
-       (!future->scope || future->scope->finished || rinzu_child_retire_unreferenced(future->scope,future->identity))) {
-      for(RinzuAsyncResultRoot *root=state->result_roots;root;root=root->next)
-        if(root->future_handle==rinzu_async_handle(future)){rinzu_aot_async_release_result(state,root);break;}
-      rinzu_aot_future_evidence(state,future);
+  RinzuAsyncState *state = raw;
+  rinzu_async_future_t *future = state->runtime.futures;
+  while (future) {
+    rinzu_async_future_t *next = future->next;
+    if (!future->gc_reached && future->settled && !future->ready_waiters &&
+        (!future->scope || future->scope->finished ||
+         rinzu_child_retire_unreferenced(future->scope, future->identity))) {
+      for (RinzuAsyncResultRoot *root = state->result_roots; root; root = root->next)
+        if (root->future_handle == rinzu_async_handle(future)) {
+          rinzu_aot_async_release_result(state, root);
+          break;
+        }
+      rinzu_aot_future_evidence(state, future);
       rinzu_async_release(future);
       ++state->gc_retired_futures;
     }
-    future=next;
+    future = next;
   }
-  size_t records=state->runtime.records;
-  state->next_future_gc=records>SIZE_MAX/2 ? SIZE_MAX : records*2;
-  if(state->next_future_gc<1024)state->next_future_gc=1024;
+  size_t records = state->runtime.records;
+  state->next_future_gc = records > SIZE_MAX / 2 ? SIZE_MAX : records * 2;
+  if (state->next_future_gc < 1024)
+    state->next_future_gc = 1024;
 }
 static int rinzu_aot_future_due(void *raw) {
-  RinzuAsyncState *state=raw;
-  return state->runtime.records>=(state->next_future_gc ? state->next_future_gc : 1024);
+  RinzuAsyncState *state = raw;
+  return state->runtime.records >= (state->next_future_gc ? state->next_future_gc : 1024);
 }
 static void rinzu_aot_async_hold_result(RinzuAsyncTask *task, uint64_t slot) {
   RinzuAsyncState *state = task->context.async;
@@ -467,8 +484,8 @@ static void rinzu_aot_async_hold_result(RinzuAsyncTask *task, uint64_t slot) {
   RinzuAsyncResultRoot *root = rinzu_failure_allocate(sizeof *root);
   root->future_handle = rinzu_async_handle(task->future);
   rinzu_managed_attach_roots(data, &root->entry, &root->roots);
-  root->entry.future_owner=rinzu_async_handle(task->future);
-  task->future->gc_result=slot;
+  root->entry.future_owner = rinzu_async_handle(task->future);
+  task->future->gc_result = slot;
   rinzu_managed_enter(&root->roots);
   rinzu_managed_publish(&root->roots, &slot, 1);
   root->next = state->result_roots;
@@ -481,8 +498,8 @@ static void rinzu_aot_async_hold_result(RinzuAsyncTask *task, uint64_t slot) {
 static void rinzu_aot_async_reparent_scope(RinzuAsyncState *state, rinzu_child_scope_t *scope,
                                            rinzu_child_scope_t *target) {
   for (rinzu_child_t *child = scope->children; child; child = child->next) {
-    rinzu_async_future_t *future = rinzu_async_lookup(
-        &state->runtime, RINZU_ASYNC_HANDLE_BASE + child->identity + 1);
+    rinzu_async_future_t *future =
+        rinzu_async_lookup(&state->runtime, RINZU_ASYNC_HANDLE_BASE + child->identity + 1);
     if (future && future->scope == scope)
       future->scope = target;
   }
@@ -545,9 +562,12 @@ static void rinzu_aot_async_resume(RinzuContext *caller, RinzuAsyncTask *task) {
     if ((task->previous ? task->previous->next != task : state->tasks != task) ||
         (task->next && task->next->previous != task) || task->future->task_context != task)
       rinzu_failure_fatal();
-    if (task->previous) task->previous->next = task->next;
-    else state->tasks = task->next;
-    if (task->next) task->next->previous = task->previous;
+    if (task->previous)
+      task->previous->next = task->next;
+    else
+      state->tasks = task->next;
+    if (task->next)
+      task->next->previous = task->previous;
     task->future->task_context = NULL;
     rinzu_managed_detach_roots(task->context.shared_data, &task->context.domain_roots);
     rinzu_aot_async_detach_argument_frame(task);
@@ -555,7 +575,7 @@ static void rinzu_aot_async_resume(RinzuContext *caller, RinzuAsyncTask *task) {
     rinzu_failure_dispose(&task->context.pending);
     rinzu_continuation_dispose(&task->continuation);
     rinzu_async_control_release(&state->runtime, task,
-                                 sizeof(*task) + task->count * 2 * sizeof(uint64_t));
+                                sizeof(*task) + task->count * 2 * sizeof(uint64_t));
   }
 }
 int64_t rinzu_baseline_async_call(void *raw, int64_t index, const uint64_t *arguments,
@@ -595,7 +615,8 @@ int64_t rinzu_baseline_async_call(void *raw, int64_t index, const uint64_t *argu
   rinzu_managed_enter(&task->context.roots);
   rinzu_aot_async_prepare(task);
   task->next = state->tasks;
-  if (task->next) task->next->previous = task;
+  if (task->next)
+    task->next->previous = task;
   state->tasks = task;
   future->task_context = task;
   rinzu_continuation_init(&task->continuation, 256 * 1024, rinzu_aot_async_body, task,
@@ -732,16 +753,18 @@ int64_t rinzu_baseline_async_service(void *raw, int64_t service, int64_t argumen
     RinzuAsyncState *state = rinzu_aot_async_state(context);
     rinzu_managed_data_t *data = rinzu_context_data(context);
     rinzu_managed_value_t *value = rinzu_managed_find(data, (uint64_t)argument);
-    rinzu_async_future_t *future = rinzu_async_new(&state->runtime, RINZU_ASYNC_COMPLETION,
-                         service == 4 ? RINZU_SCALAR_I64 : RINZU_TRANSFER_UNIT, context->source);
+    rinzu_async_future_t *future =
+        rinzu_async_new(&state->runtime, RINZU_ASYNC_COMPLETION,
+                        service == 4 ? RINZU_SCALAR_I64 : RINZU_TRANSFER_UNIT, context->source);
     future->native_completion = rinzu_managed_opaque_pointer(data, (uint64_t)argument, value->type);
     if (service == 4 && (future->native_completion->version != 3 ||
-                        !rinzu_native_completion_valid(future->native_completion)))
+                         !rinzu_native_completion_valid(future->native_completion)))
       rinzu_failure_fatal();
     rinzu_async_set_readiness(
-        future, rinzu_owner_ready_prepare(rinzu_context_transitions(context),
-                                          service == 4 ? "reactor.native-transfer" : "reactor.native-completion", future->source.file,
-                                          future->source.start_byte, future->source.end_byte));
+        future, rinzu_owner_ready_prepare(
+                    rinzu_context_transitions(context),
+                    service == 4 ? "reactor.native-transfer" : "reactor.native-completion",
+                    future->source.file, future->source.start_byte, future->source.end_byte));
     rinzu_async_start(future);
     state->started_native_completions++;
     return (int64_t)rinzu_async_handle(future);
@@ -765,8 +788,8 @@ static int rinzu_aot_async_compare_handles(const void *left, const void *right) 
   return (a > b) - (a < b);
 }
 /* Keep the snapshot array off the common single-task path's stack. */
-static __attribute__((noinline)) void rinzu_aot_async_resume_snapshot(
-    RinzuContext *context, RinzuAsyncState *state, size_t count) {
+static __attribute__((noinline)) void
+rinzu_aot_async_resume_snapshot(RinzuContext *context, RinzuAsyncState *state, size_t count) {
   if (count > SIZE_MAX / sizeof(uint64_t))
     rinzu_failure_fatal();
   uint64_t local_ready[64];
@@ -787,10 +810,12 @@ static __attribute__((noinline)) void rinzu_aot_async_resume_snapshot(
     index = count;
     for (RinzuAsyncTask *task = state->tasks; task; task = task->next)
       if (task->ready_queued) {
-        if (!index) rinzu_failure_fatal();
+        if (!index)
+          rinzu_failure_fatal();
         ready[--index] = rinzu_async_handle(task->future);
       }
-    if (index) rinzu_failure_fatal();
+    if (index)
+      rinzu_failure_fatal();
   } else if (state->ready_order & RINZU_TASK_READY_DESCENDING) {
     for (RinzuAsyncTask *task = state->ready_tail; task; task = task->ready_previous)
       ready[index++] = rinzu_async_handle(task->future);
@@ -832,8 +857,7 @@ static void rinzu_aot_async_resume_ready(RinzuContext *context) {
 static RinzuAsyncTask *rinzu_aot_dispatcher_ready_task(RinzuAsyncState *state, unsigned lane) {
   RinzuAsyncTask *ready = NULL;
   for (RinzuAsyncTask *task = state->ready_head; task; task = task->ready_next)
-    if (rinzu_aot_async_runnable(task) &&
-        (!!task->children.closing) == (lane == 0) &&
+    if (rinzu_aot_async_runnable(task) && (!!task->children.closing) == (lane == 0) &&
         (!ready || task->future->identity < ready->future->identity))
       ready = task;
   return ready;
@@ -1217,14 +1241,17 @@ int64_t rinzu_baseline_take_task_errors(void *raw, int64_t identity, int64_t typ
   size_t count = 0;
   if (!fatal)
     for (rinzu_child_error_t *error = group->body.errors; error; error = error->next) {
-      if (count == SIZE_MAX) rinzu_failure_fatal();
+      if (count == SIZE_MAX)
+        rinzu_failure_fatal();
       ++count;
       for (rinzu_diagnostic_node_t *node = error->failure.head; node; node = node->next) {
-        if (count == SIZE_MAX) rinzu_failure_fatal();
+        if (count == SIZE_MAX)
+          rinzu_failure_fatal();
         ++count;
       }
     }
-  if (count > SIZE_MAX / sizeof(rinzu_managed_slot_t)) rinzu_failure_fatal();
+  if (count > SIZE_MAX / sizeof(rinzu_managed_slot_t))
+    rinzu_failure_fatal();
   rinzu_managed_slot_t *slots = rinzu_failure_allocate(count * sizeof(*slots));
   size_t index = 0;
   rinzu_managed_data_t *data = rinzu_context_data(context);
@@ -1239,9 +1266,13 @@ int64_t rinzu_baseline_take_task_errors(void *raw, int64_t identity, int64_t typ
       context->pending.observed = observed;
       rinzu_aot_async_observe(context, &error->failure);
       size_t before = data->objects;
-      slots[index++] = (rinzu_managed_slot_t){rinzu_managed_failure_handle(data, error->failure.primary, error->failure.primary_source, error->failure.primary_error), 1};
+      slots[index++] = (rinzu_managed_slot_t){
+          rinzu_managed_failure_handle(data, error->failure.primary, error->failure.primary_source,
+                                       error->failure.primary_error),
+          1};
       for (rinzu_diagnostic_node_t *node = error->failure.head; node; node = node->next)
-        slots[index++] = (rinzu_managed_slot_t){rinzu_managed_failure_handle(data, node->cause, node->source, node->error), 1};
+        slots[index++] = (rinzu_managed_slot_t){
+            rinzu_managed_failure_handle(data, node->cause, node->source, node->error), 1};
       rinzu_failure_forget_managed(&observed->failure);
       context->allocations += data->objects - before;
     }

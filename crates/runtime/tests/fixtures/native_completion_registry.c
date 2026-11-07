@@ -19,7 +19,8 @@ int main(void) {
     assert(native);
     rinzu_native_completion_init(native);
     atomic_store_explicit(&native->done, 1, memory_order_release);
-    held[i] = rinzu_async_new(&runtime, RINZU_ASYNC_COMPLETION, RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
+    held[i] = rinzu_async_new(&runtime, RINZU_ASYNC_COMPLETION, RINZU_TRANSFER_UNIT,
+                              (rinzu_source_position_t){0});
     held[i]->native_completion = native;
     rinzu_async_start(held[i]);
     assert(rinzu_async_try_collect(held[i]));
@@ -28,7 +29,8 @@ int main(void) {
   uint64_t registration = nanos(CLOCK_MONOTONIC) - start;
   rinzu_native_completion_t pending;
   rinzu_native_completion_init(&pending);
-  rinzu_async_future_t *wait = rinzu_async_new(&runtime, RINZU_ASYNC_COMPLETION, RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
+  rinzu_async_future_t *wait = rinzu_async_new(&runtime, RINZU_ASYNC_COMPLETION,
+                                               RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
   wait->native_completion = &pending;
   rinzu_async_start(wait);
   rinzu_async_lock(&runtime);
@@ -56,5 +58,8 @@ int main(void) {
     rinzu_async_release(held[i - 1]);
   rinzu_async_dispose(&runtime);
   assert(!runtime.records && !runtime.pending_operations && !runtime.in_flight);
-  printf("{\"held\":%u,\"registered\":%zu,\"rounds\":%u,\"registrationNs\":%llu,\"probeNs\":%llu,\"cpuNs\":%llu}\n",COUNT,registered,ROUNDS,(unsigned long long)registration,(unsigned long long)probe,(unsigned long long)cpu);
+  printf("{\"held\":%u,\"registered\":%zu,\"rounds\":%u,\"registrationNs\":%llu,\"probeNs\":%llu,"
+         "\"cpuNs\":%llu}\n",
+         COUNT, registered, ROUNDS, (unsigned long long)registration, (unsigned long long)probe,
+         (unsigned long long)cpu);
 }

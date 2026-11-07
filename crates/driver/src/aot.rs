@@ -12,6 +12,8 @@ use rinzu_trace::TraceDocument;
 use serde_json::json;
 
 pub(crate) mod native_quality;
+#[cfg(any(all(test, unix), all(target_os = "macos", target_arch = "aarch64")))]
+mod poll_fixture;
 
 #[derive(Clone, Debug)]
 struct AsyncAotWorker {

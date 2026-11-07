@@ -5,10 +5,15 @@
 #include "rinzu/owner_transition.h"
 #include "rinzu/native_bytes.h"
 
-enum { RINZU_NATIVE_INPUT_OK, RINZU_NATIVE_NULL_STRING, RINZU_NATIVE_INVALID_UTF8,
-       RINZU_NATIVE_NULL_BYTE_ARRAY };
+enum {
+  RINZU_NATIVE_INPUT_OK,
+  RINZU_NATIVE_NULL_STRING,
+  RINZU_NATIVE_INVALID_UTF8,
+  RINZU_NATIVE_NULL_BYTE_ARRAY
+};
 static inline int rinzu_managed_receive_byte_array(rinzu_managed_data_t *data,
-    const rinzu_native_byte_array_t *descriptor, uint64_t *output) {
+                                                   const rinzu_native_byte_array_t *descriptor,
+                                                   uint64_t *output) {
   rinzu_managed_native_owner(data);
   if (!descriptor)
     return RINZU_NATIVE_NULL_BYTE_ARRAY;

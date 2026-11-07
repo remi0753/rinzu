@@ -157,8 +157,7 @@ static inline void rinzu_async_owner(rinzu_async_runtime_t *runtime) {
 /* Private calls below follow the existing public admission/release Owner checks.
    All identity, roots, publisher and cleanup obligations precede release. */
 static inline void *rinzu_async_control_allocate(rinzu_async_runtime_t *runtime, size_t size) {
-  if (size < sizeof(void *) ||
-      size > RINZU_ASYNC_CONTROL_QUANTUM * RINZU_ASYNC_CONTROL_CLASSES)
+  if (size < sizeof(void *) || size > RINZU_ASYNC_CONTROL_QUANTUM * RINZU_ASYNC_CONTROL_CLASSES)
     return rinzu_failure_allocate(size);
   size_t index = (size - 1) / RINZU_ASYNC_CONTROL_QUANTUM;
   size_t bytes = (index + 1) * RINZU_ASYNC_CONTROL_QUANTUM;
@@ -169,7 +168,7 @@ static inline void *rinzu_async_control_allocate(rinzu_async_runtime_t *runtime,
   if (memory) {
     if (runtime->control_cached_bytes < bytes)
       rinzu_failure_fatal();
-    memcpy(&runtime->control_cache[index], memory, sizeof(void *));
+    runtime->control_cache[index] = *(void **)memory;
     runtime->control_cached_bytes -= bytes;
     memset(memory, 0, bytes);
   } else {
@@ -179,10 +178,9 @@ static inline void *rinzu_async_control_allocate(rinzu_async_runtime_t *runtime,
   ++runtime->control_live;
   return memory;
 }
-static inline void rinzu_async_control_release(rinzu_async_runtime_t *runtime,
-                                               void *memory, size_t size) {
-  if (size < sizeof(void *) ||
-      size > RINZU_ASYNC_CONTROL_QUANTUM * RINZU_ASYNC_CONTROL_CLASSES) {
+static inline void rinzu_async_control_release(rinzu_async_runtime_t *runtime, void *memory,
+                                               size_t size) {
+  if (size < sizeof(void *) || size > RINZU_ASYNC_CONTROL_QUANTUM * RINZU_ASYNC_CONTROL_CLASSES) {
     free(memory);
     return;
   }
@@ -193,7 +191,8 @@ static inline void rinzu_async_control_release(rinzu_async_runtime_t *runtime,
     rinzu_failure_fatal();
   --runtime->control_live;
   if (bytes <= RINZU_ASYNC_CONTROL_CACHE_BYTES - runtime->control_cached_bytes) {
-    memcpy(memory, &runtime->control_cache[index], sizeof(void *));
+    /* Cached allocations hold a next pointer in their first word. */
+    *(void **)memory = runtime->control_cache[index];
     runtime->control_cache[index] = memory;
     runtime->control_cached_bytes += bytes;
   } else {
@@ -210,7 +209,7 @@ static inline void rinzu_async_control_dispose(rinzu_async_runtime_t *runtime) {
       void *memory = runtime->control_cache[index];
       if (runtime->control_cached_bytes < bytes)
         rinzu_failure_fatal();
-      memcpy(&runtime->control_cache[index], memory, sizeof(void *));
+      runtime->control_cache[index] = *(void **)memory;
       runtime->control_cached_bytes -= bytes;
       rinzu_resource_release(RINZU_RESOURCE_RUNTIME_CONTROL, bytes);
       free(memory);
@@ -253,11 +252,11 @@ static inline int rinzu_async_publish_native_locked(rinzu_async_future_t *future
       !rinzu_native_completion_is_done(future->native_completion))
     return 0;
   if (future->result_kind == RINZU_SCALAR_I64)
-    future->result_slot = (uint64_t)rinzu_native_completion_transfer_result(future->native_completion);
+    future->result_slot =
+        (uint64_t)rinzu_native_completion_transfer_result(future->native_completion);
   unsigned pending = RINZU_ASYNC_PENDING;
-  (void)atomic_compare_exchange_strong_explicit(&future->terminal, &pending,
-                                                RINZU_ASYNC_COMPLETED, memory_order_acq_rel,
-                                                memory_order_acquire);
+  (void)atomic_compare_exchange_strong_explicit(&future->terminal, &pending, RINZU_ASYNC_COMPLETED,
+                                                memory_order_acq_rel, memory_order_acquire);
   if (future->readiness)
     rinzu_ready_publish(future->readiness);
   atomic_store_explicit(&future->physical_done, 1, memory_order_release);
@@ -348,10 +347,11 @@ static inline void rinzu_async_register_native_wake(rinzu_async_future_t *future
   if (!references || references == SIZE_MAX)
     rinzu_failure_fatal();
   uintptr_t expected = 0;
-  rinzu_native_completion_v2_t *completion = (rinzu_native_completion_v2_t *)future->native_completion;
+  rinzu_native_completion_v2_t *completion =
+      (rinzu_native_completion_v2_t *)future->native_completion;
   if (!atomic_compare_exchange_strong_explicit(&completion->notification, &expected,
-                                                (uintptr_t)&target->header, memory_order_acq_rel,
-                                                memory_order_acquire)) {
+                                               (uintptr_t)&target->header, memory_order_acq_rel,
+                                               memory_order_acquire)) {
     target->header.release(&target->header);
     if (expected != RINZU_NATIVE_COMPLETION_DONE && expected != (uintptr_t)&target->header)
       rinzu_failure_fatal();
@@ -483,7 +483,8 @@ static inline rinzu_async_future_t *rinzu_async_new(rinzu_async_runtime_t *runti
   future->result_kind = result_kind;
   future->source = source;
   future->next = runtime->futures;
-  if (future->next) future->next->previous = future;
+  if (future->next)
+    future->next->previous = future;
   runtime->futures = future;
   size_t bucket = rinzu_identity_bucket(future->identity, runtime->future_capacity);
   future->index_next = runtime->future_index[bucket];
@@ -924,9 +925,9 @@ static inline void rinzu_async_start(rinzu_async_future_t *future) {
     rinzu_async_lock(future->runtime);
     future->completion_next = future->runtime->native_completions;
     future->runtime->native_completions = future;
-    future->native_notified = future->runtime->native_notifications &&
-                              (future->native_completion->version == 2 ||
-                               future->native_completion->version == 3);
+    future->native_notified =
+        future->runtime->native_notifications &&
+        (future->native_completion->version == 2 || future->native_completion->version == 3);
     if (future->native_notified)
       rinzu_async_register_native_wake(future);
     if (future->runtime->direct_native_completion || future->native_notified)
@@ -1036,7 +1037,8 @@ static inline uint64_t rinzu_async_materialize(rinzu_async_future_t *future) {
       future->failure.primary = 2;
       future->failure.primary_source = future->source;
       if (late.primary)
-        rinzu_child_append_traced_error(&future->failure, late.primary, late.primary_source, late.primary_error, late.primary_trace);
+        rinzu_child_append_traced_error(&future->failure, late.primary, late.primary_source,
+                                        late.primary_error, late.primary_trace);
       rinzu_error_reference_release(late.primary_error);
       rinzu_error_trace_release(late.primary_trace);
       if (late.head) {
@@ -1090,7 +1092,8 @@ static inline uint64_t rinzu_async_materialize(rinzu_async_future_t *future) {
     future->main_admitted = 0;
   }
   atomic_store_explicit(&future->terminal, RINZU_ASYNC_SETTLED, memory_order_release);
-  if (runtime->capture_error_trace) rinzu_failure_mark_unrecorded_traces(&future->failure);
+  if (runtime->capture_error_trace)
+    rinzu_failure_mark_unrecorded_traces(&future->failure);
   if (future->scope && rinzu_child_complete(future->scope, future->identity, &future->failure))
     rinzu_failure_fatal();
   for (rinzu_async_ready_waiter_t *waiter = future->ready_waiters; waiter; waiter = waiter->next) {
@@ -1170,21 +1173,24 @@ static inline void rinzu_async_release(rinzu_async_future_t *future) {
     }
     rinzu_async_unlock(runtime);
   }
-  if (!runtime->records || !runtime->future_capacity ||
-      future->admitted || future->ready_waiters || future->task_context ||
-      future->native_board || (future->started && !future->joined))
+  if (!runtime->records || !runtime->future_capacity || future->admitted || future->ready_waiters ||
+      future->task_context || future->native_board || (future->started && !future->joined))
     rinzu_failure_fatal();
   size_t bucket = rinzu_identity_bucket(future->identity, runtime->future_capacity);
   rinzu_async_future_t **link = &runtime->future_index[bucket];
   while (*link && *link != future)
     link = &(*link)->index_next;
-  if (!*link || (future->previous ? future->previous->next != future : runtime->futures != future) ||
+  if (!*link ||
+      (future->previous ? future->previous->next != future : runtime->futures != future) ||
       (future->next && future->next->previous != future))
     rinzu_failure_fatal();
   *link = future->index_next;
-  if (future->previous) future->previous->next = future->next;
-  else runtime->futures = future->next;
-  if (future->next) future->next->previous = future->previous;
+  if (future->previous)
+    future->previous->next = future->next;
+  else
+    runtime->futures = future->next;
+  if (future->next)
+    future->next->previous = future->previous;
   runtime->records -= 1;
   if (runtime->future_capacity > 32 && runtime->records < runtime->future_capacity / 8)
     rinzu_async_index_resize(runtime, runtime->future_capacity / 2);

@@ -235,7 +235,7 @@ static inline void rinzu_continuation_dispose(rinzu_continuation_t *continuation
     rinzu_continuation_stack_t *entry =
         (void *)((unsigned char *)continuation->mapping + accounting->page_bytes);
     *entry = (rinzu_continuation_stack_t){accounting->cached, continuation->mapping,
-                                         continuation->mapping_size};
+                                          continuation->mapping_size};
     accounting->cached = entry;
     accounting->cached_bytes += continuation->mapping_size;
   } else {
@@ -246,8 +246,8 @@ static inline void rinzu_continuation_dispose(rinzu_continuation_t *continuation
   *continuation = (rinzu_continuation_t){0};
 }
 static inline void rinzu_continuation_cache_dispose(rinzu_continuation_accounting_t *accounting) {
-  if (accounting->live || (accounting->page_bytes &&
-                           !rinzu_thread_equal(accounting->owner, pthread_self())))
+  if (accounting->live ||
+      (accounting->page_bytes && !rinzu_thread_equal(accounting->owner, pthread_self())))
     rinzu_failure_fatal();
   while (accounting->cached) {
     rinzu_continuation_stack_t entry = *accounting->cached;

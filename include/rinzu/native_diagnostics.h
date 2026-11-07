@@ -124,10 +124,12 @@ static inline void rinzu_activity_gate_init(rinzu_activity_board_t *board) {
 static inline void rinzu_activity_gate_claim_locked(rinzu_activity_board_t *board) {
 #if RINZU_ACTIVITY_GATE_LEASE
   for (;;) {
-    unsigned previous=atomic_fetch_or_explicit(&board->gate_lease,2,memory_order_acquire);
-    if (previous>3) _Exit(86);
-    if (!(previous&1)) return;
-    rinzu_foreign_sync(pthread_cond_wait(&board->gate_handoff,&board->gate));
+    unsigned previous = atomic_fetch_or_explicit(&board->gate_lease, 2, memory_order_acquire);
+    if (previous > 3)
+      _Exit(86);
+    if (!(previous & 1))
+      return;
+    rinzu_foreign_sync(pthread_cond_wait(&board->gate_handoff, &board->gate));
   }
 #else
   (void)board;
@@ -139,9 +141,9 @@ static inline void rinzu_activity_gate_lock_slow(rinzu_activity_board_t *board) 
 }
 static inline void rinzu_activity_gate_lock(rinzu_activity_board_t *board) {
 #if RINZU_ACTIVITY_GATE_LEASE
-  unsigned expected=0;
-  if (atomic_compare_exchange_strong_explicit(&board->gate_lease,&expected,1,
-                                               memory_order_acquire,memory_order_relaxed)) {
+  unsigned expected = 0;
+  if (atomic_compare_exchange_strong_explicit(&board->gate_lease, &expected, 1,
+                                              memory_order_acquire, memory_order_relaxed)) {
 #ifdef RINZU_FOREIGN_TESTING
     ++rinzu_foreign_held_locks;
 #endif
@@ -155,36 +157,45 @@ static inline void rinzu_activity_gate_lock(rinzu_activity_board_t *board) {
    Direct pthread locking here avoids counting one logical gate twice in tests. */
 static inline void rinzu_activity_gate_promote(rinzu_activity_board_t *board) {
 #if RINZU_ACTIVITY_GATE_LEASE
-  unsigned state=atomic_load_explicit(&board->gate_lease,memory_order_relaxed);
-  if (state==2) return;
-  if (state!=1 && state!=3) _Exit(86);
-  if (pthread_mutex_lock(&board->gate)) _Exit(86);
-  state=atomic_exchange_explicit(&board->gate_lease,2,memory_order_relaxed);
-  if (state!=1 && state!=3) _Exit(86);
-  if (state==3) rinzu_foreign_sync(pthread_cond_broadcast(&board->gate_handoff));
+  unsigned state = atomic_load_explicit(&board->gate_lease, memory_order_relaxed);
+  if (state == 2)
+    return;
+  if (state != 1 && state != 3)
+    _Exit(86);
+  if (pthread_mutex_lock(&board->gate))
+    _Exit(86);
+  state = atomic_exchange_explicit(&board->gate_lease, 2, memory_order_relaxed);
+  if (state != 1 && state != 3)
+    _Exit(86);
+  if (state == 3)
+    rinzu_foreign_sync(pthread_cond_broadcast(&board->gate_handoff));
 #else
   (void)board;
 #endif
 }
 static inline void rinzu_activity_gate_unlock(rinzu_activity_board_t *board) {
 #if RINZU_ACTIVITY_GATE_LEASE
-  unsigned expected=1;
-  if (atomic_compare_exchange_strong_explicit(&board->gate_lease,&expected,0,
-                                               memory_order_release,memory_order_relaxed)) {
+  unsigned expected = 1;
+  if (atomic_compare_exchange_strong_explicit(&board->gate_lease, &expected, 0,
+                                              memory_order_release, memory_order_relaxed)) {
 #ifdef RINZU_FOREIGN_TESTING
-    if (!rinzu_foreign_held_locks) _Exit(86);
+    if (!rinzu_foreign_held_locks)
+      _Exit(86);
     --rinzu_foreign_held_locks;
 #endif
     return;
   }
-  if (expected==3) {
-    if (pthread_mutex_lock(&board->gate)) _Exit(86);
-    if (atomic_exchange_explicit(&board->gate_lease,2,memory_order_release)!=3) _Exit(86);
+  if (expected == 3) {
+    if (pthread_mutex_lock(&board->gate))
+      _Exit(86);
+    if (atomic_exchange_explicit(&board->gate_lease, 2, memory_order_release) != 3)
+      _Exit(86);
     rinzu_foreign_sync(pthread_cond_broadcast(&board->gate_handoff));
     /* Keep the slow reservation until a woken waiter obtains the mutex. */
-  } else if (expected==2) {
-    atomic_store_explicit(&board->gate_lease,0,memory_order_release);
-  } else _Exit(86);
+  } else if (expected == 2) {
+    atomic_store_explicit(&board->gate_lease, 0, memory_order_release);
+  } else
+    _Exit(86);
 #endif
   rinzu_foreign_unlock(&board->gate);
 }
@@ -197,14 +208,16 @@ static inline void rinzu_activity_gate_signal(rinzu_activity_board_t *board) {
    A waking watcher reclaims its lease before reading any board predicate. */
 static inline void rinzu_activity_gate_before_wait(rinzu_activity_board_t *board) {
 #if RINZU_ACTIVITY_GATE_LEASE
-  if (atomic_exchange_explicit(&board->gate_lease,0,memory_order_release)!=2) _Exit(86);
+  if (atomic_exchange_explicit(&board->gate_lease, 0, memory_order_release) != 2)
+    _Exit(86);
 #else
   (void)board;
 #endif
 }
 static inline void rinzu_activity_gate_dispose(rinzu_activity_board_t *board) {
 #if RINZU_ACTIVITY_GATE_LEASE
-  if (atomic_load_explicit(&board->gate_lease,memory_order_relaxed)) _Exit(86);
+  if (atomic_load_explicit(&board->gate_lease, memory_order_relaxed))
+    _Exit(86);
   rinzu_foreign_sync(pthread_cond_destroy(&board->gate_handoff));
 #endif
   rinzu_foreign_sync(pthread_mutex_destroy(&board->gate));
@@ -214,17 +227,19 @@ static inline void rinzu_activity_gate_dispose(rinzu_activity_board_t *board) {
    All logical records and warning pins must already have settled. */
 static inline void rinzu_activity_cache_drain(rinzu_activity_board_t *board) {
   if (board->head || board->pending || board->stats.live || board->stats.active ||
-      board->stats.warning_pins) _Exit(86);
+      board->stats.warning_pins)
+    _Exit(86);
   while (board->cached_records) {
     rinzu_activity_t *record = board->cached_records;
     board->cached_records = record->next;
-    if (!board->stats.cached_records ||
-        board->stats.cached_bytes < RINZU_ACTIVITY_CACHE_SLOT_BYTES) _Exit(86);
+    if (!board->stats.cached_records || board->stats.cached_bytes < RINZU_ACTIVITY_CACHE_SLOT_BYTES)
+      _Exit(86);
     board->stats.cached_records--;
     board->stats.cached_bytes -= RINZU_ACTIVITY_CACHE_SLOT_BYTES;
     free(record);
   }
-  if (board->stats.cached_records || board->stats.cached_bytes) _Exit(86);
+  if (board->stats.cached_records || board->stats.cached_bytes)
+    _Exit(86);
 }
 static inline uint64_t rinzu_activity_now(void) {
   struct timespec time;
@@ -256,15 +271,18 @@ rinzu_activity_wait_find_locked(rinzu_activity_board_t *board, uint64_t task) {
 static inline rinzu_wait_dependency_t **
 rinzu_activity_wait_resize_locked(rinzu_activity_board_t *board, size_t capacity,
                                   size_t reserved_bytes) {
-  if (capacity == board->wait_capacity) return NULL;
-  if (!capacity || (capacity & (capacity - 1))) _Exit(86);
-  if (capacity > SIZE_MAX / sizeof(*board->waits)) return NULL;
+  if (capacity == board->wait_capacity)
+    return NULL;
+  if (!capacity || (capacity & (capacity - 1)))
+    _Exit(86);
+  if (capacity > SIZE_MAX / sizeof(*board->waits))
+    return NULL;
   rinzu_wait_dependency_t **old = board->waits;
   size_t old_capacity = board->wait_capacity;
   size_t old_bytes = old == board->inline_waits ? 0 : old_capacity * sizeof(*old);
-  size_t new_bytes = capacity == RINZU_ACTIVITY_WAIT_INLINE_BUCKETS ? 0 :
-                                                                     capacity * sizeof(*old);
-  if (board->stats.wait_bytes < old_bytes) _Exit(86);
+  size_t new_bytes = capacity == RINZU_ACTIVITY_WAIT_INLINE_BUCKETS ? 0 : capacity * sizeof(*old);
+  if (board->stats.wait_bytes < old_bytes)
+    _Exit(86);
   size_t used = board->stats.wait_bytes - old_bytes;
   if (reserved_bytes > SIZE_MAX - used || new_bytes > SIZE_MAX - used - reserved_bytes)
     return NULL;
@@ -277,8 +295,10 @@ rinzu_activity_wait_resize_locked(rinzu_activity_board_t *board, size_t capacity
     errno = saved_errno;
     rinzu_activity_gate_lock(board);
     if (board->stop || board->waits != old || board->wait_capacity != old_capacity ||
-        board->stats.wait_live != live) _Exit(86);
-    if (!index) return NULL;
+        board->stats.wait_live != live)
+      _Exit(86);
+    if (!index)
+      return NULL;
   } else
     memset(index, 0, sizeof(board->inline_waits));
   for (size_t slot = 0; slot < old_capacity; ++slot) {
@@ -373,11 +393,10 @@ static inline void rinzu_activity_wait_cycle_fatal_locked(rinzu_wait_dependency_
   /* No synthesized return, fallback, managed cleanup or premature release. */
   _Exit(86);
 }
-static inline rinzu_wait_dependency_t *rinzu_activity_wait_begin_on(rinzu_activity_board_t *board,
-                                                                 uint64_t task, uint64_t dependency,
-                                                                 const char *symbol, uint64_t file,
-                                                                 uint32_t start, uint32_t end,
-                                                                 uint64_t owner, uint64_t depth, pthread_t creator) {
+static inline rinzu_wait_dependency_t *
+rinzu_activity_wait_begin_on(rinzu_activity_board_t *board, uint64_t task, uint64_t dependency,
+                             const char *symbol, uint64_t file, uint32_t start, uint32_t end,
+                             uint64_t owner, uint64_t depth, pthread_t creator) {
   if (!board || !symbol || !rinzu_thread_equal(board->owner, creator))
     _Exit(86);
   size_t length = strlen(symbol);
@@ -403,7 +422,8 @@ static inline rinzu_wait_dependency_t *rinzu_activity_wait_begin_on(rinzu_activi
   rinzu_wait_dependency_t **retired_index = NULL;
   if (board->stats.wait_live >= board->wait_capacity) {
     size_t capacity = board->wait_capacity;
-    while (capacity <= board->stats.wait_live && capacity <= SIZE_MAX / 2) capacity *= 2;
+    while (capacity <= board->stats.wait_live && capacity <= SIZE_MAX / 2)
+      capacity *= 2;
     if (capacity > board->stats.wait_live)
       retired_index = rinzu_activity_wait_resize_locked(board, capacity, bytes);
   }
@@ -424,7 +444,8 @@ static inline rinzu_wait_dependency_t *rinzu_activity_wait_begin_on(rinzu_activi
     cursor = next->dependency;
   }
   rinzu_activity_gate_unlock(board);
-  if (retired_index) free(retired_index);
+  if (retired_index)
+    free(retired_index);
   return wait;
 }
 /* Public entry retains a fresh current-thread read and its null guards. */
@@ -433,7 +454,8 @@ static inline rinzu_wait_dependency_t *rinzu_activity_wait_begin(rinzu_activity_
                                                                  const char *symbol, uint64_t file,
                                                                  uint32_t start, uint32_t end,
                                                                  uint64_t owner, uint64_t depth) {
-  if (!board || !symbol) _Exit(86);
+  if (!board || !symbol)
+    _Exit(86);
   return rinzu_activity_wait_begin_on(board, task, dependency, symbol, file, start, end, owner,
                                       depth, pthread_self());
 }
@@ -456,15 +478,17 @@ static inline void rinzu_activity_wait_end(rinzu_wait_dependency_t *wait) {
     capacity = RINZU_ACTIVITY_WAIT_INLINE_BUCKETS;
   else {
     /* Keep small populated maps; shrink sparse large peaks with hysteresis. */
-    size_t floor = RINZU_ACTIVITY_WAIT_INLINE_BUCKETS > 128 ?
-                       RINZU_ACTIVITY_WAIT_INLINE_BUCKETS : 128;
-    while (capacity > floor && board->stats.wait_live < capacity / 8) capacity /= 2;
+    size_t floor =
+        RINZU_ACTIVITY_WAIT_INLINE_BUCKETS > 128 ? RINZU_ACTIVITY_WAIT_INLINE_BUCKETS : 128;
+    while (capacity > floor && board->stats.wait_live < capacity / 8)
+      capacity /= 2;
   }
   rinzu_wait_dependency_t **retired_index = NULL;
   if (capacity != board->wait_capacity)
     retired_index = rinzu_activity_wait_resize_locked(board, capacity, 0);
   rinzu_activity_gate_unlock(board);
-  if (retired_index) free(retired_index);
+  if (retired_index)
+    free(retired_index);
   free(wait);
 }
 static inline uint64_t rinzu_activity_threshold(unsigned kind) {
@@ -510,16 +534,16 @@ static inline uint64_t rinzu_activity_sample(rinzu_activity_board_t *board) {
   return rinzu_activity_now();
 }
 static inline uint64_t rinzu_activity_sample_ns(const rinzu_activity_board_t *board,
-                                               uint64_t sample) {
+                                                uint64_t sample) {
   return board->clock_denom ? sample / board->clock_denom : sample;
 }
-static inline int rinzu_activity_sample_before(const rinzu_activity_board_t *board,
-                                               uint64_t now, uint64_t started) {
+static inline int rinzu_activity_sample_before(const rinzu_activity_board_t *board, uint64_t now,
+                                               uint64_t started) {
   return now < started &&
          rinzu_activity_sample_ns(board, now) < rinzu_activity_sample_ns(board, started);
 }
-static inline int rinzu_activity_sample_due(const rinzu_activity_board_t *board,
-                                            uint64_t now, uint64_t started, unsigned kind) {
+static inline int rinzu_activity_sample_due(const rinzu_activity_board_t *board, uint64_t now,
+                                            uint64_t started, unsigned kind) {
   uint64_t limit = rinzu_activity_threshold(kind);
   if (now < started)
     return 0;
@@ -580,8 +604,8 @@ static inline int rinzu_activity_warn_locked(rinzu_activity_t *activity, uint64_
     return 0;
   if (!rinzu_activity_sample_due(board, now, started, activity->kind))
     return 0;
-  uint64_t elapsed = rinzu_activity_sample_ns(board, now) -
-                     rinzu_activity_sample_ns(board, started);
+  uint64_t elapsed =
+      rinzu_activity_sample_ns(board, now) - rinzu_activity_sample_ns(board, started);
   activity->warned = 1;
   int length = snprintf(
       activity->message, sizeof(activity->message),
@@ -772,7 +796,8 @@ static inline rinzu_activity_t *rinzu_activity_prepare_on(rinzu_activity_board_t
   if (length > SIZE_MAX - sizeof(rinzu_activity_t) - 1)
     _Exit(71);
   size_t bytes = sizeof(rinzu_activity_t) + length + 1;
-  if (bytes <= RINZU_ACTIVITY_CACHE_SLOT_BYTES) bytes = RINZU_ACTIVITY_CACHE_SLOT_BYTES;
+  if (bytes <= RINZU_ACTIVITY_CACHE_SLOT_BYTES)
+    bytes = RINZU_ACTIVITY_CACHE_SLOT_BYTES;
   rinzu_activity_t *activity = NULL;
 #if RINZU_ACTIVITY_CACHE_CAPACITY
   unsigned from_cache = 0;
@@ -780,7 +805,8 @@ static inline rinzu_activity_t *rinzu_activity_prepare_on(rinzu_activity_board_t
   if (bytes == RINZU_ACTIVITY_CACHE_SLOT_BYTES && board->cached_records) {
     activity = board->cached_records;
     board->cached_records = activity->next;
-    if (!board->stats.cached_records || board->stats.cached_bytes < bytes) _Exit(86);
+    if (!board->stats.cached_records || board->stats.cached_bytes < bytes)
+      _Exit(86);
     board->stats.cached_records--;
     board->stats.cached_bytes -= bytes;
     from_cache = 1;
@@ -816,7 +842,8 @@ static inline rinzu_activity_t *rinzu_activity_prepare_on(rinzu_activity_board_t
      symbol copy must not hold the watchdog's gate. Hits copy at most the
      fixed class's symbol space, under their existing pop/publication gate. */
 #if RINZU_ACTIVITY_CACHE_CAPACITY
-  if (!from_cache) rinzu_activity_gate_lock(board);
+  if (!from_cache)
+    rinzu_activity_gate_lock(board);
 #else
   rinzu_activity_gate_lock(board);
 #endif
@@ -844,15 +871,14 @@ static inline rinzu_activity_t *rinzu_activity_prepare(rinzu_activity_board_t *b
 /* Both intervals exist before physical native entry. A request can arm only
    the paired shutdown descriptor while the actual native interval is active. */
 static inline rinzu_activity_t *rinzu_activity_prepare_native_on(rinzu_activity_board_t *board,
-                                                              const char *symbol, uint64_t file,
-                                                              uint32_t start, uint32_t end,
-                                                              uint64_t owner, uint64_t depth,
-                                                              pthread_t creator) {
-  rinzu_activity_t *native =
-      rinzu_activity_prepare_on(board, RINZU_ACTIVITY_NATIVE, symbol, file, start, end, owner, depth,
-                                creator);
-  rinzu_activity_t *blocker = rinzu_activity_prepare_on(board, RINZU_ACTIVITY_SHUTDOWN, symbol, file,
-                                                     start, end, owner, depth, creator);
+                                                                 const char *symbol, uint64_t file,
+                                                                 uint32_t start, uint32_t end,
+                                                                 uint64_t owner, uint64_t depth,
+                                                                 pthread_t creator) {
+  rinzu_activity_t *native = rinzu_activity_prepare_on(board, RINZU_ACTIVITY_NATIVE, symbol, file,
+                                                       start, end, owner, depth, creator);
+  rinzu_activity_t *blocker = rinzu_activity_prepare_on(board, RINZU_ACTIVITY_SHUTDOWN, symbol,
+                                                        file, start, end, owner, depth, creator);
   rinzu_activity_gate_lock(board);
   native->blocker = blocker;
   rinzu_activity_gate_unlock(board);
@@ -973,13 +999,15 @@ static inline void rinzu_activity_dispose(rinzu_activity_board_t *board) {
     _Exit(86);
   rinzu_activity_gate_lock(board);
   if (board->head || board->stats.active || board->stats.prepared != board->stats.ended ||
-      board->stats.ready_live || board->stats.ready_bytes ||
-      board->stats.wait_live || board->stats.wait_bytes)
+      board->stats.ready_live || board->stats.ready_bytes || board->stats.wait_live ||
+      board->stats.wait_bytes)
     _Exit(86);
   if (board->waits != board->inline_waits ||
-      board->wait_capacity != RINZU_ACTIVITY_WAIT_INLINE_BUCKETS) _Exit(86);
+      board->wait_capacity != RINZU_ACTIVITY_WAIT_INLINE_BUCKETS)
+    _Exit(86);
   for (size_t slot = 0; slot < board->wait_capacity; ++slot)
-    if (board->waits[slot]) _Exit(86);
+    if (board->waits[slot])
+      _Exit(86);
   board->stop = 1;
   rinzu_activity_gate_signal(board);
   rinzu_activity_gate_unlock(board);

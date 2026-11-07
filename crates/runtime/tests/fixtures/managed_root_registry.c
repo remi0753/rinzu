@@ -7,7 +7,8 @@ static void counts(rinzu_managed_data_t *heap, rinzu_managed_roots_t *current) {
   for (rinzu_managed_root_set_t *entry = heap->root_sets; entry; entry = entry->next)
     slow += rinzu_managed_frame_chain_count(entry->roots);
   assert(slow == heap->published_root_count);
-  if (!current->domain_entry) slow += rinzu_managed_frame_chain_count(current);
+  if (!current->domain_entry)
+    slow += rinzu_managed_frame_chain_count(current);
   assert(slow == rinzu_managed_native_root_count(heap, current));
 }
 
@@ -46,14 +47,14 @@ int main(int argc, char **argv) {
         rinzu_managed_publish(&roots[0], &value, 1);
         heap->published_root_count = 0;
         rinzu_managed_leave(&roots[0]);
-      }
-      else if (!strcmp(argv[1], "wrong-entry")) {
+      } else if (!strcmp(argv[1], "wrong-entry")) {
         duplicate = entries[0];
         rinzu_managed_detach_roots(heap, &duplicate);
       } else if (!strcmp(argv[1], "broken-link")) {
         entries[0].previous = &entries[2];
         rinzu_managed_detach_roots(heap, &entries[0]);
-      } else return 2;
+      } else
+        return 2;
       return 3;
     }
     uint64_t value = rinzu_managed_string(heap, (const unsigned char *)"kept", 4);
@@ -64,10 +65,12 @@ int main(int argc, char **argv) {
       rinzu_managed_enter(&roots[i]);
       size_t before = heap->published_root_count;
       uint64_t *prepared = rinzu_managed_prepare_roots(&roots[i], i % 3);
-      for (unsigned n = 0; n < i % 3; ++n) prepared[n] = value;
+      for (unsigned n = 0; n < i % 3; ++n)
+        prepared[n] = value;
       assert(heap->published_root_count == before);
       rinzu_managed_commit_roots(&roots[i], i % 3);
-      if (!(i % 256)) counts(heap, &roots[i]);
+      if (!(i % 256))
+        counts(heap, &roots[i]);
     }
     rinzu_managed_collect(heap, &roots[0]);
     assert(heap->objects == 1);
@@ -79,8 +82,8 @@ int main(int argc, char **argv) {
       rinzu_managed_leave(&roots[slot]);
       rinzu_managed_detach_roots(heap, &entries[slot]);
       assert(!roots[slot].domain_entry && !roots[slot].domain_published_count &&
-             !entries[slot].data && !entries[slot].roots &&
-             !entries[slot].next && !entries[slot].previous);
+             !entries[slot].data && !entries[slot].roots && !entries[slot].next &&
+             !entries[slot].previous);
       if (!(i % 256)) {
         size_t count = 0;
         rinzu_managed_root_set_t *previous = NULL;
@@ -105,9 +108,11 @@ int main(int argc, char **argv) {
     rinzu_managed_collect(heap, &roots[0]);
     assert(!heap->objects);
   }
-  for (unsigned i = 0; i < COUNT; ++i) rinzu_managed_dispose(&roots[i]);
+  for (unsigned i = 0; i < COUNT; ++i)
+    rinzu_managed_dispose(&roots[i]);
   rinzu_managed_data_dispose(&heaps[0]);
   rinzu_managed_data_dispose(&heaps[1]);
-  free(roots); free(entries);
+  free(roots);
+  free(entries);
   return 0;
 }

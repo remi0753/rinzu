@@ -348,7 +348,7 @@ static int rinzu_native_prepare_records(RinzuContext *context, RinzuNativeCall *
     return RINZU_NATIVE_RECORD_OK;
   rinzu_managed_data_t *data = rinzu_context_data(context);
   int status = rinzu_native_record_prepare(data, call->records, call->record_argument_count,
-                                            &call->record_loan);
+                                           &call->record_loan);
   if (status)
     return status;
   call->record_count = call->record_loan->link.count;
@@ -422,9 +422,9 @@ void rinzu_baseline_source_native_prepare(void *raw, int64_t plan_index,
       rinzu_native_call_array(&call_size, buffer_capacity, sizeof(void *), _Alignof(void *));
   size_t callbacks_offset = rinzu_native_call_array(
       &call_size, callback_capacity, sizeof(RinzuNativeCallback), _Alignof(RinzuNativeCallback));
-  size_t records_offset = rinzu_native_call_array(
-      &call_size, record_capacity, sizeof(rinzu_native_record_argument_t),
-      _Alignof(rinzu_native_record_argument_t));
+  size_t records_offset =
+      rinzu_native_call_array(&call_size, record_capacity, sizeof(rinzu_native_record_argument_t),
+                              _Alignof(rinzu_native_record_argument_t));
   RinzuNativeCall *call = rinzu_failure_allocate(call_size);
   call->plan = (size_t)plan_index;
   call->depth = context->roots.depth;
@@ -435,7 +435,8 @@ void rinzu_baseline_source_native_prepare(void *raw, int64_t plan_index,
   call->callbacks =
       callbacks_offset ? (RinzuNativeCallback *)((unsigned char *)call + callbacks_offset) : NULL;
   call->records = records_offset
-      ? (rinzu_native_record_argument_t *)((unsigned char *)call + records_offset) : NULL;
+                      ? (rinzu_native_record_argument_t *)((unsigned char *)call + records_offset)
+                      : NULL;
   size_t root_count = 0;
   rinzu_managed_attach_roots(data, &call->root_set, &call->retained);
   rinzu_managed_enter(&call->retained);
@@ -447,7 +448,7 @@ void rinzu_baseline_source_native_prepare(void *raw, int64_t plan_index,
   if (plan->result == RINZU_NATIVE_RESULT_USERDATA) {
     call->userdata_scope = rinzu_userdata_enter(rinzu_context_userdata(context), data);
     rinzu_userdata_expect_result(rinzu_context_userdata(context), data, call->userdata_scope,
-                                  plan->result_type);
+                                 plan->result_type);
   }
   for (size_t index = 0; index < plan->count; ++index)
     if (!call->userdata_scope &&
@@ -485,8 +486,8 @@ void rinzu_baseline_source_native_prepare(void *raw, int64_t plan_index,
           (uint64_t)(uintptr_t)rinzu_managed_opaque_pointer(data, bits, (size_t)parameter->length);
       roots[root_count++] = bits;
     } else if (parameter->kind == RINZU_NATIVE_RECORD) {
-      call->records[call->record_argument_count++] = (rinzu_native_record_argument_t){
-          bits, rinzu_native_record_layout(parameter->length)};
+      call->records[call->record_argument_count++] =
+          (rinzu_native_record_argument_t){bits, rinzu_native_record_layout(parameter->length)};
       roots[root_count++] = bits;
     } else if (parameter->kind == RINZU_NATIVE_USERDATA) {
       call->words[index] = (uint64_t)(uintptr_t)rinzu_userdata_prepare(
@@ -740,8 +741,9 @@ uint64_t rinzu_baseline_source_native_read(void *raw, int64_t plan) {
     const unsigned char *input = (const unsigned char *)(uintptr_t)call->result;
     uint64_t received = 0;
     if (result == RINZU_NATIVE_RESULT_USERDATA) {
-      int status = rinzu_userdata_receive_result(rinzu_context_userdata(context), data,
-          call->userdata_scope, description->result_type, input, &received);
+      int status =
+          rinzu_userdata_receive_result(rinzu_context_userdata(context), data, call->userdata_scope,
+                                        description->result_type, input, &received);
       if (status == RINZU_USERDATA_NULL) {
         rinzu_failure_fail(&context->pending, 8, context->source);
         return 0;
@@ -798,7 +800,7 @@ void rinzu_baseline_source_native_release(void *raw, int64_t plan) {
     if (rinzu_native_plans[plan].result != RINZU_NATIVE_RESULT_USERDATA)
       rinzu_interop_fatal();
     rinzu_userdata_finish_result(rinzu_context_userdata(context), rinzu_context_data(context),
-                                  call->userdata_scope);
+                                 call->userdata_scope);
     call->userdata_scope = 0;
   }
   for (size_t index = 0; index < call->callback_count; ++index) {

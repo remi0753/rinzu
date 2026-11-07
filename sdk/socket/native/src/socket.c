@@ -78,7 +78,8 @@ struct Operation {
   int64_t deadline;
 };
 _Static_assert(offsetof(struct Operation, completion_result) ==
-                   offsetof(rinzu_native_completion_v3_t, result), "socket transfer receipt");
+                   offsetof(rinzu_native_completion_v3_t, result),
+               "socket transfer receipt");
 static struct Handle handles[HANDLES];
 static struct Operation operations[OPS];
 static struct Owner owners[HANDLES];
@@ -94,7 +95,7 @@ static size_t buffers, buffer_bytes, peak_buffer_bytes, partial_writes, event_co
 static size_t allocations, copied_bytes, read_calls, write_calls, received_bytes, sent_bytes;
 static size_t kevent_calls, user_wakes, poll_timeouts, round_robin;
 
-static void fatal(void) {
+static _Noreturn void fatal(void) {
   _Exit(86);
 }
 static int32_t failure(void) {
@@ -226,6 +227,8 @@ static int filter(enum Kind kind) {
 static void unregister(struct Operation *op) {
   if (!op->registered)
     return;
+  if (!op->handle)
+    fatal();
   struct kevent event;
   EV_SET(&event, op->handle->fd, filter(op->kind), EV_DELETE, 0, 0, NULL);
   ++kevent_calls;
@@ -236,7 +239,8 @@ static void unregister(struct Operation *op) {
 static void publish(struct Operation *op, int32_t status) {
   unregister(op);
   op->status = status;
-  if ((op->kind == READ || op->kind == WRITE) && op->length > CHUNK) fatal();
+  if ((op->kind == READ || op->kind == WRITE) && op->length > CHUNK)
+    fatal();
   if (op->kind == READ || op->kind == WRITE)
     op->completion_result = (int64_t)status * INT64_C(131072) + (int64_t)op->length;
   if (op->kind == READ)
@@ -316,12 +320,12 @@ static ssize_t data_io(struct Operation *op, bool writing, bool owner) {
   pthread_mutex_unlock(&lock);
   RINZU_SOCKET_DATA_IO_STAGE(op, 0);
   ssize_t n = writing ? send(fd, buffer, count, 0) : recv(fd, buffer, count, 0);
-  int error = errno;
+  int error = n < 0 ? errno : 0;
   RINZU_SOCKET_DATA_IO_STAGE(op, 1);
   pthread_mutex_lock(&lock);
   worker_data_io = false;
-  if (op->id != id || op->ready || op->handle != h || h->id != handle_id ||
-      h->fd != fd || op->buffer != allocation)
+  if (op->id != id || op->ready || op->handle != h || h->id != handle_id || h->fd != fd ||
+      op->buffer != allocation)
     fatal();
   /* The claimed syscall precedes a concurrent cancellation. Preserve its
      result, while applying the close that cancel would request after ready.
@@ -330,7 +334,8 @@ static ssize_t data_io(struct Operation *op, bool writing, bool owner) {
     request_close(h);
     wake();
   }
-  errno = error;
+  if (n < 0)
+    errno = error;
   return n;
 }
 static void advance(struct Operation *op, struct Budget *budget, bool owner) {
@@ -341,7 +346,8 @@ static void advance(struct Operation *op, struct Budget *budget, bool owner) {
     close_handle(closing);
     return;
   }
-  if (atomic_load_explicit(&op->completion.base.cancelled, memory_order_acquire) && op->kind != CLOSE) {
+  if (atomic_load_explicit(&op->completion.base.cancelled, memory_order_acquire) &&
+      op->kind != CLOSE) {
     if (op->kind == ACCEPT) {
       close_handle(op->value);
       publish(op, ECANCELED);
@@ -496,6 +502,8 @@ static void advance(struct Operation *op, struct Budget *budget, bool owner) {
       publish(op, 0);
     }
     return;
+  } else {
+    fatal();
   }
   if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
     arm(op);
@@ -780,7 +788,7 @@ static int64_t begin(enum Kind kind, void *token, const uint8_t *data, size_t si
   int64_t id = (int64_t)op->id;
   bool pending = true;
   if (!worker_data_io && ((kind == WRITE && RINZU_SOCKET_OWNER_WRITE_ALLOWED()) ||
-                         (kind == READ && RINZU_SOCKET_OWNER_READ_ALLOWED()))) {
+                          (kind == READ && RINZU_SOCKET_OWNER_READ_ALLOWED()))) {
     struct Budget budget = {.calls = 63};
     advance(op, &budget, true);
     /* Publication ends carrier access. The saved ID selects only its pending
@@ -839,7 +847,8 @@ void *rinzu_socket_completion(void *token) {
 void *rinzu_socket_transfer_completion(int64_t id) {
   pthread_mutex_lock(&lock);
   struct Operation *op = owned((void *)(uintptr_t)id);
-  if (op->kind != READ && op->kind != WRITE) fatal();
+  if (op->kind != READ && op->kind != WRITE)
+    fatal();
   void *p = &op->completion;
   pthread_mutex_unlock(&lock);
   return p;
@@ -847,9 +856,15 @@ void *rinzu_socket_transfer_completion(int64_t id) {
 const rinzu_native_byte_array_t *rinzu_socket_bytes_view_id(int64_t id) {
   return rinzu_socket_bytes_view((void *)(uintptr_t)id);
 }
-void rinzu_socket_ack_id(int64_t id) { rinzu_socket_ack((void *)(uintptr_t)id); }
-void rinzu_socket_cancel_id(int64_t id) { rinzu_socket_cancel((void *)(uintptr_t)id); }
-void rinzu_socket_finish_id(int64_t id) { rinzu_socket_finish((void *)(uintptr_t)id); }
+void rinzu_socket_ack_id(int64_t id) {
+  rinzu_socket_ack((void *)(uintptr_t)id);
+}
+void rinzu_socket_cancel_id(int64_t id) {
+  rinzu_socket_cancel((void *)(uintptr_t)id);
+}
+void rinzu_socket_finish_id(int64_t id) {
+  rinzu_socket_finish((void *)(uintptr_t)id);
+}
 int32_t rinzu_socket_status(void *token) {
   pthread_mutex_lock(&lock);
   struct Operation *op = owned(token);

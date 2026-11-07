@@ -4,7 +4,7 @@
 #include <unistd.h>
 
 static void reject_unrooted_identity(rinzu_managed_data_t *data, rinzu_managed_roots_t *roots,
-                                      uint64_t identity) {
+                                     uint64_t identity) {
   assert(!rinzu_gc_due(&data->gc));
   pid_t child = fork();
   assert(child >= 0);
@@ -31,9 +31,10 @@ int main(void) {
     values[i] = rinzu_managed_string(&data, &byte, 1);
   }
   int enabled = !getenv("RINZU_MANAGED_LOOKUP_CACHE") ||
-                  strcmp(getenv("RINZU_MANAGED_LOOKUP_CACHE"), "0");
-  assert(data.index_accounted_bytes == data.index_capacity * sizeof(*data.index) +
-      (enabled ? RINZU_MANAGED_LOOKUP_CACHE_CAPACITY * sizeof(*data.lookup_cache) : 0));
+                strcmp(getenv("RINZU_MANAGED_LOOKUP_CACHE"), "0") != 0;
+  assert(data.index_accounted_bytes ==
+         data.index_capacity * sizeof(*data.index) +
+             (enabled ? RINZU_MANAGED_LOOKUP_CACHE_CAPACITY * sizeof(*data.lookup_cache) : 0));
   for (size_t turn = 0; turn < 4; ++turn)
     for (size_t i = 0; i < VALUE_COUNT; ++i) {
       rinzu_managed_value_t *value = rinzu_managed_lookup(&data, values[i]);
@@ -66,10 +67,13 @@ int main(void) {
   rinzu_managed_value_t *cached_value = rinzu_managed_lookup(&data, values[last]);
   rinzu_managed_index_resize(&data, capacity * 2);
   assert(data.lookup_cache == cache);
-  assert(data.lookup_cache_accounted_bytes == (enabled ? RINZU_MANAGED_LOOKUP_CACHE_CAPACITY * sizeof(*cache) : 0));
-  assert(rinzu_resource_counters[RINZU_RESOURCE_MANAGED].allocated - allocated == capacity * 2 * sizeof(*data.index));
+  assert(data.lookup_cache_accounted_bytes ==
+         (enabled ? RINZU_MANAGED_LOOKUP_CACHE_CAPACITY * sizeof(*cache) : 0));
+  assert(rinzu_resource_counters[RINZU_RESOURCE_MANAGED].allocated - allocated ==
+         capacity * 2 * sizeof(*data.index));
   if (enabled) {
-    rinzu_managed_lookup_entry_t entry = cache[values[last] & (RINZU_MANAGED_LOOKUP_CACHE_CAPACITY - 1)];
+    rinzu_managed_lookup_entry_t entry =
+        cache[values[last] & (RINZU_MANAGED_LOOKUP_CACHE_CAPACITY - 1)];
     assert(entry.identity == values[last] && entry.value == cached_value);
   }
   assert(rinzu_managed_lookup(&data, values[last]) == cached_value);

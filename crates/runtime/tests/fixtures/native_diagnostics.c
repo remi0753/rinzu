@@ -215,8 +215,8 @@ static void owner_turn_boundaries(void) {
   rinzu_activity_board_t board = {.owner = pthread_self(), .owner_turn = owner_clock};
   rinzu_activity_gate_init(&board);
   rinzu_foreign_sync(pthread_cond_init(&board.changed, NULL));
-  rinzu_activity_t *ready = rinzu_activity_prepare(
-      &board, RINZU_ACTIVITY_OWNER_STALL, "turn.boundary", 0, 0, 0, 1, 0);
+  rinzu_activity_t *ready =
+      rinzu_activity_prepare(&board, RINZU_ACTIVITY_OWNER_STALL, "turn.boundary", 0, 0, 0, 1, 0);
   rinzu_activity_start(ready);
   owner_clock += rinzu_activity_threshold(RINZU_ACTIVITY_OWNER_STALL) - 1;
   rinzu_activity_owner_turn(&board);
@@ -229,8 +229,8 @@ static void owner_turn_boundaries(void) {
   rinzu_activity_owner_turn(&board);
   assert(ready->warned && board.pending == ready && board.pending_tail == ready);
   assert(board.stats.warning_pins == 1);
-  rinzu_activity_t *native = rinzu_activity_prepare(
-      &board, RINZU_ACTIVITY_NATIVE, "turn.native", 0, 0, 0, 1, 0);
+  rinzu_activity_t *native =
+      rinzu_activity_prepare(&board, RINZU_ACTIVITY_NATIVE, "turn.native", 0, 0, 0, 1, 0);
   rinzu_activity_start(native);
   board.shutdown_requested = 1;
   owner_clock++;
@@ -273,8 +273,8 @@ int main(int argc, char **argv) {
         rinzu_activity_prepare(&board, RINZU_ACTIVITY_NATIVE, "elapsed.clock", 0, 0, 0, 1, 0);
     rinzu_activity_start(activity);
     rinzu_activity_end(activity);
-    assert(simulated_ticks >= 2 && board.stats.prepared == board.stats.ended &&
-           !board.stats.live && !board.stats.active && !board.stats.warning_pins);
+    assert(simulated_ticks >= 2 && board.stats.prepared == board.stats.ended && !board.stats.live &&
+           !board.stats.active && !board.stats.warning_pins);
 #ifdef RINZU_ACTIVITY_CACHE_SLOT_BYTES
     rinzu_activity_cache_drain(&board);
 #endif

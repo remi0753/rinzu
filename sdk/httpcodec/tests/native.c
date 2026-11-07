@@ -15,8 +15,10 @@ int main(int argc, char **argv) {
     assert(got == sizeof header);
     uint64_t bits = 0;
     uint32_t length = 0;
-    for (unsigned i = 0; i < 8; ++i) bits |= (uint64_t)header[i] << (8*i);
-    for (unsigned i = 0; i < 4; ++i) length |= (uint32_t)header[i+8] << (8*i);
+    for (unsigned i = 0; i < 8; ++i)
+      bits |= (uint64_t)header[i] << (8 * i);
+    for (unsigned i = 0; i < 4; ++i)
+      length |= (uint32_t)header[i + 8] << (8 * i);
     int64_t expected;
     memcpy(&expected, &bits, sizeof expected);
     assert(length <= sizeof bytes && fread(bytes, 1, length, file) == length);

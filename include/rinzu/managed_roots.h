@@ -24,12 +24,10 @@ typedef struct {
   rinzu_managed_frame_t *frames;
   size_t count, bytes, borrowed;
 } rinzu_managed_frame_cache_t;
-static __attribute__((noinline, cold)) void
-rinzu_managed_frame_cache_charge(size_t bytes) {
+static __attribute__((noinline, cold)) void rinzu_managed_frame_cache_charge(size_t bytes) {
   rinzu_resource_acquire(RINZU_RESOURCE_RUNTIME_CONTROL, bytes);
 }
-static __attribute__((noinline, cold)) void
-rinzu_managed_frame_cache_uncharge(size_t bytes) {
+static __attribute__((noinline, cold)) void rinzu_managed_frame_cache_uncharge(size_t bytes) {
   rinzu_resource_release(RINZU_RESOURCE_RUNTIME_CONTROL, bytes);
 }
 static inline size_t rinzu_managed_frame_bytes(const rinzu_managed_frame_t *frame) {
@@ -41,7 +39,8 @@ static inline size_t rinzu_managed_frame_bytes(const rinzu_managed_frame_t *fram
    Inactive slots are not roots. No native/callback/GC transition occurs here. */
 static inline rinzu_managed_frame_t *
 rinzu_managed_frame_cache_take(rinzu_managed_frame_cache_t *cache) {
-  if (cache->borrowed == SIZE_MAX) rinzu_failure_fatal();
+  if (cache->borrowed == SIZE_MAX)
+    rinzu_failure_fatal();
   rinzu_managed_frame_t *frame = cache->frames;
   if (frame) {
     size_t bytes = rinzu_managed_frame_bytes(frame);
@@ -51,7 +50,8 @@ rinzu_managed_frame_cache_take(rinzu_managed_frame_cache_t *cache) {
     cache->frames = frame->previous;
     --cache->count;
     cache->bytes -= bytes;
-    if (frame->allocation == 3) rinzu_managed_frame_cache_uncharge(bytes);
+    if (frame->allocation == 3)
+      rinzu_managed_frame_cache_uncharge(bytes);
   } else {
     frame = rinzu_failure_allocate(sizeof(*frame));
   }
@@ -65,8 +65,7 @@ static inline void rinzu_managed_frame_cache_put(rinzu_managed_frame_cache_t *ca
     rinzu_failure_fatal();
   --cache->borrowed;
   size_t bytes = rinzu_managed_frame_bytes(frame);
-  if (cache->count < RINZU_MANAGED_FRAME_CACHE_COUNT &&
-      bytes <= RINZU_MANAGED_FRAME_CACHE_BYTES &&
+  if (cache->count < RINZU_MANAGED_FRAME_CACHE_COUNT && bytes <= RINZU_MANAGED_FRAME_CACHE_BYTES &&
       cache->bytes <= RINZU_MANAGED_FRAME_CACHE_BYTES - bytes) {
     if (atomic_load_explicit(&rinzu_resource_enabled, memory_order_relaxed)) {
       rinzu_managed_frame_cache_charge(bytes);
@@ -82,7 +81,8 @@ static inline void rinzu_managed_frame_cache_put(rinzu_managed_frame_cache_t *ca
   }
 }
 static inline void rinzu_managed_frame_cache_dispose(rinzu_managed_frame_cache_t *cache) {
-  if (cache->borrowed) rinzu_failure_fatal();
+  if (cache->borrowed)
+    rinzu_failure_fatal();
   while (cache->frames) {
     rinzu_managed_frame_t *frame = cache->frames;
     size_t bytes = rinzu_managed_frame_bytes(frame);
@@ -92,11 +92,13 @@ static inline void rinzu_managed_frame_cache_dispose(rinzu_managed_frame_cache_t
     cache->frames = frame->previous;
     --cache->count;
     cache->bytes -= bytes;
-    if (frame->allocation == 3) rinzu_managed_frame_cache_uncharge(bytes);
+    if (frame->allocation == 3)
+      rinzu_managed_frame_cache_uncharge(bytes);
     free(frame->roots);
     free(frame);
   }
-  if (cache->count || cache->bytes) rinzu_failure_fatal();
+  if (cache->count || cache->bytes)
+    rinzu_failure_fatal();
 }
 typedef struct {
   /* A frame chain may be registered once in one Domain. This is native
@@ -223,10 +225,12 @@ static inline void rinzu_managed_leave(rinzu_managed_roots_t *state) {
   state->depth -= 1;
   frame->count = 0;
   if (frame->allocation == 2) {
-    if (!state->frame_cache) rinzu_failure_fatal();
+    if (!state->frame_cache)
+      rinzu_failure_fatal();
     rinzu_managed_frame_cache_put(state->frame_cache, frame);
   } else {
-    if (frame->allocation > 1) rinzu_failure_fatal();
+    if (frame->allocation > 1)
+      rinzu_failure_fatal();
     frame->previous = state->free_frames;
     state->free_frames = frame;
   }
@@ -237,7 +241,8 @@ static inline void rinzu_managed_dispose(rinzu_managed_roots_t *state) {
     rinzu_failure_fatal();
   rinzu_managed_frame_t *frame = state->free_frames;
   while (frame) {
-    if (frame->allocation) rinzu_failure_fatal();
+    if (frame->allocation)
+      rinzu_failure_fatal();
     rinzu_managed_frame_t *next = frame->previous;
     free(frame->roots);
     free(frame);

@@ -124,11 +124,7 @@ fn generated_c_guards(
     assert_eq!(source.matches("int main(").count(), 1);
     let source = source.replace("int main(", "int unused_source_main(") + guards;
     let source = if label == "byte-initialization" {
-        // Poison malloc storage only in this disposable test image. Production
-        // code has no hook or test branch. The common calloc metadata stays zero.
-        String::from(
-            "#include <stdlib.h>\n#include <string.h>\nstatic inline void *bytes_poison_malloc(size_t n) {void *p=malloc(n);if(p)memset(p,165,n);return p;}\n#define malloc bytes_poison_malloc\n",
-        ) + &source
+        String::from(include_str!("fixtures/bytes_poison_alloc.h")) + &source
     } else {
         source
     };

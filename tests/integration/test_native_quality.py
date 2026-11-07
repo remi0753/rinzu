@@ -68,12 +68,20 @@ class NativeQualityTests(unittest.TestCase):
 
     def test_database_covers_all_native_files_and_full_fragment_units(self):
         commands = json.loads((quality.DATABASE / "compile_commands.json").read_text())
-        files = {entry["file"] for entry in commands}
-        self.assertTrue({str(file) for file in quality.native_files()} <= files)
+        by_file = {entry["file"]: entry for entry in commands}
+        self.assertTrue({str(file) for file in quality.native_files()} <= by_file.keys())
         manifest = json.loads((quality.DATABASE / "units.json").read_text())
         self.assertTrue(set(manifest["contexts"].values()) <= set(manifest["units"]))
         for file, context in manifest["contexts"].items():
             self.assertIn(str(file), Path(context).read_text())
+        # Exercise both a generated prefix and substitutions inside a fixture.
+        for name in ("list_update_guards.c", "poll_state_matrix.c"):
+            file = str(quality.ROOT / "crates/driver/tests/fixtures" / name)
+            self.assertIn(file, manifest["contexts"])
+            entry = by_file[file]
+            result = subprocess.run([*entry["arguments"][:-2], "-fsyntax-only", file],
+                                    cwd=entry["directory"], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_scoped_header_lint_checks_transitive_consumers_only(self):
         with tempfile.TemporaryDirectory(dir=quality.DATABASE) as directory:

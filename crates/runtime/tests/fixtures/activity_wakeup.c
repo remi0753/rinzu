@@ -157,5 +157,6 @@ int main(int argc, char **argv) {
   live_timer(coalesced);
   foreign_publication();
   atomic_store(&fake_clock, 0);
-  puts("PASS activation transitions, warned-active timer, shutdown, foreign wake and emitter joins");
+  puts(
+      "PASS activation transitions, warned-active timer, shutdown, foreign wake and emitter joins");
 }

@@ -52,6 +52,32 @@ fn address(f: &Function, v: Value, offset: i32) -> String {
         word(i64::from(offset))
     )
 }
+
+fn word_stack_slot(data: &ir::StackSlotData) -> bool {
+    data.align_shift >= 3 && data.size > 0 && data.size.is_multiple_of(8)
+}
+
+fn stack_word_address(f: &Function, address: Value, offset: i32) -> Option<String> {
+    let ir::ValueDef::Result(inst, _) = f.dfg.value_def(f.dfg.resolve_aliases(address)) else {
+        return None;
+    };
+    let D::StackAddr {
+        stack_slot,
+        offset: base,
+        ..
+    } = f.dfg.insts[inst]
+    else {
+        return None;
+    };
+    let data = &f.sized_stack_slots[stack_slot];
+    let offset = u32::try_from(i64::from(i32::from(base)) + i64::from(offset)).ok()?;
+    if word_stack_slot(data) && offset < data.size && offset.is_multiple_of(8) {
+        Some(format!("{stack_slot}[{}]", offset / 8))
+    } else {
+        None
+    }
+}
+
 fn edge(f: &Function, destination: BlockCall, suffix: &str) -> Result<String> {
     let block = destination.block(&f.dfg.value_lists);
     let arguments = destination.args(&f.dfg.value_lists).collect::<Vec<_>>();
@@ -134,11 +160,16 @@ pub(crate) fn emit(
     }
     for (slot, data) in f.sized_stack_slots.iter() {
         ensure!(data.align_shift <= 16, "C stack alignment budget");
+        // C runtime helpers read managed argument arrays as uint64_t words.
+        let (element, count) = if word_stack_slot(data) {
+            ("uint64_t", data.size / 8)
+        } else {
+            ("unsigned char", data.size.max(1))
+        };
         writeln!(
             body,
-            "_Alignas({}) unsigned char {slot}[{}] __attribute__((unused));",
-            1u32 << data.align_shift,
-            data.size.max(1)
+            "_Alignas({}) {element} {slot}[{count}] __attribute__((unused));",
+            1u32 << data.align_shift
         )?;
     }
     let parameters = f.dfg.block_params(entry);
@@ -287,11 +318,17 @@ pub(crate) fn emit(
                     ..
                 } => {
                     let v = value(f, args[0]);
-                    writeln!(
-                        body,
-                        "memcpy({},&{v},sizeof {v});",
-                        address(f, args[1], i32::from(offset))
-                    )?;
+                    if f.dfg.value_type(args[0]) == types::I64
+                        && let Some(word) = stack_word_address(f, args[1], i32::from(offset))
+                    {
+                        writeln!(body, "{word}={v};")?;
+                    } else {
+                        writeln!(
+                            body,
+                            "memcpy({},&{v},sizeof {v});",
+                            address(f, args[1], i32::from(offset))
+                        )?;
+                    }
                 }
                 D::StackAddr {
                     opcode: O::StackAddr,
@@ -305,7 +342,7 @@ pub(crate) fn emit(
                     );
                     writeln!(
                         body,
-                        "{}=(uint64_t)(uintptr_t)({stack_slot}+{});",
+                        "{}=(uint64_t)(uintptr_t)((unsigned char *){stack_slot}+{});",
                         result()?,
                         i32::from(offset)
                     )?;

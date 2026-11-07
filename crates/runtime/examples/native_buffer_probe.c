@@ -31,8 +31,8 @@ static __attribute__((noinline)) void release_buffer(unsigned char *buffer) {
   free(buffer);
 #endif
 }
-static __attribute__((noinline)) void getter_copy(unsigned char *out,
-                                                const unsigned char *buffer, size_t prefix) {
+static __attribute__((noinline)) void getter_copy(unsigned char *out, const unsigned char *buffer,
+                                                  size_t prefix) {
   memcpy(out, buffer, prefix);
   __asm__ volatile("" : : "r"(out) : "memory");
 }
@@ -44,12 +44,15 @@ static uint64_t nanos(void) {
 static void verify(void) {
   unsigned char *buffer = allocate_buffer();
   const unsigned char *small = buffer, *medium = buffer, *full = buffer;
-  for (size_t i = 0; i < CAPACITY; ++i) assert(full[i] == 0);
+  for (size_t i = 0; i < CAPACITY; ++i)
+    assert(full[i] == 0);
   memset(buffer, 0xa5, 256);
   assert(small == full && medium == full);
-  for (size_t i = 0; i < CAPACITY; ++i) assert(full[i] == (i < 256 ? 0xa5 : 0));
+  for (size_t i = 0; i < CAPACITY; ++i)
+    assert(full[i] == (i < 256 ? 0xa5 : 0));
   memset(buffer, 0x6b, CAPACITY);
-  for (size_t i = 0; i < CAPACITY; ++i) assert(full[i] == 0x6b);
+  for (size_t i = 0; i < CAPACITY; ++i)
+    assert(full[i] == 0x6b);
   release_buffer(buffer);
 }
 static void run(size_t prefix) {
@@ -76,11 +79,14 @@ static void run(size_t prefix) {
   assert(checksum == rounds * UINT64_C(0xa5));
   printf("{\"case\":\"native-backing-prefix-%zu\",\"operations\":%zu,\"nanoseconds\":%" PRIu64
          ",\"allocations\":%zu,\"allocated_bytes\":%zu,\"checksum\":%" PRIu64
-         ",\"allocation_kind\":\"%s\"}\n", prefix, rounds, elapsed, rounds,
-         rounds * (size_t)CAPACITY, checksum, RINZU_BUFFER_MMAP ? "vm-mapping" : "calloc");
+         ",\"allocation_kind\":\"%s\"}\n",
+         prefix, rounds, elapsed, rounds, rounds * (size_t)CAPACITY, checksum,
+         RINZU_BUFFER_MMAP ? "vm-mapping" : "calloc");
 }
 int main(int argc, char **argv) {
   assert(argc == 2 && !strcmp(argv[1], "native-buffer"));
   verify();
-  run(256); run(4096); run(CAPACITY);
+  run(256);
+  run(4096);
+  run(CAPACITY);
 }

@@ -16,17 +16,22 @@
 static volatile int counting;
 static uint64_t write_calls, fcntl_calls;
 static ssize_t counted_write(int fd, const void *bytes, size_t length) {
-  if (counting) write_calls++;
+  if (counting)
+    write_calls++;
   return write(fd, bytes, length);
 }
-static __attribute__((unused)) ssize_t counted_writev(int fd, const struct iovec *parts, int count) {
-  if (counting) write_calls++;
+static __attribute__((unused)) ssize_t counted_writev(int fd, const struct iovec *parts,
+                                                      int count) {
+  if (counting)
+    write_calls++;
   return writev(fd, parts, count);
 }
 #ifdef __APPLE__
 static int counted_fcntl(int fd, int command, ...) {
-  if (counting) fcntl_calls++;
-  if (command == F_GETNOSIGPIPE) return fcntl(fd, command);
+  if (counting)
+    fcntl_calls++;
+  if (command == F_GETNOSIGPIPE)
+    return fcntl(fd, command);
   assert(command == F_SETNOSIGPIPE);
   va_list arguments;
   va_start(arguments, command);
@@ -64,7 +69,8 @@ static void run(int fd, const unsigned char *bytes, size_t length, int newline) 
     uint64_t start = nanos();
     for (size_t i = 0; i < rounds; ++i)
       assert(!rinzu_stdio_write(fd, bytes, length, newline));
-    if (!diagnostic) elapsed = nanos() - start;
+    if (!diagnostic)
+      elapsed = nanos() - start;
     counting = 0;
   }
   printf("{\"case\":\"stdio-%zu-newline-%d\",\"operations\":%zu,\"nanoseconds\":%" PRIu64
@@ -78,7 +84,8 @@ int main(int argc, char **argv) {
   int fd = open("/dev/null", O_WRONLY);
   assert(fd >= 0);
   unsigned char bytes[65536];
-  for (size_t i = 0; i < sizeof bytes; ++i) bytes[i] = (unsigned char)i;
+  for (size_t i = 0; i < sizeof bytes; ++i)
+    bytes[i] = (unsigned char)i;
   const size_t sizes[] = {0, 8, 64, 4096, 65536};
   for (size_t i = 0; i < sizeof sizes / sizeof sizes[0]; ++i)
     for (int newline = 0; newline <= 1; ++newline)

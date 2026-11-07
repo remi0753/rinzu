@@ -100,9 +100,11 @@ static void run(void) {
   uint64_t output = 0;
   for (size_t n = 0; n < 32; n++) {
     rinzu_managed_collect(&data, &roots);
-    assert(!rinzu_userdata_resolve(&registry, &data, admitted, 6, held, &output) && output == context);
+    assert(!rinzu_userdata_resolve(&registry, &data, admitted, 6, held, &output) &&
+           output == context);
     rinzu_managed_slot_t field = {0};
-    assert(!rinzu_managed_project(&data, context, 6, -1, 0, &field) && !field.reference && field.bits == 42);
+    assert(!rinzu_managed_project(&data, context, 6, -1, 0, &field) && !field.reference &&
+           field.bits == 42);
     assert(!rinzu_userdata_resolve(&registry, &data, admitted, 2, two, &output));
     verify(&data, output, "second\0value", 12, 42);
     assert(!rinzu_userdata_resolve(&registry, &data, nested, 2, one, &output));
@@ -168,10 +170,12 @@ static void run(void) {
     rinzu_managed_collect(&data, &roots);
     uint64_t output = 0;
     if (mode == 0) {
-      assert(!rinzu_userdata_receive_result(&registry, &data, scope, 2, two, &output) && output == second);
+      assert(!rinzu_userdata_receive_result(&registry, &data, scope, 2, two, &output) &&
+             output == second);
       verify(&data, output, "second\0value", 12, 42);
     } else if (mode == 1)
-      assert(rinzu_userdata_receive_result(&registry, &data, scope, 2, NULL, &output) == RINZU_USERDATA_NULL);
+      assert(rinzu_userdata_receive_result(&registry, &data, scope, 2, NULL, &output) ==
+             RINZU_USERDATA_NULL);
     uint64_t live[] = {first, second};
     rinzu_managed_publish(&roots, live, 2);
     rinzu_userdata_finish_result(&registry, &data, scope);
@@ -216,7 +220,8 @@ int main(int argc, char **argv) {
     if (!strncmp(mode, "scope-oom-", 10))
       budget = strtol(mode + 10, NULL, 10);
     uint64_t scope = rinzu_userdata_enter(&registry, &data);
-    if (!strncmp(mode, "result-", 7)) rinzu_userdata_expect_result(&registry, &data, scope, 2);
+    if (!strncmp(mode, "result-", 7))
+      rinzu_userdata_expect_result(&registry, &data, scope, 2);
     if (!strncmp(mode, "prepare-oom-", 12))
       budget = strtol(mode + 12, NULL, 10);
     if (!strcmp(mode, "not-composite")) {
@@ -231,22 +236,36 @@ int main(int argc, char **argv) {
     rinzu_userdata_invocation_t invocation = rinzu_userdata_admit(&registry, &data, scope);
     uint64_t output = 0;
     if (!strncmp(mode, "result-", 7)) {
-      if (!strcmp(mode,"result-before-return")) (void)rinzu_userdata_receive_result(&registry,&data,scope,2,token,&output);
-      if (!strcmp(mode,"result-release-before-return")) rinzu_userdata_finish_result(&registry,&data,scope);
-      rinzu_userdata_returned(&registry,&data,scope);
-      if (!strcmp(mode,"result-in-flight")) (void)rinzu_userdata_receive_result(&registry,&data,scope,2,token,&output);
-      if (!strcmp(mode,"result-early-release")) rinzu_userdata_finish_result(&registry,&data,scope);
-      rinzu_userdata_settle(&registry,&data,invocation);
-      if (!strcmp(mode,"result-wrong-type")) (void)rinzu_userdata_receive_result(&registry,&data,scope,4,token,&output);
-      if (!strcmp(mode,"result-wrong-domain")) {rinzu_managed_data_t other={0};(void)rinzu_userdata_receive_result(&registry,&other,scope,2,token,&output);}
-      if (!strcmp(mode,"result-wrong-call")) {
-        uint64_t other=rinzu_userdata_enter(&registry,&data);rinzu_userdata_expect_result(&registry,&data,other,2);
-        (void)rinzu_userdata_prepare(&registry,&data,other,2,value);
-        rinzu_userdata_open(&registry,&data,other);rinzu_userdata_returned(&registry,&data,other);
-        (void)rinzu_userdata_receive_result(&registry,&data,other,2,token,&output);
+      if (!strcmp(mode, "result-before-return"))
+        (void)rinzu_userdata_receive_result(&registry, &data, scope, 2, token, &output);
+      if (!strcmp(mode, "result-release-before-return"))
+        rinzu_userdata_finish_result(&registry, &data, scope);
+      rinzu_userdata_returned(&registry, &data, scope);
+      if (!strcmp(mode, "result-in-flight"))
+        (void)rinzu_userdata_receive_result(&registry, &data, scope, 2, token, &output);
+      if (!strcmp(mode, "result-early-release"))
+        rinzu_userdata_finish_result(&registry, &data, scope);
+      rinzu_userdata_settle(&registry, &data, invocation);
+      if (!strcmp(mode, "result-wrong-type"))
+        (void)rinzu_userdata_receive_result(&registry, &data, scope, 4, token, &output);
+      if (!strcmp(mode, "result-wrong-domain")) {
+        rinzu_managed_data_t other = {0};
+        (void)rinzu_userdata_receive_result(&registry, &other, scope, 2, token, &output);
       }
-      if (!strcmp(mode,"result-duplicate-read")) {assert(!rinzu_userdata_receive_result(&registry,&data,scope,2,token,&output));(void)rinzu_userdata_receive_result(&registry,&data,scope,2,token,&output);}
-      if (!strcmp(mode,"result-missing-finish")) rinzu_userdata_finish(&registry,&data);
+      if (!strcmp(mode, "result-wrong-call")) {
+        uint64_t other = rinzu_userdata_enter(&registry, &data);
+        rinzu_userdata_expect_result(&registry, &data, other, 2);
+        (void)rinzu_userdata_prepare(&registry, &data, other, 2, value);
+        rinzu_userdata_open(&registry, &data, other);
+        rinzu_userdata_returned(&registry, &data, other);
+        (void)rinzu_userdata_receive_result(&registry, &data, other, 2, token, &output);
+      }
+      if (!strcmp(mode, "result-duplicate-read")) {
+        assert(!rinzu_userdata_receive_result(&registry, &data, scope, 2, token, &output));
+        (void)rinzu_userdata_receive_result(&registry, &data, scope, 2, token, &output);
+      }
+      if (!strcmp(mode, "result-missing-finish"))
+        rinzu_userdata_finish(&registry, &data);
       abort();
     }
     if (!strcmp(mode, "unknown"))

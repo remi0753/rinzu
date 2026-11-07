@@ -21,8 +21,8 @@ static void rinzu_aot_supplant_dispose_capsule(RinzuSupplant *call) {
   if (!call->capsule_live)
     return;
   RinzuContext *capsule = &call->capsule;
-  if (capsule->roots.depth || capsule->native_calls ||
-      capsule->return_roots || capsule->pending.current.primary)
+  if (capsule->roots.depth || capsule->native_calls || capsule->return_roots ||
+      capsule->pending.current.primary)
     _Exit(86);
   rinzu_managed_detach_roots(capsule->shared_data, &capsule->domain_roots);
   rinzu_managed_dispose(&capsule->roots);

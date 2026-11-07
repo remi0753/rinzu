@@ -9,7 +9,8 @@ void rinzu_baseline_set_source(void *raw, int64_t file, int64_t start, int64_t e
     rinzu_failure_fatal();
   ((RinzuContext *)raw)->source =
       (rinzu_source_position_t){(uint64_t)file, (uint32_t)start, (uint32_t)end, 1};
-  rinzu_error_trace_stack_source(&((RinzuContext *)raw)->error_trace_stack, ((RinzuContext *)raw)->source);
+  rinzu_error_trace_stack_source(&((RinzuContext *)raw)->error_trace_stack,
+                                 ((RinzuContext *)raw)->source);
 }
 /* Compiler-owned constants only: emission checks file and start <= end.
    Packing the two 32-bit offsets removes runtime validation and rebuilding
@@ -30,8 +31,8 @@ void rinzu_baseline_observe_source(void *raw) {
 }
 
 /* Keep the unchanged control suffix out of ordinary root publication. */
-static __attribute__((noinline, cold)) int64_t rinzu_aot_poll_control(
-    RinzuContext *context, uint64_t *polls) {
+static __attribute__((noinline, cold)) int64_t rinzu_aot_poll_control(RinzuContext *context,
+                                                                      uint64_t *polls) {
   if (context->shutdown_after && *polls >= context->shutdown_after)
     context->shutdown_requested = 1;
   if (rinzu_aot_async_cancelled(context) ||
@@ -58,10 +59,9 @@ static inline int64_t rinzu_aot_poll_context(RinzuContext *context) {
     context->shutdown_requested = 1;
   /* No Worker observation or configured control event can fire here. Keep
      the original masked/deferred result, even with a pending primary. */
-  if (!context->worker &&
-      !(context->cancel_after | context->shutdown_after |
-        (uint64_t)(unsigned)context->cancel_requested |
-        (uint64_t)(unsigned)context->shutdown_requested)) {
+  if (!context->worker && !(context->cancel_after | context->shutdown_after |
+                            (uint64_t)(unsigned)context->cancel_requested |
+                            (uint64_t)(unsigned)context->shutdown_requested)) {
     if (context->pending.depth || context->cancel_masked)
       return 0;
     return context->pending.current.primary != 0;
@@ -78,17 +78,17 @@ int64_t rinzu_baseline_has_failure(void *raw) {
   return context->pending.current.primary != 0;
 }
 int64_t rinzu_baseline_function_entry(void *raw, int64_t function) {
-  RinzuContext *context=raw;
+  RinzuContext *context = raw;
   rinzu_error_trace_stack_init(&context->error_trace_stack);
-  context->pending.trace_stack=&context->error_trace_stack;
-  if(context->error_trace_stack.enabled) {
-    const char *name=rinzu_error_trace_function_name(function);
-    rinzu_error_trace_stack_enter(&context->error_trace_stack,name,strlen(name));
+  context->pending.trace_stack = &context->error_trace_stack;
+  if (context->error_trace_stack.enabled) {
+    const char *name = rinzu_error_trace_function_name(function);
+    rinzu_error_trace_stack_enter(&context->error_trace_stack, name, strlen(name));
   }
   /* managed initializes and checks the selected Owner itself. The general
      context getter also initializes it, duplicating that work on every call. */
   rinzu_owner_transition_managed(context->shared_transitions ? context->shared_transitions
-                                                           : &context->transitions);
+                                                             : &context->transitions);
   rinzu_managed_enter(&((RinzuContext *)raw)->roots);
   /* Private direct-store contract. The region is owned by this live context;
      tracing mode is initialized once and cannot change during a body. */
@@ -157,27 +157,30 @@ int64_t rinzu_baseline_commit_proven_roots_poll(void *raw, int64_t count) {
 
 /* Owner only is compiler-proven; validate every published root as before. */
 static inline void rinzu_aot_safepoint_owner_proven(RinzuContext *context) {
-  rinzu_managed_data_t *data=rinzu_context_data(context);
-  if (data->live_views || data->view_allocations) rinzu_failure_fatal();
-  if (context->roots.current && context->roots.current->writing) rinzu_failure_fatal();
+  rinzu_managed_data_t *data = rinzu_context_data(context);
+  if (data->live_views || data->view_allocations)
+    rinzu_failure_fatal();
+  if (context->roots.current && context->roots.current->writing)
+    rinzu_failure_fatal();
   if (context->roots.current && context->roots.current->count)
-    rinzu_managed_validate_frame_owned(data,context->roots.current);
+    rinzu_managed_validate_frame_owned(data, context->roots.current);
   if (rinzu_gc_due(&data->gc) || (data->future_due && data->future_due(data->future_context)))
-    rinzu_managed_collect(data,&context->roots);
+    rinzu_managed_collect(data, &context->roots);
 }
-int64_t rinzu_baseline_commit_roots_poll_owner_proven(void *raw,int64_t count) {
-  RinzuContext *context=raw;
-  rinzu_managed_commit_roots(&context->roots,count);
+int64_t rinzu_baseline_commit_roots_poll_owner_proven(void *raw, int64_t count) {
+  RinzuContext *context = raw;
+  rinzu_managed_commit_roots(&context->roots, count);
   rinzu_aot_safepoint_owner_proven(context);
   (void)rinzu_aot_poll_context(context);
-  return context->pending.current.primary!=0;
+  return context->pending.current.primary != 0;
 }
-int64_t rinzu_baseline_publish_roots_poll_owner_proven(void *raw,const uint64_t *roots,int64_t count) {
-  RinzuContext *context=raw;
-  rinzu_managed_publish(&context->roots,roots,count);
+int64_t rinzu_baseline_publish_roots_poll_owner_proven(void *raw, const uint64_t *roots,
+                                                       int64_t count) {
+  RinzuContext *context = raw;
+  rinzu_managed_publish(&context->roots, roots, count);
   rinzu_aot_safepoint_owner_proven(context);
   (void)rinzu_aot_poll_context(context);
-  return context->pending.current.primary!=0;
+  return context->pending.current.primary != 0;
 }
 
 /* Independent compiler facts: C06U proves complete root membership, C14 proves
@@ -199,8 +202,8 @@ int64_t rinzu_baseline_commit_proven_roots_poll_owner_proven(void *raw, int64_t 
 /* Immutable compiler selector, independent of C14's Owner authority. The
    complete vector remains published/traced. No prior-publication stamp,
    retirement epoch, cached pointer or mutable proof state is consulted. */
-static inline int64_t rinzu_aot_commit_partial_roots_poll(void *raw, int64_t count,
-                                                         uint64_t known, int owner_proven) {
+static inline int64_t rinzu_aot_commit_partial_roots_poll(void *raw, int64_t count, uint64_t known,
+                                                          int owner_proven) {
   RinzuContext *context = raw;
   rinzu_managed_commit_roots(&context->roots, count);
   rinzu_managed_data_t *data = rinzu_context_data(context);
@@ -220,7 +223,8 @@ static inline int64_t rinzu_aot_commit_partial_roots_poll(void *raw, int64_t cou
     unchecked &= unchecked - 1;
     uint64_t identity = roots[index];
     if (identity > RINZU_MANAGED_HANDLE_BASE && identity <= INT64_MAX) {
-      if (cache && cache[(size_t)identity & (RINZU_MANAGED_LOOKUP_CACHE_CAPACITY - 1)].identity == identity)
+      if (cache &&
+          cache[(size_t)identity & (RINZU_MANAGED_LOOKUP_CACHE_CAPACITY - 1)].identity == identity)
         continue;
       if (!rinzu_managed_lookup_uncached_owned(data, identity))
         rinzu_failure_fatal();
@@ -235,6 +239,6 @@ int64_t rinzu_baseline_commit_partial_roots_poll(void *raw, int64_t count, uint6
   return rinzu_aot_commit_partial_roots_poll(raw, count, known, 0);
 }
 int64_t rinzu_baseline_commit_partial_roots_poll_owner_proven(void *raw, int64_t count,
-                                                           uint64_t known) {
+                                                              uint64_t known) {
   return rinzu_aot_commit_partial_roots_poll(raw, count, known, 1);
 }

@@ -26,7 +26,8 @@ static inline int rinzu_managed_layout(const rinzu_value_type_t *type, int64_t v
   }
   if (variant != -1)
     return RINZU_VALUE_TYPE;
-  if (type->kind == RINZU_VALUE_RECORD || type->kind == RINZU_VALUE_STATE || type->kind == RINZU_VALUE_ERROR_RECORD)
+  if (type->kind == RINZU_VALUE_RECORD || type->kind == RINZU_VALUE_STATE ||
+      type->kind == RINZU_VALUE_ERROR_RECORD)
     return count == type->field_count ? RINZU_VALUE_OK : RINZU_VALUE_TYPE;
   if (type->kind == RINZU_VALUE_LIST)
     return RINZU_VALUE_OK;
@@ -36,7 +37,8 @@ static inline int rinzu_managed_layout(const rinzu_value_type_t *type, int64_t v
 }
 static inline size_t rinzu_managed_child_type(const rinzu_value_type_t *type, int64_t variant,
                                               size_t index) {
-  if (type->kind == RINZU_VALUE_RECORD || type->kind == RINZU_VALUE_STATE || type->kind == RINZU_VALUE_ERROR_RECORD)
+  if (type->kind == RINZU_VALUE_RECORD || type->kind == RINZU_VALUE_STATE ||
+      type->kind == RINZU_VALUE_ERROR_RECORD)
     return type->fields[index];
   if (type->kind == RINZU_VALUE_ENUM)
     return type->variants[variant].types[index];
@@ -51,9 +53,8 @@ static inline size_t rinzu_managed_child_type(const rinzu_value_type_t *type, in
    resolvers into projection so checked metadata and temporary output slots
    do not cross separate C calls. */
 static inline __attribute__((always_inline)) int
-rinzu_managed_composite_resolve_owned(rinzu_managed_data_t *data, size_t type,
-                                                        uint64_t identity,
-                                                        rinzu_managed_value_t **resolved) {
+rinzu_managed_composite_resolve_owned(rinzu_managed_data_t *data, size_t type, uint64_t identity,
+                                      rinzu_managed_value_t **resolved) {
   *resolved = NULL;
   if (!data->schema || type >= data->schema->count)
     return RINZU_VALUE_SCHEMA;
@@ -68,9 +69,8 @@ rinzu_managed_composite_resolve_owned(rinzu_managed_data_t *data, size_t type,
 /* Resolve a typed slot once inside an Owner-checked operation. The resolved
    metadata is valid until the operation returns: no yield/native reentry/GC. */
 static inline __attribute__((always_inline)) int
-rinzu_managed_slot_resolve_owned(rinzu_managed_data_t *data, size_t type,
-                                                   rinzu_managed_slot_t slot,
-                                                   rinzu_managed_value_t **resolved) {
+rinzu_managed_slot_resolve_owned(rinzu_managed_data_t *data, size_t type, rinzu_managed_slot_t slot,
+                                 rinzu_managed_value_t **resolved) {
   if (resolved)
     *resolved = NULL;
   if (!data->schema || type >= data->schema->count)
@@ -92,7 +92,9 @@ rinzu_managed_slot_resolve_owned(rinzu_managed_data_t *data, size_t type,
   if (resolved)
     *resolved = value;
   if (expected->kind == RINZU_VALUE_ERROR)
-    return (value->kind == RINZU_MANAGED_COMPOSITE && value->type < data->schema->count && data->schema->types[value->type].kind == RINZU_VALUE_ERROR_RECORD) || value->kind == RINZU_MANAGED_ERROR ||
+    return (value->kind == RINZU_MANAGED_COMPOSITE && value->type < data->schema->count &&
+            data->schema->types[value->type].kind == RINZU_VALUE_ERROR_RECORD) ||
+                   value->kind == RINZU_MANAGED_ERROR ||
                    (value->kind == RINZU_MANAGED_RICH_ERROR &&
                     rinzu_error_value_valid(value->bytes, value->length))
                ? RINZU_VALUE_OK
@@ -113,9 +115,9 @@ rinzu_managed_slot_resolve_owned(rinzu_managed_data_t *data, size_t type,
                                                   value->type == type && value->native_pointer)
                ? RINZU_VALUE_OK
                : RINZU_VALUE_TYPE;
-  if (expected->kind == RINZU_VALUE_RECORD || expected->kind == RINZU_VALUE_STATE || expected->kind == RINZU_VALUE_ERROR_RECORD ||
-      expected->kind == RINZU_VALUE_ENUM || expected->kind == RINZU_VALUE_LIST ||
-      expected->kind == RINZU_VALUE_MAP)
+  if (expected->kind == RINZU_VALUE_RECORD || expected->kind == RINZU_VALUE_STATE ||
+      expected->kind == RINZU_VALUE_ERROR_RECORD || expected->kind == RINZU_VALUE_ENUM ||
+      expected->kind == RINZU_VALUE_LIST || expected->kind == RINZU_VALUE_MAP)
     return value->kind == RINZU_MANAGED_COMPOSITE && value->type == type &&
                    !rinzu_managed_layout(
                        expected, value->has_variant ? (int64_t)value->variant : -1, value->count)
@@ -130,8 +132,8 @@ static inline int rinzu_managed_slot_valid(rinzu_managed_data_t *data, size_t ty
 }
 /* Build a fresh immutable result in its final payload. The caller has checked
    the Owner and must finish filling it before a yield, reentry or safepoint. */
-static inline rinzu_managed_value_t *
-rinzu_managed_bytes_allocate_owned(rinzu_managed_data_t *data, size_t length) {
+static inline rinzu_managed_value_t *rinzu_managed_bytes_allocate_owned(rinzu_managed_data_t *data,
+                                                                        size_t length) {
   if (length == SIZE_MAX)
     rinzu_failure_fatal();
   rinzu_managed_value_t *value = rinzu_managed_new_owned(data, RINZU_MANAGED_BYTES);
@@ -154,8 +156,8 @@ static inline uint64_t rinzu_managed_bytes_literal(rinzu_managed_data_t *data,
     rinzu_failure_fatal();
   uint64_t hit;
   rinzu_managed_literal_t *literal;
-  if (rinzu_managed_literal_lookup_owned(
-          data, &data->byte_literals, &data->byte_literal_victim, bytes, length, &literal, &hit))
+  if (rinzu_managed_literal_lookup_owned(data, &data->byte_literals, &data->byte_literal_victim,
+                                         bytes, length, &literal, &hit))
     return hit;
   rinzu_managed_value_t *value = rinzu_managed_bytes_allocate_owned(data, length);
   if (length)
@@ -253,6 +255,7 @@ static inline int rinzu_managed_snapshot(rinzu_managed_data_t *data, size_t type
   if (status)
     return status;
   rinzu_managed_snapshot_t prepared = {0};
+  rinzu_value_t root = {0};
   if (data->live_views == SIZE_MAX)
     rinzu_failure_fatal();
   data->live_views += 1;
@@ -260,7 +263,7 @@ static inline int rinzu_managed_snapshot(rinzu_managed_data_t *data, size_t type
   rinzu_managed_view_step_t *stack = NULL;
   size_t depth = 0, capacity = 0;
   rinzu_managed_view_push(&stack, &depth, &capacity,
-                          (rinzu_managed_view_step_t){type, slot, &prepared.value});
+                          (rinzu_managed_view_step_t){type, slot, &root});
   while (depth && !status) {
     rinzu_managed_view_step_t step = stack[--depth];
     /* This synchronous walk cannot yield, reenter managed code or collect.
@@ -271,7 +274,7 @@ static inline int rinzu_managed_snapshot(rinzu_managed_data_t *data, size_t type
       break;
     const rinzu_value_type_t *descriptor = &data->schema->types[step.type];
     rinzu_value_t *view = step.output;
-    // Outputs are &prepared.value or children of a nonempty allocated snapshot.
+    // Outputs are &root or children of a nonempty allocated snapshot.
     // The analyzer loses this invariant when the explicit work stack grows.
     // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
     view->kind = descriptor->kind;
@@ -298,7 +301,8 @@ static inline int rinzu_managed_snapshot(rinzu_managed_data_t *data, size_t type
     }
     if (!value)
       rinzu_failure_fatal();
-    if (descriptor->kind == RINZU_VALUE_ERROR && value->kind == RINZU_MANAGED_COMPOSITE && data->schema->types[value->type].kind == RINZU_VALUE_ERROR_RECORD) {
+    if (descriptor->kind == RINZU_VALUE_ERROR && value->kind == RINZU_MANAGED_COMPOSITE &&
+        data->schema->types[value->type].kind == RINZU_VALUE_ERROR_RECORD) {
       view->kind = RINZU_VALUE_ERROR_RECORD;
       view->other_type = value->type;
       view->bits = step.slot.bits;
@@ -351,11 +355,12 @@ static inline int rinzu_managed_snapshot(rinzu_managed_data_t *data, size_t type
   }
   free(stack);
   if (!status)
-    status = rinzu_value_validate(data->schema, type, &prepared.value);
+    status = rinzu_value_validate(data->schema, type, &root);
   if (status) {
     rinzu_managed_snapshot_dispose(&prepared);
     return status;
   }
+  prepared.value = root;
   prepared.initialized = 1;
   *destination = prepared;
   return RINZU_VALUE_OK;
@@ -386,9 +391,11 @@ static inline int rinzu_managed_values_equal(rinzu_managed_data_t *data, size_t 
     int status = rinzu_managed_slot_resolve_owned(data, type, left, &a);
     if (!status)
       status = rinzu_managed_slot_resolve_owned(data, type, right, &b);
-    if (!status)
-      *output = a->length == b->length &&
-                (!a->length || !memcmp(a->bytes, b->bytes, a->length));
+    if (!status) {
+      if (!a || !b)
+        rinzu_failure_fatal();
+      *output = a->length == b->length && (!a->length || !memcmp(a->bytes, b->bytes, a->length));
+    }
     return status;
   }
   rinzu_managed_snapshot_t a = {0}, b = {0};
@@ -449,19 +456,20 @@ static inline rinzu_managed_map_index_t *rinzu_managed_map_index_new(size_t pair
       rinzu_failure_fatal();
     capacity *= 2;
   }
-  if (capacity > (SIZE_MAX - sizeof(rinzu_managed_map_index_t)) /
-                     sizeof(rinzu_managed_map_bucket_t))
+  if (capacity >
+      (SIZE_MAX - sizeof(rinzu_managed_map_index_t)) / sizeof(rinzu_managed_map_bucket_t))
     rinzu_failure_fatal();
-  rinzu_managed_map_index_t *index = rinzu_failure_allocate(
-      sizeof(*index) + capacity * sizeof(*index->buckets));
+  rinzu_managed_map_index_t *index =
+      rinzu_failure_allocate(sizeof(*index) + capacity * sizeof(*index->buckets));
   index->capacity = capacity;
   return index;
 }
 /* The caller has checked Owner and the complete operation cannot collect. */
-static inline int rinzu_managed_map_probe_owned(
-    rinzu_managed_data_t *data, size_t key_type, const rinzu_managed_slot_t *slots,
-    rinzu_managed_map_index_t *index, rinzu_managed_slot_t key, uint64_t hash,
-    size_t *bucket, size_t *selected) {
+static inline int rinzu_managed_map_probe_owned(rinzu_managed_data_t *data, size_t key_type,
+                                                const rinzu_managed_slot_t *slots,
+                                                rinzu_managed_map_index_t *index,
+                                                rinzu_managed_slot_t key, uint64_t hash,
+                                                size_t *bucket, size_t *selected) {
   *selected = SIZE_MAX;
   *bucket = 0;
   if (!index)
@@ -471,8 +479,8 @@ static inline int rinzu_managed_map_probe_owned(
     rinzu_managed_map_bucket_t candidate = index->buckets[cursor];
     if (candidate.hash == hash) {
       int equal = 0;
-      int status = rinzu_managed_values_equal(
-          data, key_type, slots[candidate.slot_plus_one - 1], key, &equal);
+      int status = rinzu_managed_values_equal(data, key_type, slots[candidate.slot_plus_one - 1],
+                                              key, &equal);
       if (status)
         return status;
       if (equal) {
@@ -485,8 +493,8 @@ static inline int rinzu_managed_map_probe_owned(
   *bucket = cursor;
   return RINZU_VALUE_OK;
 }
-static inline void rinzu_managed_map_index_add(rinzu_managed_map_index_t *index,
-                                               uint64_t hash, size_t slot) {
+static inline void rinzu_managed_map_index_add(rinzu_managed_map_index_t *index, uint64_t hash,
+                                               size_t slot) {
   size_t bucket = (size_t)hash & (index->capacity - 1);
   while (index->buckets[bucket].slot_plus_one)
     bucket = (bucket + 1) & (index->capacity - 1);
@@ -551,10 +559,11 @@ static inline int rinzu_collection_length_fits(size_t current, size_t added) {
 /* Called after layout and every typed child validation. This weak table never
    marks a value, retains a metadata pointer, yields or collects. */
 #if RINZU_MANAGED_SMALL_ENUM_MODE
-static inline __attribute__((always_inline)) rinzu_managed_small_enum_t *rinzu_managed_small_enum_slot_owned(
-    rinzu_managed_data_t *data, const rinzu_value_type_t *descriptor, size_t type,
-    uint32_t variant, const rinzu_managed_slot_t *slots, size_t count,
-    uint16_t *tag, int allow_empty_list) {
+static inline __attribute__((always_inline)) rinzu_managed_small_enum_t *
+rinzu_managed_small_enum_slot_owned(rinzu_managed_data_t *data,
+                                    const rinzu_value_type_t *descriptor, size_t type,
+                                    uint32_t variant, const rinzu_managed_slot_t *slots,
+                                    size_t count, uint16_t *tag, int allow_empty_list) {
 #if RINZU_MANAGED_SMALL_ENUM_MODE < 2
   (void)slots;
 #endif
@@ -566,7 +575,8 @@ static inline __attribute__((always_inline)) rinzu_managed_small_enum_t *rinzu_m
 #if RINZU_MANAGED_SMALL_ENUM_MODE >= 2
     const rinzu_value_type_t *child = &data->schema->types[descriptor->variants[variant].types[0]];
     if (child->kind != RINZU_VALUE_SCALAR ||
-        (child->scalar_kind != RINZU_SCALAR_U8 && child->scalar_kind != RINZU_SCALAR_BOOL)) return NULL;
+        (child->scalar_kind != RINZU_SCALAR_U8 && child->scalar_kind != RINZU_SCALAR_BOOL))
+      return NULL;
     *tag = (uint16_t)(slots[0].bits + 1);
 #else
     return NULL;
@@ -587,8 +597,10 @@ static inline __attribute__((always_inline)) rinzu_managed_small_enum_t *rinzu_m
 #endif
 
 static inline int rinzu_managed_composite_impl_owned(rinzu_managed_data_t *data, size_t type,
-                                                int64_t variant, const rinzu_managed_slot_t *slots,
-                                                size_t count, uint64_t *output, int allow_cache) {
+                                                     int64_t variant,
+                                                     const rinzu_managed_slot_t *slots,
+                                                     size_t count, uint64_t *output,
+                                                     int allow_cache) {
   if (!data->schema || type >= data->schema->count)
     return RINZU_VALUE_SCHEMA;
   if (!output || (count && !slots) || count > SIZE_MAX / sizeof(*slots))
@@ -610,9 +622,11 @@ static inline int rinzu_managed_composite_impl_owned(rinzu_managed_data_t *data,
   if (descriptor->kind != RINZU_VALUE_MAP && count <= 1) {
 #if RINZU_MANAGED_SMALL_ENUM_MODE
     uint16_t tag = 0;
-    rinzu_managed_small_enum_t *cached = allow_cache ?
-        rinzu_managed_small_enum_slot_owned(data, descriptor, type, (uint32_t)variant, slots, count, &tag,
-                                            (allow_cache & 2) != 0) : NULL;
+    rinzu_managed_small_enum_t *cached =
+        allow_cache
+            ? rinzu_managed_small_enum_slot_owned(data, descriptor, type, (uint32_t)variant, slots,
+                                                  count, &tag, (allow_cache & 2) != 0)
+            : NULL;
     if (cached && cached->identity && cached->type == type &&
         cached->variant == (uint32_t)variant && cached->tag == tag &&
         rinzu_managed_lookup_owned(data, cached->identity)) {
@@ -632,7 +646,8 @@ static inline int rinzu_managed_composite_impl_owned(rinzu_managed_data_t *data,
       value->slots = &value->inline_slot;
     }
 #if RINZU_MANAGED_SMALL_ENUM_MODE
-    if (cached) *cached = (rinzu_managed_small_enum_t){type, value->identity, (uint32_t)variant, tag};
+    if (cached)
+      *cached = (rinzu_managed_small_enum_t){type, value->identity, (uint32_t)variant, tag};
 #endif
     *output = value->identity;
     return RINZU_VALUE_OK;
@@ -650,8 +665,8 @@ static inline int rinzu_managed_composite_impl_owned(rinzu_managed_data_t *data,
       size_t bucket = 0, previous = SIZE_MAX;
       status = rinzu_managed_value_hash(data, descriptor->key, slots[index], &hash);
       if (!status)
-        status = rinzu_managed_map_probe_owned(data, descriptor->key, copy, map_index,
-                                               slots[index], hash, &bucket, &previous);
+        status = rinzu_managed_map_probe_owned(data, descriptor->key, copy, map_index, slots[index],
+                                               hash, &bucket, &previous);
       if (!status && previous == SIZE_MAX) {
         copy[used] = slots[index];
         copy[used + 1] = slots[index + 1];
@@ -689,21 +704,25 @@ static inline int rinzu_managed_composite_impl_owned(rinzu_managed_data_t *data,
 }
 /* Normal constructors retain the caller's existing logical allocation charge. */
 static inline int rinzu_managed_composite_owned(rinzu_managed_data_t *data, size_t type,
-    int64_t variant, const rinzu_managed_slot_t *slots, size_t count, uint64_t *output) {
+                                                int64_t variant, const rinzu_managed_slot_t *slots,
+                                                size_t count, uint64_t *output) {
   return rinzu_managed_composite_impl_owned(data, type, variant, slots, count, output, 1);
 }
 /* Only the explicit Source constructor entry has a fixed logical charge and
    may share an empty immutable List. Generic/fresh materialization keeps its
    existing physical-delta accounting. Full layout/child/Owner checks remain. */
 static inline int rinzu_managed_constructor_charged(rinzu_managed_data_t *data, size_t type,
-    int64_t variant, const rinzu_managed_slot_t *slots, size_t count, uint64_t *output) {
+                                                    int64_t variant,
+                                                    const rinzu_managed_slot_t *slots, size_t count,
+                                                    uint64_t *output) {
   rinzu_managed_owner(data);
   return rinzu_managed_composite_impl_owned(data, type, variant, slots, count, output, 3);
 }
 /* Physical-object-delta accounting in Error materialization must keep fresh
    metadata. An explicit argument avoids mutable cache-suspension state. */
 static inline int rinzu_managed_composite_fresh(rinzu_managed_data_t *data, size_t type,
-    int64_t variant, const rinzu_managed_slot_t *slots, size_t count, uint64_t *output) {
+                                                int64_t variant, const rinzu_managed_slot_t *slots,
+                                                size_t count, uint64_t *output) {
   rinzu_managed_owner(data);
   return rinzu_managed_composite_impl_owned(data, type, variant, slots, count, output, 0);
 }
@@ -712,13 +731,15 @@ static inline int rinzu_managed_composite_fresh(rinzu_managed_data_t *data, size
    Owner; source slots are immutable and already valid. selected==SIZE_MAX is
    append, otherwise selected is in bounds. No yield/reentry/GC may occur until
    the new result (and its Option, if any) is published by the caller. */
-static inline uint64_t rinzu_managed_list_update_owned(
-    rinzu_managed_data_t *data, const rinzu_managed_value_t *source, size_t selected,
-    rinzu_managed_slot_t replacement, int remove) {
+static inline uint64_t
+rinzu_managed_list_update_owned(rinzu_managed_data_t *data, const rinzu_managed_value_t *source,
+                                size_t selected, rinzu_managed_slot_t replacement, int remove) {
   size_t count = source->count;
-  if (remove) --count;
+  if (remove)
+    --count;
   else if (selected == SIZE_MAX) {
-    if (count >= SIZE_MAX / sizeof(rinzu_managed_slot_t)) rinzu_failure_fatal();
+    if (count >= SIZE_MAX / sizeof(rinzu_managed_slot_t))
+      rinzu_failure_fatal();
     ++count;
   }
   rinzu_managed_value_t *value = rinzu_managed_new_owned(data, RINZU_MANAGED_COMPOSITE);
@@ -730,12 +751,13 @@ static inline uint64_t rinzu_managed_list_update_owned(
   } else if (count > 1) {
     rinzu_managed_slot_t *slots = rinzu_failure_allocate(count * sizeof(*slots));
     if (remove) {
-      if (selected) memcpy(slots, source->slots, selected * sizeof(*slots));
+      if (selected)
+        memcpy(slots, source->slots, selected * sizeof(*slots));
       if (count - selected)
-        memcpy(slots + selected, source->slots + selected + 1,
-               (count - selected) * sizeof(*slots));
+        memcpy(slots + selected, source->slots + selected + 1, (count - selected) * sizeof(*slots));
     } else {
-      if (source->count) memcpy(slots, source->slots, source->count * sizeof(*slots));
+      if (source->count)
+        memcpy(slots, source->slots, source->count * sizeof(*slots));
       slots[selected == SIZE_MAX ? count - 1 : selected] = replacement;
     }
     value->slots = slots;
@@ -747,9 +769,11 @@ static inline uint64_t rinzu_managed_list_update_owned(
    hashes are already canonical; the caller validates the new typed arguments.
    Copy once, preserve insertion order, and rebuild offsets without rehashing or
    renormalizing the old keys. No yield/GC occurs before publishing the result. */
-static inline uint64_t rinzu_managed_map_update_owned(
-    rinzu_managed_data_t *data, const rinzu_managed_value_t *source, size_t selected,
-    rinzu_managed_slot_t key, rinzu_managed_slot_t replacement, uint64_t hash, int remove) {
+static inline uint64_t rinzu_managed_map_update_owned(rinzu_managed_data_t *data,
+                                                      const rinzu_managed_value_t *source,
+                                                      size_t selected, rinzu_managed_slot_t key,
+                                                      rinzu_managed_slot_t replacement,
+                                                      uint64_t hash, int remove) {
   size_t count = source->count;
   if (remove && selected != SIZE_MAX)
     count -= 2;
@@ -758,20 +782,23 @@ static inline uint64_t rinzu_managed_map_update_owned(
       rinzu_failure_fatal();
     count += 2;
   }
-  rinzu_managed_slot_t *slots = count ? rinzu_failure_allocate(count * sizeof(*slots)) : NULL;
-  if (remove && selected != SIZE_MAX) {
-    if (selected)
-      memcpy(slots, source->slots, selected * sizeof(*slots));
-    if (source->count - selected - 2)
-      memcpy(slots + selected, source->slots + selected + 2,
-             (source->count - selected - 2) * sizeof(*slots));
-  } else {
-    if (source->count)
-      memcpy(slots, source->slots, source->count * sizeof(*slots));
-    if (!remove) {
-      if (selected == SIZE_MAX)
-        slots[count - 2] = key;
-      slots[selected == SIZE_MAX ? count - 1 : selected + 1] = replacement;
+  rinzu_managed_slot_t *slots = NULL;
+  if (count) {
+    slots = rinzu_failure_allocate(count * sizeof(*slots));
+    if (remove && selected != SIZE_MAX) {
+      if (selected)
+        memcpy(slots, source->slots, selected * sizeof(*slots));
+      if (source->count - selected - 2)
+        memcpy(slots + selected, source->slots + selected + 2,
+               (source->count - selected - 2) * sizeof(*slots));
+    } else {
+      if (source->count)
+        memcpy(slots, source->slots, source->count * sizeof(*slots));
+      if (!remove) {
+        if (selected == SIZE_MAX)
+          slots[count - 2] = key;
+        slots[selected == SIZE_MAX ? count - 1 : selected + 1] = replacement;
+      }
     }
   }
   rinzu_managed_map_index_t *index = rinzu_managed_map_index_new(count / 2);
@@ -794,8 +821,8 @@ static inline uint64_t rinzu_managed_map_update_owned(
   value->slots = slots;
   value->count = count;
   value->map_index = index;
-  rinzu_managed_account_payload(data, value, count * sizeof(*slots) +
-                                             rinzu_managed_map_index_bytes(index));
+  rinzu_managed_account_payload(data, value,
+                                count * sizeof(*slots) + rinzu_managed_map_index_bytes(index));
   return value->identity;
 }
 static inline int rinzu_managed_composite(rinzu_managed_data_t *data, size_t type, int64_t variant,
@@ -923,11 +950,9 @@ static inline int rinzu_managed_materialize_values(rinzu_managed_data_t *data, c
    safepoint. The parent may be released once that publication is complete. */
 static inline __attribute__((always_inline)) int
 rinzu_managed_project_owned(rinzu_managed_data_t *data, uint64_t identity, size_t type,
-                                        int64_t variant, size_t field,
-                                        rinzu_managed_slot_t *output) {
+                            int64_t variant, size_t field, rinzu_managed_slot_t *output) {
   rinzu_managed_value_t *value = NULL;
-  int status =
-      rinzu_managed_composite_resolve_owned(data, type, identity, &value);
+  int status = rinzu_managed_composite_resolve_owned(data, type, identity, &value);
   if (status)
     return status;
   if (!output || !value || value->kind != RINZU_MANAGED_COMPOSITE ||
@@ -944,8 +969,8 @@ rinzu_managed_project_owned(rinzu_managed_data_t *data, uint64_t identity, size_
   return RINZU_VALUE_OK;
 }
 static inline __attribute__((always_inline)) int
-rinzu_managed_project(rinzu_managed_data_t *data, uint64_t identity, size_t type,
-                      int64_t variant, size_t field, rinzu_managed_slot_t *output) {
+rinzu_managed_project(rinzu_managed_data_t *data, uint64_t identity, size_t type, int64_t variant,
+                      size_t field, rinzu_managed_slot_t *output) {
   rinzu_managed_owner(data);
   return rinzu_managed_project_owned(data, identity, type, variant, field, output);
 }
@@ -956,8 +981,7 @@ static inline int rinzu_managed_set_state_field(rinzu_managed_data_t *data, uint
                                                 rinzu_managed_slot_t slot) {
   rinzu_managed_owner(data);
   rinzu_managed_value_t *value = NULL;
-  int status =
-      rinzu_managed_composite_resolve_owned(data, type, identity, &value);
+  int status = rinzu_managed_composite_resolve_owned(data, type, identity, &value);
   if (status)
     return status;
   const rinzu_value_type_t *layout = &data->schema->types[type];
@@ -973,8 +997,7 @@ static inline int rinzu_managed_enum_variant(rinzu_managed_data_t *data, uint64_
                                              size_t type, uint32_t *output) {
   rinzu_managed_owner(data);
   rinzu_managed_value_t *value = NULL;
-  int status =
-      rinzu_managed_composite_resolve_owned(data, type, identity, &value);
+  int status = rinzu_managed_composite_resolve_owned(data, type, identity, &value);
   if (status)
     return status;
   if (!output || !value || data->schema->types[type].kind != RINZU_VALUE_ENUM ||

@@ -11,7 +11,7 @@ static void wake(void *context) {
 static rinzu_async_future_t *waiting(rinzu_async_runtime_t *runtime,
                                      rinzu_native_completion_t *carrier) {
   rinzu_async_future_t *future = rinzu_async_new(runtime, RINZU_ASYNC_COMPLETION,
-      RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
+                                                 RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
   future->native_completion = carrier;
   return future;
 }
@@ -130,8 +130,8 @@ static void deferred_notification_after_dispose(void) {
   /* Pause the producer after its LAST carrier access, before its retained
      target is invoked. This is the exact tail of v2_publish split by a pause. */
   atomic_store_explicit(&carrier->base.done, 1, memory_order_release);
-  uintptr_t target = atomic_exchange_explicit(&carrier->notification,
-      RINZU_NATIVE_COMPLETION_DONE, memory_order_acq_rel);
+  uintptr_t target = atomic_exchange_explicit(&carrier->notification, RINZU_NATIVE_COMPLETION_DONE,
+                                              memory_order_acq_rel);
   receive(future);
   free(carrier);
   rinzu_async_release(future);

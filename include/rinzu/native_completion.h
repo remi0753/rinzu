@@ -43,7 +43,8 @@ typedef struct {
   int64_t result;
 } rinzu_native_completion_v3_t;
 _Static_assert(offsetof(rinzu_native_completion_v3_t, result) ==
-                   sizeof(rinzu_native_completion_v2_t), "scalar completion prefix");
+                   sizeof(rinzu_native_completion_v2_t),
+               "scalar completion prefix");
 #define RINZU_NATIVE_COMPLETION_DONE ((uintptr_t)1)
 static inline void rinzu_native_completion_v2_init(rinzu_native_completion_v2_t *completion) {
   rinzu_native_completion_init(&completion->base);
@@ -56,7 +57,7 @@ static inline int rinzu_native_completion_valid(const rinzu_native_completion_t 
          ((completion->version == 1 && completion->size == sizeof(*completion)) ||
           ((completion->version == 2 || completion->version == 3) &&
            completion->size == (completion->version == 2 ? sizeof(rinzu_native_completion_v2_t)
-                                                        : sizeof(rinzu_native_completion_v3_t)) &&
+                                                         : sizeof(rinzu_native_completion_v3_t)) &&
            !((uintptr_t)completion % _Alignof(rinzu_native_completion_v2_t))));
 }
 static inline int rinzu_native_completion_is_done(const rinzu_native_completion_t *completion) {
@@ -65,14 +66,17 @@ static inline int rinzu_native_completion_is_done(const rinzu_native_completion_
                                 memory_order_acquire) == RINZU_NATIVE_COMPLETION_DONE;
   return atomic_load_explicit(&completion->done, memory_order_acquire) != 0;
 }
-static inline int64_t rinzu_native_completion_transfer_result(const rinzu_native_completion_t *completion) {
+static inline int64_t
+rinzu_native_completion_transfer_result(const rinzu_native_completion_t *completion) {
   if (completion->version != 3 || completion->size != sizeof(rinzu_native_completion_v3_t) ||
       !rinzu_native_completion_is_done(completion))
     __builtin_trap();
   int64_t result;
   /* Byte access also permits a provider's own record with this exact prefix,
      without violating C's struct aliasing rules. Publication supplies acquire. */
-  memcpy(&result, (const unsigned char *)completion + offsetof(rinzu_native_completion_v3_t, result), sizeof(result));
+  memcpy(&result,
+         (const unsigned char *)completion + offsetof(rinzu_native_completion_v3_t, result),
+         sizeof(result));
   return result;
 }
 /* The exchange is the producer's LAST carrier access and the v2 physical
@@ -82,7 +86,7 @@ static inline int64_t rinzu_native_completion_transfer_result(const rinzu_native
 static inline void rinzu_native_completion_v2_publish(rinzu_native_completion_v2_t *completion) {
   atomic_store_explicit(&completion->base.done, 1, memory_order_release);
   uintptr_t before = atomic_exchange_explicit(&completion->notification,
-                                               RINZU_NATIVE_COMPLETION_DONE, memory_order_acq_rel);
+                                              RINZU_NATIVE_COMPLETION_DONE, memory_order_acq_rel);
   if (before > RINZU_NATIVE_COMPLETION_DONE) {
     rinzu_native_completion_wake_t *target = (rinzu_native_completion_wake_t *)before;
     target->notify(target);

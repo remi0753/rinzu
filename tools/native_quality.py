@@ -21,6 +21,8 @@ MARKERS = {
     "SOURCE_NATIVE_PLANS": "RINZU_TOOLING_PLANS",
     "SOURCE_NATIVE_STARTUP": "RINZU_TOOLING_STARTUP",
     "JIT_ENTRY_COUNTS": None,
+    "CURRENT_ASYNC_HELPERS": "RINZU_TOOLING_POLL_ASYNC_HELPERS",
+    "CURRENT_POLL_BODY": "RINZU_TOOLING_POLL_BODY",
 }
 
 
@@ -113,14 +115,17 @@ def compilation_database(driver=None):
     flags = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function",
              "-pthread", "-I", str(ROOT / "include"), "-isysroot", sysroot]
     sdl_flags = shlex.split(run(["sdl2-config", "--cflags"], capture_output=True, text=True).stdout)
-    sources = {path: path.read_text() for path in [
-        DATABASE / "source-platform.runtime.c", DATABASE / "compiled-async.c",
-        DATABASE / "async-wait.c", DATABASE / "typed-worker.c", DATABASE / "json.runtime.c",
+    guard_names = json.loads((DATABASE / "fixture-sources.json").read_text())
+    sources = {DATABASE / name: (DATABASE / name).read_text() for name in [
+        "source-platform.runtime.c", "compiled-async.c", "async-wait.c",
+        "typed-worker.c", "json.runtime.c", *guard_names,
     ]}
+    # The ready-snapshot test also accepts unreachable labels left by lowering.
+    generated_flags = {"ready_snapshot_guards.c": ["-Wno-unused-label"]}
     files = native_files()
     fragments = [file for file in files if file.parent == ROOT / "crates/driver/src"]
     fragments += [ROOT / "crates/driver/tests/fixtures" / name
-                  for name in ["async_wait_cycle.c", "typed_worker_resources.c"]]
+                  for name in ["async_wait_cycle.c", "typed_worker_resources.c", *guard_names]]
     commands, units, contexts = [], [], {}
     # clangd parses the original fragment after a generated prefix. Conditional
     # includes supply the same schema/plan substitutions as the real generator.
@@ -149,7 +154,7 @@ def compilation_database(driver=None):
             else:
                 extra += [f"-D{name}={value}" for name, value in
                           re.findall(r"#define (RINZU_JIT_\w+) (\d+)", replacement)]
-        commands.append(entry(file, flags + extra))
+        commands.append(entry(file, flags + generated_flags.get(unit.name, []) + extra))
         contexts[str(file)] = str(unit)
 
     for file in files:
@@ -193,6 +198,8 @@ def compilation_database(driver=None):
                 extra += ["-include", str(ROOT / "crates/driver/tests/fixtures/native_record_sdk/api.c")]
         if file.name == "native_abi_aot.c":
             extra += ["-include", str(file.parent / "native_abi.c")]
+        if file.relative_to(ROOT).as_posix() == "sdk/socket/tests/accounting-check.h":
+            extra += ["-include", str(ROOT / "sdk/socket/native/src/socket.c")]
         language_flags = [flag for flag in flags if flag != "-std=c11"] + ["-std=c++17"] if file.suffix in {".cpp", ".mm"} else flags
         commands.append(entry(file, language_flags + extra))
         units.append(str(file))
@@ -220,7 +227,8 @@ def compilation_database(driver=None):
             source = source[:match.start()] + mapped + source[match.end():]
         output = DATABASE / f"lint-{unit.name}"
         output.write_text(source)
-        commands.append(entry(output, [flag for flag in flags if flag != "-Wno-unused-function"]))
+        commands.append(entry(output, [flag for flag in flags if flag != "-Wno-unused-function"]
+                              + generated_flags.get(unit.name, [])))
         units.append(str(output))
         contexts = {file: str(output) if context == str(unit) else context
                     for file, context in contexts.items()}

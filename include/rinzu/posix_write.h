@@ -43,7 +43,7 @@ static inline int rinzu_posix_write_begin(int fd, rinzu_posix_write_guard_t *gua
 }
 
 static inline ssize_t rinzu_posix_write_end(int fd, const rinzu_posix_write_guard_t *guard,
-                                          ssize_t result) {
+                                            ssize_t result) {
   int saved_errno = errno;
 #ifdef __APPLE__
   if (!guard->previous && fcntl(fd, F_SETNOSIGPIPE, 0))

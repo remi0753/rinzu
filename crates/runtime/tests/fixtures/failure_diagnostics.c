@@ -21,15 +21,27 @@ int main(int argc, char **argv) {
   assert(rinzu_failure_observe(&state) == 2);
   rinzu_observed_error_t *head = state.observed, *tail = head->next;
   if (argc > 1) {
-    if (!strcmp(argv[1], "missing")) state.observed_count = 3;
-    else if (!strcmp(argv[1], "extra")) state.observed_count = 1;
-    else if (!strcmp(argv[1], "stray")) state.observed_count = 0;
-    else if (!strcmp(argv[1], "duplicate")) tail->identity = 2;
-    else if (!strcmp(argv[1], "order")) {head->identity = 1; tail->identity = 2;}
-    else if (!strcmp(argv[1], "overflow")) state.observed_count = SIZE_MAX / sizeof(void *) + 1;
-    else if (!strcmp(argv[1], "oom")) fail_allocation = 1;
-    else return 2;
+    if (!strcmp(argv[1], "missing"))
+      state.observed_count = 3;
+    else if (!strcmp(argv[1], "extra"))
+      state.observed_count = 1;
+    else if (!strcmp(argv[1], "stray"))
+      state.observed_count = 0;
+    else if (!strcmp(argv[1], "duplicate"))
+      tail->identity = 2;
+    else if (!strcmp(argv[1], "order")) {
+      head->identity = 1;
+      tail->identity = 2;
+    } else if (!strcmp(argv[1], "overflow"))
+      state.observed_count = SIZE_MAX / sizeof(void *) + 1;
+    else if (!strcmp(argv[1], "oom"))
+      fail_allocation = 1;
+    else {
+      rinzu_failure_dispose(&state);
+      return 2;
+    }
     rinzu_failure_print(&state);
+    rinzu_failure_dispose(&state);
     return 3;
   }
   for (int pass = 0; pass < 2; ++pass) {

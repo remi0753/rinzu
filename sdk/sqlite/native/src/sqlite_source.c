@@ -394,7 +394,8 @@ static int observe_row(void *context, int count, char **columns, char **names) {
   return observer->handler(observer->context);
 }
 
-int32_t rinzu_sqlite_observe(void *value, const char *sql, void *context, int32_t (*handler)(void *)) {
+int32_t rinzu_sqlite_observe(void *value, const char *sql, void *context,
+                             int32_t (*handler)(void *)) {
   struct Use use;
   int32_t status = use_begin(value, &use);
   if (status != SQLITE_OK)

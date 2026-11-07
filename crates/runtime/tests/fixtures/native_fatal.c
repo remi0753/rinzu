@@ -26,10 +26,13 @@ static void *locked_stdio(void *unused) {
   assert(!pthread_mutex_lock(&gate));
   ready = 1;
   assert(!pthread_cond_signal(&condition));
-  for (;;) assert(!pthread_cond_wait(&condition, &gate));
+  for (;;)
+    assert(!pthread_cond_wait(&condition, &gate));
   return NULL;
 }
-static void cleanup(void) { (void)write(1, "CLEANUP_RAN\n", 12); }
+static void cleanup(void) {
+  (void)write(1, "CLEANUP_RAN\n", 12);
+}
 int main(int argc, char **argv) {
   assert(argc == 3);
   assert(!atexit(cleanup));
@@ -38,7 +41,8 @@ int main(int argc, char **argv) {
     pthread_t worker;
     assert(!pthread_create(&worker, NULL, locked_stdio, NULL));
     assert(!pthread_mutex_lock(&gate));
-    while (!ready) assert(!pthread_cond_wait(&condition, &gate));
+    while (!ready)
+      assert(!pthread_cond_wait(&condition, &gate));
     assert(!pthread_mutex_unlock(&gate));
   }
   if (!strcmp(mode, "closed"))
@@ -50,9 +54,13 @@ int main(int argc, char **argv) {
       int flags = fcntl(pipes[1], F_GETFL);
       assert(flags >= 0 && !fcntl(pipes[1], F_SETFL, flags | O_NONBLOCK));
       char bytes[4096] = {0};
-      while (write(pipes[1], bytes, sizeof(bytes)) > 0) {}
+      while (write(pipes[1], bytes, sizeof(bytes)) > 0) {
+      }
       assert(!fcntl(pipes[1], F_SETFL, flags));
-    } else { close(pipes[0]); signal(SIGPIPE, SIG_DFL); }
+    } else {
+      close(pipes[0]);
+      signal(SIGPIPE, SIG_DFL);
+    }
     assert(dup2(pipes[1], 2) == 2);
   }
   rinzu_native_fatal(atoi(argv[1]));

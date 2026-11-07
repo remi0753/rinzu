@@ -72,7 +72,8 @@ typedef struct {
 
 static inline int rinzu_value_dependency(const rinzu_value_type_t *type, size_t *group,
                                          size_t *field, size_t *child) {
-  if (type->kind == RINZU_VALUE_RECORD || type->kind == RINZU_VALUE_STATE || type->kind == RINZU_VALUE_ERROR_RECORD) {
+  if (type->kind == RINZU_VALUE_RECORD || type->kind == RINZU_VALUE_STATE ||
+      type->kind == RINZU_VALUE_ERROR_RECORD) {
     if (*field == type->field_count)
       return 0;
     *child = type->fields[(*field)++];
@@ -113,17 +114,19 @@ static inline int rinzu_value_schema_init(rinzu_value_schema_t *destination,
     if (type->kind > RINZU_VALUE_ERROR_RECORD ||
         (type->kind == RINZU_VALUE_SCALAR && type->scalar_kind > RINZU_SCALAR_BOOL))
       return RINZU_VALUE_SCHEMA;
-    if (type->kind == RINZU_VALUE_RECORD || type->kind == RINZU_VALUE_STATE || type->kind == RINZU_VALUE_ERROR_RECORD ||
-        type->kind == RINZU_VALUE_ENUM) {
+    if (type->kind == RINZU_VALUE_RECORD || type->kind == RINZU_VALUE_STATE ||
+        type->kind == RINZU_VALUE_ERROR_RECORD || type->kind == RINZU_VALUE_ENUM) {
       if (!type->identity || !*type->identity)
         return RINZU_VALUE_SCHEMA;
       for (size_t other = 0; other < index; ++other)
-        if ((types[other].kind == RINZU_VALUE_RECORD || types[other].kind == RINZU_VALUE_STATE || types[other].kind == RINZU_VALUE_ERROR_RECORD ||
+        if ((types[other].kind == RINZU_VALUE_RECORD || types[other].kind == RINZU_VALUE_STATE ||
+             types[other].kind == RINZU_VALUE_ERROR_RECORD ||
              types[other].kind == RINZU_VALUE_ENUM) &&
             !strcmp(type->identity, types[other].identity))
           return RINZU_VALUE_SCHEMA;
     }
-    if ((type->kind == RINZU_VALUE_RECORD || type->kind == RINZU_VALUE_STATE || type->kind == RINZU_VALUE_ERROR_RECORD) &&
+    if ((type->kind == RINZU_VALUE_RECORD || type->kind == RINZU_VALUE_STATE ||
+         type->kind == RINZU_VALUE_ERROR_RECORD) &&
         type->field_count && !type->fields)
       return RINZU_VALUE_SCHEMA;
     if (type->kind == RINZU_VALUE_ENUM) {
@@ -189,13 +192,13 @@ static inline int rinzu_value_schema_init(rinzu_value_schema_t *destination,
   unsigned char *colors = count ? rinzu_failure_allocate(count) : NULL;
   rinzu_value_type_frame_t *stack = count ? rinzu_failure_allocate(count * sizeof(*stack)) : NULL;
   for (size_t index = 0; index < count; ++index)
-    prepared.equality[index] = types[index].kind != RINZU_VALUE_OTHER &&
-                               types[index].kind != RINZU_VALUE_STATE &&
-                               types[index].kind != RINZU_VALUE_ERROR_RECORD &&
-                               types[index].kind != RINZU_VALUE_ERROR;
+    prepared.equality[index] =
+        types[index].kind != RINZU_VALUE_OTHER && types[index].kind != RINZU_VALUE_STATE &&
+        types[index].kind != RINZU_VALUE_ERROR_RECORD && types[index].kind != RINZU_VALUE_ERROR;
   for (size_t index = 0; index < count; ++index)
-    prepared.transferable[index] =
-        types[index].kind != RINZU_VALUE_OTHER && types[index].kind != RINZU_VALUE_STATE && types[index].kind != RINZU_VALUE_ERROR_RECORD;
+    prepared.transferable[index] = types[index].kind != RINZU_VALUE_OTHER &&
+                                   types[index].kind != RINZU_VALUE_STATE &&
+                                   types[index].kind != RINZU_VALUE_ERROR_RECORD;
   for (size_t root = 0; root < count; ++root) {
     if (colors[root])
       continue;
@@ -266,16 +269,17 @@ static inline rinzu_value_map_index_t *rinzu_value_map_index_new(size_t count) {
 /* A borrowed view index. Hash collisions always compare the complete typed
    key; entries remain owned by the caller for the entire validation/walk. */
 static inline int rinzu_value_map_probe(const rinzu_value_schema_t *schema, size_t key_type,
-    const rinzu_value_pair_t *entries, rinzu_value_map_index_t *index,
-    const rinzu_value_t *key, uint64_t hash, size_t *bucket, size_t *matched) {
+                                        const rinzu_value_pair_t *entries,
+                                        rinzu_value_map_index_t *index, const rinzu_value_t *key,
+                                        uint64_t hash, size_t *bucket, size_t *matched) {
   *matched = SIZE_MAX;
   size_t cursor = (size_t)hash & (index->capacity - 1);
   while (index->buckets[cursor].entry_plus_one) {
     rinzu_value_map_bucket_t candidate = index->buckets[cursor];
     if (candidate.hash == hash) {
       int equal = 0;
-      int status = rinzu_value_equal(schema,key_type,key,
-          &entries[candidate.entry_plus_one - 1].key,&equal);
+      int status = rinzu_value_equal(schema, key_type, key,
+                                     &entries[candidate.entry_plus_one - 1].key, &equal);
       if (status)
         return status;
       if (equal) {
@@ -299,11 +303,12 @@ typedef struct {
 } rinzu_value_validation_frame_t;
 /* -1 means that a composite walk is required, never a public status. */
 static inline int rinzu_value_validate_leaf(const rinzu_value_type_t *leaf,
-                                           const rinzu_value_t *value) {
+                                            const rinzu_value_t *value) {
   if (leaf->kind == RINZU_VALUE_SCALAR)
     return value->kind == leaf->kind && value->scalar_kind == leaf->scalar_kind &&
                    rinzu_transfer_valid(value->scalar_kind, value->bits)
-               ? RINZU_VALUE_OK : RINZU_VALUE_TYPE;
+               ? RINZU_VALUE_OK
+               : RINZU_VALUE_TYPE;
   if (leaf->kind == RINZU_VALUE_UNIT)
     return value->kind == leaf->kind ? RINZU_VALUE_OK : RINZU_VALUE_TYPE;
   if (leaf->kind == RINZU_VALUE_STRING || leaf->kind == RINZU_VALUE_BYTES ||
@@ -311,8 +316,10 @@ static inline int rinzu_value_validate_leaf(const rinzu_value_type_t *leaf,
     return value->kind == leaf->kind && (!value->length || value->bytes) &&
                    (leaf->kind != RINZU_VALUE_DYNAMIC_BYTES || value->length <= INT64_MAX) &&
                    (leaf->kind != RINZU_VALUE_BYTES || value->length == leaf->bytes_length) &&
-                   (leaf->kind != RINZU_VALUE_STRING || rinzu_utf8_valid(value->bytes,value->length))
-               ? RINZU_VALUE_OK : RINZU_VALUE_TYPE;
+                   (leaf->kind != RINZU_VALUE_STRING ||
+                    rinzu_utf8_valid(value->bytes, value->length))
+               ? RINZU_VALUE_OK
+               : RINZU_VALUE_TYPE;
   if (value->kind == leaf->kind && !value->count &&
       (leaf->kind == RINZU_VALUE_MAP || leaf->kind == RINZU_VALUE_LIST))
     return RINZU_VALUE_OK;
@@ -323,7 +330,7 @@ static inline int rinzu_value_validate(const rinzu_value_schema_t *schema, size_
   if (!schema || root >= schema->count || !schema->types || !value ||
       schema->count > SIZE_MAX / sizeof(rinzu_value_validation_frame_t))
     return RINZU_VALUE_SCHEMA;
-  int leaf_status = rinzu_value_validate_leaf(&schema->types[root],value);
+  int leaf_status = rinzu_value_validate_leaf(&schema->types[root], value);
   if (leaf_status >= 0)
     return leaf_status;
   /* Equality metadata can contain cycles with finite values (e.g. empty List).
@@ -338,7 +345,8 @@ static inline int rinzu_value_validate(const rinzu_value_schema_t *schema, size_
     const rinzu_value_type_t *type = &schema->types[frame->type];
     value = frame->value;
     if (type->kind == RINZU_VALUE_ERROR && value->kind == RINZU_VALUE_ERROR_RECORD &&
-        value->other_type < schema->count && schema->types[value->other_type].kind == RINZU_VALUE_ERROR_RECORD) {
+        value->other_type < schema->count &&
+        schema->types[value->other_type].kind == RINZU_VALUE_ERROR_RECORD) {
       depth -= 1;
       continue;
     }
@@ -373,7 +381,8 @@ static inline int rinzu_value_validate(const rinzu_value_schema_t *schema, size_
       depth -= 1;
       continue;
     }
-    if (type->kind == RINZU_VALUE_OTHER || type->kind == RINZU_VALUE_STATE || type->kind == RINZU_VALUE_ERROR_RECORD) {
+    if (type->kind == RINZU_VALUE_OTHER || type->kind == RINZU_VALUE_STATE ||
+        type->kind == RINZU_VALUE_ERROR_RECORD) {
       if (value->other_type != frame->type)
         status = RINZU_VALUE_TYPE;
       depth -= 1;
@@ -409,15 +418,15 @@ static inline int rinzu_value_validate(const rinzu_value_schema_t *schema, size_
           if (!frame->map_index)
             frame->map_index = rinzu_value_map_index_new(value->count);
           size_t bucket, matched;
-          status = rinzu_value_map_probe(schema,type->key,value->entries,frame->map_index,
-                                         child,hash,&bucket,&matched);
+          status = rinzu_value_map_probe(schema, type->key, value->entries, frame->map_index, child,
+                                         hash, &bucket, &matched);
           if (status)
             break;
           if (matched != SIZE_MAX) {
             status = RINZU_VALUE_DUPLICATE;
             break;
           }
-          frame->map_index->buckets[bucket] = (rinzu_value_map_bucket_t){hash,entry + 1};
+          frame->map_index->buckets[bucket] = (rinzu_value_map_bucket_t){hash, entry + 1};
         }
       }
     } else {
@@ -459,7 +468,7 @@ static inline int rinzu_value_validate(const rinzu_value_schema_t *schema, size_
       child = &value->fields[frame->field];
     }
     frame->field += 1;
-    int child_status = rinzu_value_validate_leaf(&schema->types[child_type],child);
+    int child_status = rinzu_value_validate_leaf(&schema->types[child_type], child);
     if (child_status >= 0) {
       status = child_status;
       continue;
@@ -574,7 +583,8 @@ static inline int rinzu_value_equal(const rinzu_value_schema_t *schema, size_t r
     return status;
   unsigned kind = schema->types[root].kind;
   if (kind == RINZU_VALUE_SCALAR) {
-    *destination = rinzu_scalar_compare(schema->types[root].scalar_kind, 0, left->bits, right->bits);
+    *destination =
+        rinzu_scalar_compare(schema->types[root].scalar_kind, 0, left->bits, right->bits);
     return RINZU_VALUE_OK;
   }
   if (kind == RINZU_VALUE_UNIT ||
@@ -582,7 +592,8 @@ static inline int rinzu_value_equal(const rinzu_value_schema_t *schema, size_t r
     *destination = 1;
     return RINZU_VALUE_OK;
   }
-  if (kind == RINZU_VALUE_STRING || kind == RINZU_VALUE_BYTES || kind == RINZU_VALUE_DYNAMIC_BYTES) {
+  if (kind == RINZU_VALUE_STRING || kind == RINZU_VALUE_BYTES ||
+      kind == RINZU_VALUE_DYNAMIC_BYTES) {
     *destination = left->length == right->length &&
                    (!left->length || !memcmp(left->bytes, right->bytes, left->length));
     return RINZU_VALUE_OK;
@@ -630,13 +641,13 @@ static inline int rinzu_value_equal(const rinzu_value_schema_t *schema, size_t r
         frame->map_index = rinzu_value_map_index_new(right->count);
         for (size_t index = 0; index < right->count; ++index) {
           uint64_t hash;
-          status = rinzu_value_key_hash(schema,type->key,&right->entries[index].key,&hash);
+          status = rinzu_value_key_hash(schema, type->key, &right->entries[index].key, &hash);
           if (status)
             break;
           size_t bucket = (size_t)hash & (frame->map_index->capacity - 1);
           while (frame->map_index->buckets[bucket].entry_plus_one)
             bucket = (bucket + 1) & (frame->map_index->capacity - 1);
-          frame->map_index->buckets[bucket] = (rinzu_value_map_bucket_t){hash,index + 1};
+          frame->map_index->buckets[bucket] = (rinzu_value_map_bucket_t){hash, index + 1};
         }
         if (status)
           break;
@@ -645,7 +656,7 @@ static inline int rinzu_value_equal(const rinzu_value_schema_t *schema, size_t r
       size_t matched = SIZE_MAX;
       if (right->count == 1) {
         int same = 0;
-        status = rinzu_value_equal(schema,type->key,&entry->key,&right->entries[0].key,&same);
+        status = rinzu_value_equal(schema, type->key, &entry->key, &right->entries[0].key, &same);
         if (same)
           matched = 0;
       } else {
@@ -654,8 +665,8 @@ static inline int rinzu_value_equal(const rinzu_value_schema_t *schema, size_t r
         if (status)
           break;
         size_t bucket;
-        status = rinzu_value_map_probe(schema,type->key,right->entries,frame->map_index,
-                                       &entry->key,hash,&bucket,&matched);
+        status = rinzu_value_map_probe(schema, type->key, right->entries, frame->map_index,
+                                       &entry->key, hash, &bucket, &matched);
       }
       if (status)
         break;
@@ -718,15 +729,15 @@ static inline int rinzu_value_map(const rinzu_value_schema_t *schema, size_t roo
       break;
     size_t existing = SIZE_MAX, bucket = 0;
     if (seen)
-      status = rinzu_value_map_probe(schema,type->key,prepared.entries,seen,
-                                     &entries[index].key,hash,&bucket,&existing);
+      status = rinzu_value_map_probe(schema, type->key, prepared.entries, seen, &entries[index].key,
+                                     hash, &bucket, &existing);
     if (status)
       break;
     if (existing != SIZE_MAX)
       prepared.entries[existing].value = entries[index].value;
     else {
       if (seen)
-        seen->buckets[bucket] = (rinzu_value_map_bucket_t){hash,prepared.count + 1};
+        seen->buckets[bucket] = (rinzu_value_map_bucket_t){hash, prepared.count + 1};
       prepared.entries[prepared.count++] = entries[index];
     }
   }

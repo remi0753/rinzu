@@ -111,8 +111,8 @@ static void check_source(void) {
 /* Check the private generated-store region against the complete context,
    including source padding and the next field. Native reentry and nested
    managed calls must return to the same context-owned address. */
-static void region_source(RinzuContext *context, uint64_t descriptor,
-                          uint64_t file, uint32_t start, uint32_t end) {
+static void region_source(RinzuContext *context, uint64_t descriptor, uint64_t file, uint32_t start,
+                          uint32_t end) {
   unsigned char before[sizeof(*context)];
   memcpy(before, context, sizeof before);
   unsigned char *region = (unsigned char *)(uintptr_t)(descriptor & ~UINT64_C(1));
@@ -122,7 +122,8 @@ static void region_source(RinzuContext *context, uint64_t descriptor,
   memcpy(region, &file, sizeof file);
   memcpy(region + 8, &span, sizeof span);
   memcpy(region + 16, &present, sizeof present);
-  if (descriptor & 1) rinzu_baseline_observe_source(context);
+  if (descriptor & 1)
+    rinzu_baseline_observe_source(context);
   same_source(context->source, (rinzu_source_position_t){file, start, end, 1});
   size_t source = offsetof(RinzuContext, source);
   for (size_t i = 0; i < sizeof(*context); ++i)
@@ -155,7 +156,8 @@ static void check_source_region(void) {
     /* A callback can replace source; the caller must still store it again. */
     context.source = (rinzu_source_position_t){99, 11, 12, 1};
     region_source(&context, descriptor, 3, 17, 29);
-    if (trace) same_source(context.error_trace_stack.frames[0].source, context.source);
+    if (trace)
+      same_source(context.error_trace_stack.frames[0].source, context.source);
     other.error_trace_stack.initialized = 1;
     other.error_trace_stack.enabled = trace;
     uint64_t separate = (uint64_t)rinzu_baseline_function_entry(&other, 0);
@@ -319,8 +321,10 @@ static void check_fused_publication_poll(void) {
                                 : rinzu_baseline_publish_roots_poll(&fused, NULL, 0);
       assert(status == expected);
       assert(legacy.polls == 1 && fused.polls == 1);
-      assert(legacy.shutdown_checks == fused.shutdown_checks && legacy.cancel_checks == fused.cancel_checks);
-      assert(legacy.cancel_requested == fused.cancel_requested && legacy.shutdown_requested == fused.shutdown_requested);
+      assert(legacy.shutdown_checks == fused.shutdown_checks &&
+             legacy.cancel_checks == fused.cancel_checks);
+      assert(legacy.cancel_requested == fused.cancel_requested &&
+             legacy.shutdown_requested == fused.shutdown_requested);
       assert(legacy.pending.current.primary == fused.pending.current.primary);
       assert(legacy.roots.publications == fused.roots.publications);
       assert(legacy.data.collections == fused.data.collections);

@@ -53,20 +53,20 @@ int main(int argc, char **argv) {
   if (argc > 1 && !notified) {
     if (!strcmp(argv[1], "late-start")) {
       rinzu_async_clear_completion_wake(&runtime);
-      rinzu_async_future_t *future = rinzu_async_new(&runtime, RINZU_ASYNC_READY,
-          RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
+      rinzu_async_future_t *future = rinzu_async_new(
+          &runtime, RINZU_ASYNC_READY, RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
       rinzu_async_start(future);
     } else if (!strcmp(argv[1], "pending-helper")) {
-      rinzu_async_future_t *future = rinzu_async_new(&runtime, RINZU_ASYNC_WORKER,
-          RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
+      rinzu_async_future_t *future = rinzu_async_new(
+          &runtime, RINZU_ASYNC_WORKER, RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
       future->run = worker;
       rinzu_async_start(future);
       rinzu_async_clear_completion_wake(&runtime);
     } else {
       rinzu_native_completion_t native;
       rinzu_native_completion_init(&native);
-      rinzu_async_future_t *future = rinzu_async_new(&runtime, RINZU_ASYNC_COMPLETION,
-          RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
+      rinzu_async_future_t *future = rinzu_async_new(
+          &runtime, RINZU_ASYNC_COMPLETION, RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
       future->native_completion = &native;
       rinzu_async_start(future);
       rinzu_async_clear_completion_wake(&runtime);
@@ -81,15 +81,15 @@ int main(int argc, char **argv) {
   atomic_init(&target->cleared, 0);
   target->alive = 1;
   rinzu_async_set_completion_wake(&runtime, delayed_wake, target);
-  rinzu_native_completion_t *native = malloc(notified ? sizeof(rinzu_native_completion_v2_t)
-                                                      : sizeof(*native));
+  rinzu_native_completion_t *native =
+      malloc(notified ? sizeof(rinzu_native_completion_v2_t) : sizeof(*native));
   assert(native);
   if (notified)
     rinzu_native_completion_v2_init((rinzu_native_completion_v2_t *)native);
   else
     rinzu_native_completion_init(native);
   rinzu_async_future_t *future = rinzu_async_new(&runtime, RINZU_ASYNC_COMPLETION,
-      RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
+                                                 RINZU_TRANSFER_UNIT, (rinzu_source_position_t){0});
   future->native_completion = native;
   rinzu_async_start(future);
   pthread_t publisher;

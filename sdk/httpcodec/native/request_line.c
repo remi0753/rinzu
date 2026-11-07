@@ -2,12 +2,24 @@
 #include <string.h>
 
 static int token(uint8_t byte) {
-  if ((byte >= '0' && byte <= '9') || (byte >= 'A' && byte <= 'Z') ||
-      (byte >= 'a' && byte <= 'z'))
+  if ((byte >= '0' && byte <= '9') || (byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z'))
     return 1;
   switch (byte) {
-  case '!': case '#': case '$': case '%': case '&': case '\'': case '*':
-  case '+': case '-': case '.': case '^': case '_': case '`': case '|': case '~':
+  case '!':
+  case '#':
+  case '$':
+  case '%':
+  case '&':
+  case '\'':
+  case '*':
+  case '+':
+  case '-':
+  case '.':
+  case '^':
+  case '_':
+  case '`':
+  case '|':
+  case '~':
     return 1;
   default:
     return 0;

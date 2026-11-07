@@ -59,10 +59,10 @@ static uint64_t rinzu_aot_typed_materialize_result(rinzu_async_future_t *future)
   unsigned terminal = atomic_load_explicit(&future->terminal, memory_order_acquire);
   if (slot.reference && terminal != RINZU_ASYNC_CANCELLED && terminal != RINZU_ASYNC_TIMED_OUT) {
     RinzuAsyncResultRoot *root = rinzu_failure_allocate(sizeof(*root));
-    root->future_handle=rinzu_async_handle(future);
+    root->future_handle = rinzu_async_handle(future);
     rinzu_managed_attach_roots(data, &root->entry, &root->roots);
-    root->entry.future_owner=rinzu_async_handle(future);
-    future->gc_result=slot.bits;
+    root->entry.future_owner = rinzu_async_handle(future);
+    future->gc_result = slot.bits;
     rinzu_managed_enter(&root->roots);
     rinzu_managed_publish(&root->roots, &slot.bits, 1);
     root->next = owner->async->result_roots;
@@ -180,8 +180,8 @@ static void rinzu_aot_typed_finish_worker(RinzuContext *context, rinzu_async_fut
   future->worker_userdata_in_flight = userdata->in_flight;
   future->worker_userdata_created = userdata->created;
   future->worker_userdata_released = userdata->released;
-  if (context->return_roots || context->native_calls || context->data.objects || context->roots.depth ||
-      context->data.live_views || context->data.view_allocations)
+  if (context->return_roots || context->native_calls || context->data.objects ||
+      context->roots.depth || context->data.live_views || context->data.view_allocations)
     rinzu_failure_fatal();
   rinzu_async_detach_native_board(future);
   rinzu_owner_transition_finish(rinzu_context_transitions(context));
@@ -194,27 +194,33 @@ static void rinzu_aot_typed_finish_worker(RinzuContext *context, rinzu_async_fut
 static void rinzu_aot_typed_heap_evidence(RinzuAsyncState *state) {
   printf("RINZU_WORKER_HEAPS=");
   const char *separator = "";
-  for(unsigned group=0;group<2;++group)
-  for (rinzu_async_future_t *future = group ? state->retired_evidence : state->runtime.futures; future; future = future->next)
-    if (future->heap_evidence) {
-      printf("%s%llu:%zu:%zu:%llu:%zu:%zu:%d", separator, (unsigned long long)future->identity,
-             future->worker_objects, future->worker_roots,
-             (unsigned long long)future->worker_collections, future->worker_peak_objects,
-             future->worker_peak_frames, future->worker_body_entered);
-      separator = ";";
-    }
+  for (unsigned group = 0; group < 2; ++group)
+    for (rinzu_async_future_t *future = group ? state->retired_evidence : state->runtime.futures;
+         future; future = future->next)
+      if (future->heap_evidence) {
+        printf("%s%llu:%zu:%zu:%llu:%zu:%zu:%d", separator, (unsigned long long)future->identity,
+               future->worker_objects, future->worker_roots,
+               (unsigned long long)future->worker_collections, future->worker_peak_objects,
+               future->worker_peak_frames, future->worker_body_entered);
+        separator = ";";
+      }
   printf("\n");
   printf("RINZU_WORKER_USERDATA=");
   separator = "";
-  for(unsigned group=0;group<2;++group)
-  for (rinzu_async_future_t *future = group ? state->retired_evidence : state->runtime.futures; future; future = future->next)
-    if (future->heap_evidence) {
-      printf("%s%llu:%zu:%zu:%zu:%zu:%zu:%zu", separator, (unsigned long long)future->identity,
-             future->worker_userdata_scopes, future->worker_userdata_tokens,
-             future->worker_userdata_roots, future->worker_userdata_in_flight,
-             future->worker_userdata_created, future->worker_userdata_released);
-      separator = ";";
-    }
+  for (unsigned group = 0; group < 2; ++group)
+    for (rinzu_async_future_t *future = group ? state->retired_evidence : state->runtime.futures;
+         future; future = future->next)
+      if (future->heap_evidence) {
+        printf("%s%llu:%zu:%zu:%zu:%zu:%zu:%zu", separator, (unsigned long long)future->identity,
+               future->worker_userdata_scopes, future->worker_userdata_tokens,
+               future->worker_userdata_roots, future->worker_userdata_in_flight,
+               future->worker_userdata_created, future->worker_userdata_released);
+        separator = ";";
+      }
   printf("\n");
-  while(state->retired_evidence) {rinzu_async_future_t *next=state->retired_evidence->next;free(state->retired_evidence);state->retired_evidence=next;}
+  while (state->retired_evidence) {
+    rinzu_async_future_t *next = state->retired_evidence->next;
+    free(state->retired_evidence);
+    state->retired_evidence = next;
+  }
 }

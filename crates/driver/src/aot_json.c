@@ -317,17 +317,21 @@ static void json_build_batch(RinzuContext *context, rinzu_managed_data_t *data,
     }
     case RZ_JSON_CLOSE: {
       JsonBuildFrame frame = *json_frame(builder);
-      if (frame.base != base)
+      size_t total = builder->slots.length / sizeof(rinzu_managed_slot_t);
+      if (frame.base != base || frame.start > total)
         rinzu_failure_fatal();
-      size_t count = builder->slots.length / sizeof(rinzu_managed_slot_t) - frame.start;
+      size_t count = total - frame.start;
       rinzu_managed_slot_t *slots =
           count ? (rinzu_managed_slot_t *)builder->slots.data + frame.start : NULL;
-      if (layout->kind == RZ_JSON_RECORD_TY)
-        for (uint32_t field = 0; field < layout->count; ++field)
+      if (layout->kind == RZ_JSON_RECORD_TY) {
+        if (count != layout->count)
+          rinzu_failure_fatal();
+        for (size_t field = 0; field < count; ++field)
           if (slots[field].reference == 2) {
             uint32_t child = rinzu_program_json_fields[layout->first + field].type;
             slots[field] = json_enum(context, data, child, 0);
           }
+      }
       rinzu_managed_slot_t value = json_composite(context, data, base, -1, slots, count);
       builder->frames.length -= sizeof(JsonBuildFrame);
       builder->slots.length = frame.start * sizeof(rinzu_managed_slot_t);

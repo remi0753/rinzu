@@ -80,21 +80,23 @@ static void record_test_entry(void) {{
 
 fn instrumented(app: &Path, sanitized: bool) -> PathBuf {
     let mut runtime = std::fs::read_to_string(app.join("build/record_app.runtime.c")).unwrap();
-    for (variable, needle) in [
+    for (variable, call) in [
         (
             "RINZU_TEST_PREPARE_BUDGET",
-            "int status = rinzu_native_record_prepare(data, call->records, call->record_argument_count,\n                                            &call->record_loan);",
+            "int status = rinzu_native_record_prepare(",
         ),
         (
             "RINZU_TEST_RECEIVE_BUDGET",
-            "int status = rinzu_native_receive_record_prepared(\n          data, &call->root_set, description->result_length, input, &received);",
+            "int status = rinzu_native_receive_record_prepared(",
         ),
     ] {
-        runtime = replace(
-            runtime,
-            needle,
-            &format!("rinzu_test_arm(\"{variable}\"); {needle} rinzu_test_budget=-1;"),
-        );
+        assert_eq!(runtime.matches(call).count(), 1, "{call}");
+        let start = runtime.find(call).unwrap();
+        let end = start + runtime[start..].find(';').unwrap() + 1;
+        let statement = &runtime[start..end];
+        let instrumented =
+            format!("rinzu_test_arm(\"{variable}\"); {statement} rinzu_test_budget=-1;");
+        runtime.replace_range(start..end, &instrumented);
     }
     runtime = replace(
         runtime,

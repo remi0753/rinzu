@@ -2,7 +2,10 @@
 #define NATIVE_RECORD_WRITEBACK_H
 #include <stdint.h>
 #include <stdbool.h>
-struct Packet { int64_t x; bool valid; };
+struct Packet {
+  int64_t x;
+  bool valid;
+};
 int64_t record_change(const struct Packet *value, int64_t amount);
 bool record_aliases(const struct Packet *first, const struct Packet *second);
 const struct Packet *record_echo(const struct Packet *value);

@@ -25,15 +25,20 @@ int main(void) {
   for (int all = 0; all < 2; ++all) {
     rinzu_child_scope_t a, b;
     rinzu_child_init(&a);
-    if (all) rinzu_child_init_all(&b); else rinzu_child_init(&b);
+    if (all)
+      rinzu_child_init_all(&b);
+    else
+      rinzu_child_init(&b);
     /* Odd multiplication permutes all 1024 identities. */
     for (uint64_t i = 0; i < 1024; ++i) {
       uint64_t id = (i * 661) & 1023;
       assert(!rinzu_child_admit(id & 1 ? &a : &b, id));
     }
-    ordered(&a, 512); ordered(&b, 512);
+    ordered(&a, 512);
+    ordered(&b, 512);
     assert(!rinzu_child_handoff(&a, &b));
-    ordered(&a, 0); ordered(&b, 1024);
+    ordered(&a, 0);
+    ordered(&b, 1024);
     assert(rinzu_child_admit(&b, 1023) == RINZU_CHILD_DUPLICATE);
     assert(!rinzu_child_withdraw_admission(&b, 1023));
     assert(!rinzu_child_admit(&b, 1024));
@@ -50,8 +55,10 @@ int main(void) {
     ordered(&a, 0);
     assert(!rinzu_child_admit(&a, 2048));
     assert(!rinzu_child_handoff(&a, &b));
-    ordered(&b, 1024); ordered(&a, 0);
-    finish(&a); finish(&b);
+    ordered(&b, 1024);
+    ordered(&a, 0);
+    finish(&a);
+    finish(&b);
   }
   return 0;
 }

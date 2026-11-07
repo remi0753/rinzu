@@ -74,16 +74,17 @@ static inline rinzu_activity_t *rinzu_owner_activity_prepare(rinzu_owner_transit
   uint64_t physical_depth = rinzu_owner_activity_depth(owner);
   if (kind == RINZU_ACTIVITY_NATIVE)
     return rinzu_activity_prepare_native_on(owner->activity_board, symbol, file, start, end,
-                                         (uint64_t)(uintptr_t)owner->owner, physical_depth, owner->owner);
+                                            (uint64_t)(uintptr_t)owner->owner, physical_depth,
+                                            owner->owner);
   return rinzu_activity_prepare_on(owner->activity_board, kind, symbol, file, start, end,
-                                (uint64_t)(uintptr_t)owner->owner, physical_depth, owner->owner);
+                                   (uint64_t)(uintptr_t)owner->owner, physical_depth, owner->owner);
 }
 static inline rinzu_ready_work_t *rinzu_owner_ready_prepare(rinzu_owner_transition_t *owner,
                                                             const char *symbol, uint64_t file,
                                                             uint32_t start, uint32_t end) {
   uint64_t depth = rinzu_owner_activity_depth(owner);
   return rinzu_ready_prepare_on(owner->activity_board, symbol, file, start, end,
-                             (uint64_t)(uintptr_t)owner->owner, depth, owner->owner);
+                                (uint64_t)(uintptr_t)owner->owner, depth, owner->owner);
 }
 static inline rinzu_wait_dependency_t *rinzu_owner_wait_prepare(rinzu_owner_transition_t *owner,
                                                                 uint64_t task, uint64_t dependency,
@@ -91,7 +92,7 @@ static inline rinzu_wait_dependency_t *rinzu_owner_wait_prepare(rinzu_owner_tran
                                                                 uint32_t start, uint32_t end) {
   uint64_t depth = rinzu_owner_activity_depth(owner);
   return rinzu_activity_wait_begin_on(owner->activity_board, task, dependency, symbol, file, start,
-                                   end, (uint64_t)(uintptr_t)owner->owner, depth, owner->owner);
+                                      end, (uint64_t)(uintptr_t)owner->owner, depth, owner->owner);
 }
 static inline void rinzu_owner_note_turn(rinzu_owner_transition_t *owner) {
   rinzu_owner_transition_init(owner);

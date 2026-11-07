@@ -79,7 +79,8 @@ int main(int argc, char **argv) {
     assert(accounting.allocations == COUNT && accounting.reuses == (BATCHES - 1) * COUNT);
     assert(accounting.cached_bytes == accounting.mapped_bytes && accounting.cached_bytes);
   } else if (!accounting.cache_limit) {
-    assert(accounting.allocations == BATCHES * COUNT && !accounting.reuses && !accounting.mapped_bytes);
+    assert(accounting.allocations == BATCHES * COUNT && !accounting.reuses &&
+           !accounting.mapped_bytes);
   }
   /* Live work is allowed to exceed the cache budget. */
   task_t many[40] = {0};
@@ -93,5 +94,6 @@ int main(int argc, char **argv) {
     rinzu_continuation_dispose(&many[i].continuation);
   }
   rinzu_continuation_cache_dispose(&accounting);
-  assert(!accounting.cached && !accounting.cached_bytes && !accounting.mapped_bytes && !accounting.live);
+  assert(!accounting.cached && !accounting.cached_bytes && !accounting.mapped_bytes &&
+         !accounting.live);
 }

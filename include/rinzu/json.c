@@ -992,6 +992,11 @@ static int index_keys(RinzuJsonParser *p, const unsigned char *bytes, const Fram
 
 static void pointer_part(RinzuJsonBuffer *path, RinzuJsonSlice key) {
   append(path, "/", 1);
+  if (!key.data) {
+    if (key.length)
+      rinzu_native_fatal(86);
+    return;
+  }
   for (size_t i = 0, start = 0;; ++i) {
     if (i == key.length) {
       if (i != start)
@@ -1103,6 +1108,8 @@ static uint32_t base_type(const RinzuJsonSchema *schema, uint32_t outer, unsigne
 }
 
 static void emit(RinzuJsonBatch *batch, RinzuJsonEvent event) {
+  if (!batch)
+    rinzu_native_fatal(86);
   batch->events[batch->count++] = event;
 }
 

@@ -16,8 +16,8 @@ static void measure(size_t count) {
   rinzu_activity_gate_init(&board);
   assert(!pthread_cond_init(&board.changed, NULL));
   for (size_t i = 0; i < count; ++i) {
-    rinzu_activity_t *record = rinzu_activity_prepare(
-        &board, RINZU_ACTIVITY_OWNER_STALL, "ready", 1, 2, 3, 1, 0);
+    rinzu_activity_t *record =
+        rinzu_activity_prepare(&board, RINZU_ACTIVITY_OWNER_STALL, "ready", 1, 2, 3, 1, 0);
     rinzu_activity_start(record);
   }
   const size_t operations = 200000;

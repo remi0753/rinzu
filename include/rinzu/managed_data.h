@@ -112,7 +112,7 @@ typedef struct {
 #define RINZU_MANAGED_METADATA_CACHE_CAPACITY 4096
 #endif
 _Static_assert(RINZU_MANAGED_METADATA_CACHE_CAPACITY >= 0 &&
-               RINZU_MANAGED_METADATA_CACHE_CAPACITY <= 4096,
+                   RINZU_MANAGED_METADATA_CACHE_CAPACITY <= 4096,
                "managed metadata retention is bounded");
 typedef struct {
   uint64_t identity;
@@ -212,17 +212,15 @@ static inline int rinzu_managed_record_busy(const rinzu_managed_data_t *data, ui
 #if RINZU_MANAGED_METADATA_CACHE_CAPACITY
 /* Resource reporting is optional and initialized before Domain creation. Keep
    its mutex/counter bookkeeping out of the ordinary metadata allocator frame. */
-static __attribute__((noinline, cold)) void
-rinzu_managed_metadata_cache_uncharge(size_t bytes) {
+static __attribute__((noinline, cold)) void rinzu_managed_metadata_cache_uncharge(size_t bytes) {
   rinzu_resource_release(RINZU_RESOURCE_RUNTIME_CONTROL, bytes);
 }
-static __attribute__((noinline, cold)) void
-rinzu_managed_metadata_cache_charge(size_t bytes) {
+static __attribute__((noinline, cold)) void rinzu_managed_metadata_cache_charge(size_t bytes) {
   rinzu_resource_acquire(RINZU_RESOURCE_RUNTIME_CONTROL, bytes);
 }
 #endif
-static __attribute__((noinline, cold)) void
-rinzu_managed_owner_initialize(rinzu_managed_data_t *data) {
+static __attribute__((noinline,
+                      cold)) void rinzu_managed_owner_initialize(rinzu_managed_data_t *data) {
   data->owner = pthread_self();
   data->owner_initialized = 1;
   const char *cache = getenv("RINZU_MANAGED_LOOKUP_CACHE");
@@ -259,7 +257,8 @@ static inline void rinzu_managed_attach_roots(rinzu_managed_data_t *data,
   entry->data = data;
   entry->roots = roots;
   entry->next = data->root_sets;
-  if (entry->next) entry->next->previous = entry;
+  if (entry->next)
+    entry->next->previous = entry;
   data->root_sets = entry;
   roots->domain_entry = entry;
   data->published_root_count += count;
@@ -277,16 +276,19 @@ static inline void rinzu_managed_detach_roots(rinzu_managed_data_t *data,
       (entry->previous ? entry->previous->next != entry : data->root_sets != entry) ||
       (entry->next && entry->next->previous != entry))
     rinzu_failure_fatal();
-  if (entry->previous) entry->previous->next = entry->next;
-  else data->root_sets = entry->next;
-  if (entry->next) entry->next->previous = entry->previous;
+  if (entry->previous)
+    entry->previous->next = entry->next;
+  else
+    data->root_sets = entry->next;
+  if (entry->next)
+    entry->next->previous = entry->previous;
   entry->roots->domain_entry = NULL;
   entry->roots->domain_published_count = NULL;
   entry->roots->frame_cache = NULL;
   *entry = (rinzu_managed_root_set_t){0};
 }
 static inline size_t rinzu_managed_native_root_count(rinzu_managed_data_t *data,
-                                                       const rinzu_managed_roots_t *roots) {
+                                                     const rinzu_managed_roots_t *roots) {
   rinzu_managed_owner(data);
   size_t count = data->published_root_count;
   if (roots->domain_entry) {
@@ -405,8 +407,8 @@ static inline void rinzu_managed_index_trim(rinzu_managed_data_t *data) {
 #ifndef RINZU_MANAGED_LOOKUP_SLOW_ABI
 #define RINZU_MANAGED_LOOKUP_SLOW_ABI
 #endif
-static __attribute__((noinline, cold)) RINZU_MANAGED_LOOKUP_SLOW_ABI rinzu_managed_value_t *rinzu_managed_lookup_uncached_owned(rinzu_managed_data_t *data,
-                                                                         uint64_t identity) {
+static __attribute__((noinline, cold)) RINZU_MANAGED_LOOKUP_SLOW_ABI rinzu_managed_value_t *
+rinzu_managed_lookup_uncached_owned(rinzu_managed_data_t *data, uint64_t identity) {
   if (!data->index_capacity)
     return NULL;
   size_t bucket = rinzu_managed_index_bucket(identity, data->index_capacity);
@@ -421,8 +423,8 @@ static __attribute__((noinline, cold)) RINZU_MANAGED_LOOKUP_SLOW_ABI rinzu_manag
   return NULL;
 }
 #undef RINZU_MANAGED_LOOKUP_SLOW_ABI
-static inline __attribute__((always_inline)) rinzu_managed_value_t *rinzu_managed_lookup_owned(rinzu_managed_data_t *data,
-                                                                uint64_t identity) {
+static inline __attribute__((always_inline))
+rinzu_managed_value_t *rinzu_managed_lookup_owned(rinzu_managed_data_t *data, uint64_t identity) {
   if (data->lookup_cache) {
     rinzu_managed_lookup_entry_t cached =
         data->lookup_cache[(size_t)identity & (RINZU_MANAGED_LOOKUP_CACHE_CAPACITY - 1)];
@@ -469,7 +471,8 @@ static inline rinzu_managed_value_t *rinzu_managed_new_owned(rinzu_managed_data_
   rinzu_managed_value_t *value;
 #if RINZU_MANAGED_METADATA_CACHE_CAPACITY
   if (data->metadata_cache) {
-    if (!data->metadata_cache_count) rinzu_failure_fatal();
+    if (!data->metadata_cache_count)
+      rinzu_failure_fatal();
     value = data->metadata_cache;
     data->metadata_cache = value->next;
     --data->metadata_cache_count;
@@ -595,8 +598,8 @@ static inline uint64_t rinzu_managed_string(rinzu_managed_data_t *data, const un
    re-test a reloaded identity for zero after its liveness lookup. */
 static inline __attribute__((always_inline)) int
 rinzu_managed_literal_lookup_owned(rinzu_managed_data_t *data, rinzu_managed_literal_t **table,
-                                    unsigned *victim, const unsigned char *bytes, size_t length,
-                                    rinzu_managed_literal_t **slot, uint64_t *hit) {
+                                   unsigned *victim, const unsigned char *bytes, size_t length,
+                                   rinzu_managed_literal_t **slot, uint64_t *hit) {
   if (!*table) {
     size_t size = RINZU_MANAGED_LITERAL_CAPACITY * sizeof(**table);
     *table = rinzu_failure_allocate(size);
@@ -643,8 +646,8 @@ static inline uint64_t rinzu_managed_string_literal(rinzu_managed_data_t *data,
     rinzu_failure_fatal();
   uint64_t hit;
   rinzu_managed_literal_t *literal;
-  if (rinzu_managed_literal_lookup_owned(
-          data, &data->literals, &data->literal_victim, bytes, length, &literal, &hit))
+  if (rinzu_managed_literal_lookup_owned(data, &data->literals, &data->literal_victim, bytes,
+                                         length, &literal, &hit))
     return hit;
   uint64_t identity =
       rinzu_managed_string_copy_owned(data, bytes, length, rinzu_utf8_scalar_length(bytes, length));
@@ -699,7 +702,8 @@ static inline const char *rinzu_managed_error_text(int64_t cause) {
 static inline uint64_t rinzu_managed_error(rinzu_managed_data_t *data,
                                            const rinzu_failure_t *failure) {
   if (failure->primary_error) {
-    if (failure->head || failure->primary_error->owner != data) rinzu_failure_fatal();
+    if (failure->head || failure->primary_error->owner != data)
+      rinzu_failure_fatal();
     (void)rinzu_managed_find(data, failure->primary_error->handle);
     return failure->primary_error->handle;
   }
@@ -802,8 +806,10 @@ static inline rinzu_error_buffer_t rinzu_managed_error_blob(rinzu_managed_data_t
 }
 static inline uint64_t rinzu_managed_message(rinzu_managed_data_t *data, uint64_t error) {
   rinzu_managed_value_t *value = rinzu_managed_find(data, error);
-  if (value->kind == RINZU_MANAGED_COMPOSITE && data->schema && value->type < data->schema->count && data->schema->types[value->type].kind == RINZU_VALUE_ERROR_RECORD) {
-    if (value->count < 4 || !value->slots[1].reference) rinzu_failure_fatal();
+  if (value->kind == RINZU_MANAGED_COMPOSITE && data->schema && value->type < data->schema->count &&
+      data->schema->types[value->type].kind == RINZU_VALUE_ERROR_RECORD) {
+    if (value->count < 4 || !value->slots[1].reference)
+      rinzu_failure_fatal();
     return value->slots[1].bits;
   }
   if (value->kind == RINZU_MANAGED_RICH_ERROR) {
@@ -816,8 +822,9 @@ static inline uint64_t rinzu_managed_message(rinzu_managed_data_t *data, uint64_
   return value->message;
 }
 static inline void rinzu_managed_mark(rinzu_managed_data_t *data, uint64_t identity) {
-  if (identity > RINZU_MANAGED_FUTURE_BASE && identity < RINZU_MANAGED_HANDLE_BASE && data->future_mark)
-    identity=data->future_mark(data->future_context,identity);
+  if (identity > RINZU_MANAGED_FUTURE_BASE && identity < RINZU_MANAGED_HANDLE_BASE &&
+      data->future_mark)
+    identity = data->future_mark(data->future_context, identity);
   if (identity <= RINZU_MANAGED_HANDLE_BASE || identity > INT64_MAX)
     return;
   rinzu_managed_value_t *pending = rinzu_managed_find(data, identity);
@@ -834,17 +841,26 @@ static inline void rinzu_managed_mark(rinzu_managed_data_t *data, uint64_t ident
                        : (value->kind == RINZU_MANAGED_COMPOSITE ? value->count : 0);
     for (size_t index = 0; index < count; ++index) {
       if (value->kind == RINZU_MANAGED_COMPOSITE && !value->slots[index].reference) {
-        if (!data->future_mark) continue;
-        const rinzu_value_type_t *type=&data->schema->types[value->type];
-        size_t child_type=type->kind==RINZU_VALUE_LIST ? type->element :
-            type->kind==RINZU_VALUE_MAP ? (index%2 ? type->value:type->key) :
-            type->kind==RINZU_VALUE_ENUM ? type->variants[value->variant].types[index] : type->fields[index];
-        const rinzu_value_type_t *child=&data->schema->types[child_type];
-        if (child->kind!=RINZU_VALUE_OTHER || child->scalar_kind!=RINZU_VALUE_OTHER_FUTURE) continue;
-        uint64_t result=data->future_mark(data->future_context,value->slots[index].bits);
-        if (!result) continue;
-        rinzu_managed_value_t *next=rinzu_managed_find(data,result);
-        if (!next->marked) {next->marked=1;next->mark_next=pending;pending=next;}
+        if (!data->future_mark)
+          continue;
+        const rinzu_value_type_t *type = &data->schema->types[value->type];
+        size_t child_type = type->kind == RINZU_VALUE_LIST  ? type->element
+                            : type->kind == RINZU_VALUE_MAP ? (index % 2 ? type->value : type->key)
+                            : type->kind == RINZU_VALUE_ENUM
+                                ? type->variants[value->variant].types[index]
+                                : type->fields[index];
+        const rinzu_value_type_t *child = &data->schema->types[child_type];
+        if (child->kind != RINZU_VALUE_OTHER || child->scalar_kind != RINZU_VALUE_OTHER_FUTURE)
+          continue;
+        uint64_t result = data->future_mark(data->future_context, value->slots[index].bits);
+        if (!result)
+          continue;
+        rinzu_managed_value_t *next = rinzu_managed_find(data, result);
+        if (!next->marked) {
+          next->marked = 1;
+          next->mark_next = pending;
+          pending = next;
+        }
         continue;
       }
       uint64_t child =
@@ -876,16 +892,18 @@ static inline void rinzu_managed_value_release(rinzu_managed_data_t *data,
     rinzu_resource_release(RINZU_RESOURCE_MANAGED_OBJECTS, 1);
   }
   if ((value->kind == RINZU_MANAGED_STRING || value->kind == RINZU_MANAGED_BYTES ||
-       value->kind == RINZU_MANAGED_RICH_ERROR) && value->bytes != value->inline_bytes)
+       value->kind == RINZU_MANAGED_RICH_ERROR) &&
+      value->bytes != value->inline_bytes)
     free(value->bytes);
   if (value->kind == RINZU_MANAGED_COMPOSITE && value->slots != &value->inline_slot)
     free(value->slots);
-  if (value->kind == RINZU_MANAGED_COMPOSITE && data->schema &&
-      value->type < data->schema->count && data->schema->types[value->type].kind == RINZU_VALUE_MAP)
+  if (value->kind == RINZU_MANAGED_COMPOSITE && data->schema && value->type < data->schema->count &&
+      data->schema->types[value->type].kind == RINZU_VALUE_MAP)
     free(value->map_index);
   if (value->kind == RINZU_MANAGED_ERROR || value->kind == RINZU_MANAGED_RICH_ERROR ||
       (value->kind == RINZU_MANAGED_COMPOSITE && value->count >= 4 && data->schema &&
-       value->type < data->schema->count && data->schema->types[value->type].kind == RINZU_VALUE_ERROR_RECORD))
+       value->type < data->schema->count &&
+       data->schema->types[value->type].kind == RINZU_VALUE_ERROR_RECORD))
     rinzu_error_trace_release(value->error_trace);
   /* Metadata never owns a primary_error/primary_trace Failure reference:
      managed_error returns existing primary_error unchanged and retains the
@@ -899,7 +917,8 @@ static inline void rinzu_managed_value_release(rinzu_managed_data_t *data,
        metadata bytes to native runtime-control accounting, never a GC root or
        a live language object. Original mutator GC pacing remains unchanged. */
     size_t charged = value->accounted_bytes ? sizeof(*value) : 0;
-    if (charged) rinzu_managed_metadata_cache_charge(charged);
+    if (charged)
+      rinzu_managed_metadata_cache_charge(charged);
     value->accounted_bytes = charged;
     value->next = data->metadata_cache;
     data->metadata_cache = value;
@@ -912,10 +931,11 @@ static inline void rinzu_managed_value_release(rinzu_managed_data_t *data,
 /* GC destinations are fully overwritten before publication. Both callers
    have positive sizes: length+1 for valid byte payloads and nonempty slots.
    Allocate before retiring the source so relocation never overlaps it. */
-static inline __attribute__((always_inline)) void *
-rinzu_managed_relocate_copy(const void *source, size_t size) {
+static inline __attribute__((always_inline)) void *rinzu_managed_relocate_copy(const void *source,
+                                                                               size_t size) {
   void *destination = malloc(size);
-  if (!destination) rinzu_resource_fatal();
+  if (!destination)
+    rinzu_resource_fatal();
   memcpy(destination, source, size);
   return destination;
 }
@@ -933,7 +953,8 @@ static inline void rinzu_managed_collect(rinzu_managed_data_t *data,
     rinzu_managed_mark(data, data->program_arguments);
     root_bytes = sizeof(data->program_arguments);
   }
-  if (data->future_begin) data->future_begin(data->future_context);
+  if (data->future_begin)
+    data->future_begin(data->future_context);
   rinzu_error_reference_t **errors = &data->error_references;
   while (*errors) {
     rinzu_error_reference_t *error = *errors;
@@ -941,7 +962,8 @@ static inline void rinzu_managed_collect(rinzu_managed_data_t *data,
       *errors = error->next;
       free(error);
     } else {
-      if (error->owner != data) rinzu_failure_fatal();
+      if (error->owner != data)
+        rinzu_failure_fatal();
       rinzu_managed_mark(data, error->handle);
       root_bytes = rinzu_gc_add(root_bytes, sizeof(error->handle));
       errors = &error->next;
@@ -950,7 +972,8 @@ static inline void rinzu_managed_collect(rinzu_managed_data_t *data,
   for (rinzu_managed_root_set_t *entry = data->root_sets; entry; entry = entry->next) {
     if (entry->data != data || !entry->roots)
       rinzu_failure_fatal();
-    if (entry->future_owner && data->future_mark) continue;
+    if (entry->future_owner && data->future_mark)
+      continue;
     for (rinzu_managed_frame_t *frame = entry->roots->current; frame; frame = frame->previous) {
       if (frame->writing)
         rinzu_failure_fatal();
@@ -966,7 +989,8 @@ static inline void rinzu_managed_collect(rinzu_managed_data_t *data,
     for (size_t index = 0; index < frame->count; ++index)
       rinzu_managed_mark(data, frame->roots[index]);
   }
-  if (data->future_sweep) data->future_sweep(data->future_context);
+  if (data->future_sweep)
+    data->future_sweep(data->future_context);
   rinzu_managed_value_t **cursor = &data->values;
   while (*cursor) {
     rinzu_managed_value_t *value = *cursor;
@@ -1019,13 +1043,17 @@ static inline void rinzu_managed_collect(rinzu_managed_data_t *data,
   }
   rinzu_managed_index_trim(data);
   data->collections += 1;
-  rinzu_gc_collected(&data->gc,
-                     rinzu_gc_add(rinzu_gc_add(rinzu_gc_add(data->heap_bytes,
-                         data->small_enums ? RINZU_MANAGED_SMALL_ENUM_CAPACITY * sizeof(*data->small_enums) : 0),
-                                                data->index_capacity * sizeof(*data->index)),
-                                  data->lookup_cache ? RINZU_MANAGED_LOOKUP_CACHE_CAPACITY *
-                                                           sizeof(*data->lookup_cache) : 0),
-                     root_bytes);
+  rinzu_gc_collected(
+      &data->gc,
+      rinzu_gc_add(rinzu_gc_add(rinzu_gc_add(data->heap_bytes,
+                                             data->small_enums ? RINZU_MANAGED_SMALL_ENUM_CAPACITY *
+                                                                     sizeof(*data->small_enums)
+                                                               : 0),
+                                data->index_capacity * sizeof(*data->index)),
+                   data->lookup_cache
+                       ? RINZU_MANAGED_LOOKUP_CACHE_CAPACITY * sizeof(*data->lookup_cache)
+                       : 0),
+      root_bytes);
 }
 /* A safepoint publishes/validates roots even when no collection is due. Never
    collect inside allocation: results and temporary materializations are not yet
@@ -1037,7 +1065,8 @@ static __attribute__((noinline)) void
 rinzu_managed_validate_frame_owned(rinzu_managed_data_t *data, const rinzu_managed_frame_t *frame) {
   /* No collection, yield or reentry can change these Owner-owned buffers. */
   size_t count = frame->count;
-  if (!count) return;
+  if (!count)
+    return;
   const uint64_t *roots = frame->roots;
   rinzu_managed_lookup_entry_t *cache = data->lookup_cache;
   if (cache) {
@@ -1045,16 +1074,19 @@ rinzu_managed_validate_frame_owned(rinzu_managed_data_t *data, const rinzu_manag
       uint64_t identity = roots[index];
       if (identity > RINZU_MANAGED_HANDLE_BASE && identity <= INT64_MAX) {
         /* Full weak membership tag only; no type or reachability proof. */
-        if (cache[(size_t)identity & (RINZU_MANAGED_LOOKUP_CACHE_CAPACITY - 1)].identity == identity)
+        if (cache[(size_t)identity & (RINZU_MANAGED_LOOKUP_CACHE_CAPACITY - 1)].identity ==
+            identity)
           continue;
-        if (!rinzu_managed_lookup_uncached_owned(data, identity)) rinzu_failure_fatal();
+        if (!rinzu_managed_lookup_uncached_owned(data, identity))
+          rinzu_failure_fatal();
       }
     }
   } else {
     for (size_t index = 0; index < count; ++index) {
       uint64_t identity = roots[index];
       if (identity > RINZU_MANAGED_HANDLE_BASE && identity <= INT64_MAX)
-        if (!rinzu_managed_lookup_uncached_owned(data, identity)) rinzu_failure_fatal();
+        if (!rinzu_managed_lookup_uncached_owned(data, identity))
+          rinzu_failure_fatal();
     }
   }
 }
@@ -1078,8 +1110,8 @@ static inline void rinzu_managed_data_dispose(rinzu_managed_data_t *data) {
     rinzu_failure_fatal();
   int record_evidence = data->native_record_allocations && getenv("RINZU_NATIVE_RECORD_EVIDENCE");
   if (record_evidence)
-    fprintf(stderr, "RINZU_NATIVE_RECORD_SCRATCH=%zu,%zu,0,0\n",
-            data->native_record_allocations, data->native_record_pool_bytes);
+    fprintf(stderr, "RINZU_NATIVE_RECORD_SCRATCH=%zu,%zu,0,0\n", data->native_record_allocations,
+            data->native_record_pool_bytes);
   data->metadata_cache_disposing = 1;
   rinzu_managed_value_t *value = data->values;
   while (value) {
@@ -1100,19 +1132,22 @@ static inline void rinzu_managed_data_dispose(rinzu_managed_data_t *data) {
     rinzu_error_reference_t *next = error->next;
     error->owner = NULL;
     error->next = NULL;
-    if (!error->references) free(error);
+    if (!error->references)
+      free(error);
     error = next;
   }
   while (data->metadata_cache) {
     rinzu_managed_value_t *cached = data->metadata_cache;
     data->metadata_cache = cached->next;
-    if (!data->metadata_cache_count) rinzu_failure_fatal();
+    if (!data->metadata_cache_count)
+      rinzu_failure_fatal();
     --data->metadata_cache_count;
     if (cached->accounted_bytes)
       rinzu_resource_release(RINZU_RESOURCE_RUNTIME_CONTROL, cached->accounted_bytes);
     free(cached);
   }
-  if (data->metadata_cache_count) rinzu_failure_fatal();
+  if (data->metadata_cache_count)
+    rinzu_failure_fatal();
   while (data->native_record_pool) {
     rinzu_managed_record_loan_t *cached = data->native_record_pool;
     data->native_record_pool = cached->next;
@@ -1124,7 +1159,8 @@ static inline void rinzu_managed_data_dispose(rinzu_managed_data_t *data) {
       rinzu_resource_release(RINZU_RESOURCE_RUNTIME_CONTROL, cached->storage_bytes);
     free(cached);
   }
-  if (data->native_record_pool_bytes) rinzu_interop_fatal();
+  if (data->native_record_pool_bytes)
+    rinzu_interop_fatal();
   rinzu_managed_frame_cache_dispose(&data->frame_cache);
   *data = (rinzu_managed_data_t){0};
   if (record_evidence)

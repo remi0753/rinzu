@@ -98,10 +98,14 @@ static inline void rinzu_child_unlink(rinzu_child_scope_t *scope, rinzu_child_t 
       (child->next ? child->next->previous != child : scope->children_tail != child))
     rinzu_failure_fatal();
   *link = child->index_next;
-  if (child->previous) child->previous->next = child->next;
-  else scope->children = child->next;
-  if (child->next) child->next->previous = child->previous;
-  else scope->children_tail = child->previous;
+  if (child->previous)
+    child->previous->next = child->next;
+  else
+    scope->children = child->next;
+  if (child->next)
+    child->next->previous = child->previous;
+  else
+    scope->children_tail = child->previous;
   child->previous = child->next = child->index_next = NULL;
   --scope->child_count;
 }
@@ -129,7 +133,8 @@ static inline int rinzu_child_admit_with_lease(rinzu_child_scope_t *scope, uint6
   child->identity = identity;
   child->next = *link;
   child->previous = *link ? (*link)->previous : scope->children_tail;
-  if (*link) (*link)->previous = child;
+  if (*link)
+    (*link)->previous = child;
   *link = child;
   if (!child->next)
     scope->children_tail = child;
@@ -160,7 +165,8 @@ static inline int rinzu_child_handoff(rinzu_child_scope_t *scope, rinzu_child_sc
     rinzu_child_index_reserve(supervisor);
     child->previous = *link ? (*link)->previous : supervisor->children_tail;
     child->next = *link;
-    if (*link) (*link)->previous = child;
+    if (*link)
+      (*link)->previous = child;
     *link = child;
     if (!child->next)
       supervisor->children_tail = child;
@@ -229,15 +235,19 @@ static inline int rinzu_child_retire_observed(rinzu_child_scope_t *scope, uint64
   return RINZU_CHILD_OK;
 }
 /* A dead handle is not an observation of a failure. Retain unhandled outcomes. */
-static inline int rinzu_child_retire_unreferenced(rinzu_child_scope_t *scope,uint64_t identity) {
+static inline int rinzu_child_retire_unreferenced(rinzu_child_scope_t *scope, uint64_t identity) {
   rinzu_child_owner(scope);
-  rinzu_child_t *child=rinzu_child_find(scope,identity);
-  if (!child) rinzu_failure_fatal();
+  rinzu_child_t *child = rinzu_child_find(scope, identity);
+  if (!child)
+    rinzu_failure_fatal();
   if (!child->completed || (child->failure.primary && !child->observed &&
-      !(child->expected_control && !child->failure.head &&
-        (child->failure.primary==2 || child->failure.primary==4)))) return 0;
-  rinzu_child_unlink(scope,child);
-  rinzu_failure_release(child->failure);free(child);return 1;
+                            !(child->expected_control && !child->failure.head &&
+                              (child->failure.primary == 2 || child->failure.primary == 4))))
+    return 0;
+  rinzu_child_unlink(scope, child);
+  rinzu_failure_release(child->failure);
+  free(child);
+  return 1;
 }
 static inline int rinzu_child_begin_close(rinzu_child_scope_t *scope,
                                           const rinzu_failure_t *outcome) {
@@ -261,12 +271,15 @@ static inline void rinzu_child_append(rinzu_failure_t *outcome, int64_t cause,
   outcome->tail = node;
 }
 static inline void rinzu_child_append_error(rinzu_failure_t *outcome, int64_t cause,
-                                             rinzu_source_position_t source, rinzu_error_reference_t *error) {
+                                            rinzu_source_position_t source,
+                                            rinzu_error_reference_t *error) {
   rinzu_child_append(outcome, cause, source);
   outcome->tail->error = rinzu_error_reference_copy(error);
 }
 static inline void rinzu_child_append_traced_error(rinzu_failure_t *outcome, int64_t cause,
-    rinzu_source_position_t source, rinzu_error_reference_t *error, rinzu_error_trace_t *trace) {
+                                                   rinzu_source_position_t source,
+                                                   rinzu_error_reference_t *error,
+                                                   rinzu_error_trace_t *trace) {
   rinzu_child_append_error(outcome, cause, source, error);
   outcome->tail->trace = rinzu_error_trace_copy(trace);
 }
@@ -302,7 +315,8 @@ static inline void rinzu_child_merge(rinzu_failure_t *outcome, const rinzu_failu
     *outcome = rinzu_failure_copy(failure);
     return;
   }
-  rinzu_child_append_traced_error(outcome, failure->primary, failure->primary_source, failure->primary_error, failure->primary_trace);
+  rinzu_child_append_traced_error(outcome, failure->primary, failure->primary_source,
+                                  failure->primary_error, failure->primary_trace);
   for (rinzu_diagnostic_node_t *node = failure->head; node; node = node->next)
     rinzu_child_append_traced_error(outcome, node->cause, node->source, node->error, node->trace);
 }
@@ -392,7 +406,8 @@ static inline int rinzu_child_finish_close(rinzu_child_scope_t *scope) {
           scope->outcome.primary_source = child->failure.head->source;
         }
         for (rinzu_diagnostic_node_t *node = child->failure.head; node; node = node->next)
-          rinzu_child_append_traced_error(&scope->outcome, node->cause, node->source, node->error, node->trace);
+          rinzu_child_append_traced_error(&scope->outcome, node->cause, node->source, node->error,
+                                          node->trace);
       }
     } else if (!child->observed && child->failure.primary) {
       if (!parent_failed && !scope->outcome.primary) {
@@ -408,9 +423,12 @@ static inline int rinzu_child_finish_close(rinzu_child_scope_t *scope) {
       }
       if (!parent_failed || !(child->failure.primary == 2 ||
                               (scope->outcome.primary == 4 && child->failure.primary == 4)))
-        rinzu_child_append_traced_error(&scope->outcome, child->failure.primary, child->failure.primary_source, child->failure.primary_error, child->failure.primary_trace);
+        rinzu_child_append_traced_error(&scope->outcome, child->failure.primary,
+                                        child->failure.primary_source, child->failure.primary_error,
+                                        child->failure.primary_trace);
       for (rinzu_diagnostic_node_t *node = child->failure.head; node; node = node->next)
-        rinzu_child_append_traced_error(&scope->outcome, node->cause, node->source, node->error, node->trace);
+        rinzu_child_append_traced_error(&scope->outcome, node->cause, node->source, node->error,
+                                        node->trace);
     }
     rinzu_failure_release(child->failure);
     free(child);

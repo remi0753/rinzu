@@ -3,25 +3,50 @@
 use std::path::Path;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[path = "../../tests/fixtures/ready_snapshot.rs"]
+mod ready_snapshot;
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(crate) fn write_sources(directory: &Path) -> Result<(), String> {
     use super::*;
 
     fs::create_dir_all(directory).map_err(|error| error.to_string())?;
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let package = root.join("tests/fixtures/programs/source-callback");
-    let build = build_package(&package, Some(directory.join("source-platform")))?;
-    let source = fs::read_to_string(with_suffix(&build.executable, ".runtime.c"))
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
         .map_err(|error| error.to_string())?;
-    let (_, artifact) =
-        rinzu_compiler::check_package(&package).map_err(|errors| format_diagnostics(&errors))?;
-    let bindings = artifact
+    let package = root.join("tests/fixtures/programs/source-callback");
+    let context = crate::input::check(
+        &package,
+        &crate::input::Options::default(),
+        &rinzu_compiler::NativeCliInputs::default(),
+    )?;
+    build_checked_input(&context, Some(directory.join("source-platform")))?;
+    let artifact = &context.artifact;
+    let imports = artifact
         .sdk_packages
         .iter()
-        .flat_map(|package| &package.native_imports)
+        .flat_map(|package| &package.native_imports);
+    let bindings = imports
+        .clone()
         .map(|import| (import.export_name.clone(), import.import_key))
         .collect();
-    let object = emit_source_async_aot_object(&artifact.ir, "main", &bindings)
+    let imports = imports
+        .filter(|import| import.runtime_service.is_none())
+        .cloned()
+        .collect::<Vec<_>>();
+    let object = rinzu_codegen::emit_source_async_aot_plans(&artifact.ir, "main", &bindings)
         .map_err(|error| error.to_string())?;
+    let plan = async_aot_plan(artifact, &object)?.ok_or("missing compiled async tooling plan")?;
+    let native = crate::input::build_native(&context)?;
+    let scratch = crate::verify_capture::TemporaryDirectory(native.directory.clone());
+    let source = runtime_shim_with_source_packages(
+        &object,
+        &imports,
+        Some(&plan),
+        &native.source_packages,
+        &scratch.0.join("source-packages"),
+    )?;
     fs::write(
         directory.join("compiled-async.c"),
         crate::compiled_async::runtime_source(&object, &source, true),
@@ -88,7 +113,88 @@ pub(crate) fn write_sources(directory: &Path) -> Result<(), String> {
         ),
     )
     .map_err(|error| error.to_string())?;
-    Ok(())
+    write_fixture_sources(&root, directory)
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn write_fixture_sources(root: &Path, directory: &Path) -> Result<(), String> {
+    use super::*;
+
+    let fixtures = root.join("crates/driver/tests/fixtures");
+    let scratch = crate::verify_capture::TemporaryDirectory::new("native-quality-fixtures")?;
+    let runtime = |entry: &Path| {
+        let name = entry.file_stem().ok_or("fixture entry has no file stem")?;
+        let build = build_package(entry, Some(scratch.0.join(name)))?;
+        fs::read_to_string(with_suffix(&build.executable, ".runtime.c"))
+            .map_err(|error| error.to_string())
+    };
+    let prelude = |name: &str| format!("#include {:?}\n", fixtures.join(name));
+    let renamed = |source: String| source.replace("int main(", "int unused_source_main(");
+
+    let bytes = renamed(runtime(&fixtures.join("byte_construction.rinzu"))?);
+    let lists = renamed(runtime(&fixtures.join("list_updates.rinzu"))?);
+    let direct = usize::from(lists.contains("rinzu_managed_list_update_owned(data, value,"));
+    let list_prefix = format!(
+        "#define TEST_LIST_DIRECT {direct}\n{}{lists}",
+        prelude("list_update_alloc.h")
+    );
+    let ledger = renamed(runtime(
+        &root.join("crates/codegen/tests/fixtures/observed-ledger-alias.rinzu"),
+    )?);
+    let ready =
+        ready_snapshot::ready_snapshot_prefix(&runtime(&fixtures.join("async_ready_order.rinzu"))?);
+    let lengths = renamed(runtime(&fixtures.join("scalar_lengths.rinzu"))?);
+    let virtual_bytes = runtime(&fixtures.join("virtual_bytes_option_kernel.rinzu"))?;
+
+    let artifact = rinzu_compiler::compile_source(&rinzu_compiler::SourceFile::new(
+        rinzu_compiler::FileId(1),
+        "async-result-pin-identity.rinzu",
+        "async fn main() {}",
+    ))
+    .map_err(|errors| format_diagnostics(&errors))?;
+    let object = emit_source_async_aot_object(&artifact.ir, "main", &HashMap::new())
+        .map_err(|error| error.to_string())?;
+    let plan = async_aot_plan(&artifact, &object)?.ok_or("missing result pin tooling plan")?;
+    let result_pin = renamed(runtime_shim(&object, &[], Some(&plan), &[]));
+
+    let prefixes = [
+        ("async_result_pin_identity.c", result_pin),
+        ("bytes_concat_all_guards.c", bytes.clone()),
+        (
+            "bytes_initialization_guards.c",
+            prelude("bytes_poison_alloc.h") + &bytes,
+        ),
+        ("bytes_share_guards.c", bytes),
+        ("list_update_guards.c", list_prefix),
+        (
+            "observed_ledger_guards.c",
+            format!("#define TEST_LEDGER_POLICY 2\n{ledger}"),
+        ),
+        ("ready_snapshot_guards.c", ready),
+        ("scalar_length_guards.c", lengths),
+        (
+            "virtual_bytes_option_guards.c",
+            format!(
+                "{}#define main c06_generated_main\n{virtual_bytes}\n#undef main\n",
+                prelude("virtual_bytes_option_alloc.h"),
+            ),
+        ),
+    ];
+    let mut names = Vec::new();
+    for (name, mut source) in prefixes {
+        source
+            .push_str(&fs::read_to_string(fixtures.join(name)).map_err(|error| error.to_string())?);
+        fs::write(directory.join(name), source).map_err(|error| error.to_string())?;
+        names.push(name);
+    }
+    let poll = "poll_state_matrix.c";
+    fs::write(directory.join(poll), poll_fixture::source()).map_err(|error| error.to_string())?;
+    names.push(poll);
+    fs::write(
+        directory.join("fixture-sources.json"),
+        serde_json::to_vec(&names).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())
 }
 
 #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]

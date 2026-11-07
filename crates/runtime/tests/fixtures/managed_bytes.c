@@ -8,7 +8,8 @@ static void *counted_calloc(size_t count, size_t size) {
 static inline void *counted_malloc(size_t size) {
   ++allocations;
   void *result = malloc(size);
-  if (result) memset(result, 165, size);
+  if (result)
+    memset(result, 165, size);
   return result;
 }
 #define calloc counted_calloc

@@ -41,10 +41,10 @@ int main(int argc, char **argv) {
     struct Handle *h = &handles[i];
     uintptr_t old = identity(i);
     assert(old > previous && old <= INT64_MAX);
-    previous = old;
     h->id = old;
     assert(handle((void *)old) == h);
     h->id = identity(i);
+    assert(h->id > old && h->id <= INT64_MAX);
     assert(handle((void *)old) == NULL && handle((void *)h->id) == h);
     assert(lookup_operation(h->id) == NULL);
     previous = h->id;
@@ -53,11 +53,11 @@ int main(int argc, char **argv) {
     struct Operation *op = &operations[i];
     uintptr_t old = identity(i);
     assert(old > previous && old <= INT64_MAX);
-    previous = old;
     op->id = old;
     assert(operation((void *)old) == op);
     assert(handle((void *)old) == NULL);
     op->id = identity(i);
+    assert(op->id > old && op->id <= INT64_MAX);
     assert(lookup_operation(old) == NULL && operation((void *)op->id) == op);
     previous = op->id;
   }

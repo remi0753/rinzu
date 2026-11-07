@@ -7,7 +7,8 @@ static void *observed_calloc(size_t count, size_t size) {
   return fail_allocation ? NULL : calloc(count, size);
 }
 static void observed_free(void *memory) {
-  if (memory) ++release_calls;
+  if (memory)
+    ++release_calls;
   free(memory);
 }
 #define calloc observed_calloc
@@ -19,7 +20,8 @@ static void observed_free(void *memory) {
 
 static void zeroed(const void *memory, size_t bytes) {
   const unsigned char *value = memory;
-  for (size_t index = 0; index < bytes; ++index) assert(!value[index]);
+  for (size_t index = 0; index < bytes; ++index)
+    assert(!value[index]);
 }
 static void baseline(void) {
   for (unsigned index = 0; index < RINZU_RESOURCE_COUNT; ++index)
@@ -74,7 +76,7 @@ static void aliases(void) {
   rinzu_async_init(&runtime);
   for (unsigned index = 0; index < 128; ++index) {
     uint64_t handle = rinzu_async_ready(&runtime, RINZU_SCALAR_I64, index,
-                                       (rinzu_source_position_t){9, 17, 29, 1});
+                                        (rinzu_source_position_t){9, 17, 29, 1});
     rinzu_async_future_t *future = rinzu_async_find(&runtime, handle);
     assert(rinzu_async_materialize(future) == index);
     assert(rinzu_async_materialize(rinzu_async_find(&runtime, handle)) == index);
@@ -82,8 +84,8 @@ static void aliases(void) {
     rinzu_async_release(future);
     assert(!rinzu_async_lookup(&runtime, handle));
     fail_allocation = 1;
-    rinzu_async_future_t *again = rinzu_async_new(&runtime, RINZU_ASYNC_READY,
-                                                 RINZU_SCALAR_I64, (rinzu_source_position_t){0});
+    rinzu_async_future_t *again = rinzu_async_new(&runtime, RINZU_ASYNC_READY, RINZU_SCALAR_I64,
+                                                  (rinzu_source_position_t){0});
     assert(again == future && rinzu_async_handle(again) != handle);
     assert(!again->settled && !again->result_slot && !again->failure.primary);
     assert(!again->task_context && !again->native_completion && !again->ready_waiters);
@@ -106,10 +108,13 @@ int main(int argc, char **argv) {
     rinzu_async_init(&runtime);
     if (!strcmp(argv[1], "cold-oom")) {
       fail_allocation = 1;
-      rinzu_async_control_allocate(&runtime, 616);
+      void *memory = rinzu_async_control_allocate(&runtime, 616);
+      rinzu_async_control_release(&runtime, memory, 616);
     } else if (!strcmp(argv[1], "busy-dispose")) {
-      rinzu_async_control_allocate(&runtime, 616);
+      void *memory = rinzu_async_control_allocate(&runtime, 616);
       rinzu_async_dispose(&runtime);
+      free(memory);
+      return 3;
     } else if (!strcmp(argv[1], "foreign-owner")) {
       pthread_t thread;
       assert(!pthread_create(&thread, NULL, foreign, &runtime));
@@ -120,8 +125,14 @@ int main(int argc, char **argv) {
       rinzu_async_runtime_t other;
       rinzu_async_init(&other);
       fail_allocation = 1;
-      rinzu_async_control_allocate(&other, 616);
-    } else return 2;
+      memory = rinzu_async_control_allocate(&other, 616);
+      rinzu_async_control_release(&other, memory, 616);
+      rinzu_async_dispose(&other);
+    } else {
+      rinzu_async_dispose(&runtime);
+      return 2;
+    }
+    rinzu_async_dispose(&runtime);
     return 3;
   }
   sizes();
