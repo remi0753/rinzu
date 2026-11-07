@@ -9,16 +9,148 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 struct Fixture(PathBuf);
 
 #[test]
+fn public_aliases_round_trip_through_reexports_and_api_comparison() {
+    let f = Fixture::new();
+    let source = r#"
+        /// A reusable input-to-output callback.
+        type Transform<T, U> = fn (T) -> U;
+        type IntStep = Transform<Int, Int>;
+        type Pair<T> = { first: T, second: T };
+        fn apply(op: fn (Int) -> Int, value: Int) -> Int { return op(value); }
+        export Transform;
+        export IntStep;
+        export Pair;
+        export apply;
+    "#;
+    std::fs::write(f.path("sdk/src/model.rinzu"), source).unwrap();
+    std::fs::create_dir_all(f.path("facade/src")).unwrap();
+    std::fs::write(f.path("facade/rinzu.toml"), "[package]\nname=\"facade\"\nkind=\"sdk\"\nlanguage=\"0.5\"\n[dependencies]\nmodel={path=\"../sdk\"}\n").unwrap();
+    std::fs::write(
+        f.path("facade/src/facade.rinzu"),
+        "import model as source;export source.Transform;export source.IntStep;export source.Pair;export source.apply;",
+    ).unwrap();
+    std::fs::write(f.path("app/rinzu.toml"), "[package]\nname=\"consumer\"\nlanguage=\"0.5\"\n[dependencies]\nfacade={path=\"../facade\"}\n").unwrap();
+    std::fs::write(
+        f.path("app/src/main.rinzu"),
+        r#"
+        import facade as cb;
+        fn identity(value: Int) -> Int { return value; }
+        fn main() {
+            let transform: cb.Transform<Int, Int> = identity;
+            let step: cb.IntStep = transform;
+            let pair: cb.Pair<Int> = { first = 41, second = 1 };
+            if cb.apply(step, pair.first + pair.second) != 42 { panic("alias"); }
+        }
+    "#,
+    )
+    .unwrap();
+    success(f.cli("run", "app", &[]));
+    success(f.cli("verify-aot", "app", &[]));
+    let baseline = f.path("aliases.json");
+    let markdown = f.path("aliases.md");
+    success(f.cli(
+        "api",
+        "facade",
+        &[
+            "--output",
+            baseline.to_str().unwrap(),
+            "--markdown",
+            markdown.to_str().unwrap(),
+        ],
+    ));
+    let api = json(&baseline);
+    let transform = &api["exports"]["facade.Transform"]["source_template"];
+    assert_eq!(transform["kind"], "type-alias");
+    assert_eq!(transform["signature"], "fn(T)->U");
+    assert_eq!(
+        api["exports"]["facade.IntStep"]["source_template"]["signature"],
+        "fn(Int)->Int"
+    );
+    let documentation = std::fs::read_to_string(markdown).unwrap();
+    assert!(documentation.contains("type Transform<T, U> = fn (T) -> U;"));
+    assert!(documentation.contains("A reusable input-to-output callback."));
+
+    std::fs::write(
+        f.path("sdk/src/model.rinzu"),
+        source.replace("op: fn (Int) -> Int", "op: IntStep"),
+    )
+    .unwrap();
+    let after = f.path("aliases-after.json");
+    let after_markdown = f.path("aliases-after.md");
+    success(f.cli(
+        "api",
+        "facade",
+        &[
+            "--output",
+            after.to_str().unwrap(),
+            "--compare",
+            baseline.to_str().unwrap(),
+            "--markdown",
+            after_markdown.to_str().unwrap(),
+        ],
+    ));
+    assert_eq!(
+        json(&f.path("aliases-after.report.json"))["breaking_candidates"],
+        serde_json::json!([])
+    );
+    assert!(
+        std::fs::read_to_string(after_markdown)
+            .unwrap()
+            .contains("op: IntStep")
+    );
+
+    std::fs::write(
+        f.path("sdk/src/model.rinzu"),
+        source.replace("second: T", "second: List<T>")
+            + "type NumberPair = Pair<Int>;export NumberPair;",
+    )
+    .unwrap();
+    std::fs::write(
+        f.path("facade/src/facade.rinzu"),
+        "import model as source;export source.Transform;export source.Pair;export source.apply;export source.NumberPair;",
+    ).unwrap();
+    success(f.cli(
+        "api",
+        "facade",
+        &[
+            "--output",
+            after.to_str().unwrap(),
+            "--compare",
+            baseline.to_str().unwrap(),
+        ],
+    ));
+    let report = json(&f.path("aliases-after.report.json"));
+    assert_eq!(
+        report["additions"],
+        serde_json::json!(["facade.NumberPair"])
+    );
+    let breaking = report["breaking_candidates"].as_array().unwrap();
+    assert!(breaking.iter().any(|change| {
+        change
+            .as_str()
+            .unwrap()
+            .starts_with("removed facade.IntStep ")
+    }));
+    assert!(
+        breaking
+            .iter()
+            .any(|change| change.as_str().unwrap().starts_with("changed facade.Pair "))
+    );
+}
+
+#[test]
 fn exported_callback_contracts_constrain_consumers_and_api_diffs() {
     let f = Fixture::new();
     let source = r#"
         error InvalidPort {}
         error ReadFailed {}
-        let defaultValidator: fn (Int) throws(InvalidPort) -> Int = fn (value: Int) nothrow -> Int { return value; };
-        fn apply(op: fn (Int) throws(InvalidPort) -> Int, value: Int) throws(InvalidPort) -> Int { return op(value); }
+        type PortValidator = fn (Int) throws(InvalidPort) -> Int;
+        let defaultValidator: PortValidator = fn (value: Int) nothrow -> Int { return value; };
+        fn apply(op: PortValidator, value: Int) throws(InvalidPort) -> Int { return op(value); }
         fn adapt(op: fn (Int) throws(InvalidPort, ReadFailed) -> Int) {}
         export InvalidPort;
         export ReadFailed;
+        export PortValidator;
         export defaultValidator;
         export apply;
         export adapt;
@@ -30,7 +162,7 @@ fn exported_callback_contracts_constrain_consumers_and_api_diffs() {
         import model;
         fn main() {
             let minimum = 0;
-            let validator: fn (Int) throws(model.InvalidPort) -> Int = fn (value: Int) throws(model.InvalidPort) -> Int {
+            let validator: model.PortValidator = fn (value: Int) throws(model.InvalidPort) -> Int {
                 if value < minimum { throw model.InvalidPort(message: "negative"); }
                 return value;
             };
@@ -253,9 +385,13 @@ fn api_reference_distinguishes_native_data_and_class_methods() {
     }
     assert!(api["exports"].get("model.Handle.read").is_none());
     assert!(api["exports"].get("model.Packet.read").is_none());
-    assert_eq!(
+    assert_ne!(
         api["exports"]["model.Context"]["identity"],
         api["exports"]["model.Session"]["identity"]
+    );
+    assert_eq!(
+        api["exports"]["model.Context"]["source_template"]["signature"],
+        api["exports"]["model.Session"]["source_template"]["signature"]
     );
     let text = std::fs::read_to_string(markdown).unwrap();
     for role in [

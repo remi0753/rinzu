@@ -39,6 +39,8 @@ Fields cannot be reassigned. `{ ...base, field = value }` constructs a new struc
 
 `type Pair<T> = { first: T, second: T };` gives a reusable spelling to a structural type. Aliases are transparent, can be generic, and cannot form cycles. They do not add methods, identity, or independent marker capabilities.
 
+Use `type Transform<T, U> = fn (T) -> U;` to name a callback type. An SDK can publish it with `export Transform;`. Consumers can then use the qualified alias, and the compiler checks against the expanded type, including any [Error contract](errors.md#bound-a-callbacks-errors).
+
 A language record and a `record` inside `native { ... }` have different representations and purposes. See [Native interoperability](native-interop.md).
 
 Next: [Classes and methods](classes.md).

@@ -3,9 +3,9 @@ use std::mem::discriminant;
 use crate::ast::{
     AllCatch, Arguments, BinaryOperator, Block, CatchBinding, CatchClause, CatchElement,
     CatchPattern, ConstantDecl, Declaration, EnumDecl, EnumVariant, ErrorDecl, ErrorPayloadDecl,
-    Export, Expression, ExpressionKind, FieldDecl, FunctionDecl, Import, Literal, Module,
-    NativeBinding, NativeBlock, NativeFunctionDecl, NativeMember, Parameter, RecordDecl, Statement,
-    StatementKind, SwitchCase, TypeRef, TypeRefKind, UnaryOperator,
+    Export, Expression, ExpressionKind, FieldDecl, FunctionDecl, Import, ImportAlias, Literal,
+    Module, NativeBinding, NativeBlock, NativeFunctionDecl, NativeMember, Parameter, RecordDecl,
+    Statement, StatementKind, SwitchCase, TypeRef, TypeRefKind, UnaryOperator,
 };
 use crate::lexer::{FormattedPart, Token, TokenKind};
 use crate::{Diagnostic, DiagnosticCode, FileId, SourceRange};
@@ -81,42 +81,45 @@ impl Parser<'_> {
             if !self.at_identifier("as") {
                 return Err(self.unexpected("`as` followed by a file import alias"));
             }
-            self.advance();
-            let (alias, alias_range) = self.identifier()?;
-            if alias == "rinzu" {
-                return Err(Diagnostic::error(
-                    DiagnosticCode::InvalidModulePath,
-                    alias_range,
-                    "file import alias `rinzu` is reserved",
-                    "choose another alias for the imported file",
-                ));
-            }
+            let alias = self.import_alias()?;
             let end = self.take(&TokenKind::Semicolon)?.range;
             return Ok(Import {
-                path: vec![alias],
+                path: vec![alias.name],
                 file: Some(crate::ast::FileImport {
                     path,
                     path_range,
-                    alias_range,
+                    alias_range: alias.range,
                 }),
+                alias: None,
                 range: start.join(end),
             });
         }
         let (_, path, _) = self.qualified_name()?;
-        if self.at_identifier("as") {
-            return Err(Diagnostic::error(
-                DiagnosticCode::InvalidModulePath,
-                self.current().range,
-                "an explicit alias requires a file path literal",
-                "write `import \"./module.rinzu\" as alias;` or keep the dotted import",
-            ));
-        }
+        let alias = self
+            .at_identifier("as")
+            .then(|| self.import_alias())
+            .transpose()?;
         let end = self.take(&TokenKind::Semicolon)?.range;
         Ok(Import {
             path,
             file: None,
+            alias,
             range: start.join(end),
         })
+    }
+
+    fn import_alias(&mut self) -> Result<ImportAlias, Diagnostic> {
+        self.advance(); // contextual `as`
+        let (name, range) = self.identifier()?;
+        if name == "rinzu" {
+            return Err(Diagnostic::error(
+                DiagnosticCode::InvalidModulePath,
+                range,
+                "import alias `rinzu` is reserved",
+                "choose another alias for the imported module",
+            ));
+        }
+        Ok(ImportAlias { name, range })
     }
 
     fn export(&mut self) -> Result<Export, Diagnostic> {

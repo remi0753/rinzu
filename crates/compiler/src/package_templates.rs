@@ -139,6 +139,13 @@ pub(crate) fn schema(declaration: &Declaration) -> Option<SourceTemplateSchema> 
                     .collect(),
             )
         }
+        Declaration::TypeAlias(alias) => (
+            &alias.type_parameters,
+            "type-alias",
+            ty(&alias.ty),
+            vec![],
+            vec![],
+        ),
         Declaration::Error(error) => {
             if error.type_parameters.is_empty() && !callback_contract {
                 return None;
@@ -185,6 +192,7 @@ pub(crate) fn schema(declaration: &Declaration) -> Option<SourceTemplateSchema> 
     };
     if parameters.is_empty()
         && kind != "interface"
+        && kind != "type-alias"
         && interfaces.is_empty()
         && error_contract.is_none()
         && !callback_contract

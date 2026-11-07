@@ -1423,10 +1423,13 @@ fn interface(
             .flat_map(|(module, exports)| {
                 exports.iter().map(move |(name, target)| {
                     let identity = match source.type_aliases.get(target) {
-                        Some(
-                            rinzu_compiler::Type::Named(name)
-                            | rinzu_compiler::Type::Native { name, .. },
-                        ) => name.clone(),
+                        Some(rinzu_compiler::Type::Named(name))
+                            if !name.starts_with("$rinzu_record_")
+                                && !name.starts_with("$rinzu_closure_") =>
+                        {
+                            name.clone()
+                        }
+                        Some(rinzu_compiler::Type::Native { name, .. }) => name.clone(),
                         _ => target.clone(),
                     };
                     (format!("{module}.{name}"), identity)

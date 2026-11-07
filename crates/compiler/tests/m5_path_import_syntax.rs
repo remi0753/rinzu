@@ -70,6 +70,8 @@ fn invalid_path_and_alias_vectors_report_the_violating_tokens() {
         "import \"./m.rinzu\" as fn;",
         "import \"./m.rinzu\" as a.b;",
         "import \"./m.rinzu\" as m",
+        "import model as;",
+        "import model as a.b;",
     ] {
         assert!(parse_source(&source(text)).is_err(), "accepted {text}");
     }
@@ -78,11 +80,11 @@ fn invalid_path_and_alias_vectors_report_the_violating_tokens() {
         .remove(0);
     assert_eq!(reserved.code, DiagnosticCode::InvalidModulePath);
     assert_eq!(reserved.primary.start_byte, 22);
-    let dotted = parse_source(&source("import model as other;"))
+    let dotted = parse_source(&source("import model as rinzu;"))
         .unwrap_err()
         .remove(0);
     assert_eq!(dotted.code, DiagnosticCode::InvalidModulePath);
-    assert_eq!(dotted.primary.start_byte, 13);
+    assert_eq!(dotted.primary.start_byte, 16);
 }
 
 #[test]
@@ -90,6 +92,7 @@ fn formatting_retains_literal_spelling_aliases_and_comments() {
     let input = r#"// before
 import/*path*/"./日本語\u{2e}rinzu"/*alias*/as first; // after
 import "./日本語.rinzu" as second;
+import example.callbacks/*qualifier*/as cb;
 fn main(){}"#;
     let output = formatted(input);
     for spelling in [
@@ -100,6 +103,8 @@ fn main(){}"#;
         "// after",
         "as first;",
         "as second;",
+        "/*qualifier*/",
+        "as cb;",
     ] {
         assert!(output.contains(spelling), "missing {spelling}: {output}");
     }
@@ -108,6 +113,21 @@ fn main(){}"#;
     assert_eq!(imports[0].file.as_ref().unwrap().path, "./日本語.rinzu");
     assert_eq!(imports[0].path, ["first"]);
     assert_eq!(imports[1].path, ["second"]);
+    assert_eq!(imports[2].path, ["example", "callbacks"]);
+    assert_eq!(imports[2].qualifier(), ["cb"]);
+    let range = imports[2].alias_range().unwrap();
+    assert_eq!(
+        &output[range.start_byte as usize..range.end_byte as usize],
+        "cb"
+    );
+}
+
+#[test]
+fn builtin_import_aliases_work_in_the_in_memory_compiler() {
+    let source = source(
+        "import rinzu.list as lists;import rinzu.core as core;fn main(){let count=lists.length([1]);let size=core.utf8ByteLength(\"x\");let lists={length:Int=42};let field=lists.length;}",
+    );
+    rinzu_compiler::compile_source(&source).unwrap();
 }
 
 #[test]

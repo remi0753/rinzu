@@ -34,6 +34,8 @@ rinzu build ./values
 
 Export public types used by signatures. Generic functions retain source templates and are checked when the consumer instantiates them. SDK build outputs include checked descriptors and native artifacts when required; they are not a binary-only package import format. Consumers still need the source package.
 
+Export a callback alias with `export Transform;` after declaring `type Transform<T, U> = fn (T) -> U;`. A consumer can write `import example.values as values;` and use `values.Transform<Int, String>` in a signature. Consumers can supply any function value of the expanded type. Export any nominal types and Errors the alias exposes.
+
 ## Generate and compare API descriptions
 
 ```sh
@@ -41,7 +43,7 @@ rinzu api ./values --output ./values-api.json --markdown ./values-api.md
 rinzu api ./values --output ./values-api-next.json --compare ./values-api.json
 ```
 
-The JSON snapshot records exported types, signatures, constants, effects, interface requirements/conformance/constraints, declared versus inferred Error bounds, and native boundary information. An explicit nothrow contract is distinct from an inferred empty bound. Removing conformance, changing requirements, or widening an Error bound produces a conservative breaking candidate. Comparison reports additions and conservative breaking candidates. Review semantics yourself: the tool does not automatically assign a semantic version or prove behavior unchanged.
+The JSON snapshot records exported types, signatures, constants, effects, interface requirements/conformance/constraints, declared versus inferred Error bounds, and native boundary information. It records public type aliases with their expanded targets and includes Error bounds nested in callback types. An explicit nothrow contract is distinct from an inferred empty bound. Comparison treats a signature that substitutes a transparent alias for the same expanded type as equivalent. It reports additions and conservative breaking candidates such as removing conformance, changing requirements, or changing a nested Error bound.
 
 Adjacent `///` comments attach to checked public declarations. Re-exports retain their original source identity. Comments can contain complete `rinzu-test` programs, which the generated Markdown keeps available to the documentation test runner.
 

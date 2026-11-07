@@ -20,10 +20,35 @@ pub struct Export {
 
 #[derive(Clone, Debug)]
 pub struct Import {
-    /// Source-visible qualifier: dotted segments, or one explicit file alias.
+    /// Dotted target segments, or the qualifier for a file import.
     pub path: Vec<String>,
     /// Present only for a file literal; `path` is its alias, not a disk path.
     pub file: Option<FileImport>,
+    /// An explicit qualifier on a dotted target.
+    pub alias: Option<ImportAlias>,
+    pub range: SourceRange,
+}
+
+impl Import {
+    #[must_use]
+    pub fn qualifier(&self) -> &[String] {
+        self.alias
+            .as_ref()
+            .map_or(&self.path, |alias| std::slice::from_ref(&alias.name))
+    }
+
+    #[must_use]
+    pub fn alias_range(&self) -> Option<SourceRange> {
+        self.alias
+            .as_ref()
+            .map(|alias| alias.range)
+            .or_else(|| self.file.as_ref().map(|file| file.alias_range))
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ImportAlias {
+    pub name: String,
     pub range: SourceRange,
 }
 

@@ -168,12 +168,12 @@ pub fn build_editor_index(
             source.original_offset(source.text().len()),
         );
         for import in &module.imports {
-            let qualifier = import.path.join(".");
-            let symbols = match qualifier.as_str() {
+            let symbols = match import.path.join(".").as_str() {
                 "rinzu.list" => crate::collections::LIST_SYMBOLS,
                 "rinzu.map" => crate::collections::MAP_SYMBOLS,
                 _ => continue,
             };
+            let qualifier = import.qualifier().join(".");
             for symbol in symbols {
                 index.symbols.push(EditorSymbol {
                     name: format!("{qualifier}.{symbol}"),

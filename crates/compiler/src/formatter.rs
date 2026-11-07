@@ -23,15 +23,17 @@ pub fn format_source(file: &SourceFile) -> Result<String, Vec<Diagnostic>> {
     let mut hints = Hints::new(&tokens);
     hints.declaration_spacing(&syntax);
     for import in &syntax.imports {
-        if let Some(file) = &import.file {
-            for byte in [file.path_range.start_byte, file.alias_range.start_byte] {
-                if let Some(index) = hints.at_byte(byte) {
-                    hints.break_before[index] = true;
-                }
-            }
-            if let Some(alias) = hints.at_byte(file.alias_range.start_byte) {
-                hints.break_before[alias - 1] = true; // contextual `as`
-            }
+        if let Some(file) = &import.file
+            && let Some(path) = hints.at_byte(file.path_range.start_byte)
+        {
+            hints.break_before[path] = true;
+        }
+        if let Some(alias) = import
+            .alias_range()
+            .and_then(|range| hints.at_byte(range.start_byte))
+        {
+            hints.break_before[alias] = true;
+            hints.break_before[alias - 1] = true; // contextual `as`
         }
     }
     for declaration in &syntax.declarations {

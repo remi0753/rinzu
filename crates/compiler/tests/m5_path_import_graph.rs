@@ -112,7 +112,7 @@ fn aliases_dotted_paths_and_symlinks_share_one_nominal_type_and_body() {
     let scratch = Scratch::new();
     let model = scratch.write("model.rinzu", "class Pair{x:Int}fn take(p:Pair)->Int{return p.x;}fn main()->Int{return 99;}export Pair;export take;");
     std::os::unix::fs::symlink(&model, scratch.0.join("alternate.rinzu")).unwrap();
-    let entry = scratch.write("main.rinzu", "import model;import \"./alternate.rinzu\" as other;import \"./model.rinzu\" as direct;fn main(){let p:model.Pair=direct.Pair(x:42);let n=other.take(p);}");
+    let entry = scratch.write("main.rinzu", "import model;import alternate as other;import \"./model.rinzu\" as direct;fn main(){let p:model.Pair=direct.Pair(x:42);let n=other.take(p);}");
     let context = check(&entry).unwrap();
     assert_eq!(context.artifact.module_graph.len(), 2);
     assert_eq!(context.inputs.len(), 2);
@@ -128,6 +128,17 @@ fn aliases_dotted_paths_and_symlinks_share_one_nominal_type_and_body() {
         .map(|edge| edge.target_path.as_ref().unwrap())
         .collect();
     assert!(paths.iter().all(|path| *path == &model));
+    let alias = node
+        .imports
+        .iter()
+        .find(|edge| edge.qualifier == "other")
+        .unwrap();
+    assert_eq!(alias.kind, "dotted");
+    assert_eq!(
+        alias.requested_path,
+        Some(scratch.0.join("alternate.rinzu"))
+    );
+    assert!(alias.alias_range.is_some());
     assert!(
         node.imports
             .iter()
@@ -186,7 +197,7 @@ fn package_and_sdk_public_module_names_preserve_canonical_identity() {
         "application",
         "[dependencies]\nmodel={path=\"../model\"}\n",
     );
-    scratch.write("app/src/main.rinzu", "import model;import model.alternate;fn main(){let p:model.Pair=model.Pair(x:42);let n=model.alternate.take(p);}");
+    scratch.write("app/src/main.rinzu", "import model;import model.alternate as other;fn main(){let p:model.Pair=model.Pair(x:42);let n=other.take(p);}");
     let context = check(&app).unwrap();
     let sdk = context.artifact.sdk_packages[0].source.as_ref().unwrap();
     assert_eq!(
@@ -216,6 +227,10 @@ fn alias_conflicts_and_private_exports_are_rejected() {
         "import \"./one.rinzu\" as m;import \"./two.rinzu\" as m;fn main(){}",
         "import \"./one.rinzu\" as one;import one;fn main(){}",
         "import \"./one.rinzu\" as m;fn m(){}fn main(){}",
+        "import one as m;import two as m;fn main(){}",
+        "import one as two;import two;fn main(){}",
+        "import one as m;fn m(){}fn main(){}",
+        "import one as m;import \"./two.rinzu\" as m;fn main(){}",
     ] {
         let entry = scratch.write("main.rinzu", text);
         let errors = check(&entry).unwrap_err();
@@ -227,16 +242,35 @@ fn alias_conflicts_and_private_exports_are_rejected() {
         "import \"./one.rinzu\" as m;import \"././one.rinzu\" as m;fn main(){let n=m.value();}",
     );
     assert_eq!(check(&entry).unwrap().artifact.module_graph.len(), 2);
-    let entry = scratch.write(
-        "main.rinzu",
-        "import \"./one.rinzu\" as m;fn main(){let n=m.hidden();}",
-    );
+    let entry = scratch.write("main.rinzu", "import one as m;fn main(){let n=m.hidden();}");
     assert!(
         check(&entry)
             .unwrap_err()
             .iter()
             .any(|error| error.code == DiagnosticCode::UnknownName)
     );
+}
+
+#[test]
+fn dotted_aliases_do_not_expose_unimported_qualifiers_or_dependencies() {
+    let scratch = Scratch::new();
+    scratch.write("model.rinzu", "fn value()->Int{return 1;}export value;");
+    let entry = scratch.write(
+        "main.rinzu",
+        "import model as m;fn main(){let n=model.value();}",
+    );
+    assert_eq!(
+        check(&entry).unwrap_err()[0].code,
+        DiagnosticCode::UnknownName
+    );
+    let app = scratch.package("app", "application", "");
+    scratch.write(
+        "app/src/main.rinzu",
+        "import missing.sdk as sdk;fn main(){}",
+    );
+    let error = check(&app).unwrap_err().remove(0);
+    assert_eq!(error.code, DiagnosticCode::PackageIo);
+    assert!(error.message.contains("missing/sdk.rinzu"));
 }
 
 #[test]

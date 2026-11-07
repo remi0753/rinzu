@@ -413,7 +413,8 @@
             "class",
             "enum",
             "error",
-            "interface"
+            "interface",
+            "type-alias"
           ]
         },
         "type_parameters": {

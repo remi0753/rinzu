@@ -35,6 +35,12 @@ fn main() {
 
 Imports do not inject members into the current scope. Use the qualified module name. A local symbol is private to its module unless explicitly exported.
 
+## Import with an alias
+
+Use `import math.totals as totals;` to refer to the module as `totals` in that file. The same syntax works for SDK modules, including `import rinzu.json as json;`. Declare SDK dependencies by their canonical package names. If you also need the full qualifier in the same file, add an import without `as`.
+
+An alias is one identifier. The name `rinzu` is reserved. An alias may not conflict with a top-level declaration, the first segment of an import without an alias, or an alias that points to a different module.
+
 ## Import by file path
 
 An explicit file path requires an alias:
@@ -49,7 +55,7 @@ fn main() {
 }
 ```
 
-Resolve paths relative to the importing file. A file path must name a `.rinzu` source and cannot contain control characters. Dotted imports do not accept aliases. The alias `rinzu` is reserved.
+Resolve paths relative to the importing file. A file path must name a `.rinzu` source and cannot contain control characters.
 
 Package imports must remain within the package's canonical `src/` directory. Standalone file graphs may use relative paths outside the entry directory, including `..`, or absolute file paths. Import cycles and conflicting aliases are rejected.
 

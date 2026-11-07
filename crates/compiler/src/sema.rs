@@ -524,6 +524,8 @@ pub fn check_module_with_options(
     options: &CompilerOptions,
 ) -> Result<CheckedModule, Vec<Diagnostic>> {
     let _timing = crate::timing::span("frontend.check");
+    let mut module = module.clone();
+    crate::package::link_builtin_aliases(&mut module)?;
     let module = crate::collections::prepare(module);
     let module = crate::methods::expand_exports(&module)?;
     crate::package::validate_public_signatures(

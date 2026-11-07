@@ -266,7 +266,7 @@ fn path_import_edits_keep_literal_escapes_and_distinct_aliases() {
     let text = rinzu_compiler::format_source(&rinzu_compiler::SourceFile::new(
         rinzu_compiler::FileId(1),
         &path,
-        r#"import "./z.rinzu" as z;import "./same\u{2e}rinzu" as second;import "./same\u{2e}rinzu" as first;fn main(){}"#,
+        r#"import rinzu.option as opt;import "./z.rinzu" as z;import "./same\u{2e}rinzu" as second;import "./same\u{2e}rinzu" as first;fn main(){}"#,
     ))
     .unwrap();
     let mut client = Client::new(None);
@@ -277,6 +277,7 @@ fn path_import_edits_keep_literal_escapes_and_distinct_aliases() {
     assert!(edited.contains(r#"import "./same\u{2e}rinzu" as second;"#));
     assert!(edited.find("as first").unwrap() < edited.find("as second").unwrap());
     assert!(edited.find("as second").unwrap() < edited.find("as z").unwrap());
+    assert!(edited.find("as z").unwrap() < edited.find("import rinzu.option as opt;").unwrap());
     client.ok("change", json!({"path":path,"version":2,"text":edited}));
     assert_eq!(
         client.query("organizeImports", &path, 2, json!(null))["result"]["edits"],
@@ -316,7 +317,7 @@ fn unicode_diagnostics_bom_and_rich_secondary_locations_are_original_bytes() {
 fn unsaved_dependency_changes_definition_completions_and_invalid_code_recovery() {
     let fixture = Fixture::new();
     fixture.package();
-    let main_text = "import model;fn main(){let n:Int=model.value();}";
+    let main_text = "import model as m;fn main(){let n:Int=m.value();}";
     let main = fixture.file("src/main.rinzu", main_text);
     let dependency = fixture.file(
         "src/model.rinzu",
@@ -341,8 +342,9 @@ fn unsaved_dependency_changes_definition_completions_and_invalid_code_recovery()
     let target = client.query("definition", &main, 1, position(main_text, "value()"));
     assert_eq!(target["result"]["locations"][0]["path"], json!(dependency));
     let items = client.query("completion", &main, 1, json!({"line":0,"character":0}));
-    assert!(labels(&items).contains(&"model.value"));
-    assert!(!labels(&items).contains(&"model.hidden"));
+    assert!(labels(&items).contains(&"m.value"));
+    assert!(!labels(&items).contains(&"m.hidden"));
+    assert!(!labels(&items).contains(&"model.value"));
     let again = client.query("diagnostics", &main, 1, json!(null));
     assert_eq!(again["result"]["parseCache"]["misses"], 0);
     assert!(again["result"]["parseCache"]["hits"].as_u64().unwrap() >= 2);
@@ -394,9 +396,10 @@ fn recursive_sdk_overlay_has_public_navigation_and_manifest_receipts() {
     );
     let model = fixture.file(
         "model/src/model.rinzu",
-        "import base;fn value()->Int{return base.value();}fn hidden()->Int{return 7;}export value;",
+        "import base as dep;type Producer=fn () nothrow->Int;fn value()->Int{return dep.value();}fn hidden()->Int{return 7;}export Producer;export value;",
     );
-    let main_text = "import model;fn main(){let n:Int=model.value();}";
+    let main_text =
+        "import model as m;fn main(){let producer:m.Producer=m.value;let n=producer();}";
     let main = fixture.file("src/main.rinzu", main_text);
     let mut client = Client::new(Some(&fixture.0));
     client.open(&main, 1, main_text);
@@ -412,11 +415,14 @@ fn recursive_sdk_overlay_has_public_navigation_and_manifest_receipts() {
             .count(),
         3
     );
-    let target = client.query("definition", &main, 1, position(main_text, "value()"));
-    assert_eq!(target["result"]["locations"][0]["path"], json!(model));
+    for name in ["Producer", "value;"] {
+        let target = client.query("definition", &main, 1, position(main_text, name));
+        assert_eq!(target["result"]["locations"][0]["path"], json!(model));
+    }
     let items = client.query("completion", &main, 1, json!({"line":0,"character":0}));
-    assert!(labels(&items).contains(&"model.value"));
-    assert!(!labels(&items).contains(&"model.hidden"));
+    assert!(labels(&items).contains(&"m.Producer"));
+    assert!(labels(&items).contains(&"m.value"));
+    assert!(!labels(&items).contains(&"m.hidden"));
     client.shutdown();
 }
 
@@ -616,14 +622,16 @@ fn eof_and_invalid_cli_usage_exit_with_the_expected_status() {
 fn imported_collection_modules_offer_qualified_completions() {
     let fixture = Fixture::new();
     fixture.package();
-    let source = "import rinzu.list;\nimport rinzu.map;\nfn main() { let count = rinzu.list.length([1]); }\n";
+    let source = "import rinzu.list;\nimport rinzu.map as maps;\nimport rinzu.option as opt;\nfn main() { let count = rinzu.list.length([1]); let value = opt.getOrElse(Option<Int>.Some(value: count), fn () -> Int { return 0; }); }\n";
     let entry = fixture.file("src/main.rinzu", source);
     let mut client = Client::new(Some(&fixture.0));
     client.open(&entry, 1, source);
     let response = client.query("completion", &entry, 1, position(source, "let count"));
     let items = labels(&response);
     assert!(items.contains(&"rinzu.list.map"), "{response:#}");
-    assert!(items.contains(&"rinzu.map.DuplicateKey"), "{response:#}");
+    assert!(items.contains(&"maps.DuplicateKey"), "{response:#}");
+    assert!(items.contains(&"opt.getOrElse"), "{response:#}");
+    assert!(!items.contains(&"rinzu.map.DuplicateKey"));
     assert!(!items.contains(&"listLength"));
     client.shutdown();
 }

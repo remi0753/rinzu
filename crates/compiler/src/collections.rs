@@ -185,7 +185,7 @@ fn prelude() -> &'static Module {
     })
 }
 
-pub(crate) fn prepare(module: &Module) -> Module {
+pub(crate) fn prepare(mut module: Module) -> Module {
     // Package linking resolves these names per source file. The in-memory
     // compiler entry point also accepts a single, unlinked source module.
     struct LinkImports {
@@ -232,7 +232,6 @@ pub(crate) fn prepare(module: &Module) -> Module {
             }
         }
     }
-    let mut module = module.clone();
     let imported = |name| module.imports.iter().any(|i| i.path == ["rinzu", name]);
     let mut linker = LinkImports {
         list: imported("list"),

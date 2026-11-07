@@ -208,6 +208,8 @@ fn exported_interfaces_owners_bounds_and_error_contracts_cannot_expose_private_t
         "interface Hidden{}fn use<T interface Hidden>(value:T){}export use;",
         "error Hidden{}fn f()throws(Hidden){}export f;",
         "error Hidden{}fn f(operation:fn()throws(Hidden)->Unit){}export f;",
+        "error Hidden<T>{payload:T}type Callback<T> = fn(T)throws(Hidden<T>)->T;export Callback;",
+        "type Unchecked<T> = fn(T)->Missing;export Unchecked;",
     ] {
         let sdk = Package::new("sdk", "api", &[("api", source)]);
         assert!(check_package(&sdk.0).is_err(), "{source}");

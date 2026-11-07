@@ -109,6 +109,58 @@ fn builtin_symbols() -> HashMap<String, HashMap<String, String>> {
     .collect()
 }
 
+/// The in-memory checker can resolve builtin imports without a source graph.
+pub(crate) fn link_builtin_aliases(module: &mut Module) -> Result<(), Vec<Diagnostic>> {
+    if !module.imports.iter().any(|import| import.alias.is_some()) {
+        return Ok(());
+    }
+    validate_import_aliases(module)?;
+    let mut imports = BTreeMap::new();
+    for (index, import) in module.imports.iter().enumerate() {
+        if import.alias.is_some() {
+            bind_import(&mut imports, module, index, import.path.join("."))?;
+        }
+    }
+    imports.retain(|_, target| crate::standard_library::builtin(target));
+    if imports.is_empty() {
+        return Ok(());
+    }
+    let mut names = HashMap::from([(
+        String::new(),
+        module_declarations(module)
+            .map(|(name, _)| name.to_owned())
+            .collect(),
+    )]);
+    let mut aliases = HashMap::new();
+    for (target, symbols) in builtin_symbols() {
+        names.insert(target.clone(), symbols.keys().cloned().collect());
+        aliases.extend(
+            symbols
+                .into_iter()
+                .map(|(name, id)| ((target.clone(), name), id)),
+        );
+    }
+    let context = RewriteContext {
+        module: "",
+        entry: "",
+        imports: &imports,
+        names: &names,
+        aliases: &aliases,
+        namespace: "",
+        package: None,
+    };
+    for declaration in &mut module.declarations {
+        rewrite_declaration(declaration, &context);
+    }
+    for block in &mut module.native_blocks {
+        rewrite_native_block(block, &context);
+    }
+    for export in &mut module.exports {
+        context.rewrite_symbol_path(&mut export.path);
+    }
+    Ok(())
+}
+
 pub(crate) fn check_file_with_sources(
     path: &Path,
     sources: &mut SourceSnapshot<'_>,
@@ -448,31 +500,13 @@ fn check_request(
                 )]);
             }
             validate_import_aliases(&document.syntax)?;
-            let mut bindings = BTreeMap::new();
-            let mut requested_paths = BTreeMap::new();
-            for import in &document.syntax.imports {
-                let qualifier = import.path.join(".");
-                if let Some(path) = loader.requested_path(import, &document.case.path) {
-                    requested_paths.insert(import.range.start_byte, path);
-                }
-                let target = loader.resolve_import(import, &document.case.path)?;
-                if bindings
-                    .insert(qualifier.clone(), target.clone())
-                    .is_some_and(|previous| previous != target)
-                {
-                    return Err(vec![crate::package_tests::error(
-                        import.range,
-                        format!("conflicting import alias `{qualifier}`"),
-                    )]);
-                }
-            }
+            let imports = loader.load_imports(&document.syntax, &document.case.path)?;
             loader.loaded.insert(document.name.clone());
             loader.modules.push(ParsedModule {
                 name: document.name,
                 source_path: document.case.path.display().to_string(),
                 canonical_path: document.case.path.clone(),
-                bindings,
-                requested_paths,
+                imports,
                 syntax: document.syntax,
             });
             cases.push(document.case);
@@ -497,8 +531,7 @@ fn check_request(
                 name: link_entry.clone(),
                 source_path: "<test entry>".into(),
                 canonical_path: manifest.root.join("<test entry>"),
-                bindings: BTreeMap::new(),
-                requested_paths: BTreeMap::new(),
+                imports: ImportBindings::default(),
                 syntax: Module {
                     file_id: FileId::MANIFEST,
                     imports: Vec::new(),
@@ -840,6 +873,10 @@ fn complete_source_interface(
     source.templates = crate::records::expand_aliases(syntax, true)?
         .declarations
         .iter()
+        .filter(|declaration| {
+            !matches!(declaration, Declaration::TypeAlias(_))
+                || exported.contains(declaration.name())
+        })
         .filter_map(|declaration| {
             crate::package_templates::schema(declaration)
                 .map(|schema| (declaration.name().to_owned(), schema))
@@ -1578,9 +1615,14 @@ struct ParsedModule {
     name: String,
     source_path: String,
     canonical_path: PathBuf,
-    bindings: BTreeMap<String, String>,
-    requested_paths: BTreeMap<u32, PathBuf>,
+    imports: ImportBindings,
     syntax: Module,
+}
+
+#[derive(Default)]
+struct ImportBindings {
+    qualifiers: BTreeMap<String, String>,
+    requested_paths: BTreeMap<u32, PathBuf>,
 }
 
 struct Loader<'a, 'b> {
@@ -1817,36 +1859,7 @@ impl<'a, 'b> Loader<'a, 'b> {
         validate_import_aliases(&syntax)
             .map_err(|errors| self.source_failure(errors, &canonical, range))?;
         self.visiting.push((canonical.clone(), range));
-        let mut bindings = BTreeMap::new();
-        let mut requested_paths = BTreeMap::new();
-        for import in &syntax.imports {
-            let qualifier = import.path.join(".");
-            if let Some(path) = self.requested_path(import, &canonical) {
-                requested_paths.insert(import.range.start_byte, path);
-            }
-            let target = self.resolve_import(import, &canonical)?;
-            if let Some(previous) = bindings.insert(qualifier.clone(), target.clone())
-                && previous != target
-            {
-                let earlier = syntax
-                    .imports
-                    .iter()
-                    .find(|other| other.range != import.range && other.path == import.path)
-                    .unwrap();
-                return Err(vec![
-                    Diagnostic::error(
-                        DiagnosticCode::InvalidModulePath,
-                        import
-                            .file
-                            .as_ref()
-                            .map_or(import.range, |file| file.alias_range),
-                        format!("conflicting import alias `{qualifier}`"),
-                        "use a different alias for each target",
-                    )
-                    .with_secondary(earlier.range, "previous binding"),
-                ]);
-            }
-        }
+        let imports = self.load_imports(&syntax, &canonical)?;
         self.visiting.pop();
         self.loaded.insert(key.clone());
         let source_path = if self.canonical_root.is_some() {
@@ -1862,11 +1875,28 @@ impl<'a, 'b> Loader<'a, 'b> {
             name: key.clone(),
             source_path,
             canonical_path: canonical,
-            bindings,
-            requested_paths,
+            imports,
             syntax,
         });
         Ok(key)
+    }
+
+    fn load_imports(
+        &mut self,
+        syntax: &Module,
+        importer: &Path,
+    ) -> Result<ImportBindings, Vec<Diagnostic>> {
+        let mut bindings = ImportBindings::default();
+        for (index, import) in syntax.imports.iter().enumerate() {
+            if let Some(path) = self.requested_path(import, importer) {
+                bindings
+                    .requested_paths
+                    .insert(import.range.start_byte, path);
+            }
+            let target = self.resolve_import(import, importer)?;
+            bind_import(&mut bindings.qualifiers, syntax, index, target)?;
+        }
+        Ok(bindings)
     }
 
     fn resolve_import(
@@ -1922,40 +1952,86 @@ impl<'a, 'b> Loader<'a, 'b> {
     }
 }
 
+fn bind_import(
+    bindings: &mut BTreeMap<String, String>,
+    syntax: &Module,
+    index: usize,
+    target: String,
+) -> Result<(), Vec<Diagnostic>> {
+    let import = &syntax.imports[index];
+    let qualifier = import.qualifier().join(".");
+    if let Some(previous) = bindings.insert(qualifier.clone(), target.clone())
+        && previous != target
+    {
+        let earlier = syntax.imports[..index]
+            .iter()
+            .find(|earlier| earlier.qualifier() == import.qualifier())
+            .expect("previous qualifier binding");
+        return Err(vec![
+            Diagnostic::error(
+                DiagnosticCode::InvalidModulePath,
+                import.alias_range().unwrap_or(import.range),
+                format!("conflicting import alias `{qualifier}`"),
+                "use a different alias for each target",
+            )
+            .with_secondary(
+                earlier.alias_range().unwrap_or(earlier.range),
+                "previous binding",
+            ),
+        ]);
+    }
+    Ok(())
+}
+
+fn module_declarations(syntax: &Module) -> impl Iterator<Item = (&str, SourceRange)> {
+    syntax
+        .declarations
+        .iter()
+        .map(|declaration| (declaration.name(), declaration.range()))
+        .chain(syntax.native_blocks.iter().flat_map(|block| {
+            block.members.iter().map(|member| match member {
+                NativeMember::Opaque { name, range } => (name.as_str(), *range),
+                NativeMember::Record(record) => (record.name.as_str(), record.range),
+                NativeMember::Function(function) => (function.name.as_str(), function.range),
+            })
+        }))
+}
+
 fn validate_import_aliases(syntax: &Module) -> Result<(), Vec<Diagnostic>> {
     for (index, import) in syntax.imports.iter().enumerate() {
+        let alias = import.alias_range();
+        let root = import.qualifier().first().map(String::as_str);
         for earlier in &syntax.imports[..index] {
-            if (import.file.is_some() || earlier.file.is_some())
-                && import.path.first() == earlier.path.first()
-                && !(import.file.is_some() && earlier.file.is_some())
+            let earlier_alias = earlier.alias_range();
+            if alias.is_some() != earlier_alias.is_some()
+                && root == earlier.qualifier().first().map(String::as_str)
             {
                 return Err(vec![
                     Diagnostic::error(
                         DiagnosticCode::InvalidModulePath,
-                        import.range,
-                        "file alias conflicts with a dotted import root",
-                        "choose a distinct file alias",
+                        alias.unwrap_or(import.range),
+                        "import alias conflicts with a dotted import root",
+                        "choose a distinct alias",
                     )
-                    .with_secondary(earlier.range, "previous import"),
+                    .with_secondary(earlier_alias.unwrap_or(earlier.range), "previous import"),
                 ]);
             }
         }
-        if let Some(file) = &import.file
-            && let Some(declaration) = syntax.declarations.iter().find(|declaration| {
-                declaration.name().split('.').next() == import.path.first().map(String::as_str)
-            })
+        if let Some(alias) = alias
+            && let Some((_, range)) =
+                module_declarations(syntax).find(|(name, _)| name.split('.').next() == root)
         {
             return Err(vec![
                 Diagnostic::error(
                     DiagnosticCode::InvalidModulePath,
-                    declaration.range(),
+                    range,
                     format!(
                         "declaration conflicts with import alias `{}`",
-                        import.path[0]
+                        import.qualifier()[0]
                     ),
                     "rename the declaration or alias",
                 )
-                .with_secondary(file.alias_range, "import alias"),
+                .with_secondary(alias, "import alias"),
             ]);
         }
     }
@@ -2051,10 +2127,11 @@ fn resolved_graph(
                     .imports
                     .iter()
                     .map(|import| {
-                        let qualifier = import.path.join(".");
-                        let target = &module.bindings[&qualifier];
+                        let qualifier = import.qualifier().join(".");
+                        let target = &module.imports.qualifiers[&qualifier];
                         let local = modules.iter().find(|candidate| &candidate.name == target);
                         let requested_path = module
+                            .imports
                             .requested_paths
                             .get(&import.range.start_byte)
                             .cloned();
@@ -2078,7 +2155,7 @@ fn resolved_graph(
                             },
                             range: import.range,
                             path_range: import.file.as_ref().map(|file| file.path_range),
-                            alias_range: import.file.as_ref().map(|file| file.alias_range),
+                            alias_range: import.alias_range(),
                             public_symbols: symbols(target),
                         }
                     })
@@ -2172,23 +2249,8 @@ fn link_modules_inner(
         .map(|module| {
             (
                 module.name.clone(),
-                module
-                    .syntax
-                    .declarations
-                    .iter()
-                    .map(|declaration| declaration.name().to_owned())
-                    .chain(
-                        module
-                            .syntax
-                            .native_blocks
-                            .iter()
-                            .flat_map(|block| &block.members)
-                            .map(|member| match member {
-                                NativeMember::Opaque { name, .. } => name.clone(),
-                                NativeMember::Record(record) => record.name.clone(),
-                                NativeMember::Function(function) => function.name.clone(),
-                            }),
-                    )
+                module_declarations(&module.syntax)
+                    .map(|(name, _)| name.to_owned())
                     .collect::<HashSet<_>>(),
             )
         })
@@ -2216,7 +2278,7 @@ fn link_modules_inner(
         let context = RewriteContext {
             module: &module.name,
             entry,
-            imports: &module.bindings,
+            imports: &module.imports.qualifiers,
             names: &names,
             aliases: &aliases,
             namespace,
@@ -2265,7 +2327,7 @@ fn link_modules_inner(
         let mut next = Vec::new();
         let before = pending.len();
         for (module, export) in pending {
-            let imports = &module.bindings;
+            let imports = &module.imports.qualifiers;
             let context = RewriteContext {
                 module: &module.name,
                 entry,
@@ -2369,7 +2431,7 @@ fn link_modules_inner(
     let mut native_blocks = Vec::new();
     let mut exports = Vec::new();
     for module in modules {
-        let imports = &module.bindings;
+        let imports = &module.imports.qualifiers;
         let context = RewriteContext {
             module: &module.name,
             entry,
@@ -2380,27 +2442,7 @@ fn link_modules_inner(
             package: package.filter(|_| module.name == entry),
         };
         for mut block in module.syntax.native_blocks {
-            for member in &mut block.members {
-                match member {
-                    NativeMember::Opaque { name, .. } => {
-                        *name = context.internal(context.module, name)
-                    }
-                    NativeMember::Record(record) => {
-                        for field in &mut record.fields {
-                            rewrite_type(&mut field.ty, &context, &HashSet::new());
-                        }
-                        record.name = context.internal(context.module, &record.name);
-                    }
-                    NativeMember::Function(function) => {
-                        let locals = function.parameters.iter().map(|p| p.name.clone()).collect();
-                        for parameter in &mut function.parameters {
-                            rewrite_type(&mut parameter.ty, &context, &locals);
-                        }
-                        rewrite_type(&mut function.result, &context, &locals);
-                        function.name = context.internal(context.module, &function.name);
-                    }
-                }
-            }
+            rewrite_native_block(&mut block, &context);
             native_blocks.push(block);
         }
         for mut export in module.syntax.exports {
@@ -2571,6 +2613,28 @@ impl RewriteContext<'_> {
             && let Some(name) = crate::json::private_operation(&path[0])
         {
             path[0] = name.into();
+        }
+    }
+}
+
+fn rewrite_native_block(block: &mut crate::ast::NativeBlock, context: &RewriteContext<'_>) {
+    for member in &mut block.members {
+        match member {
+            NativeMember::Opaque { name, .. } => *name = context.internal(context.module, name),
+            NativeMember::Record(record) => {
+                for field in &mut record.fields {
+                    rewrite_type(&mut field.ty, context, &HashSet::new());
+                }
+                record.name = context.internal(context.module, &record.name);
+            }
+            NativeMember::Function(function) => {
+                let locals = function.parameters.iter().map(|p| p.name.clone()).collect();
+                for parameter in &mut function.parameters {
+                    rewrite_type(&mut parameter.ty, context, &locals);
+                }
+                rewrite_type(&mut function.result, context, &locals);
+                function.name = context.internal(context.module, &function.name);
+            }
         }
     }
 }

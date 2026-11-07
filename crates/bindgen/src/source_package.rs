@@ -756,6 +756,16 @@ impl SourceInterface {
                     .any(|i| *i as usize >= schema.fields.len())
                 || schema.const_fields.windows(2).any(|p| p[0] >= p[1])
                 || !match schema.kind.as_str() {
+                    "type-alias" => {
+                        !schema.signature.is_empty()
+                            && schema.fields.is_empty()
+                            && schema.variants.is_empty()
+                            && schema
+                                .type_parameters
+                                .iter()
+                                .all(|(_, markers)| markers.is_empty())
+                            && schema.interface_constraints.is_empty()
+                    }
                     "function" => {
                         (schema.signature.starts_with("fn(")
                             || schema.signature.starts_with("async("))
