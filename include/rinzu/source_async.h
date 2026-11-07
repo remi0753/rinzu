@@ -224,11 +224,11 @@ static inline void rinzu_async_init(rinzu_async_runtime_t *runtime) {
   runtime->owner = pthread_self();
   runtime->capture_error_trace = rinzu_error_trace_enabled();
   const char *direct_native = getenv("RINZU_NATIVE_COMPLETION_DIRECT");
-  runtime->direct_native_completion = !direct_native || strcmp(direct_native, "0");
+  runtime->direct_native_completion = !direct_native || strcmp(direct_native, "0") != 0;
   const char *active_native = getenv("RINZU_NATIVE_COMPLETION_ACTIVE_ONLY");
-  runtime->active_native_only = !active_native || strcmp(active_native, "0");
+  runtime->active_native_only = !active_native || strcmp(active_native, "0") != 0;
   const char *notifications = getenv("RINZU_NATIVE_COMPLETION_NOTIFY");
-  runtime->native_notifications = !notifications || strcmp(notifications, "0");
+  runtime->native_notifications = !notifications || strcmp(notifications, "0") != 0;
   runtime->main_task_limit = SIZE_MAX;
   runtime->pending_operation_limit = 8192;
   runtime->process_transport_limit = 256 * 1024 * 1024;

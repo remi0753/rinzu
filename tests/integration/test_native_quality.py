@@ -75,5 +75,20 @@ class NativeQualityTests(unittest.TestCase):
         for file, context in manifest["contexts"].items():
             self.assertIn(str(file), Path(context).read_text())
 
+    def test_scoped_header_lint_checks_transitive_consumers_only(self):
+        with tempfile.TemporaryDirectory(dir=quality.DATABASE) as directory:
+            path = Path(directory)
+            header = path / "selected header.h"
+            header.write_text("int selected(void);\n")
+            (path / "middle.h").write_text('#include "selected header.h"\n')
+            consumer = path / "consumer.c"
+            consumer.write_text('#include "middle.h"\n')
+            other = path / "other.c"
+            other.write_text("int other(void);\n")
+            units = [str(consumer), str(other)]
+            commands = [quality.entry(unit, []) for unit in units]
+            self.assertEqual(quality.lint_units({header}, units, {}, commands),
+                             sorted([str(header), str(consumer)]))
+
 if __name__ == "__main__":
     unittest.main()

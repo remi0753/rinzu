@@ -226,9 +226,9 @@ rinzu_managed_owner_initialize(rinzu_managed_data_t *data) {
   data->owner = pthread_self();
   data->owner_initialized = 1;
   const char *cache = getenv("RINZU_MANAGED_LOOKUP_CACHE");
-  data->lookup_cache_enabled = !cache || strcmp(cache, "0");
+  data->lookup_cache_enabled = !cache || strcmp(cache, "0") != 0;
   const char *inline_bytes = getenv("RINZU_MANAGED_INLINE_BYTES");
-  data->inline_bytes_enabled = !inline_bytes || strcmp(inline_bytes, "0");
+  data->inline_bytes_enabled = !inline_bytes || strcmp(inline_bytes, "0") != 0;
   const char *stress = getenv("RINZU_GC_STRESS");
   data->gc = rinzu_gc_policy_init(stress && strcmp(stress, "1") == 0);
 }

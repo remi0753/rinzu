@@ -8,20 +8,24 @@ mod platform;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "rinzu-macos-bundle-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&root).unwrap();
-        Self(root)
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        loop {
+            let root = std::env::temp_dir().join(format!(
+                "rinzu-macos-bundle-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed),
+            ));
+            match fs::create_dir(&root) {
+                Ok(()) => return Self(root),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("create {}: {error}", root.display()),
+            }
+        }
     }
     fn cli(&self, args: &[&std::ffi::OsStr]) -> Output {
         platform::bounded_tool(

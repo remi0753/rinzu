@@ -2,7 +2,47 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Command;
 
-pub const TARGET: &str = "arm64-apple-macos11";
+pub fn target() -> Result<String, String> {
+    if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        return Ok("arm64-apple-macos11".into());
+    }
+    let version = match std::env::var("MACOSX_DEPLOYMENT_TARGET") {
+        Ok(version) => version,
+        Err(std::env::VarError::NotPresent) => {
+            let output = Command::new("/usr/bin/sw_vers")
+                .arg("-productVersion")
+                .output()
+                .map_err(|error| format!("read host macOS version: {error}"))?;
+            if !output.status.success() {
+                return Err("cannot read host macOS version".into());
+            }
+            String::from_utf8(output.stdout).map_err(|error| error.to_string())?
+        }
+        Err(error) => return Err(format!("read MACOSX_DEPLOYMENT_TARGET: {error}")),
+    };
+    macos_target(version.trim())
+}
+
+fn macos_target(version: &str) -> Result<String, String> {
+    let components: Vec<_> = version.split('.').collect();
+    if components.len() > 3
+        || !components
+            .iter()
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+        || components[0]
+            .parse::<u16>()
+            .ok()
+            .is_none_or(|major| major < 11)
+        || components[1..]
+            .iter()
+            .any(|part| part.parse::<u8>().is_err())
+    {
+        return Err(format!(
+            "invalid macOS deployment version `{version}`; expected macOS 11 or later"
+        ));
+    }
+    Ok(format!("arm64-apple-macos{version}"))
+}
 
 #[derive(Clone, Debug)]
 pub struct TargetClang {
@@ -70,7 +110,7 @@ impl TargetClang {
                     &std::fs::read(&executable).map_err(|error| error.to_string())?,
                 ),
             ),
-            ("clang.target".to_owned(), TARGET.to_owned()),
+            ("clang.target".to_owned(), target()?),
             (
                 "clang.sysroot".to_owned(),
                 sysroot.to_string_lossy().into_owned(),
@@ -117,9 +157,26 @@ impl TargetClang {
         let mut command = Command::new(&self.executable);
         command
             .arg("-target")
-            .arg(TARGET)
+            .arg(&self.fingerprint["clang.target"])
             .arg("-isysroot")
-            .arg(&self.sysroot);
+            .arg(&self.sysroot)
+            .env_remove("MACOSX_DEPLOYMENT_TARGET");
         command
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn macos_deployment_version_is_a_single_supported_clang_target() {
+        for version in ["11", "26.0", "26.6.2"] {
+            assert_eq!(
+                super::macos_target(version).unwrap(),
+                format!("arm64-apple-macos{version}")
+            );
+        }
+        for version in ["", "10.15", "26..0", "26.256", "26.0.1.2", "26 -flag"] {
+            assert!(super::macos_target(version).is_err(), "{version}");
+        }
     }
 }

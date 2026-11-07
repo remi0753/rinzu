@@ -3,8 +3,9 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
-#include "../../../tests/fixtures/http/trials/byte_scan.h"
+#include "rinzu/byte_scan.h"
 
 /* Previous AOT algorithm, retained only as the comparison kernel. */
 static inline size_t previous(const unsigned char *source, size_t length,

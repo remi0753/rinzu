@@ -38,7 +38,7 @@ int64_t rinzu_httpcodec_request_line_end(const uint8_t *data, size_t length) {
   for (size_t i = start; i < second; ++i)
     if (data[i] < 33 || data[i] > 126 || data[i] == '#')
       return -400;
-  if (length - second - 1 != 8 || memcmp(data + second + 1, "HTTP/1.1", 8))
+  if (length - second - 1 != 8 || memcmp(data + second + 1, "HTTP/1.1", 8) != 0)
     return -400;
   return (int64_t)first;
 }

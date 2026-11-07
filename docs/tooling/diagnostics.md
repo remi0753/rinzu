@@ -13,7 +13,7 @@ Compiler diagnostics include a diagnostic code, message, and source location. Fi
 | RZ0414: Error contract exceeded | Recover the escaping Error or widen the declared throws bound; nothrow permits none |
 | RZ0415: Interface mismatch | Declare conformance on the class/enum and match public instance signatures and Error bounds |
 | Future observation error | Await, return, or correctly hand off the possibly failing Future on every path |
-| Native library reports a newer minimum macOS version | Use a library build compatible with the toolchain's macOS 11 deployment target |
+| Native library reports a newer minimum macOS version | Set `MACOSX_DEPLOYMENT_TARGET` to a compatible minimum or install a library build that supports the chosen target |
 | Native symbol unresolved | Supply the actual object/library; headers and search paths alone do not grant symbols |
 | Lock mismatch | Review intended dependency/toolchain changes, then explicitly regenerate the lock |
 | AOT startup rejects an image | Preserve sidecars and use a compatible native OS/library context |

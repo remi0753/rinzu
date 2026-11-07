@@ -143,6 +143,8 @@ fn png_icons_round_trip_through_validated_icns_and_empty_containers_fail() {
     let first_resources = first.join("Resources");
     fs::create_dir_all(&first_resources).unwrap();
     icon::generate(&png, Path::new("icon.png"), &first, &first_resources).unwrap();
+    let decoded = fs::read(first.join("validated-icon.png")).unwrap();
+    assert_eq!(&decoded[16..24], &png[16..24]);
     let icns = fs::read(first_resources.join("Icon.icns")).unwrap();
     let second = fixture.0.join("icns");
     let second_resources = second.join("Resources");

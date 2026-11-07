@@ -1,3 +1,5 @@
+#include "rinzu/byte_scan.h"
+
 static void rinzu_aot_throw_error(RinzuContext *, uint64_t);
 /* String payloads are validated UTF-8. All indexes below count scalar values. */
 static size_t rinzu_text_next(const rinzu_managed_value_t *text, size_t offset) {
@@ -592,18 +594,10 @@ static int64_t rinzu_byte_operation(RinzuContext *context, rinzu_managed_data_t 
         operation == RINZU_DATA_BYTES_CONTAINS_ANY || operation == RINZU_DATA_BYTES_ALL_IN;
     int in_set =
         operation == RINZU_DATA_BYTES_FIND_ANY || operation == RINZU_DATA_BYTES_CONTAINS_ANY;
-    uint64_t members[4] = {0};
-    for (size_t i = 0; i < set->length; ++i)
-      members[set->bytes[i] >> 6] |= UINT64_C(1) << (set->bytes[i] & 63);
     size_t found = SIZE_MAX;
     if (predicate || ((int64_t)bits[2] >= 0 && bits[2] <= length))
-      for (size_t i = predicate ? 0 : (size_t)bits[2]; i < length; ++i) {
-        int member = !!(members[source[i] >> 6] & (UINT64_C(1) << (source[i] & 63)));
-        if (member == in_set) {
-          found = i;
-          break;
-        }
-      }
+      found = rinzu_byte_find_set(source, length, set->bytes, set->length,
+                                  predicate ? 0 : (size_t)bits[2], in_set);
     if (predicate) {
       if (data->schema->types[result].kind != RINZU_VALUE_SCALAR ||
           data->schema->types[result].scalar_kind != RINZU_SCALAR_BOOL)

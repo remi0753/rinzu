@@ -79,6 +79,7 @@ macro_rules! repository_resource {
 
 pub fn resources() -> BTreeMap<&'static str, &'static [u8]> {
     BTreeMap::from([
+        repository_resource!("include/rinzu/byte_scan.h", "include/rinzu/byte_scan.h"),
         repository_resource!("include/rinzu/callback_consumption.h", "include/rinzu/callback_consumption.h"),
         repository_resource!("include/rinzu/callback_entry.h", "include/rinzu/callback_entry.h"),
         repository_resource!("include/rinzu/callback_return.h", "include/rinzu/callback_return.h"),

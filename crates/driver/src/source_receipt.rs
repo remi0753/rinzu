@@ -359,6 +359,10 @@ pub fn fingerprint(
         .map(|(path, bytes)| (identity(root, path), sha256(bytes)))
         .filter(|(path, _)| !scope_files.contains_key(path))
         .collect();
+    let target = match inputs.get("clang.target") {
+        Some(target) => target.clone(),
+        None => crate::native_clang::target()?,
+    };
     rinzu_bindgen::compilation::encode(
         inputs,
         serde_json::json!({
@@ -371,7 +375,7 @@ pub fn fingerprint(
             "manifest": {"exports": manifest.exports.modules, "dependencies": manifest.dependencies.iter().map(|dependency| (&dependency.name, &dependency.path)).collect::<Vec<_>>()},
         "checked": checked_sources,
         "scopeFiles": scope_files,
-            "target": crate::native_clang::TARGET, "graph": nodes.into_values().collect::<Vec<_>>(),
+            "target": target, "graph": nodes.into_values().collect::<Vec<_>>(),
             "scope": scope, "inputs": closure,
         }),
     )

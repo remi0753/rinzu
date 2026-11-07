@@ -43,7 +43,7 @@ The remaining pages use `rinzu` in commands. Toolchain version `0.2.0` and sourc
 | Compiler C/ObjC formatting and analysis | LLVM 21; Homebrew: `brew install llvm@21` |
 | Fuzz targets | Nightly Rust and cargo-fuzz |
 
-Native linking uses the toolchain's macOS 11 deployment target. External libraries must be compatible with that target. A library built with a newer minimum OS can fail under strict linker warnings; use a compatible library build.
+Native builds target the running macOS version by default. Set `MACOSX_DEPLOYMENT_TARGET` to build with an explicit minimum such as `26.0`. The minimum must be macOS 11 or later and at least as recent as the minimum required by each linked library. Changing the target changes the native cache and lock identity.
 
 Standard imports do not require dependency paths into this checkout. See [Manifests](../packages/manifest.md) for additional SDKs.
 

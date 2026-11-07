@@ -227,7 +227,7 @@ def compilation_database(driver=None):
     (DATABASE / "compile_commands.json").write_text(json.dumps(commands, indent=2) + "\n")
     (DATABASE / "units.json").write_text(json.dumps({"units": units, "contexts": contexts}, indent=2) + "\n")
     print(f"C compilation database: {len(commands)} entries in {DATABASE}", flush=True)
-    return units, contexts
+    return units, contexts, commands
 
 
 def remap_diagnostics(output, unit):
@@ -249,12 +249,38 @@ def remap_diagnostics(output, unit):
     return re.sub(re.escape(str(unit)) + r":(\d+):", replace, output)
 
 
+def lint_units(selected, units, contexts, commands):
+    chosen = {contexts.get(str(file), str(file)) for file in selected}
+    headers = {file.resolve() for file in selected if file.suffix == ".h"}
+    if headers:
+        # Use the same include paths and defines as Clang's real translation
+        # units. A scoped header check also analyzes its transitive consumers.
+        candidates = set(units) - chosen
+        for entry in commands:
+            unit = entry["file"]
+            if unit not in candidates:
+                continue
+            arguments = entry["arguments"]
+            dependencies = subprocess.run(
+                [*arguments[:-2], "-MM", "-MG", "-MT", "rinzu-dependencies", unit],
+                cwd=entry["directory"], capture_output=True, text=True,
+            )
+            _, separator, inputs = dependencies.stdout.partition(":")
+            if dependencies.returncode or not separator:
+                chosen.add(unit)
+                continue
+            files = shlex.split(inputs.replace("\\\n", "").replace("$$", "$"))
+            if any((Path(entry["directory"]) / file).resolve() in headers for file in files):
+                chosen.add(unit)
+    return sorted(chosen)
+
+
 def lint_files(paths, driver=None):
     tidy = tool("clang-tidy")
     selected = selected_files(paths)
-    units, contexts = compilation_database(driver)
-    if paths and not any(file.suffix == ".h" for file in selected):
-        units = sorted({contexts.get(str(file), str(file)) for file in selected})
+    units, contexts, commands = compilation_database(driver)
+    if paths:
+        units = lint_units(selected, units, contexts, commands)
     for unit in units:
         print(f"C lint: {Path(unit).relative_to(ROOT)}", flush=True)
         # Analyze header paths with the definitions and callers in their real

@@ -442,6 +442,10 @@ impl Engine<'_> {
                     }
                 }
             }
+            // Loop iterations revisit the same exits with a wider header.
+            // Coalesce them before another iteration can multiply the states
+            // sent through the surrounding catch and cleanup blocks.
+            exits = self.unique_paths(exits);
             if header == before {
                 break;
             }
@@ -452,7 +456,7 @@ impl Engine<'_> {
                 control: Control::Diverges,
             });
         }
-        unique(exits)
+        self.unique_paths(exits)
     }
     fn try_block(
         &self,
@@ -550,8 +554,9 @@ impl Engine<'_> {
                 result.push(residual);
             }
         }
+        let result = self.unique_paths(result);
         let Some(cleanup) = cleanup else {
-            return unique(result);
+            return result;
         };
         let mut cleaned = Vec::new();
         for incoming in result {
@@ -589,7 +594,7 @@ impl Engine<'_> {
                 cleaned.push(path);
             }
         }
-        unique(cleaned)
+        self.unique_paths(cleaned)
     }
     fn collect_block(&self, body: &Block, mut state: State) -> Vec<(Path, Option<Control>)> {
         state.groups.push(Group {
