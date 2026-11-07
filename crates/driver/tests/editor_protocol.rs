@@ -314,6 +314,63 @@ fn unicode_diagnostics_bom_and_rich_secondary_locations_are_original_bytes() {
 }
 
 #[test]
+fn discovers_the_json_sdk_package_from_its_source_file() {
+    let package = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../sdk/json")
+        .canonicalize()
+        .unwrap();
+    let source = package.join("src/json.rinzu");
+    let manifest = package.join("rinzu.toml");
+    let text = std::fs::read_to_string(&source).unwrap();
+    let mut client = Client::new(None);
+    client.open(&source, 1, &text);
+
+    let response = client.query("diagnostics", &source, 1, json!(null));
+    assert_eq!(response["result"]["diagnostics"], json!([]), "{response:#}");
+    assert_eq!(response["result"]["syntaxOnly"], false);
+    assert!(
+        response["result"]["inputs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|input| input["path"] == json!(manifest) && input["kind"] == "disk-manifest"),
+        "{response:#}"
+    );
+    client.shutdown();
+}
+
+#[test]
+fn chooses_the_nearest_package_for_each_open_document() {
+    let fixture = Fixture::new();
+    fixture.package();
+    let outer_text = "fn main() { missing(); }";
+    let outer = fixture.file("src/main.rinzu", outer_text);
+    fixture.file(
+        "nested/rinzu.toml",
+        "[package]\nname=\"nested\"\nlanguage=\"0.5\"\n",
+    );
+    let inner_text = "import model; fn main() { let n = model.value(); }";
+    let inner = fixture.file("nested/src/main.rinzu", inner_text);
+    fixture.file(
+        "nested/src/model.rinzu",
+        "fn value() -> Int { return 7; } export value;",
+    );
+    let mut client = Client::new(None);
+    client.open(&outer, 1, outer_text);
+    client.open(&inner, 1, inner_text);
+
+    let response = client.query("diagnostics", &inner, 1, json!(null));
+    assert_eq!(response["result"]["diagnostics"], json!([]), "{response:#}");
+    let response = client.query("diagnostics", &outer, 1, json!(null));
+    let diagnostics = response["result"]["diagnostics"].as_array().unwrap();
+    assert_eq!(diagnostics.len(), 1, "{response:#}");
+    assert_eq!(diagnostics[0]["code"], "RZ0202");
+    assert_eq!(diagnostics[0]["message"], "unknown name `missing`");
+    assert_eq!(diagnostics[0]["primary"]["path"], json!(outer));
+    client.shutdown();
+}
+
+#[test]
 fn unsaved_dependency_changes_definition_completions_and_invalid_code_recovery() {
     let fixture = Fixture::new();
     fixture.package();

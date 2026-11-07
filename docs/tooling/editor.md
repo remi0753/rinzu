@@ -44,6 +44,8 @@ Configure the extension in workspace settings:
 }
 ```
 
+With `rinzu.workspace` unset, the extension uses the opened folder's `rinzu.toml` if present. Otherwise, the editor service looks for the closest `rinzu.toml` in the source file's parent directories. Files outside a package receive single-buffer library checks.
+
 Use `rinzu.entry` for an explicit standalone source file; it takes precedence over the package workspace. Relative workspace/entry paths resolve against the opened folder. `rinzu.executable` is one executable path, not a shell command with arguments. Reload the window after changing the service configuration.
 
 The extension provides syntax highlighting for keywords, built-in types, numbers, comments, and String/Bytes literals, including raw Strings and formatted String expressions. Colors follow the selected VS Code theme. Highlighting does not require the Rinzu executable. After updating a linked local extension, run **Developer: Reload Window** to reload its grammar.

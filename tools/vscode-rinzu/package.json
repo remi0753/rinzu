@@ -18,7 +18,7 @@
       "title": "Rinzu",
       "properties": {
         "rinzu.executable": { "type": "string", "default": "rinzu", "description": "Path to the Rinzu executable with the editor command." },
-        "rinzu.workspace": { "type": "string", "default": "", "description": "Package workspace path (relative to the opened folder). Empty uses a manifest in that folder, or single-buffer library checks." },
+        "rinzu.workspace": { "type": "string", "default": "", "description": "Package workspace path (relative to the opened folder). Empty uses a manifest in the opened folder if present, or the closest manifest to the source file." },
         "rinzu.entry": { "type": "string", "default": "", "description": "Explicit .rinzu entry file (relative to the opened folder). Takes precedence over the package workspace and checks its path import graph, including open unsaved files. Reload Window after changing it." }
       }
     }

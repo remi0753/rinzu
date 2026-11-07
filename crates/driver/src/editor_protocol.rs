@@ -482,6 +482,18 @@ impl Session {
         let mut linked = Vec::<Module>::new();
         let mut artifact = None;
         let mut syntax_only = false;
+        let manifest = if self.entry.is_none() {
+            self.workspace
+                .as_deref()
+                .or(path.parent())
+                .and_then(|start| rinzu_compiler::find_manifest(start).ok())
+        } else {
+            None
+        };
+        let workspace = self
+            .workspace
+            .as_deref()
+            .or_else(|| manifest.as_deref().and_then(Path::parent));
         if let Some(entry) = &self.entry {
             match rinzu_compiler::check_input_with_sources(
                 entry,
@@ -500,7 +512,7 @@ impl Session {
                     syntax_only = true;
                 }
             }
-        } else if let Some(workspace) = &self.workspace {
+        } else if let Some(workspace) = workspace {
             match rinzu_compiler::check_package_with_sources(workspace, &mut snapshot) {
                 Ok((_, a)) => {
                     artifact = Some(a);
@@ -567,9 +579,7 @@ impl Session {
         }
         if let Some(entry) = &self.entry {
             paths.insert(FileId::MANIFEST.0, entry.clone());
-        } else if let Some(workspace) = &self.workspace
-            && let Ok(path) = rinzu_compiler::find_manifest(workspace)
-        {
+        } else if let Some(path) = manifest {
             paths.insert(FileId::MANIFEST.0, path);
         }
         let omitted = errors.len().saturating_sub(DIAGNOSTICS);
