@@ -12,7 +12,8 @@ pub fn terminate(code: i32) -> ! {
     };
     // SAFETY: these bounded libc operations use stack/static storage. Never
     // write ordinary files, where O_NONBLOCK does not prevent a blocked write.
-    // Block SIGPIPE on this thread so a closed reader cannot change the exit.
+    // Ignore SIGPIPE process-wide until exit. macOS can deliver a closed
+    // pipe's signal to another thread.
     unsafe {
         let mut status: libc::stat = std::mem::zeroed();
         if libc::fstat(libc::STDERR_FILENO, &mut status) == 0 {
@@ -26,10 +27,10 @@ pub fn terminate(code: i32) -> ! {
                     && libc::fcntl(libc::STDERR_FILENO, libc::F_SETFL, flags | libc::O_NONBLOCK)
                         == 0
                 {
-                    let mut blocked: libc::sigset_t = std::mem::zeroed();
-                    libc::sigemptyset(&mut blocked);
-                    libc::sigaddset(&mut blocked, libc::SIGPIPE);
-                    if libc::pthread_sigmask(libc::SIG_BLOCK, &blocked, std::ptr::null_mut()) == 0 {
+                    let mut ignored: libc::sigaction = std::mem::zeroed();
+                    ignored.sa_sigaction = libc::SIG_IGN;
+                    libc::sigemptyset(&mut ignored.sa_mask);
+                    if libc::sigaction(libc::SIGPIPE, &ignored, std::ptr::null_mut()) == 0 {
                         libc::write(libc::STDERR_FILENO, message.as_ptr().cast(), message.len());
                     }
                 }

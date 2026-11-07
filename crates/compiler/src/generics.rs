@@ -1036,6 +1036,16 @@ impl<'a> Expander<'a> {
         expected: Option<&TypeRef>,
     ) -> Result<(), Diagnostic> {
         expression.range.instance = instance;
+        if let ExpressionKind::Spawn { target, .. }
+        | ExpressionKind::GenericCall {
+            target,
+            spawn: true,
+            ..
+        } = &expression.kind
+            && self.local_target(target)
+        {
+            return Err(crate::sema::local_spawn_error(expression.range));
+        }
         // Unbound requirements such as R.read retain their interface contract
         // just like receiver calls. Resolve the owner after selecting R.
         let path = match &expression.kind {

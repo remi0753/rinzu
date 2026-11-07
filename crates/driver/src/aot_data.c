@@ -698,7 +698,8 @@ static inline __attribute__((always_inline)) int64_t rinzu_aot_data_operation_ow
     return rinzu_aot_program_arguments(context, data, (size_t)result_type);
 #ifdef RINZU_AOT_HAS_JSON
   if (operation == RINZU_DATA_JSON_NULL && count == 0)
-    return rinzu_aot_json_operation(context, data, operation, (size_t)result_type, NULL, NULL, NULL);
+    return rinzu_aot_json_operation(context, data, operation, (size_t)result_type, NULL, NULL,
+                                    NULL);
 #endif
   if (count < 1 || count > 3 || !types || !bits)
     rinzu_failure_fatal();
@@ -750,7 +751,7 @@ static inline __attribute__((always_inline)) int64_t rinzu_aot_data_operation_ow
   }
   if (operation >= RINZU_DATA_LIST_CONCAT_ALL && operation <= RINZU_DATA_COLLECTION_FINISH)
     return rinzu_aot_collection_construction(context, data, operation, result, types, bits,
-                                              (size_t)count, resolved[0]);
+                                             (size_t)count, resolved[0]);
   if (operation >= RINZU_DATA_BIT_AND)
     return rinzu_numeric_operation(context, operation, types, bits);
   if (operation >= RINZU_DATA_STRING_LENGTH)

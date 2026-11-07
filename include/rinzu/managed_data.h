@@ -528,7 +528,7 @@ static inline void rinzu_managed_account_payload(rinzu_managed_data_t *data,
   rinzu_resource_acquire(RINZU_RESOURCE_MANAGED, bytes);
 }
 static inline void rinzu_managed_unaccount_payload(rinzu_managed_data_t *data,
-                                                  rinzu_managed_value_t *value, size_t bytes) {
+                                                   rinzu_managed_value_t *value, size_t bytes) {
   if (bytes > value->gc_bytes || bytes > data->heap_bytes)
     rinzu_failure_fatal();
   value->gc_bytes -= bytes;
@@ -993,8 +993,7 @@ static inline void rinzu_managed_collect(rinzu_managed_data_t *data,
     if (relocate && value->kind == RINZU_MANAGED_COMPOSITE && value->count) {
       unsigned kind = data->schema ? data->schema->types[value->type].kind : 0;
       size_t capacity = value->count;
-      if ((kind == RINZU_VALUE_LIST || kind == RINZU_VALUE_MAP) &&
-          value->collection_building)
+      if ((kind == RINZU_VALUE_LIST || kind == RINZU_VALUE_MAP) && value->collection_building)
         capacity = value->collection_capacity;
       if (capacity > SIZE_MAX / sizeof(*value->slots))
         rinzu_failure_fatal();
@@ -1009,8 +1008,7 @@ static inline void rinzu_managed_collect(rinzu_managed_data_t *data,
         rinzu_failure_fatal();
       if (value->gc_bytes > expected)
         rinzu_managed_unaccount_payload(data, value, value->gc_bytes - expected);
-      if ((kind == RINZU_VALUE_LIST || kind == RINZU_VALUE_MAP) &&
-          !value->collection_building)
+      if ((kind == RINZU_VALUE_LIST || kind == RINZU_VALUE_MAP) && !value->collection_building)
         value->collection_capacity = 0;
       if (value->slots != &value->inline_slot)
         free(value->slots);

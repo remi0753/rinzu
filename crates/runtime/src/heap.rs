@@ -1322,7 +1322,7 @@ mod tests {
     use std::ptr;
 
     #[test]
-    fn integer_streams_keep_the_generic_layout_and_reject_incorrect_counts() {
+    fn integer_streams_pack_values_and_reject_incorrect_counts() {
         struct Reported {
             values: std::vec::IntoIter<i64>,
             count: usize,
@@ -1348,8 +1348,12 @@ mod tests {
                 heap.fields(streamed).unwrap()
             );
             assert_eq!(
-                heap.header(generic).unwrap().size_bytes,
-                heap.header(streamed).unwrap().size_bytes
+                heap.header(streamed).unwrap().size_bytes as usize,
+                (HEADER_WORDS + fields.len()) * size_of::<u64>()
+            );
+            assert_eq!(
+                heap.header(generic).unwrap().size_bytes as usize,
+                (HEADER_WORDS + fields.len() * FIELD_WORDS) * size_of::<u64>()
             );
             let roots = [
                 heap.create_root(Some(generic)).unwrap(),

@@ -10,7 +10,7 @@ typedef struct {
 /* Validation and scalar count share one pass. SIZE_MAX is the invalid sentinel;
    managed payload lengths exclude it, including for an empty String. */
 static inline size_t rinzu_utf8_scalar_length_at(const unsigned char *bytes, size_t length,
-                                                  size_t *invalid_at) {
+                                                 size_t *invalid_at) {
   if (invalid_at)
     *invalid_at = 0;
   if (length == SIZE_MAX || (length && !bytes))

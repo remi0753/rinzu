@@ -1,7 +1,22 @@
 #include <assert.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
+
+/* Give a process-directed SIGPIPE time to reach another thread before exit. */
+static ssize_t diagnostic_write(int fd, const void *bytes, size_t length) {
+  ssize_t result = write(fd, bytes, length);
+  if (result < 0 && errno == EPIPE) {
+    const struct timespec delay = {.tv_nsec = 20000000};
+    nanosleep(&delay, NULL);
+  }
+  return result;
+}
+#define write diagnostic_write
 #include "rinzu/native_fatal.h"
+#undef write
 static pthread_mutex_t gate = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t condition = PTHREAD_COND_INITIALIZER;
 static int ready;
@@ -19,13 +34,15 @@ int main(int argc, char **argv) {
   assert(argc == 3);
   assert(!atexit(cleanup));
   const char *mode = argv[2];
-  if (!strcmp(mode, "lock")) {
+  if (!strcmp(mode, "lock") || !strcmp(mode, "broken")) {
     pthread_t worker;
     assert(!pthread_create(&worker, NULL, locked_stdio, NULL));
     assert(!pthread_mutex_lock(&gate));
     while (!ready) assert(!pthread_cond_wait(&condition, &gate));
     assert(!pthread_mutex_unlock(&gate));
-  } else if (!strcmp(mode, "closed")) close(2);
+  }
+  if (!strcmp(mode, "closed"))
+    close(2);
   else if (!strcmp(mode, "full") || !strcmp(mode, "broken")) {
     int pipes[2];
     assert(!pipe(pipes));

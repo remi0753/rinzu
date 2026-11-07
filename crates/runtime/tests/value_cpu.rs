@@ -63,7 +63,9 @@ fn c_map_indexes_compare_colliding_keys_and_validate_unmatched_tails() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for entry in std::fs::read_dir(root.join("include/rinzu")).unwrap() {
         let path = entry.unwrap().path();
-        std::fs::copy(&path, include.join(path.file_name().unwrap())).unwrap();
+        if path.is_file() {
+            std::fs::copy(&path, include.join(path.file_name().unwrap())).unwrap();
+        }
     }
     let key = include.join("key.h");
     let source = std::fs::read_to_string(&key).unwrap();

@@ -1,4 +1,4 @@
-use rinzu_compiler::{FileId, SourceFile, compile_source, format_source};
+use rinzu_compiler::{DiagnosticCode, FileId, SourceFile, compile_source, format_source};
 fn file(text: &str) -> SourceFile {
     SourceFile::new(FileId(309), "generic-methods.rinzu", text)
 }
@@ -45,6 +45,38 @@ async fn main(){{
     compile_source(&file(&formatted)).unwrap();
     compile_source(&file("class Plain{value:Int fn copy<T>(self:Plain,value:T)->T{return value;}}fn main(){let p=Plain(value:0);let a=p.copy<Int>(1);let b=p.copy(2);let copy=Plain.copy<Int>;let c=copy(p,3);}")).unwrap();
 }
+
+#[test]
+fn spawn_uses_an_unbound_generic_method_target() {
+    let program = |call: &str| {
+        format!(
+            r#"
+class Box<T> {{
+    const item: T
+    fn get(self: Box<T>) -> T {{ return self.item; }}
+    fn pick<U>(self: Box<T>, other: U) -> T {{ return self.item; }}
+}}
+async fn main() {{
+    let box = Box<Int>(item: 42);
+    let work = spawn {call};
+    let value = await work;
+}}
+"#
+        )
+    };
+    for call in ["Box<Int>.get(box)", "Box<Int>.pick<Int>(box, 0)"] {
+        compile_source(&file(&program(call))).unwrap();
+    }
+    for call in ["box.get()", "box.pick(0)", "box.pick<Int>(0)"] {
+        let errors = compile_source(&file(&program(call))).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.code == DiagnosticCode::InvalidSpawn)
+        );
+    }
+}
+
 #[test]
 fn privacy_markers_and_parameter_groups_are_not_bypassed() {
     for body in [

@@ -495,8 +495,8 @@ static inline void rinzu_managed_map_index_add(rinzu_managed_map_index_t *index,
 
 /* The generated function keeps the builder rooted through ordinary typed
    locals. Only count slots are initialized and visible to tracing. */
-static inline rinzu_managed_value_t *rinzu_managed_collection_allocate_owned(
-    rinzu_managed_data_t *data, size_t type, size_t capacity) {
+static inline rinzu_managed_value_t *
+rinzu_managed_collection_allocate_owned(rinzu_managed_data_t *data, size_t type, size_t capacity) {
   if (capacity > SIZE_MAX / sizeof(rinzu_managed_slot_t))
     rinzu_failure_fatal();
   rinzu_managed_value_t *value = rinzu_managed_new_owned(data, RINZU_MANAGED_COMPOSITE);
@@ -507,8 +507,9 @@ static inline rinzu_managed_value_t *rinzu_managed_collection_allocate_owned(
   }
   return value;
 }
-static inline void rinzu_managed_collection_grow_owned(
-    rinzu_managed_data_t *data, rinzu_managed_value_t *value, size_t capacity, int map) {
+static inline void rinzu_managed_collection_grow_owned(rinzu_managed_data_t *data,
+                                                       rinzu_managed_value_t *value,
+                                                       size_t capacity, int map) {
   if (capacity > SIZE_MAX / sizeof(*value->slots) || value->count > capacity)
     rinzu_failure_fatal();
   rinzu_managed_slot_t *slots = rinzu_failure_allocate(capacity * sizeof(*slots));

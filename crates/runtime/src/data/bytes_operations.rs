@@ -457,6 +457,26 @@ mod scan_tests {
         ManagedSlot::Scalar(ScalarValue::from_bits(ScalarKind::I64, value as u64).unwrap())
     }
 
+    // Tagged payloads allow testing invalid field tags separately from the
+    // packed integer representation used by ordinary byte construction.
+    fn tagged_bytes(
+        heap: &mut DomainHeap,
+        data: &mut ManagedData,
+        bytes: &[u8],
+    ) -> (ManagedHandle, HeapRef) {
+        let fields = PackedWords::new(bytes)
+            .unwrap()
+            .map(HeapValue::Integer)
+            .collect::<Vec<_>>();
+        let reference = heap
+            .allocate(BYTES_TYPE, &fields, FinalizerPolicy::None)
+            .unwrap();
+        let handle = data
+            .root(heap, reference, DataKind::Bytes(bytes.len() as u64))
+            .unwrap();
+        (handle, reference)
+    }
+
     #[test]
     fn concat_all_keeps_binary_order_aliases_and_children_after_parent_gc() {
         for count in [0, 1, 2, 16, 65] {
@@ -550,7 +570,7 @@ mod scan_tests {
             ),
             Err(DataError::WrongKind)
         );
-        let bytes = data.create_bytes(&mut heap, 1, b"A").unwrap();
+        let (bytes, reference) = tagged_bytes(&mut heap, &mut data, b"A");
         let list = data
             .create_composite(&mut heap, 1, None, &[ManagedSlot::Reference(bytes)])
             .unwrap();
@@ -564,7 +584,6 @@ mod scan_tests {
             ),
             Err(DataError::WrongKind)
         );
-        let reference = data.reference(&heap, bytes, DataKind::Bytes(1)).unwrap();
         heap.write_field(reference, 1, HeapValue::Null).unwrap();
         assert_eq!(
             data.operation(
@@ -628,9 +647,8 @@ mod scan_tests {
     #[test]
     fn predicates_validate_both_payloads_before_empty_or_early_results() {
         let (mut heap, mut data) = setup();
-        let input = data.create_bytes(&mut heap, 9, b"AAAAAAAAA").unwrap();
+        let (input, reference) = tagged_bytes(&mut heap, &mut data, b"AAAAAAAAA");
         let empty = data.create_bytes(&mut heap, 0, b"").unwrap();
-        let reference = data.reference(&heap, input, DataKind::Bytes(9)).unwrap();
         heap.write_field(reference, 2, HeapValue::Null).unwrap();
         for slots in [
             [ManagedSlot::Reference(input), ManagedSlot::Reference(empty)],
@@ -713,11 +731,8 @@ mod scan_tests {
     #[test]
     fn trim_validates_both_payloads_and_domain_before_noop_or_empty_results() {
         let (mut heap, mut data) = setup();
-        let malformed = data.create_bytes(&mut heap, 9, b"AAAAAAAAA").unwrap();
+        let (malformed, reference) = tagged_bytes(&mut heap, &mut data, b"AAAAAAAAA");
         let empty = data.create_bytes(&mut heap, 0, b"").unwrap();
-        let reference = data
-            .reference(&heap, malformed, DataKind::Bytes(9))
-            .unwrap();
         heap.write_field(reference, 2, HeapValue::Null).unwrap();
         for slots in [
             [
@@ -750,9 +765,8 @@ mod scan_tests {
     #[test]
     fn reads_reject_bad_tail_fields_and_padding_before_returning_a_hit_or_miss() {
         let (mut heap, mut data) = setup();
-        let input = data.create_bytes(&mut heap, 9, b"AAAAAAAAA").unwrap();
+        let (input, reference) = tagged_bytes(&mut heap, &mut data, b"AAAAAAAAA");
         let set = data.create_bytes(&mut heap, 1, b"A").unwrap();
-        let reference = data.reference(&heap, input, DataKind::Bytes(9)).unwrap();
         for bad in [HeapValue::Null, HeapValue::Integer(0x141)] {
             heap.write_field(reference, 2, bad).unwrap();
             for start in [0, -1, i64::MAX] {
@@ -798,7 +812,7 @@ mod scan_tests {
         heap.write_field(reference, 2, HeapValue::Integer(0x41))
             .unwrap();
         let set_ref = data.reference(&heap, set, DataKind::Bytes(1)).unwrap();
-        heap.write_field(set_ref, 1, HeapValue::Integer(0x141))
+        heap.write_integer_fields(set_ref, 1, [0x141].into_iter())
             .unwrap();
         assert!(
             data.operation(
@@ -1101,7 +1115,7 @@ mod scan_tests {
             .is_err()
         );
         let reference = data.reference(&heap, input, DataKind::Bytes(9)).unwrap();
-        heap.write_field(reference, 2, HeapValue::Integer(256))
+        heap.write_integer_fields(reference, 2, [256].into_iter())
             .unwrap();
         assert!(
             data.operation(

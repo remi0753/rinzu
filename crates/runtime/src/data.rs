@@ -68,19 +68,22 @@ mod packed_read_tests {
         for (length, word) in [(-1, 120), (9, 120), (1, 0xff), (1, 0x0178)] {
             let handle = data.create_string(&mut heap, "x").unwrap();
             let reference = data.reference(&heap, handle, DataKind::String).unwrap();
-            heap.write_field(reference, 0, HeapValue::Integer(length))
-                .unwrap();
-            heap.write_field(reference, 1, HeapValue::Integer(word))
+            heap.write_integer_fields(reference, 0, [length as u64, word].into_iter())
                 .unwrap();
             assert_eq!(data.string(&heap, handle), Err(DataError::InvalidEncoding));
         }
-        let handle = data.create_string(&mut heap, "x").unwrap();
-        let reference = data.reference(&heap, handle, DataKind::String).unwrap();
-        heap.write_field(reference, 1, HeapValue::Null).unwrap();
+        let reference = heap
+            .allocate(
+                STRING_TYPE,
+                &[HeapValue::Integer(1), HeapValue::Null],
+                FinalizerPolicy::None,
+            )
+            .unwrap();
+        let handle = data.root(&mut heap, reference, DataKind::String).unwrap();
         assert_eq!(data.string(&heap, handle), Err(DataError::InvalidEncoding));
         let handle = data.create_bytes(&mut heap, 1, b"x").unwrap();
         let reference = data.reference(&heap, handle, DataKind::Bytes(1)).unwrap();
-        heap.write_field(reference, 1, HeapValue::Integer(0x0178))
+        heap.write_integer_fields(reference, 1, [0x0178].into_iter())
             .unwrap();
         assert_eq!(
             data.bytes(&heap, handle, 1),

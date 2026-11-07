@@ -322,6 +322,15 @@ pub fn check_module(module: &Module) -> Result<CheckedModule, Vec<Diagnostic>> {
     check_module_with_options(module, &CompilerOptions::default())
 }
 
+pub(crate) fn local_spawn_error(range: SourceRange) -> Diagnostic {
+    Diagnostic::error(
+        DiagnosticCode::InvalidSpawn,
+        range,
+        "spawn requires an explicit qualified function, not a receiver or function value",
+        "write spawn Owner.method(receiver, arguments)",
+    )
+}
+
 pub(crate) struct ProbeScope<'a> {
     pub function: Option<&'a FunctionDecl>,
     pub locals: &'a HashMap<String, TypeRef>,
@@ -3508,12 +3517,7 @@ impl<'a> Checker<'a> {
                 .first()
                 .is_some_and(|first| context.locals.contains_key(first))
         {
-            self.diagnostics.push(Diagnostic::error(
-                DiagnosticCode::InvalidSpawn,
-                range,
-                "spawn requires an explicit qualified function, not a receiver or function value",
-                "write spawn Owner.method(receiver, arguments)",
-            ));
+            self.diagnostics.push(local_spawn_error(range));
             return None;
         }
         let name = target.join(".");

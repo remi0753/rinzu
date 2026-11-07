@@ -187,7 +187,13 @@ fn caught_case(
         } else {
             "handled()"
         };
-        std::fs::write(app.join("src/main.rinzu"), format!("import {module};{handled}{entry}{{let report={call};if report!=1{{panic(\"missingError\");}}}}" )).unwrap();
+        std::fs::write(
+            app.join("src/main.rinzu"),
+            format!(
+                "import rinzu.list;\nimport {module};\n{handled}\n{entry}{{let report={call};if report!=1{{panic(\"missingError\");}}}}"
+            ),
+        )
+        .unwrap();
         success(&cli(&app, "run"));
         success(&cli(&app, "build"));
         let aot = Command::new(app.join(format!("build/{name}")))

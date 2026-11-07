@@ -22,10 +22,10 @@ static __attribute__((unused, cold, noinline)) _Noreturn void rinzu_native_fatal
        )) {
     int flags = fcntl(STDERR_FILENO, F_GETFL);
     if (flags >= 0 && !fcntl(STDERR_FILENO, F_SETFL, flags | O_NONBLOCK)) {
-      sigset_t blocked;
-      sigemptyset(&blocked);
-      sigaddset(&blocked, SIGPIPE);
-      if (!pthread_sigmask(SIG_BLOCK, &blocked, NULL)) {
+      /* On macOS a closed pipe can signal another thread before _Exit. */
+      struct sigaction ignored = {.sa_handler = SIG_IGN};
+      sigemptyset(&ignored.sa_mask);
+      if (!sigaction(SIGPIPE, &ignored, NULL)) {
         const char *message = code == 71 ? resource : invariant;
         size_t length = code == 71 ? sizeof(resource) - 1 : sizeof(invariant) - 1;
         (void)write(STDERR_FILENO, message, length);

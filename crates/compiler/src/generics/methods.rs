@@ -47,7 +47,7 @@ impl Expander<'_> {
                 type_arguments.clone(),
                 false,
             ),
-            ExpressionKind::Call { target, .. } | ExpressionKind::Spawn { target, .. }
+            ExpressionKind::Call { target, .. }
                 if self.local_target(target) && target.len() > 1 =>
             {
                 (target.clone(), Vec::new(), None, Vec::new(), false)
