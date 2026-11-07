@@ -815,7 +815,10 @@ fn complete_source_interface(
         .functions
         .iter()
         .filter_map(|f| {
-            let name = f.declaration.name.strip_prefix("rinzu.constant::")?;
+            let name = f
+                .declaration
+                .name
+                .strip_prefix(crate::value_constants::ACCESSOR_PREFIX)?;
             exported
                 .contains(name)
                 .then(|| (name.to_owned(), f.result_type.clone()))

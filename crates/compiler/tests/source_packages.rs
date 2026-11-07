@@ -596,7 +596,7 @@ fn source_sdk_methods_reexport_without_flattening_or_losing_visibility() {
         "main",
         &[(
             "main",
-            "import fixture;fn main(){let first=fixture.First.create();let second=fixture.Second.create();let a=first.close();let b=second.close();}",
+            "import fixture;fn identity<T>(x:T)->T{return x;}fn main(){let first=identity(fixture.First.create());let second=fixture.Second.create();let a=identity(first.close());let b=second.close();}",
         )],
     );
     app.depend("fixture", &sdk);
@@ -622,6 +622,50 @@ fn source_sdk_methods_reexport_without_flattening_or_losing_visibility() {
             "{call}"
         );
     }
+}
+
+#[test]
+fn exported_generic_methods_keep_visibility_after_specialization() {
+    let package = Package::new(
+        "application",
+        "main",
+        &[
+            (
+                "main",
+                r#"
+import model;
+fn main() {
+    let box = model.Box<Int>.create(41);
+    let mapped = box.map(fn (value: Int) -> Int { return value + 1; });
+    let result: Int = mapped.get();
+}
+"#,
+            ),
+            (
+                "model",
+                r#"
+class Box<T> {
+    private const value: T
+    fn create(value: T) -> Box<T> { return Box<T>(value: value); }
+    fn map<U>(self: Box<T>, transform: fn (T) -> U) -> Box<U> {
+        return Box<U>.create(transform(self.value));
+    }
+    fn get(self: Box<T>) -> T { return self.value; }
+    private fn secret(self: Box<T>) -> T { return self.value; }
+}
+export Box;
+"#,
+            ),
+        ],
+    );
+    check_package(&package.0).unwrap();
+    std::fs::write(
+        package.0.join("src/main.rinzu"),
+        "import model;fn main(){let box=model.Box<Int>.create(42);let result=box.secret();}",
+    )
+    .unwrap();
+    let errors = check_package(&package.0).unwrap_err();
+    assert!(errors.iter().any(|e| e.message.contains("private method")));
 }
 
 #[test]

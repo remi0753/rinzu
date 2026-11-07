@@ -217,6 +217,106 @@ fn explicit_doc_programs_preserve_bom_unicode_crlf_byte_positions() {
 }
 
 #[test]
+fn standalone_package_and_doc_programs_infer_the_same_types() {
+    let program = r#"
+import rinzu.map;
+import rinzu.option;
+
+interface Measured {
+    fn measure(self: Self) -> Int nothrow;
+}
+class Sample interface Measured {
+    private const value: Int
+    fn create(value: Int) -> Sample { return Sample(value: value); }
+    fn measure(self: Sample) -> Int nothrow { return self.value; }
+}
+fn sum<T interface Measured>(values: List<T>) -> Int nothrow {
+    var total = 0;
+    for value in values { total = total + value.measure(); }
+    return total;
+}
+class Box<T> {
+    private const value: T
+    fn create(value: T) -> Box<T> { return Box<T>(value: value); }
+    fn map<U>(self: Box<T>, transform: fn (T) -> U) -> Box<U> {
+        return Box<U>.create(transform(self.value));
+    }
+    fn get(self: Box<T>) -> T { return self.value; }
+}
+fn identity<T>(value: T) -> T { return value; }
+let makeSample = fn (value: Int) -> Sample { return identity(Sample.create(value)); };
+type Report = { title: String, total: Int };
+fn main() {
+    let counts = {"one": 42};
+    let count = rinzu.option.getOrElse(rinzu.map.get(counts, "one"), fn () -> Int { return 0; });
+    let original: Report = { title = "measurements", total = 0 };
+    let updated = { ...original, total = sum([Sample.create(20), Sample.create(22)]) };
+    let transform = fn (value: Int) -> Sample { return makeSample(value + 1); };
+    let box = Box<Int>.create(41);
+    let mapped = box.map(transform);
+    let result: Sample = mapped.get();
+    if count != 42 || updated.total != 42 || result.measure() != 42 { panic("invalid result"); }
+}
+"#;
+    let fixture = Fixture::new("application", program);
+    rinzu_compiler::check_input(
+        &fixture.0.join("src/main.rinzu"),
+        &rinzu_compiler::CompilationOptions {
+            language: None,
+            target: rinzu_compiler::standard_library::TARGET.into(),
+        },
+        &Default::default(),
+    )
+    .unwrap();
+    rinzu_compiler::check_package(&fixture.0).unwrap();
+    let document = fixture.0.join("README.md");
+    std::fs::write(&document, format!("```rinzu-test\n{program}```\n")).unwrap();
+    let (_, artifact, cases) = fixture
+        .check(PackageTestOptions {
+            documents: vec!["README.md".into()],
+            selected: Some(format!(
+                "doc:{}#L1",
+                document.canonicalize().unwrap().display()
+            )),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(cases.len(), 1);
+    assert!(
+        artifact
+            .ir
+            .functions
+            .iter()
+            .any(|f| f.name == "rinzu_doc_case_0::main")
+    );
+}
+
+#[test]
+fn doc_examples_respect_option_shadowing_in_their_own_module() {
+    let fixture = Fixture::new("application", "fn main() {}\n");
+    let options = PackageTestOptions {
+        documents: vec!["README.md".into()],
+        ..Default::default()
+    };
+    let path = fixture.0.join("README.md");
+    let option = "enum Option<T> { Custom(value: T) }";
+    let uses_data = "import rinzu.list; fn main() { let value = rinzu.list.get([42], 0); }";
+    std::fs::write(
+        &path,
+        format!("```rinzu-test\n{option} fn main() {{}}\n```\n```rinzu-test\n{uses_data}\n```\n"),
+    )
+    .unwrap();
+    fixture.check(options.clone()).unwrap();
+    std::fs::write(
+        &path,
+        format!("```rinzu-test\nimport rinzu.list; {option} fn main() {{ let value = rinzu.list.get([42], 0); }}\n```\n"),
+    )
+    .unwrap();
+    let errors = fixture.check(options).unwrap_err();
+    assert!(errors.iter().any(|e| e.message.contains("shadows it")));
+}
+
+#[test]
 fn doc_fence_errors_and_native_permission_are_not_hidden() {
     let fixture = Fixture::new("application", "fn main() {}\n");
     for text in [

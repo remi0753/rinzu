@@ -1,4 +1,5 @@
-use crate::{AbiScalar, FunctionReferenceType, Type};
+use crate::{AbiScalar, FunctionReferenceType, Type, ast::Module};
+use std::collections::HashSet;
 
 pub(crate) const FUNCTIONS: [&str; 11] = [
     "utf8ByteLength",
@@ -36,9 +37,25 @@ pub(crate) fn data_operation(path: &[String]) -> Option<crate::DataOperation> {
         .find(|op| op.name() == name)
 }
 
+pub(crate) fn option_name(payload: &Type) -> String {
+    format!("Option<{}>", payload.to_string().replace(", ", ","))
+}
+
+pub(crate) fn option_shadow_modules(module: &Module) -> HashSet<String> {
+    module
+        .declarations
+        .iter()
+        .filter_map(|d| {
+            let name = d.name();
+            let (module, local) = name.rsplit_once("::").unwrap_or(("", name));
+            (local == "Option").then(|| module.to_owned())
+        })
+        .collect()
+}
+
 pub(crate) fn data_signature(op: crate::DataOperation, input: &Type) -> Option<(Vec<Type>, Type)> {
     use crate::DataOperation::*;
-    let option = |ty: &Type| Type::Named(format!("Option<{}>", ty.to_string().replace(", ", ",")));
+    let option = |ty: &Type| Type::Named(option_name(ty));
     Some(match (op, input) {
         (Panic, Type::String) => (vec![Type::String], Type::Unit),
         (ListLength, Type::List(_)) => (vec![input.clone()], Type::Int),

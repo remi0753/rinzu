@@ -1,7 +1,7 @@
 //! Resolve generic owner/method groups before ordinary monomorphization.
 use super::*;
 
-impl Expander {
+impl Expander<'_> {
     pub(super) fn method_expression(
         &mut self,
         expression: &mut Expression,
@@ -90,6 +90,21 @@ impl Expander {
         };
         let name = format!("{base}.{member}");
         let Some(Declaration::Function(function)) = self.templates.get(&name).cloned() else {
+            if self.inference_active
+                && receiver.is_some()
+                && let ExpressionKind::Call { arguments, .. } = &mut expression.kind
+                && let Some(Declaration::Function(method)) = self.declaration_named(&name)
+                && method.parameters.first().is_some_and(|p| p.name == "self")
+            {
+                let formals = method
+                    .parameters
+                    .iter()
+                    .skip(1)
+                    .map(|p| (p.name.clone(), p.ty.clone()))
+                    .collect::<Vec<_>>();
+                self.arguments_with_formals(arguments, &formals, substitution, instance)?;
+                return Ok(true);
+            }
             return Ok(false);
         };
         let owner_count = function.owner_type_parameter_count;

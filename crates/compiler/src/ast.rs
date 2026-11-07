@@ -367,6 +367,19 @@ pub struct SwitchCase {
     pub range: SourceRange,
 }
 
+impl SwitchCase {
+    pub(crate) fn variant<'a>(&self, enumeration: &'a EnumDecl) -> Option<&'a EnumVariant> {
+        let [owner, variant] = self.path.as_slice() else {
+            return None;
+        };
+        let name = &enumeration.name;
+        if owner != name && !name.split_once('<').is_some_and(|(base, _)| base == owner) {
+            return None;
+        }
+        enumeration.variants.iter().find(|v| &v.name == variant)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Expression {
     pub kind: ExpressionKind,

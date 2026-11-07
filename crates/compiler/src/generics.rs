@@ -1,6 +1,6 @@
 //! Concrete frontend specialization. Templates never enter verified IR.
 use crate::ast::*;
-use crate::{AbiScalar, Diagnostic, DiagnosticCode, SourceRange};
+use crate::{AbiScalar, CompilerOptions, Diagnostic, DiagnosticCode, SourceRange};
 use std::collections::{HashMap, HashSet};
 mod inference;
 mod methods;
@@ -15,10 +15,13 @@ pub(crate) struct Requirement {
 
 pub(crate) fn expand(
     module: &Module,
-    _is_library: bool,
+    options: &CompilerOptions,
+    option_shadow_modules: &HashSet<String>,
 ) -> Result<(Module, Vec<Requirement>), Vec<Diagnostic>> {
     let _timing = crate::timing::span("frontend.generics");
-    Expander::new(module).run().map_err(|error| vec![error])
+    Expander::new(module, options, option_shadow_modules)
+        .run()
+        .map_err(|error| vec![error])
 }
 
 fn parameters(declaration: &Declaration) -> &[TypeParameter] {
@@ -32,8 +35,11 @@ fn parameters(declaration: &Declaration) -> &[TypeParameter] {
     }
 }
 
-struct Expander {
+struct Expander<'a> {
     module: Module,
+    options: &'a CompilerOptions,
+    option_shadow_modules: &'a HashSet<String>,
+    prelude_option: bool,
     templates: HashMap<String, Declaration>,
     instances: HashMap<String, String>,
     output: Vec<Declaration>,
@@ -46,39 +52,34 @@ struct Expander {
     known: HashMap<String, Declaration>,
     type_locals: HashMap<String, TypeRef>,
     expected_result: Option<TypeRef>,
-    lexical_owner: Option<String>,
+    function_name: String,
     inference_active: bool,
     instance_types: HashMap<String, (String, Vec<TypeRef>)>,
 }
 
-impl Expander {
-    fn new(module: &Module) -> Self {
+impl<'a> Expander<'a> {
+    fn new(
+        module: &Module,
+        options: &'a CompilerOptions,
+        option_shadow_modules: &'a HashSet<String>,
+    ) -> Self {
         let constants = crate::evaluate_module_constants(module).unwrap_or_default();
         let mut module = module.clone();
         // Prelude templates use ordinary enum specialization and can be shadowed by
         // module declarations. Only Option is provided by the language.
-        for (name, params, variants) in [(
-            "Option",
-            vec!["T"],
-            vec![("None", None), ("Some", Some(("value", "T")))],
-        )] {
-            if module.declarations.iter().any(|d| d.name() == name) {
-                continue;
-            }
+        let prelude_option = !module.declarations.iter().any(|d| d.name() == "Option");
+        if prelude_option {
             let range = module.range;
             module.declarations.push(Declaration::Enum(EnumDecl {
                 interfaces: Vec::new(),
-                name: name.to_owned(),
-                type_parameters: params
-                    .into_iter()
-                    .map(|name| TypeParameter {
-                        interfaces: Vec::new(),
-                        name: name.to_owned(),
-                        constraints: Vec::new(),
-                        range,
-                    })
-                    .collect(),
-                variants: variants
+                name: "Option".into(),
+                type_parameters: vec![TypeParameter {
+                    interfaces: Vec::new(),
+                    name: "T".into(),
+                    constraints: Vec::new(),
+                    range,
+                }],
+                variants: [("None", None), ("Some", Some(("value", "T")))]
                     .into_iter()
                     .map(|(name, field)| EnumVariant {
                         name: name.to_owned(),
@@ -108,6 +109,9 @@ impl Expander {
             .collect();
         Self {
             module,
+            options,
+            option_shadow_modules,
+            prelude_option,
             templates: HashMap::new(),
             instances: HashMap::new(),
             output: Vec::new(),
@@ -120,7 +124,7 @@ impl Expander {
             known,
             type_locals: HashMap::new(),
             expected_result: None,
-            lexical_owner: None,
+            function_name: String::new(),
             inference_active: false,
             instance_types: HashMap::new(),
         }
@@ -233,7 +237,12 @@ impl Expander {
                 ),
             ));
         }
-        let identity = if let Declaration::Function(f) = &declaration
+        let identity = if self.prelude_option && name == "Option" {
+            // Intrinsics use the checked identity of the payload, including
+            // interned structural records nested inside it.
+            crate::sema::option_instance_name(&self.module, self.options, &args[0])
+                .ok_or_else(|| error(range, "Option requires a concrete payload type"))?
+        } else if let Declaration::Function(f) = &declaration
             && let Some((owner, member)) = crate::methods::parts(name)
         {
             let count = f.owner_type_parameter_count;
@@ -506,7 +515,7 @@ impl Expander {
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_types = std::mem::take(&mut self.type_locals);
         let saved_result = self.expected_result.take();
-        let saved_owner = self.lexical_owner.take();
+        let saved_function = std::mem::take(&mut self.function_name);
         let saved_active = self.inference_active;
         match declaration {
             Declaration::Interface(_) => {
@@ -522,7 +531,7 @@ impl Expander {
             }
             Declaration::Function(value) => {
                 self.inference_active = self.needs_inference(&value.body);
-                self.lexical_owner = value.lexical_owner.clone();
+                self.function_name = value.name.clone();
                 for parameter in &value.parameters {
                     self.constants.remove(&parameter.name);
                     self.locals.insert(parameter.name.clone());
@@ -593,7 +602,7 @@ impl Expander {
         self.locals = saved_locals;
         self.type_locals = saved_types;
         self.expected_result = saved_result;
-        self.lexical_owner = saved_owner;
+        self.function_name = saved_function;
         self.inference_active = saved_active;
         Ok(())
     }
@@ -699,13 +708,43 @@ impl Expander {
         let saved_locals = self.locals.clone();
         let saved_types = self.type_locals.clone();
         block.range.instance = instance;
+        let mut result = Ok(());
         for statement in &mut block.statements {
-            self.statement(statement, substitution, instance)?;
+            result = self.statement(statement, substitution, instance);
+            if result.is_err() {
+                break;
+            }
         }
         self.constants = saved_constants;
         self.locals = saved_locals;
         self.type_locals = saved_types;
-        Ok(())
+        result
+    }
+
+    fn block_with_bindings<'b>(
+        &mut self,
+        block: &mut Block,
+        bindings: impl IntoIterator<Item = (&'b str, Option<TypeRef>)>,
+        substitution: &HashMap<String, TypeRef>,
+        instance: u32,
+    ) -> Result<(), Diagnostic> {
+        let saved_constants = self.constants.clone();
+        let saved_locals = self.locals.clone();
+        let saved_types = self.type_locals.clone();
+        for (name, ty) in bindings {
+            self.constants.remove(name);
+            self.locals.insert(name.to_owned());
+            if let Some(ty) = ty {
+                self.type_locals.insert(name.to_owned(), ty);
+            } else {
+                self.type_locals.remove(name);
+            }
+        }
+        let result = self.block(block, substitution, instance);
+        self.constants = saved_constants;
+        self.locals = saved_locals;
+        self.type_locals = saved_types;
+        result
     }
 
     fn statement(
@@ -755,9 +794,24 @@ impl Expander {
                 }
                 self.locals.insert(name.clone());
             }
-            StatementKind::FieldAssign { base, value, .. } => {
+            StatementKind::FieldAssign { base, field, value } => {
                 self.expression(base, substitution, instance)?;
-                self.expression(value, substitution, instance)?;
+                let expected = if self.inference_active
+                    && let ExpressionKind::Name(path) = &base.kind
+                {
+                    let mut path = path.clone();
+                    path.push(field.clone());
+                    self.probe_type(
+                        &Expression {
+                            kind: ExpressionKind::Name(path),
+                            range: base.range,
+                        },
+                        None,
+                    )
+                } else {
+                    None
+                };
+                self.expression_expected(value, substitution, instance, expected.as_ref())?;
             }
             StatementKind::Assign { name, value } => {
                 let expected = self.type_locals.get(name).cloned();
@@ -796,37 +850,56 @@ impl Expander {
             } => {
                 binding_range.instance = instance;
                 self.expression(iterable, substitution, instance)?;
-                let saved_constants = self.constants.clone();
-                let saved_locals = self.locals.clone();
-                self.constants.remove(binding);
-                self.locals.insert(binding.clone());
-                let saved_types = self.type_locals.clone();
-                if self.inference_active
+                let element = if self.inference_active
                     && let Some(TypeRef {
                         kind: TypeRefKind::List(element),
                         ..
                     }) = self.probe_type(iterable, None)
                 {
-                    self.type_locals.insert(binding.clone(), *element);
-                }
-                self.block(body, substitution, instance)?;
-                self.type_locals = saved_types;
-                self.constants = saved_constants;
-                self.locals = saved_locals;
+                    Some(*element)
+                } else {
+                    None
+                };
+                self.block_with_bindings(
+                    body,
+                    [(binding.as_str(), element)],
+                    substitution,
+                    instance,
+                )?;
             }
             StatementKind::Switch { value, cases } => {
                 self.expression(value, substitution, instance)?;
+                let enumeration = if self.inference_active
+                    && cases.iter().any(|case| !case.bindings.is_empty())
+                    && let Some(TypeRef {
+                        kind: TypeRefKind::Named(path),
+                        ..
+                    }) = self.probe_type(value, None)
+                    && let Some(Declaration::Enum(enumeration)) =
+                        self.declaration_named(&path.join("."))
+                {
+                    Some(enumeration.clone())
+                } else {
+                    None
+                };
                 for case in cases {
-                    let saved_constants = self.constants.clone();
-                    let saved_locals = self.locals.clone();
-                    for binding in &case.bindings {
-                        self.constants.remove(binding);
-                        self.locals.insert(binding.clone());
+                    let fields = enumeration
+                        .as_ref()
+                        .and_then(|e| case.variant(e))
+                        .map_or(&[][..], |v| v.fields.as_slice());
+                    let mut bindings = Vec::new();
+                    for (index, name) in case.bindings.iter().enumerate() {
+                        let ty = if let Some(field) = fields.get(index) {
+                            let mut ty = field.ty.clone();
+                            self.ty(&mut ty, &HashMap::new(), instance)?;
+                            Some(ty)
+                        } else {
+                            None
+                        };
+                        bindings.push((name.as_str(), ty));
                     }
                     case.range.instance = instance;
-                    self.block(&mut case.body, substitution, instance)?;
-                    self.constants = saved_constants;
-                    self.locals = saved_locals;
+                    self.block_with_bindings(&mut case.body, bindings, substitution, instance)?;
                 }
             }
             StatementKind::TryErrors {
@@ -838,8 +911,15 @@ impl Expander {
                 self.block(body, substitution, instance)?;
                 for handler in handlers {
                     handler.range.instance = instance;
+                    let mut bindings = Vec::new();
                     match &mut handler.pattern {
-                        CatchPattern::Binding(binding) => binding.range.instance = instance,
+                        CatchPattern::Binding(binding) => {
+                            binding.range.instance = instance;
+                            bindings.push((
+                                binding.name.as_str(),
+                                Some(error_list_type(binding.range)),
+                            ));
+                        }
                         CatchPattern::List {
                             elements,
                             rest,
@@ -848,25 +928,21 @@ impl Expander {
                             range.instance = instance;
                             for element in elements {
                                 element.range.instance = instance;
+                                self.ty(&mut element.ty, substitution, instance)?;
                                 if let Some(binding) = &mut element.binding {
                                     binding.range.instance = instance;
+                                    bindings
+                                        .push((binding.name.as_str(), Some(element.ty.clone())));
                                 }
-                                self.ty(&mut element.ty, substitution, instance)?;
                             }
                             if let Some(rest) = rest {
                                 rest.range.instance = instance;
+                                bindings
+                                    .push((rest.name.as_str(), Some(error_list_type(rest.range))));
                             }
                         }
                     }
-                    let saved = self.constants.clone();
-                    let saved_locals = self.locals.clone();
-                    for binding in handler.pattern.bindings() {
-                        self.constants.remove(&binding.name);
-                        self.locals.insert(binding.name.clone());
-                    }
-                    self.block(&mut handler.body, substitution, instance)?;
-                    self.constants = saved;
-                    self.locals = saved_locals;
+                    self.block_with_bindings(&mut handler.body, bindings, substitution, instance)?;
                 }
                 if let Some(cleanup) = cleanup {
                     self.block(cleanup, substitution, instance)?;
@@ -880,13 +956,12 @@ impl Expander {
                 self.block(body, substitution, instance)?;
                 if let Some(h) = handler {
                     h.binding_range.instance = instance;
-                    let saved = self.constants.clone();
-                    let saved_locals = self.locals.clone();
-                    self.constants.remove(&h.binding);
-                    self.locals.insert(h.binding.clone());
-                    self.block(&mut h.body, substitution, instance)?;
-                    self.constants = saved;
-                    self.locals = saved_locals;
+                    self.block_with_bindings(
+                        &mut h.body,
+                        [(h.binding.as_str(), Some(error_list_type(h.binding_range)))],
+                        substitution,
+                        instance,
+                    )?;
                 }
                 if let Some(c) = cleanup {
                     self.block(c, substitution, instance)?;
@@ -902,13 +977,12 @@ impl Expander {
             } => {
                 binding_range.instance = instance;
                 self.block(body, substitution, instance)?;
-                let saved_constants = self.constants.clone();
-                let saved_locals = self.locals.clone();
-                self.constants.remove(binding);
-                self.locals.insert(binding.clone());
-                self.block(handler, substitution, instance)?;
-                self.constants = saved_constants;
-                self.locals = saved_locals;
+                self.block_with_bindings(
+                    handler,
+                    [(binding.as_str(), Some(error_list_type(*binding_range)))],
+                    substitution,
+                    instance,
+                )?;
                 if let Some(cleanup) = cleanup {
                     self.block(cleanup, substitution, instance)?;
                 }
@@ -1293,6 +1367,10 @@ impl Expander {
             Ok(())
         }
     }
+}
+
+fn error_list_type(range: SourceRange) -> TypeRef {
+    crate::core::type_ref(&crate::Type::List(Box::new(crate::Type::Error)), range)
 }
 
 pub(crate) fn spelling(ty: &TypeRef) -> String {

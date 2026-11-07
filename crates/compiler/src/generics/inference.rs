@@ -3,7 +3,7 @@
 use super::*;
 use crate::ast_walk::{self, Visitor};
 
-impl Expander {
+impl Expander<'_> {
     fn weak_argument(&self, value: &Expression) -> bool {
         if numeric_only(value) {
             return true;
@@ -35,7 +35,14 @@ impl Expander {
             Arguments::Named(values) => values.iter().all(|(_, v, _)| self.weak_argument(v)),
         }
     }
-    pub(super) fn argument_types(&self, target: &[String]) -> Vec<(String, TypeRef)> {
+    pub(super) fn declaration_named(&self, name: &str) -> Option<&Declaration> {
+        self.output
+            .iter()
+            .find(|d| d.name() == name)
+            .or_else(|| self.known.get(name))
+    }
+
+    fn argument_types(&self, target: &[String]) -> Vec<(String, TypeRef)> {
         if target.len() == 1
             && self.local_target(target)
             && let Some(TypeRef {
@@ -49,12 +56,7 @@ impl Expander {
                 .collect();
         }
         let name = target.join(".");
-        let declaration = self
-            .output
-            .iter()
-            .find(|d| d.name() == name)
-            .or_else(|| self.known.get(&name));
-        match declaration {
+        match self.declaration_named(&name) {
             Some(Declaration::Function(f)) => {
                 return f
                     .parameters
@@ -80,11 +82,7 @@ impl Expander {
         }
         if target.len() > 1 {
             let owner = target[..target.len() - 1].join(".");
-            if let Some(Declaration::Enum(e)) = self
-                .output
-                .iter()
-                .find(|d| d.name() == owner)
-                .or_else(|| self.known.get(&owner))
+            if let Some(Declaration::Enum(e)) = self.declaration_named(&owner)
                 && let Some(v) = e.variants.iter().find(|v| Some(&v.name) == target.last())
             {
                 return v
@@ -127,6 +125,16 @@ impl Expander {
                     .collect();
             }
         }
+        self.arguments_with_formals(arguments, &formals, substitution, instance)
+    }
+
+    pub(super) fn arguments_with_formals(
+        &mut self,
+        arguments: &mut Arguments,
+        formals: &[(String, TypeRef)],
+        substitution: &HashMap<String, TypeRef>,
+        instance: u32,
+    ) -> Result<(), Diagnostic> {
         match arguments {
             Arguments::Positional(values) => {
                 for (index, value) in values.iter_mut().enumerate() {
@@ -273,14 +281,27 @@ impl Expander {
                 module.declarations.push(declaration.clone());
             }
         }
-        crate::sema::probe_expression_type(
+        let function = match self.known.get(&self.function_name) {
+            Some(Declaration::Function(function)) => Some(function),
+            _ => None,
+        };
+        let mut ty = crate::sema::probe_expression_type(
             &module,
+            self.options,
             expression,
-            &self.type_locals,
             expected,
-            self.lexical_owner.as_deref(),
+            crate::sema::ProbeScope {
+                function,
+                locals: &self.type_locals,
+                option_shadow_modules: self.option_shadow_modules,
+            },
             data_operation,
-        )
+        )?;
+        // The checker can synthesize prelude Option instances while probing.
+        // Keep those instances available to subsequent probes and constraints.
+        self.ty(&mut ty, &HashMap::new(), expression.range.instance)
+            .ok()?;
+        Some(ty)
     }
 
     fn abstract_type(&self, ty: &TypeRef) -> TypeRef {

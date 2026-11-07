@@ -51,6 +51,7 @@ fn main(){{
 fn no_backwards_inference_or_implicit_conversion_resolves_ambiguity() {
     for body in [
         "let none=Option.None();",
+        "let list=identity([]);",
         "let value=same(identity<Int>(1),CInt8(2));",
         "let value=same(1,\"bad\");",
         "let none=Option.None();take(none);",
@@ -58,6 +59,79 @@ fn no_backwards_inference_or_implicit_conversion_resolves_ambiguity() {
         let text = format!("{BASE} fn take(value:Option<Int>){{}} fn main(){{{body}}}");
         assert!(compile(&text).is_err(), "{text}");
     }
+}
+
+#[test]
+fn data_results_supply_constraints_through_options_and_structural_records() {
+    compile(
+        r#"
+import rinzu.list;
+import rinzu.map;
+fn unwrapOr<T>(maybe: Option<T>, otherwise: fn () -> T) -> T {
+    switch maybe {
+        case Option.Some(value): { return value; }
+        case Option.None: { return otherwise(); }
+    }
+}
+fn entries<K, V>(values: List<{ key: K, value: V }>) -> List<{ key: K, value: V }> {
+    return values;
+}
+fn keep<T>(values: List<Option<T>>) -> List<Option<T>> { return values; }
+fn main() {
+    let value = unwrapOr(rinzu.list.get([42], 0), fn () -> Int { return 0; });
+    let char = unwrapOr(stringGet("abc", 0), fn () -> String { return ""; });
+    let rows = [{ inner = { value: Int = value } }, { inner = { value = 0 } }];
+    let result: Option<List<{ inner: { value: Int } }>> = rinzu.list.remove(rows, 1);
+    let remaining = unwrapOr(result, fn () -> List<{ inner: { value: Int } }> { return rows; });
+    let first = rinzu.list.get(remaining, 0);
+    try {
+        let options = rinzu.list.append(keep([first]), Option.None());
+        let table = entries(rinzu.map.entries({ char: options }));
+        for entry in table {
+            let row = unwrapOr(first, fn () -> { inner: { value: Int } } { return { inner = { value = 0 } }; });
+            if entry.key != "a" || row.inner.value != 42 { panic("wrong result"); }
+        }
+    }
+    catch errors {
+        panic("unexpected append error");
+    }
+}
+"#,
+    )
+    .unwrap();
+}
+
+#[test]
+fn pattern_bindings_and_concrete_members_supply_local_types() {
+    compile(
+        r#"
+import rinzu.list;
+error Failed { payload: Int }
+class Slot {
+    value: Option<Int>
+    fn replace(self: Slot, value: Option<Int>) { self.value = value; }
+}
+fn identity<T>(value: T) -> T { return value; }
+fn main() {
+    let slot = Slot(value: Option.Some(value: 1));
+    slot.value = Option.None();
+    slot.replace(Option.None());
+    switch rinzu.list.get([42], 0) {
+        case Option.Some(item): {
+            let value = identity(item);
+            if value != 42 { panic("wrong payload"); }
+        }
+        case Option.None: { panic("missing payload"); }
+    }
+    try { throw Failed(message: "test", payload: 42); }
+    catch [problem: Failed] {
+        let caught = identity(problem);
+        if caught.payload != 42 { panic("wrong error payload"); }
+    }
+}
+"#,
+    )
+    .unwrap();
 }
 
 #[test]

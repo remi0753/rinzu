@@ -164,7 +164,7 @@ pub struct CompilerOptions {
     pub owner_sync_handlers: HashSet<String>,
     pub external_types: HashMap<String, ExternalType>,
     pub native_functions: HashMap<String, NativeFunction>,
-    /// Exported method identities from source SDK dependencies.
+    /// Exported method identities, including templates before specialization.
     pub exported_methods: HashSet<String>,
 }
 
@@ -322,22 +322,24 @@ pub fn check_module(module: &Module) -> Result<CheckedModule, Vec<Diagnostic>> {
     check_module_with_options(module, &CompilerOptions::default())
 }
 
+pub(crate) struct ProbeScope<'a> {
+    pub function: Option<&'a FunctionDecl>,
+    pub locals: &'a HashMap<String, TypeRef>,
+    pub option_shadow_modules: &'a HashSet<String>,
+}
+
 /// Generic constraint collection uses the ordinary expression checker, including
 /// literal defaults, record canonicalization and numeric rules. This probe has
 /// no effect/escape authority; the fully specialized program is checked again.
 pub(crate) fn probe_expression_type(
     module: &Module,
+    options: &CompilerOptions,
     expression: &Expression,
-    locals: &HashMap<String, TypeRef>,
     expected: Option<&TypeRef>,
-    lexical_owner: Option<&str>,
+    scope: ProbeScope<'_>,
     data_operation: Option<crate::DataOperation>,
 ) -> Option<TypeRef> {
-    let options = CompilerOptions {
-        is_library: true,
-        ..CompilerOptions::default()
-    };
-    let mut checker = Checker::new(module, &options);
+    let mut checker = Checker::new(module, options, scope.option_shadow_modules);
     checker.collect_declarations();
     checker.constants = evaluate_module_constants(module).unwrap_or_default();
     checker.prepare_error_types();
@@ -354,9 +356,15 @@ pub(crate) fn probe_expression_type(
     }
     let function = FunctionDecl {
         error_contract: None,
-        name: "$type_probe".into(),
+        // The caller's identity determines which methods are visible in this
+        // module, including in doc examples, SDKs and nested closures.
+        name: scope
+            .function
+            .map_or_else(|| "$type_probe".into(), |function| function.name.clone()),
         is_private: false,
-        lexical_owner: lexical_owner.map(str::to_owned),
+        lexical_owner: scope
+            .function
+            .and_then(|function| function.lexical_owner.clone()),
         type_parameters: Vec::new(),
         owner_type_parameter_count: 0,
         is_async: true,
@@ -370,7 +378,7 @@ pub(crate) fn probe_expression_type(
         range: expression.range,
     };
     let mut context = FunctionContext::new(&function, Type::Unit, false);
-    for (name, ty) in locals {
+    for (name, ty) in scope.locals {
         if let Some(ty) = checker.resolve_type(ty) {
             let targets = if let Type::FunctionReference(signature) = &ty {
                 checker.compatible_reference_targets(signature)
@@ -402,42 +410,62 @@ pub(crate) fn probe_expression_type(
             result: Box::new(result),
         }));
     }
-    fn source(checker: &Checker<'_>, ty: &Type, range: SourceRange) -> TypeRef {
-        let mut result = crate::core::type_ref(ty, range);
-        match ty {
+    fn source(checker: &Checker<'_>, ty: &Type, range: SourceRange) -> Option<TypeRef> {
+        let kind = match ty {
             Type::Named(name) if name.starts_with("$rinzu_record_") => {
-                if let Some(record) = checker.record_declaration(name) {
-                    result.kind = crate::ast::TypeRefKind::Record(record.fields.clone());
+                let mut fields = checker.record_declaration(name)?.fields.clone();
+                for field in &mut fields {
+                    let ty = checker.resolve_type_readonly(&field.ty)?;
+                    field.ty = source(checker, &ty, range)?;
+                }
+                TypeRefKind::Record(fields)
+            }
+            // Specialization already tracks the arguments of Option instances
+            // present in the input. Reconstruct the types synthesized by this
+            // checker, which will disappear when the probe finishes.
+            Type::Named(name)
+                if name.starts_with("Option<")
+                    && !checker.module.declarations.iter().any(|d| d.name() == name)
+                    && let Some(Declaration::Enum(enumeration)) =
+                        checker.declarations.get(name)
+                    && let [_, some] = enumeration.variants.as_slice()
+                    && let [field] = some.fields.as_slice() =>
+            {
+                let payload = checker.resolve_type_readonly(&field.ty)?;
+                TypeRefKind::Generic {
+                    path: vec!["Option".into()],
+                    arguments: vec![source(checker, &payload, range)?],
                 }
             }
-            Type::List(t) => {
-                result.kind = crate::ast::TypeRefKind::List(Box::new(source(checker, t, range)))
-            }
-            Type::Future(t) => {
-                result.kind = crate::ast::TypeRefKind::Future(Box::new(source(checker, t, range)))
-            }
-            Type::Map(k, v) => {
-                result.kind = crate::ast::TypeRefKind::Map(
-                    Box::new(source(checker, k, range)),
-                    Box::new(source(checker, v, range)),
-                )
-            }
-            Type::FunctionReference(signature) => {
-                result.kind = crate::ast::TypeRefKind::Function {
-                    supplant: signature.supplant,
-                    parameters: signature
-                        .parameters
-                        .iter()
-                        .map(|t| source(checker, t, range))
-                        .collect(),
-                    result: Box::new(source(checker, &signature.result, range)),
-                }
-            }
-            _ => {}
-        }
-        result
+            Type::List(t) => TypeRefKind::List(Box::new(source(checker, t, range)?)),
+            Type::Future(t) => TypeRefKind::Future(Box::new(source(checker, t, range)?)),
+            Type::Map(k, v) => TypeRefKind::Map(
+                Box::new(source(checker, k, range)?),
+                Box::new(source(checker, v, range)?),
+            ),
+            Type::FunctionReference(signature) => TypeRefKind::Function {
+                supplant: signature.supplant,
+                parameters: signature
+                    .parameters
+                    .iter()
+                    .map(|t| source(checker, t, range))
+                    .collect::<Option<Vec<_>>>()?,
+                result: Box::new(source(checker, &signature.result, range)?),
+            },
+            _ => return Some(crate::core::type_ref(ty, range)),
+        };
+        Some(TypeRef { kind, range })
     }
-    Some(source(&checker, &ty, expression.range))
+    source(&checker, &ty, expression.range)
+}
+
+pub(crate) fn option_instance_name(
+    module: &Module,
+    options: &CompilerOptions,
+    payload: &TypeRef,
+) -> Option<String> {
+    let payload = Checker::new(module, options, &HashSet::new()).resolve_type_readonly(payload)?;
+    Some(crate::core::option_name(&payload))
 }
 
 pub fn check_module_with_options(
@@ -456,33 +484,31 @@ pub fn check_module_with_options(
             .collect(),
         &options.sdk_files,
     )?;
-    let prelude_shadows = module
-        .declarations
-        .iter()
-        .filter(|d| d.name() == "Option")
-        .map(|d| d.name().to_owned())
-        .collect();
+    let option_shadow_modules = crate::core::option_shadow_modules(&module);
     let module = crate::records::expand_aliases(&module)?;
     let mut module = crate::value_constants::expand(&module)?;
     crate::error_effects::validate_annotations(&mut module)?;
     let module = crate::interfaces::prepare(&module)?;
     crate::methods::validate(&module)?;
-    let (module, requirements) = crate::generics::expand(&module, options.is_library)?;
-    let mut checker = Checker::new(&module, options);
+    // Expansion removes template exports. Keep their visibility for both
+    // inference probes and the checker of the specialized functions.
+    let mut options = options.clone();
+    options.exported_methods.extend(
+        module
+            .exports
+            .iter()
+            .map(|export| export.path.join("."))
+            .filter(|name| crate::methods::parts(name).is_some()),
+    );
+    let (module, requirements) =
+        crate::generics::expand(&module, &options, &option_shadow_modules)?;
+    let mut checker = Checker::new(&module, &options, &option_shadow_modules);
     checker.generic_requirements = requirements;
-    checker.prelude_shadows = prelude_shadows;
     let checked = checker.run()?;
     let mut checked = if let Some((converted, file)) = crate::closures::convert(&checked)? {
-        let mut checker = Checker::new(&converted, options);
+        let mut checker = Checker::new(&converted, &options, &option_shadow_modules);
         checker.source_indirect_fields = checked.indirect_fields.clone();
         checker.closure_conversion = true;
-        checker.prelude_shadows = checked
-            .syntax
-            .declarations
-            .iter()
-            .filter(|d| d.name() == "Option")
-            .map(|d| d.name().to_owned())
-            .collect();
         let mut result = checker.run()?;
         result.closure_source = Some(file);
         result
@@ -502,7 +528,8 @@ pub(crate) fn resolve_source_native_signatures(
     module: &Module,
 ) -> Result<Vec<crate::SourceNativeSignature>, Vec<Diagnostic>> {
     let options = CompilerOptions::default();
-    let mut checker = Checker::new(module, &options);
+    let option_shadow_modules = crate::core::option_shadow_modules(module);
+    let mut checker = Checker::new(module, &options, &option_shadow_modules);
     checker.collect_declarations();
     checker.constants = evaluate_module_constants(module)?;
     let signatures =
@@ -533,7 +560,7 @@ struct Checker<'a> {
     static_references: HashMap<SourceRange, String>,
     type_references: HashMap<SourceRange, Type>,
     generic_requirements: Vec<crate::generics::Requirement>,
-    prelude_shadows: HashSet<String>,
+    option_shadow_modules: &'a HashSet<String>,
     stdout_calls: HashMap<SourceRange, bool>,
     core_lengths: HashMap<SourceRange, crate::CoreLengthKind>,
     task_controls: HashMap<SourceRange, crate::TaskControlKind>,
@@ -563,7 +590,11 @@ struct Checker<'a> {
 }
 
 impl<'a> Checker<'a> {
-    fn new(module: &'a Module, options: &'a CompilerOptions) -> Self {
+    fn new(
+        module: &'a Module,
+        options: &'a CompilerOptions,
+        option_shadow_modules: &'a HashSet<String>,
+    ) -> Self {
         Self {
             error_schemas: std::collections::BTreeMap::new(),
             error_upcasts: HashMap::new(),
@@ -581,7 +612,7 @@ impl<'a> Checker<'a> {
             task_controls: HashMap::new(),
             data_operations: HashMap::new(),
             generic_requirements: Vec::new(),
-            prelude_shadows: HashSet::new(),
+            option_shadow_modules,
             stdout_calls: HashMap::new(),
             module,
             options,
@@ -1704,19 +1735,7 @@ impl<'a> Checker<'a> {
         };
         let mut seen = HashSet::new();
         for case in cases {
-            let Some(variant_name) = case.path.last() else {
-                continue;
-            };
-            let owner_matches = case.path.len() == 2
-                && (case.path[0] == enum_name
-                    || enum_name
-                        .split_once('<')
-                        .is_some_and(|(base, _)| base == case.path[0]));
-            let variant = enum_decl
-                .variants
-                .iter()
-                .find(|value| &value.name == variant_name);
-            let Some(variant) = variant.filter(|_| owner_matches) else {
+            let Some(variant) = case.variant(&enum_decl) else {
                 self.diagnostics.push(Diagnostic::error(
                     DiagnosticCode::UnknownName,
                     case.range,
@@ -2260,7 +2279,7 @@ impl<'a> Checker<'a> {
             }
             for field in &path[1..] {
                 if self.is_error_type(&ty) {
-                    ty = self.error_field_type(&ty, field, range)?;
+                    ty = self.error_field_type(&ty, field, range, &context.function.name)?;
                     continue;
                 }
                 let method_owner = match &ty {
@@ -2448,10 +2467,13 @@ impl<'a> Checker<'a> {
             })
     }
 
-    fn ensure_option(&mut self, payload: &Type, range: SourceRange) -> Option<Type> {
+    fn ensure_option(&mut self, payload: &Type, range: SourceRange, scope: &str) -> Option<Type> {
         use crate::ast::{EnumDecl, EnumVariant, FieldDecl};
-        let name = format!("Option<{}>", payload.to_string().replace(", ", ","));
-        if self.prelude_shadows.contains("Option")
+        let name = crate::core::option_name(payload);
+        if self.option_shadow_modules.contains("")
+            || self
+                .option_shadow_modules
+                .contains(crate::methods::module_name(scope))
             || self.declarations.get(&name).is_some_and(|declaration| {
                 let Declaration::Enum(value) = declaration else {
                     return true;
@@ -2979,7 +3001,7 @@ impl<'a> Checker<'a> {
                 _ => None,
             };
             if let Some(payload) = payload {
-                self.ensure_option(payload, range)?;
+                self.ensure_option(payload, range, &context.function.name)?;
             }
             self.data_operations.insert(range, op);
             context.facts.may_fail = true;
@@ -3727,12 +3749,7 @@ impl<'a> Checker<'a> {
             crate::lambdas::captures(original, &context.locals.keys().cloned().collect());
         let mut function = original.clone();
         function.lexical_owner = context.function.lexical_owner.clone();
-        let source_name = context
-            .function
-            .name
-            .strip_prefix("rinzu.constant::")
-            .unwrap_or(&context.function.name);
-        let namespace = crate::methods::module_name(source_name);
+        let namespace = crate::methods::module_name(&context.function.name);
         function.name = format!(
             "{namespace}::$rinzu_lambda_{}_{}_{}",
             range.file_id.0, range.start_byte, range.instance

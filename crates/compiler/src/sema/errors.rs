@@ -226,7 +226,7 @@ impl Checker<'_> {
                     ));
                 }
                 if payload.optional {
-                    self.ensure_option(&ty, payload.range)
+                    self.ensure_option(&ty, payload.range, &error.name)
                 } else {
                     Some(ty)
                 }
@@ -234,10 +234,11 @@ impl Checker<'_> {
                 None
             };
             let source_location = self.source_location_type(error.range);
-            let Some(source) = self.ensure_option(&source_location, error.range) else {
+            let Some(source) = self.ensure_option(&source_location, error.range, &error.name)
+            else {
                 continue;
             };
-            let Some(cause) = self.ensure_option(&Type::Error, error.range) else {
+            let Some(cause) = self.ensure_option(&Type::Error, error.range, &error.name) else {
                 continue;
             };
             let mut fields = vec![
@@ -267,6 +268,7 @@ impl Checker<'_> {
         ty: &Type,
         field: &str,
         range: SourceRange,
+        scope: &str,
     ) -> Option<Type> {
         if let Type::Named(name) = ty {
             if let Some(ty) = self
@@ -282,9 +284,9 @@ impl Checker<'_> {
                 "name" | "message" => return Some(Type::String),
                 "source" => {
                     let source_location = self.source_location_type(range);
-                    return self.ensure_option(&source_location, range);
+                    return self.ensure_option(&source_location, range, scope);
                 }
-                "cause" => return self.ensure_option(&Type::Error, range),
+                "cause" => return self.ensure_option(&Type::Error, range, scope),
                 _ => {}
             }
         }

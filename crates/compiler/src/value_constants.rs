@@ -3,6 +3,8 @@ use crate::ast::*;
 use crate::{AbiScalar, Diagnostic, DiagnosticCode, SourceRange};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+pub(crate) const ACCESSOR_PREFIX: &str = "$rinzu_constant::";
+
 pub(crate) fn rich_names(module: &Module) -> HashSet<String> {
     let constants = module
         .declarations
@@ -155,7 +157,7 @@ pub(crate) fn expand(module: &Module) -> Result<Module, Vec<Diagnostic>> {
     Ok(output)
 }
 fn accessor(name: &str) -> String {
-    format!("rinzu.constant::{name}")
+    format!("{ACCESSOR_PREFIX}{name}")
 }
 fn invalid(range: SourceRange, message: impl Into<String>) -> Diagnostic {
     Diagnostic::error(

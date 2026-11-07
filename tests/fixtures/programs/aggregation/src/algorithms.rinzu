@@ -25,9 +25,8 @@ fn findFirst<T: Equality>(values: List<T>, wanted: T) -> Option<Int> {
 fn frequencies(words: List<String>) -> Map<String, Int> {
     var counts: Map<String, Int> = {};
     for word in words {
-        let previous = rinzu.map.get(counts, word);
         let count = rinzu.option.getOrElse(
-            previous,
+            rinzu.map.get(counts, word),
             fn () -> Int {
                 return 0;
             }

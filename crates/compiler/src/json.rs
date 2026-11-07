@@ -14,7 +14,7 @@ fn is_named(ty: &Type, expected: &str) -> bool {
 }
 
 fn option(result: &Type, payload: &Type) -> bool {
-    matches!(result, Type::Named(name) if *name == format!("Option<{}>", payload.to_string().replace(", ", ",")))
+    matches!(result, Type::Named(name) if *name == crate::core::option_name(payload))
 }
 
 fn limits(ty: &Type, bytes: &str) -> bool {
@@ -52,7 +52,10 @@ pub(crate) fn signature(op: DataOperation, arguments: &[Type], result: &Type) ->
         }
         (JsonEntryAt, [input, Type::Int]) if value(input) => option(
             result,
-            &Type::Named(format!("{{key:String,value:{input}}}")),
+            &Type::Named(records::identity(&crate::collections::entry_fields(
+                &Type::String,
+                input,
+            ))),
         ),
         (JsonBool, [input]) => value(input) && *result == Type::Bool,
         (JsonString | JsonNumberText, [input]) => value(input) && *result == Type::String,

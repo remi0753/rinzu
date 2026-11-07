@@ -15,6 +15,9 @@ pub(crate) fn parts(name: &str) -> Option<(&str, &str)> {
     Some((&name[..start + dot], &name[start + dot + 1..]))
 }
 pub(crate) fn module_name(name: &str) -> &str {
+    let name = name
+        .strip_prefix(crate::value_constants::ACCESSOR_PREFIX)
+        .unwrap_or(name);
     top_separator(name, "::").map_or("", |index| &name[..index])
 }
 
