@@ -8,6 +8,9 @@ mod interrupt;
 #[allow(dead_code)]
 #[path = "support/source_platform.rs"]
 mod platform;
+#[path = "support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -57,13 +60,9 @@ fn create(root: &Path) -> PathBuf {
     root.join("app")
 }
 
-fn preserve(mode: &str, policy: usize, output: &Output) {
+fn preserve(artifacts: &Path, mode: &str, policy: usize, output: &Output) {
     use std::os::unix::process::ExitStatusExt;
-    let artifacts = std::env::var_os("RINZU_GATE_ARTIFACTS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../artifacts/i7.6-r6"))
-        .join("macos-interrupt");
-    std::fs::create_dir_all(&artifacts).unwrap();
+    std::fs::create_dir_all(artifacts).unwrap();
     let name = format!("{mode}-policy-{policy}");
     std::fs::write(artifacts.join(format!("{name}.stdout.log")), &output.stdout).unwrap();
     std::fs::write(artifacts.join(format!("{name}.stderr.log")), &output.stderr).unwrap();
@@ -88,9 +87,10 @@ fn preserve(mode: &str, policy: usize, output: &Output) {
 #[test]
 fn actual_macos_loop_stops_on_one_default_interrupt_after_real_handler_in_jit_aot_signed_and_sanitizers()
  {
-    let root = std::env::temp_dir().join(format!("rinzu-macos-interrupt-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    let app = create(&root);
+    let scratch = Scratch::new("rinzu-macos-interrupt");
+    let root = scratch.path();
+    let artifacts = scratch.artifacts().join("macos-interrupt");
+    let app = create(root);
     platform::success(&platform::bounded_tool(
         Command::new(frozen_cli::path()).arg("build").arg(&app),
     ));
@@ -100,6 +100,7 @@ fn actual_macos_loop_stops_on_one_default_interrupt_after_real_handler_in_jit_ao
         let mut command = Command::new(frozen_cli::path());
         command.arg("run").arg(&app);
         preserve(
+            &artifacts,
             "compiled-jit",
             policy,
             &interrupt::terminate_once_with_startup_limit(&mut command, policy, true, 300),
@@ -110,15 +111,17 @@ fn actual_macos_loop_stops_on_one_default_interrupt_after_real_handler_in_jit_ao
                 .env("ASAN_OPTIONS", "detect_leaks=0")
                 .env("UBSAN_OPTIONS", "halt_on_error=1");
             preserve(
+                &artifacts,
                 mode,
                 policy,
                 &interrupt::terminate_once_with_startup_limit(&mut command, policy, true, 300),
             );
         }
     }
-    platform::sign(&binary, &root);
+    platform::sign(&binary, root);
     for policy in 0..3 {
         preserve(
+            &artifacts,
             "signed-aot",
             policy,
             &interrupt::terminate_once_with_startup_limit(
@@ -129,5 +132,4 @@ fn actual_macos_loop_stops_on_one_default_interrupt_after_real_handler_in_jit_ao
             ),
         );
     }
-    std::fs::remove_dir_all(root).unwrap();
 }

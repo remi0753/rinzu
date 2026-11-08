@@ -1,12 +1,15 @@
 #![cfg(all(target_os = "macos", target_arch = "aarch64"))]
-#[path = "fixtures/frozen_cli.rs"]
-mod frozen_cli;
-use std::path::Path;
-use std::process::{Command, Output};
 #[path = "fixtures/native_performance_sdk/setup.rs"]
 mod fixture;
+#[path = "fixtures/frozen_cli.rs"]
+mod frozen_cli;
 #[path = "support/source_platform.rs"]
 mod platform;
+#[path = "support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+use std::path::Path;
+use std::process::{Command, Output};
 
 fn measurements(output: &Output, jit: bool) -> serde_json::Value {
     platform::success(output);
@@ -82,13 +85,8 @@ fn measurements(output: &Output, jit: bool) -> serde_json::Value {
     }
     serde_json::json!({"measurements":values,"resourceBaseline":true,"resourceLedger":resources})
 }
-fn preserve(name: &str, output: &Output, value: &serde_json::Value) {
-    let directory = std::env::var_os("RINZU_GATE_ARTIFACTS")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| {
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../artifacts/i7.6-r6/performance")
-        });
-    std::fs::create_dir_all(&directory).unwrap();
+fn preserve(directory: &Path, name: &str, output: &Output, value: &serde_json::Value) {
+    std::fs::create_dir_all(directory).unwrap();
     std::fs::write(directory.join(format!("{name}.stdout.log")), &output.stdout).unwrap();
     std::fs::write(directory.join(format!("{name}.stderr.log")), &output.stderr).unwrap();
     std::fs::write(
@@ -100,24 +98,31 @@ fn preserve(name: &str, output: &Output, value: &serde_json::Value) {
 }
 #[test]
 fn native_transition_callback_and_owner_completion_costs_are_measured_in_jit_and_aot() {
-    let root = std::env::temp_dir().join(format!("rinzu-native-perf-{}", std::process::id()));
-    let app = fixture::create(&root);
+    let scratch = Scratch::new("rinzu-native-perf");
+    let root = scratch.path();
+    let artifacts = scratch.artifacts();
+    let app = fixture::create(&root.join("fixture"));
     let jit = platform::bounded(
         Command::new(frozen_cli::path())
             .arg("run")
             .arg(&app)
             .arg("--trace"),
     );
-    preserve("managed-jit", &jit, &measurements(&jit, true));
+    preserve(&artifacts, "managed-jit", &jit, &measurements(&jit, true));
     platform::success(&platform::bounded(
         Command::new(frozen_cli::path()).arg("build").arg(&app),
     ));
     let binary = app.join("build/native_perf_app");
     let aot = platform::bounded(Command::new(&binary).env("RINZU_TRANSPORT_EVIDENCE", "1"));
-    preserve("managed-aot", &aot, &measurements(&aot, false));
-    platform::sign(&binary, &root);
+    preserve(&artifacts, "managed-aot", &aot, &measurements(&aot, false));
+    platform::sign(&binary, root);
     let signed = platform::bounded(Command::new(&binary).env("RINZU_TRANSPORT_EVIDENCE", "1"));
-    preserve("managed-signed-aot", &signed, &measurements(&signed, false));
+    preserve(
+        &artifacts,
+        "managed-signed-aot",
+        &signed,
+        &measurements(&signed, false),
+    );
     let sanitized = platform::sanitize(&binary);
     let sanitized_run = platform::bounded(
         Command::new(&sanitized)
@@ -125,18 +130,18 @@ fn native_transition_callback_and_owner_completion_costs_are_measured_in_jit_and
             .env("UBSAN_OPTIONS", "halt_on_error=1"),
     );
     preserve(
+        &artifacts,
         "managed-sanitized",
         &sanitized_run,
         &measurements(&sanitized_run, false),
     );
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn private_publish_receipt_runloop_wake_and_template_growth_are_measured_and_accounted() {
-    let root = std::env::temp_dir().join(format!("rinzu-private-perf-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).unwrap();
+    let scratch = Scratch::new("rinzu-private-perf");
+    let root = scratch.path();
+    let artifacts = scratch.artifacts();
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     for (name, sanitizer) in [
         ("protocol-signed", None),
@@ -221,10 +226,10 @@ fn private_publish_receipt_runloop_wake_and_template_growth_are_measured_and_acc
         assert_eq!(template[5], 1537);
         assert_eq!(&template[8..], &[0, 0, 0, 0]);
         preserve(
+            &artifacts,
             name,
             &output,
             &serde_json::json!({"queue":queue,"ownerWake":wake,"template":template,"temporaryBaseline":true,"hasJitEntitlements":false}),
         );
     }
-    std::fs::remove_dir_all(root).unwrap();
 }
