@@ -84,7 +84,7 @@ impl State {
         let full = matches!(token, Token::All(_) | Token::Population(_));
         let token = canonical(token);
         if full || token.observable() {
-            self.pending.remove(&token);
+            self.remove_pending(&token);
             if let Token::Input(input) = token {
                 self.observed.insert(input);
             }

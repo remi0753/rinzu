@@ -54,7 +54,13 @@ impl Engine<'_> {
                         continue;
                     };
                     if resolved.is_none() {
-                        state.pending.retain(|token, _| !created.contains(token));
+                        state.pending.retain(|token, _| {
+                            let keep = !created.contains(token);
+                            if !keep {
+                                state.trace.forget_obligation(token);
+                            }
+                            keep
+                        });
                         state.pending.extend(case.created);
                     }
                     // Keep repeated awaits on the same outcome. The inner
@@ -105,8 +111,121 @@ impl Engine<'_> {
             }
         }
     }
+    fn await_expression(
+        &self,
+        operand: &Expression,
+        at: SourceRange,
+        state: State,
+    ) -> Vec<Evaluation> {
+        let mut result = Vec::new();
+        for evaluated in self.expression(operand, state) {
+            let value = match evaluated.result {
+                Ok(value) => value,
+                Err(_) => {
+                    result.push(evaluated);
+                    continue;
+                }
+            };
+            let precise = self.replay.is_some() && matches!(value, Tracked::Future { .. });
+            for value in value.alternatives() {
+                let mut state = evaluated.state.clone();
+                match value {
+                    Tracked::Future {
+                        token,
+                        result: outcome,
+                        ..
+                    } => {
+                        let awaited = precise.then(|| token.clone());
+                        let mut outcomes = self.await_outcome(token, outcome, state);
+                        if let Some(token) = awaited {
+                            for evaluated in &mut outcomes {
+                                evaluated.state.record_await(&token, self.at(at));
+                            }
+                        }
+                        result.extend(outcomes);
+                    }
+                    value => {
+                        if let Tracked::Input {
+                            parameter,
+                            future: true,
+                            ..
+                        } = &value
+                        {
+                            state.observe(&Token::Input(parameter.clone()));
+                        }
+                        if let Tracked::Iteration { at, path, .. } = &value {
+                            state.observe(&Token::Iteration(*at, path.clone()));
+                        }
+                        let token = if let Tracked::Input {
+                            parameter,
+                            future: true,
+                            ..
+                        } = &value
+                        {
+                            Some(Token::Input(parameter.clone()))
+                        } else if let Tracked::Iteration { at, path, .. } = &value {
+                            Some(Token::Iteration(*at, path.clone()))
+                        } else {
+                            None
+                        };
+                        for guards in value.effect().panic_guards() {
+                            if let Some(state) = state.condition(&guards) {
+                                result.push(Evaluation {
+                                    state,
+                                    result: Err(Stop::Panic),
+                                });
+                            }
+                        }
+                        for guards in value.effect().nonreturn_guards() {
+                            if let Some(state) = state.condition(&guards) {
+                                result.push(Evaluation {
+                                    state,
+                                    result: Err(Stop::Diverges),
+                                });
+                            }
+                        }
+                        for word in value.effect().future_errors(self.bound) {
+                            if let Some(state) = state.condition(&word.guards) {
+                                result.push(Evaluation::failed(state, word, token.clone()));
+                            }
+                        }
+                        for guards in value.effect().success_guards() {
+                            if let Some(mut state) = state.condition(&guards) {
+                                if let (Some(token), Some(group)) =
+                                    (&token, state.groups.last_mut())
+                                {
+                                    group.observed.insert(token.clone());
+                                }
+                                let inner = self.type_at(at);
+                                let returned = value.project(
+                                    Access::Await(self.type_at(operand.range).to_string()),
+                                    self.typed(&inner),
+                                    matches!(inner, Type::Future(_)),
+                                );
+                                result.push(Evaluation::pure(state, returned));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        result
+    }
     pub fn expression(&self, expression: &Expression, state: State) -> Vec<Evaluation> {
-        coalesce(self, self.raw_expression(expression, state))
+        let mut results = self.raw_expression(expression, state);
+        if self.replay.is_some() {
+            for evaluated in &mut results {
+                if matches!(evaluated.result, Err(Stop::Error(..)))
+                    && evaluated.state.trace.exit().is_none()
+                {
+                    evaluated
+                        .state
+                        .trace
+                        .set_exit(Some(self.at(expression.range)));
+                }
+            }
+        }
+        coalesce(self, results)
     }
     fn raw_expression(&self, expression: &Expression, state: State) -> Vec<Evaluation> {
         match &expression.kind {
@@ -183,91 +302,7 @@ impl Engine<'_> {
                 self.call(expression, target, arguments, state, true)
             }
             ExpressionKind::Await(operand) => {
-                let mut result = Vec::new();
-                for evaluated in self.expression(operand, state) {
-                    let value = match evaluated.result {
-                        Ok(value) => value,
-                        Err(_) => {
-                            result.push(evaluated);
-                            continue;
-                        }
-                    };
-                    for value in value.alternatives() {
-                        let mut state = evaluated.state.clone();
-                        match value {
-                            Tracked::Future {
-                                token,
-                                result: outcome,
-                                ..
-                            } => {
-                                result.extend(self.await_outcome(token, outcome, state));
-                            }
-                            value => {
-                                if let Tracked::Input {
-                                    parameter,
-                                    future: true,
-                                    ..
-                                } = &value
-                                {
-                                    state.observe(&Token::Input(parameter.clone()));
-                                }
-                                if let Tracked::Iteration { at, path, .. } = &value {
-                                    state.observe(&Token::Iteration(*at, path.clone()));
-                                }
-                                let token = if let Tracked::Input {
-                                    parameter,
-                                    future: true,
-                                    ..
-                                } = &value
-                                {
-                                    Some(Token::Input(parameter.clone()))
-                                } else if let Tracked::Iteration { at, path, .. } = &value {
-                                    Some(Token::Iteration(*at, path.clone()))
-                                } else {
-                                    None
-                                };
-                                for guards in value.effect().panic_guards() {
-                                    if let Some(state) = state.condition(&guards) {
-                                        result.push(Evaluation {
-                                            state,
-                                            result: Err(Stop::Panic),
-                                        });
-                                    }
-                                }
-                                for guards in value.effect().nonreturn_guards() {
-                                    if let Some(state) = state.condition(&guards) {
-                                        result.push(Evaluation {
-                                            state,
-                                            result: Err(Stop::Diverges),
-                                        });
-                                    }
-                                }
-                                for word in value.effect().future_errors(self.bound) {
-                                    if let Some(state) = state.condition(&word.guards) {
-                                        result.push(Evaluation::failed(state, word, token.clone()));
-                                    }
-                                }
-                                for guards in value.effect().success_guards() {
-                                    if let Some(mut state) = state.condition(&guards) {
-                                        if let (Some(token), Some(group)) =
-                                            (&token, state.groups.last_mut())
-                                        {
-                                            group.observed.insert(token.clone());
-                                        }
-                                        let inner = self.type_at(expression.range);
-                                        let returned = value.project(
-                                            Access::Await(self.type_at(operand.range).to_string()),
-                                            self.typed(&inner),
-                                            matches!(inner, Type::Future(_)),
-                                        );
-                                        result.push(Evaluation::pure(state, returned));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                result
+                self.await_expression(operand, expression.range, state)
             }
             ExpressionKind::Is { value, .. } => self.map_expression(value, state, |value| {
                 Tracked::data(Value::Bool(

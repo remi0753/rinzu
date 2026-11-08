@@ -667,9 +667,12 @@ fn compiler_errors_preserve_their_actual_message_span_and_recovery_hint() {
         let column = start + 1;
         let caret = "^".repeat(span.len());
         let note = if code == "RZ0406" {
-            "  note: source.rinzu:1:67: this exit does not preserve an observation path\n"
+            format!(
+                "  note: source.rinzu:1:{}: this exit does not preserve an observation path\n",
+                source.len()
+            )
         } else {
-            ""
+            String::new()
         };
         assert_eq!(
             stderr,
@@ -678,6 +681,64 @@ fn compiler_errors_preserve_their_actual_message_span_and_recovery_hint() {
                 "",
             ),
             "{code}, {source}"
+        );
+    }
+}
+
+#[test]
+fn future_replacement_shows_the_same_path_on_repeated_checks() {
+    let fixture = Fixture::new();
+    fixture.file(
+        "refresh.rinzu",
+        include_str!("fixtures/future_replacement.rinzu"),
+    );
+    let expected = concat!(
+        "refresh.rinzu:13:5: RZ0406: replacing `state` leaves the Future previously held in `state.pending` unobserved\n",
+        "  13 |     state = { pending = cached() };\n",
+        "     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n",
+        "  note: refresh.rinzu:12:29: `fetch()` creates the Future that can fail\n",
+        "  note: refresh.rinzu:15:22: this `await` observes the replacement Future from `cached()`\n",
+        "  help: keep and await the original Future, or create it only on paths that can observe it\n",
+        "rinzu: input failed to check\n",
+    );
+    for _ in 0..2 {
+        assert_eq!(rejected(fixture.cli(&["check", "refresh.rinzu"])), expected);
+    }
+}
+
+#[test]
+fn future_diagnostic_replay_is_shared_by_failures_and_skipped_on_success() {
+    let fixture = Fixture::new();
+    let source = include_str!("fixtures/future_replacement.rinzu");
+    let source = source.replace(
+        "    state = { pending = cached() };",
+        "    let other = fetch();\n    state = { pending = cached() };",
+    );
+    let fixed = source
+        .replace(
+            "    let other = fetch();",
+            "    let original = state.pending;",
+        )
+        .replace(
+            "    try {",
+            "    try { let first = await original; } catch failures {}\n    try {",
+        );
+    for (source, failures, replays) in [(&source, 2, 1), (&fixed, 0, 0)] {
+        fixture.file("refresh.rinzu", source);
+        let output = fixture
+            .command(&["check", "refresh.rinzu"])
+            .env("RINZU_COMPILE_TIMINGS", "1")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert_eq!(output.status.success(), failures == 0, "{stderr}");
+        assert_eq!(stderr.matches("RZ0406:").count(), failures, "{stderr}");
+        assert_eq!(
+            stderr
+                .matches("\"phase\":\"frontend.responsibility.diagnostics\"")
+                .count(),
+            replays,
+            "{stderr}"
         );
     }
 }

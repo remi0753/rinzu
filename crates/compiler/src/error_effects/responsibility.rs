@@ -10,6 +10,7 @@ mod flow;
 mod iteration;
 mod mutations;
 mod objects;
+mod observation_diagnostics;
 mod receivers;
 mod retention;
 mod shared_map;
@@ -18,6 +19,8 @@ mod value;
 mod watches;
 use super::*;
 use families::FutureMembers;
+use observation_diagnostics::{Replay, Trace};
+use std::cell::RefCell;
 use value::{
     Access, FutureCase, FutureResult, Key, Parameter, Site, Token, Tracked, choice, range, site,
 };
@@ -68,6 +71,7 @@ struct State {
     receiver_controls: BTreeSet<Token>,
     receiver_scope_control: bool,
     field_watch_blocked: bool,
+    trace: Trace,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Group {
@@ -159,7 +163,7 @@ pub(super) fn validate(
         .iter()
         .map(|function| (function.declaration.name.clone(), function))
         .collect();
-    let contexts = std::cell::RefCell::new(BTreeMap::new());
+    let contexts = RefCell::new(BTreeMap::new());
     let data_functions = data_contracts::functions(checked);
     let mut contracts = contract_cache::Contracts::new(
         checked
@@ -167,6 +171,51 @@ pub(super) fn validate(
             .iter()
             .map(|function| function.declaration.name.clone()),
     );
+    let analyze = |contracts: &contract_cache::Contracts,
+                   name: &str,
+                   replay: Option<&RefCell<Replay>>| {
+        let function = functions[name];
+        let mut engine = Engine {
+            checked,
+            effects,
+            contracts,
+            bound,
+            current: name,
+            recursive_calls: std::cell::Cell::new(false),
+            non_decreasing: std::cell::Cell::new(false),
+            cyclic: recursive.contains(name),
+            mutates: std::cell::Cell::new(false),
+            mutates_async: std::cell::Cell::new(false),
+            disrupts_observers: std::cell::Cell::new(false),
+            contexts: &contexts,
+            data_functions: &data_functions,
+            context: 0,
+            stack: vec![name.to_owned()],
+            allow_field_watch: false,
+            replay,
+        };
+        // A summary cannot drop a field lease when its class may escape.
+        // Contextual synchronous calls keep the actual heap and leases.
+        engine.allow_field_watch = !function
+            .parameter_types
+            .iter()
+            .chain(std::iter::once(&function.result_type))
+            .any(|ty| engine.contains_mutable_class(ty, &mut BTreeSet::new()));
+        let mut next = engine.function(function);
+        if let Some(errors) = super::contracts::declared(checked, &function.declaration, bound) {
+            let origins = next.exits.clone();
+            for exit in origins {
+                for word in &errors {
+                    let mut exit = exit.clone();
+                    exit.result = Err(Stop::Error(Box::new(word.clone()), None));
+                    if !next.exits.contains(&exit) {
+                        next.exits.push(exit);
+                    }
+                }
+            }
+        }
+        next
+    };
     loop {
         let mut changed = false;
         for name in &order {
@@ -176,47 +225,7 @@ pub(super) fn validate(
                 continue;
             }
             contracts.begin();
-            let function = functions[name];
-            let mut engine = Engine {
-                checked,
-                effects,
-                contracts: &contracts,
-                bound,
-                current: &function.declaration.name,
-                recursive_calls: std::cell::Cell::new(false),
-                non_decreasing: std::cell::Cell::new(false),
-                cyclic: recursive.contains(&function.declaration.name),
-                mutates: std::cell::Cell::new(false),
-                mutates_async: std::cell::Cell::new(false),
-                disrupts_observers: std::cell::Cell::new(false),
-                contexts: &contexts,
-                data_functions: &data_functions,
-                context: 0,
-                stack: vec![function.declaration.name.clone()],
-                allow_field_watch: false,
-            };
-            // A summary cannot drop a field lease when its class may escape.
-            // Contextual synchronous calls keep the actual heap and leases.
-            engine.allow_field_watch = !function
-                .parameter_types
-                .iter()
-                .chain(std::iter::once(&function.result_type))
-                .any(|ty| engine.contains_mutable_class(ty, &mut BTreeSet::new()));
-            let mut next = engine.function(function);
-            if let Some(errors) = super::contracts::declared(checked, &function.declaration, bound)
-            {
-                let origins = next.exits.clone();
-                for exit in origins {
-                    for word in &errors {
-                        let mut exit = exit.clone();
-                        exit.result = Err(Stop::Error(Box::new(word.clone()), None));
-                        if !next.exits.contains(&exit) {
-                            next.exits.push(exit);
-                        }
-                    }
-                }
-            }
-            if contracts.update(name, next) {
+            if contracts.update(name, analyze(&contracts, name, None)) {
                 changed = true;
             }
         }
@@ -246,6 +255,7 @@ pub(super) fn validate(
     let mut seen = BTreeSet::new();
     let mut seen_requirements = BTreeSet::new();
     for (name, contract) in contracts.iter() {
+        let mut replay = None;
         for exit in &contract.exits {
             for restriction in &exit.restrictions {
                 if restriction.forbidden && seen.insert((restriction.origin, restriction.origin)) {
@@ -269,28 +279,29 @@ pub(super) fn validate(
                 }
             }
             for requirement in &exit.requirements {
-                let unconditional: Language = requirement
-                    .errors
-                    .iter()
-                    .filter(|word| !symbolic(word, name))
-                    .cloned()
-                    .collect();
-                if unconditional.is_empty()
-                    || !seen_requirements.insert((
-                        requirement.kind,
-                        requirement.origin,
-                        requirement.exit,
-                    ))
-                {
+                let Some(requirement) = displayed_requirement(requirement, name) else {
+                    continue;
+                };
+                if !seen_requirements.insert((
+                    requirement.kind,
+                    requirement.origin,
+                    requirement.exit,
+                )) {
                     continue;
                 }
                 let (code, message, help, secondary) = match requirement.kind {
-                    RequirementKind::Observation => (
-                        DiagnosticCode::FutureDiscarded,
-                        "this task can fail after its observation path is lost",
-                        "await an alias on every managed exit, return the Future, or pass it to a proven observer",
-                        "this exit does not preserve an observation path",
-                    ),
+                    RequirementKind::Observation => {
+                        let replay = replay.get_or_insert_with(|| {
+                            let _timing =
+                                crate::timing::span("frontend.responsibility.diagnostics");
+                            let replay = RefCell::new(Replay::default());
+                            let result = analyze(&contracts, name, Some(&replay));
+                            debug_assert_eq!(&result, contract);
+                            replay.into_inner()
+                        });
+                        diagnostics.push(replay.diagnostic(&requirement));
+                        continue;
+                    }
                     RequirementKind::Worker => (
                         DiagnosticCode::ErrorEscapesBoundary,
                         "a normal Error can escape this Worker root",
@@ -318,6 +329,18 @@ pub(super) fn validate(
         }
     }
     diagnostics
+}
+fn displayed_requirement(requirement: &Requirement, owner: &str) -> Option<Requirement> {
+    let errors: Language = requirement
+        .errors
+        .iter()
+        .filter(|word| !symbolic(word, owner))
+        .cloned()
+        .collect();
+    (!errors.is_empty()).then_some(Requirement {
+        errors,
+        ..*requirement
+    })
 }
 fn symbolic(word: &language::Word, owner: &str) -> bool {
     word.guards.keys().any(|input|input.owner==owner) || word.prefix.iter().any(|tag|matches!(tag,Tag::Parameter(input)|Tag::FutureElement(input,_) if input.owner==owner))
@@ -355,11 +378,12 @@ struct Engine<'a> {
     mutates: std::cell::Cell<bool>,
     mutates_async: std::cell::Cell<bool>,
     disrupts_observers: std::cell::Cell<bool>,
-    contexts: &'a std::cell::RefCell<BTreeMap<(u32, Site), u32>>,
+    contexts: &'a RefCell<BTreeMap<(u32, Site), u32>>,
     data_functions: &'a BTreeSet<String>,
     context: u32,
     stack: Vec<String>,
     allow_field_watch: bool,
+    replay: Option<&'a RefCell<Replay>>,
 }
 impl Engine<'_> {
     fn at(&self, range: SourceRange) -> Site {
@@ -422,6 +446,9 @@ impl Engine<'_> {
     fn function(&self, function: &crate::CheckedFunction) -> Contract {
         let name = &function.declaration.name;
         let mut state = State::default();
+        if self.replay.is_some() {
+            state.trace = Trace::enabled();
+        }
         for (index, (parameter, ty)) in function
             .declaration
             .parameters
@@ -450,14 +477,26 @@ impl Engine<'_> {
         let mut exits = Vec::new();
         let mut residual_mutation = false;
         let mut exports_residual_mutations = true;
-        for path in self.block(
-            &function.declaration.body,
+        let body = &function.declaration.body;
+        let paths = self.block(
+            body,
             vec![Path {
                 state,
                 control: Control::Normal,
             }],
             false,
-        ) {
+        );
+        let prunes_recursion = self.recursive_calls.get() && !self.non_decreasing.get();
+        for path in paths {
+            let exit_site = self.replay.and_then(|_| match path.control {
+                Control::Normal if self.checked.closure_source != Some(body.range.file_id) => {
+                    let mut closing = body.range;
+                    closing.start_byte = closing.end_byte.saturating_sub(1);
+                    Some(self.at(closing))
+                }
+                Control::Return(_) | Control::Error(..) => path.state.trace.exit(),
+                _ => None,
+            });
             let protected = if let Control::Recurse(held) = &path.control {
                 held.clone()
             } else {
@@ -534,9 +573,23 @@ impl Engine<'_> {
                     let requirement = Requirement {
                         kind: RequirementKind::Observation,
                         origin: obligation.origin,
-                        exit: self.at(function.declaration.body.range),
+                        exit: self.at(body.range),
                         errors: language::restricted(&obligation.errors, &state.guards),
                     };
+                    // Inherited and collision requirements already have call
+                    // sites. Only attach an exit from this function's replay.
+                    if let Some(replay) = self.replay
+                        && !(prunes_recursion && matches!(error, Some(Stop::Recurse(_))))
+                        && requirement.origin.4 == 0
+                        && requirement.origin.0 == requirement.exit.0
+                        && requirement.origin.1 >= requirement.exit.1
+                        && requirement.origin.2 <= requirement.exit.2
+                        && let Some(displayed) = displayed_requirement(&requirement, name)
+                    {
+                        replay
+                            .borrow_mut()
+                            .record(displayed, &state, token, exit_site);
+                    }
                     if !state.requirements.contains(&requirement) {
                         state.requirements.push(requirement);
                     }
@@ -647,7 +700,7 @@ impl Engine<'_> {
                 exits.push(exit);
             }
         }
-        if self.recursive_calls.get() && !self.non_decreasing.get() {
+        if prunes_recursion {
             // A recursive call through a strict immutable subobject cannot
             // traverse a cycle constructed by source programs. Explicit loops
             // and unrelated suspension remain separate divergent outcomes.
@@ -704,6 +757,7 @@ impl State {
                 continue;
             }
             if let Some(old) = token.aged() {
+                self.trace.forget_identity(&token);
                 self.age_watch_token(&token, &old);
                 self.age_mutation_token(&token, &old);
                 let old_pending = self.pending.contains_key(&old);
@@ -766,7 +820,7 @@ impl State {
         if let Token::Population(inner) = token {
             self.forget_watched_producer(inner);
             self.forget_received_producer(inner);
-            self.pending.remove(inner.as_ref());
+            self.remove_pending(inner);
             if let Token::Input(input) = inner.as_ref() {
                 self.observed.insert(input.clone());
             }
@@ -777,7 +831,7 @@ impl State {
                 self.forget_received_producer(token);
                 self.forget_watched_producer(token);
             }
-            self.pending.remove(token.as_ref());
+            self.remove_pending(token);
             if let Token::Input(parameter) = token.as_ref() {
                 self.observed.insert(parameter.clone());
             }
@@ -793,10 +847,14 @@ impl State {
         }
         self.forget_watched_producer(token);
         self.forget_received_producer(token);
-        self.pending.remove(token);
+        self.remove_pending(token);
         if let Token::Input(parameter) = token {
             self.observed.insert(parameter.clone());
         }
+    }
+    fn remove_pending(&mut self, token: &Token) {
+        self.pending.remove(token);
+        self.trace.forget_obligation(token);
     }
     fn fresh(&mut self, at: Site, slot: u32) -> Token {
         let current = Token::Local(at, slot, false);
@@ -811,6 +869,7 @@ impl State {
         )
     }
     fn fresh_token(&mut self, at: Site, current: Token, old: Token) -> Token {
+        self.trace.forget_identity(&current);
         if self.pending.contains_key(&current)
             || self.watch_tokens().contains(&current)
             || self.has_receiver_token(&current)
@@ -903,6 +962,7 @@ impl State {
         Some(next)
     }
     fn join(&mut self, other: &Self) {
+        self.trace.intersect(&other.trace);
         self.restrictions.extend(other.restrictions.clone());
         let left_population = self.task_population();
         let right_population = other.task_population();

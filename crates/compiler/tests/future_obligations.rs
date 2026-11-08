@@ -1,4 +1,4 @@
-use rinzu_compiler::{DiagnosticCode, FileId, SourceFile, compile_source};
+use rinzu_compiler::{Diagnostic, DiagnosticCode, FileId, SourceFile, SourceRange, compile_source};
 const BASE: &str = r#"
 import rinzu.list;
 error A{} error B{}
@@ -25,6 +25,334 @@ fn lost(text: &str) {
             .iter()
             .any(|d| d.code == DiagnosticCode::FutureDiscarded),
         "{diagnostics:#?}"
+    );
+}
+
+fn assert_path(text: &str, primary: &str, related: &[&str]) -> Diagnostic {
+    let text = format!("{BASE}{text}");
+    let diagnostics = compile_source(&SourceFile::new(
+        FileId(251),
+        "future-obligations.rinzu",
+        &text,
+    ))
+    .unwrap_err();
+    let [diagnostic] = diagnostics.as_slice() else {
+        panic!("expected one diagnostic, got {diagnostics:#?}");
+    };
+    let at = |range: SourceRange| &text[range.start_byte as usize..range.end_byte as usize];
+    assert_eq!(
+        diagnostic.code,
+        DiagnosticCode::FutureDiscarded,
+        "{diagnostic:#?}"
+    );
+    assert_eq!(at(diagnostic.primary), primary, "{diagnostic:#?}");
+    assert_eq!(
+        diagnostic
+            .secondary
+            .iter()
+            .map(|(range, _)| at(*range))
+            .collect::<Vec<_>>(),
+        related,
+        "{diagnostic:#?}"
+    );
+    diagnostic.clone()
+}
+
+#[test]
+fn an_await_through_an_alias_selects_the_replaced_field() {
+    let diagnostic = assert_path(
+        r#"
+async fn main() {
+    let replacement = ok();
+    var state = { row = { first = ok(), second = fail() } };
+    state = { row = { first = state.row.second, second = state.row.second } };
+    state = { row = { first = ok(), second = replacement } };
+    let alias = state.row.second;
+    await alias;
+}
+"#,
+        "state = { row = { first = ok(), second = replacement } };",
+        &["fail()", "ok()", "await alias"],
+    );
+    assert!(diagnostic.message.contains("`state.row.second`"));
+    assert_eq!(
+        diagnostic.secondary[1].1,
+        "`ok()` creates the replacement Future"
+    );
+}
+
+#[test]
+fn a_retained_alias_and_reassignment_to_the_same_future_keep_the_origin_primary() {
+    let source = r#"
+async fn main() {
+    var state = { pending = fail() };
+    let saved = { pending = state.pending };
+    state = { pending = ok() };
+    await state.pending;
+}
+"#;
+    assert_path(source, "fail()", &["}"]);
+    accepted(&source.replace(
+        "    await state.pending;",
+        "    await state.pending;\n    try { await saved.pending; } catch errors {}",
+    ));
+    assert_path(
+        "async fn main() { var task = fail(); task = task; }",
+        "fail()",
+        &["}"],
+    );
+    accepted(
+        "async fn main() { var task = fail(); task = task; try { await task; } catch errors {} }",
+    );
+}
+
+#[test]
+fn equal_call_spellings_and_later_replacements_keep_separate_identities() {
+    let source = r#"
+async fn main() {
+    var task = fail();
+    task = fail();
+    try { await task; } catch errors {}
+}
+"#;
+    let diagnostic = assert_path(source, "task = fail();", &["fail()", "await task"]);
+    assert_eq!(
+        diagnostic.secondary[0].0.start_byte as usize,
+        BASE.len() + source.find("fail()").unwrap()
+    );
+    assert_path(
+        "async fn main() { var task = fail(); task = ok(); let next = ok(); task = next; await task; }",
+        "task = ok();",
+        &["fail()", "}"],
+    );
+}
+
+#[test]
+fn a_synchronous_factory_points_to_the_expression_that_supplied_the_future() {
+    let diagnostic = assert_path(
+        r#"
+fn make() -> Future<Unit> { return fail(); }
+fn cached() -> Future<Unit> { return ok(); }
+async fn main() {
+    var task = make();
+    let next = cached();
+    task = next;
+    await task;
+}
+"#,
+        "task = next;",
+        &["make()", "cached()", "await task"],
+    );
+    assert_eq!(
+        diagnostic.secondary[0].1,
+        "this expression yields the Future that can fail"
+    );
+    assert_eq!(
+        diagnostic.secondary[1].1,
+        "the replacement Future is obtained here"
+    );
+    assert_eq!(
+        diagnostic.secondary[2].1,
+        "this `await` observes the replacement Future"
+    );
+}
+
+#[test]
+fn a_conditional_replacement_uses_only_an_await_on_the_same_path() {
+    let source = r#"
+fn choose(value: Int) -> Bool { return value < 1; }
+async fn main() {
+    var task = fail();
+    if choose(0) {
+        task = ok();
+    }
+    try { await task; } catch errors {}
+}
+"#;
+    assert_path(source, "task = ok();", &["fail()", "await task"]);
+    assert_path(
+        &source.replace("task = ok();", "task = ok(); return;"),
+        "task = ok();",
+        &["fail()", "return;"],
+    );
+    assert_path(
+        &source.replace(
+            "}\n    try { await task; } catch errors {}",
+            "} else { try { await task; } catch errors {} }",
+        ),
+        "task = ok();",
+        &["fail()", "}"],
+    );
+    assert_path(
+        r#"
+fn choose(value: Int) -> Bool { return value < 1; }
+async fn main() {
+    var task = fail();
+    if choose(0) {
+        task = ok();
+    } else {
+        task = ok();
+        await task;
+    }
+}
+"#,
+        "task = ok();",
+        &["fail()", "await task"],
+    );
+}
+
+#[test]
+fn a_failed_assignment_preserves_the_original_future_on_the_error_path() {
+    let source = r#"
+fn load() throws(B) -> Future<Unit> { throw B(message: "no replacement"); }
+async fn refresh() throws(B) {
+    var task = fail();
+    task = load();
+}
+fn main() {}
+"#;
+    assert_path(source, "fail()", &["load()"]);
+    accepted(&source.replace(
+        "    task = load();",
+        "    try { task = load(); } catch errors {}\n    try { await task; } catch errors {}",
+    ));
+    assert_path(
+        &source.replace(
+            "    task = load();",
+            "    try { task = load(); } catch errors {}",
+        ),
+        "fail()",
+        &["}"],
+    );
+    assert_path(
+        &source.replace(
+            "    task = load();",
+            "    task = ok();\n    try { await load(); } catch errors {}",
+        ),
+        "task = ok();",
+        &["fail()", "}"],
+    );
+}
+
+#[test]
+fn finally_can_restore_or_replace_the_exit_and_observe_the_original_future() {
+    let source = r#"
+async fn refresh() throws(B) {
+    var task = fail();
+    try {
+        task = ok();
+        return;
+    }
+    finally { throw B(message: "cleanup"); }
+}
+fn main() {}
+"#;
+    assert_path(
+        source,
+        "task = ok();",
+        &["fail()", "throw B(message: \"cleanup\");"],
+    );
+    assert_path(
+        &source.replace("throw B(message: \"cleanup\");", ""),
+        "task = ok();",
+        &["fail()", "return;"],
+    );
+    accepted(
+        &source
+            .replace("    try {\n", "    let original = task;\n    try {\n")
+            .replace(
+                "throw B(message: \"cleanup\");",
+                "try { await original; } catch errors {}",
+            ),
+    );
+}
+
+#[test]
+fn a_future_in_a_saved_return_is_still_held_during_cleanup() {
+    assert_path(
+        r#"
+fn refresh() throws(B) -> Future<Unit> {
+    var task = fail();
+    let replacement = ok();
+    try { return task; }
+    finally {
+        task = replacement;
+        throw B(message: "cleanup");
+    }
+}
+fn main() {}
+"#,
+        "fail()",
+        &["throw B(message: \"cleanup\");"],
+    );
+}
+
+#[test]
+fn an_obligation_specialized_by_the_caller_keeps_its_call_site() {
+    let source = r#"
+async fn refresh(useCache: Bool) {
+    var task = fail();
+    if useCache { task = ok(); return; }
+    try { await task; } catch errors {}
+}
+async fn main() { await refresh(true); }
+"#;
+    assert_path(source, "fail()", &["refresh(true)"]);
+    accepted(&source.replace("refresh(true)", "refresh(false)"));
+}
+
+#[test]
+fn heap_aliases_and_loop_generations_fall_back_to_known_locations() {
+    assert_path(
+        r#"
+class Holder { pending: Future<Unit> }
+async fn main() {
+    var task = fail();
+    let holder = Holder(pending: task);
+    task = ok();
+    await task;
+}
+"#,
+        "fail()",
+        &["}"],
+    );
+    assert_path(
+        r#"
+async fn main() {
+    var task = fail();
+    var index = 0;
+    while index < 2 {
+        task = ok();
+        index = index + 1;
+    }
+    try { await task; } catch errors {}
+}
+"#,
+        "fail()",
+        &["}"],
+    );
+}
+
+#[test]
+fn a_call_can_retain_the_original_future_without_proving_observation() {
+    assert_path(
+        r#"
+fn choose(value: Int) -> Bool { return value < 1; }
+async fn maybeObserve(task: Future<Unit>, enabled: Bool) {
+    if enabled { try { await task; } catch errors {} }
+}
+fn launch(task: Future<Unit>, enabled: Bool) {
+    let observer = maybeObserve(task, enabled);
+}
+async fn main() {
+    var task = fail();
+    launch(task, choose(0));
+    task = ok();
+    await task;
+}
+"#,
+        "fail()",
+        &["}"],
     );
 }
 

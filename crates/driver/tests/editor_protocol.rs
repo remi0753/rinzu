@@ -167,6 +167,117 @@ fn unicode_lexical_errors_have_precise_editor_ranges() {
 }
 
 #[test]
+fn future_replacement_ranges_match_the_cli_in_unsaved_unicode_buffers() {
+    let fixture = Fixture::new();
+    fixture.package();
+    let entry = fixture.file("src/main.rinzu", "fn main() {}");
+    let mut client = Client::new(Some(&fixture.0));
+    let source = include_str!("fixtures/future_replacement.rinzu");
+    let unicode = format!(
+        "\u{feff}{}",
+        source
+            .replace("    var state", "    let title = \"日本😀\"; var state")
+            .replace("    state =", "    let cacheLabel = \"日本😀\"; state =")
+            .replace(
+                "        let result",
+                "        let label = \"日本😀\"; let result"
+            )
+            .replace('\n', "\r\n")
+    );
+    for (version, text) in [(1, source), (2, unicode.as_str())] {
+        if version == 1 {
+            client.open(&entry, version, text);
+        } else {
+            client.ok(
+                "change",
+                json!({
+                    "path":entry,
+                    "version":version,
+                    "text":text.strip_prefix('\u{feff}').unwrap(),
+                    "bom":true,
+                }),
+            );
+        }
+        let response = client.query("diagnostics", &entry, version, json!(null));
+        let diagnostics = response["result"]["diagnostics"].as_array().unwrap();
+        assert_eq!(diagnostics.len(), 1, "{response:#}");
+        let diagnostic = &diagnostics[0];
+        assert_eq!(diagnostic["code"], "RZ0406");
+        assert_eq!(
+            diagnostic["message"],
+            "replacing `state` leaves the Future previously held in `state.pending` unobserved"
+        );
+        let secondary = diagnostic["secondary"].as_array().unwrap();
+        assert_eq!(secondary.len(), 2, "{response:#}");
+        assert_eq!(
+            secondary[0]["message"],
+            "`fetch()` creates the Future that can fail"
+        );
+        assert_eq!(
+            secondary[1]["message"],
+            "this `await` observes the replacement Future from `cached()`"
+        );
+        assert_eq!(
+            diagnostic["suggestions"],
+            json!([{
+                "applicability": "Explanation",
+                "message": "keep and await the original Future, or create it only on paths that can observe it",
+                "replacement": null
+            }])
+        );
+
+        fixture.file("refresh.rinzu", text);
+        let cli = Command::new(frozen_cli::path())
+            .current_dir(&fixture.0)
+            .args(["check", "refresh.rinzu"])
+            .output()
+            .unwrap();
+        assert_eq!(cli.status.code(), Some(1));
+        let stderr = String::from_utf8(cli.stderr).unwrap();
+        for (location, span, prefix) in [
+            (
+                &diagnostic["primary"],
+                "state = { pending = cached() };",
+                "",
+            ),
+            (&secondary[0]["location"], "fetch()", "  note: "),
+            (&secondary[1]["location"], "await state.pending", "  note: "),
+        ] {
+            let start = text.rfind(span).unwrap();
+            let before = &text[..start];
+            let line = before.bytes().filter(|byte| *byte == b'\n').count();
+            let line_prefix = before.rsplit('\n').next().unwrap();
+            let character = line_prefix.encode_utf16().count();
+            let column = line_prefix.chars().count() + 1;
+            assert_eq!(location["fileLevel"], false);
+            assert_eq!(location["path"], json!(entry));
+            assert_eq!(
+                location["originalBytes"],
+                json!({"start":start,"end":start + span.len()})
+            );
+            assert_eq!(
+                location["range"],
+                json!({
+                    "start":{"line":line,"character":character},
+                    "end":{"line":line,"character":character + span.encode_utf16().count()},
+                })
+            );
+            assert_eq!(
+                location["scalarStart"],
+                json!({"line":line+1,"column":column})
+            );
+            assert!(
+                stderr.lines().any(|output| output
+                    .starts_with(&format!("{prefix}refresh.rinzu:{}:{column}: ", line + 1))),
+                "{stderr}"
+            );
+        }
+    }
+    assert_eq!(std::fs::read_to_string(entry).unwrap(), "fn main() {}");
+    client.shutdown();
+}
+
+#[test]
 fn explicit_unsaved_file_graph_uses_overlay_navigation_and_atomic_initialize() {
     let fixture = Fixture::new();
     fixture.file("rinzu.toml", "invalid nearby manifest must be ignored");

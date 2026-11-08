@@ -245,7 +245,10 @@ impl Engine<'_> {
             };
             let (normal, errors) = self.sequence(inputs.into_iter(), callee.state);
             result.extend(errors);
-            for (state, values) in normal {
+            for (mut state, values) in normal {
+                if indirect.is_some() {
+                    state.record_handoff(std::iter::once(&function).chain(&values));
+                }
                 let start = result.len();
                 let before = invocation_bound
                     .as_ref()
@@ -287,6 +290,15 @@ impl Engine<'_> {
                                         .iter()
                                         .find(|function| function.declaration.name == name)
                                         .is_some_and(|function| function.declaration.is_async);
+                                if asynchronous
+                                    && !spawn
+                                    && indirect.is_none()
+                                    && let Some(replay) = self.replay
+                                {
+                                    replay
+                                        .borrow_mut()
+                                        .direct_call(self.at(expression.range), target);
+                                }
                                 let calls = if !asynchronous
                                     && !self.stack.contains(&name)
                                     && let Some(function) = self
@@ -449,6 +461,9 @@ impl Engine<'_> {
         asynchronous: bool,
     ) -> Vec<Evaluation> {
         let mut state = state;
+        // A summarized call can retain an argument through another task or
+        // opaque storage even when it offers no guaranteed observation.
+        state.record_handoff(values);
         if contract.disrupts_observers {
             self.disrupts_observers.set(true);
             state.invalidate_watches(None);
@@ -967,6 +982,7 @@ impl Engine<'_> {
             unreachable!()
         };
         for outcome in outcomes {
+            state.trace.intersect(&outcome.state.trace);
             state.join_objects(&outcome.state);
             state.join_receivers(&outcome.state);
             state
@@ -1910,6 +1926,7 @@ impl Engine<'_> {
                     })
                 });
         if mutating_entry {
+            state.record_handoff(values);
             let argument_values: Vec<_> = match arguments {
                 Arguments::Positional(values) => values.iter().collect(),
                 Arguments::Named(values) => values.iter().map(|(_, value, _)| value).collect(),

@@ -240,6 +240,7 @@ impl Engine<'_> {
         }
     }
     pub fn write_field(&self, state: &mut State, base: &Tracked, name: &str, value: Tracked) {
+        state.record_handoff(std::iter::once(&value));
         if let Tracked::Reference { identity, .. } = base {
             state.taint_mutations(Some(identity));
             state.invalidate_watches(Some(identity));

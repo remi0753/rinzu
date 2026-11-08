@@ -1,0 +1,18 @@
+error ReadFailed {}
+
+async fn fetch() throws(ReadFailed) -> Int {
+    throw ReadFailed(message: "offline");
+}
+
+async fn cached() nothrow -> Int {
+    return 0;
+}
+
+async fn main() {
+    var state = { pending = fetch() };
+    state = { pending = cached() };
+    try {
+        let result = await state.pending;
+    }
+    catch failures {}
+}

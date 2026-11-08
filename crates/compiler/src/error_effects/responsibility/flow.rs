@@ -52,6 +52,7 @@ impl Engine<'_> {
                             );
                         }
                         path.control = Control::Normal;
+                        path.state.trace.set_exit(None);
                     }
                 }
             }
@@ -91,7 +92,13 @@ impl Engine<'_> {
                 .map(|evaluated| match evaluated.result {
                     Ok(value) => {
                         let mut state = evaluated.state;
-                        state.env.insert(name.clone(), value.finite());
+                        let value = value.finite();
+                        if self.replay.is_some()
+                            && matches!(statement.kind, StatementKind::Assign { .. })
+                        {
+                            state.record_replacement(name, &value, self.at(statement.range));
+                        }
+                        state.env.insert(name.clone(), value);
                         Path {
                             state,
                             control: Control::Normal,
@@ -120,7 +127,10 @@ impl Engine<'_> {
                     match evaluated.result {
                         Ok(value) => {
                             for word in value.effect().thrown_errors() {
-                                if let Some(state) = evaluated.state.condition(&word.guards) {
+                                if let Some(mut state) = evaluated.state.condition(&word.guards) {
+                                    if self.replay.is_some() {
+                                        state.trace.set_exit(Some(self.at(statement.range)));
+                                    }
                                     result.push(Path {
                                         state,
                                         control: Control::Error(word, None),
@@ -136,26 +146,9 @@ impl Engine<'_> {
                 }
                 result
             }
-            StatementKind::Return(expression) => expression.as_ref().map_or_else(
-                || {
-                    vec![Path {
-                        state: state.clone(),
-                        control: Control::Return(Tracked::data(Value::Plain)),
-                    }]
-                },
-                |expression| {
-                    self.expression(expression, state.clone())
-                        .into_iter()
-                        .map(|evaluated| Path {
-                            state: evaluated.state,
-                            control: match evaluated.result {
-                                Ok(value) => Control::Return(value),
-                                Err(stop) => stop.control(),
-                            },
-                        })
-                        .collect()
-                },
-            ),
+            StatementKind::Return(expression) => {
+                self.return_statement(expression.as_ref(), statement.range, state)
+            }
             StatementKind::Break => vec![Path {
                 state,
                 control: Control::Break,
@@ -354,6 +347,39 @@ impl Engine<'_> {
             }
         }
     }
+    fn return_statement(
+        &self,
+        expression: Option<&Expression>,
+        at: SourceRange,
+        state: State,
+    ) -> Vec<Path> {
+        let evaluations = if let Some(expression) = expression {
+            self.expression(expression, state)
+        } else {
+            vec![expressions::Evaluation::pure(
+                state,
+                Tracked::data(Value::Plain),
+            )]
+        };
+        evaluations
+            .into_iter()
+            .map(|mut evaluated| {
+                let control = match evaluated.result {
+                    Ok(value) => {
+                        if self.replay.is_some() {
+                            evaluated.state.trace.set_exit(Some(self.at(at)));
+                        }
+                        Control::Return(value)
+                    }
+                    Err(stop) => stop.control(),
+                };
+                Path {
+                    state: evaluated.state,
+                    control,
+                }
+            })
+            .collect()
+    }
     fn while_loop(
         &self,
         condition: &Expression,
@@ -488,6 +514,7 @@ impl Engine<'_> {
                 continue;
             };
             let mut remaining = Language::from([word.clone()]);
+            let saved_exit = saved.as_ref().and_then(|_| path.state.trace.exit());
             for handler in handlers {
                 let catch_pattern = pattern(self.checked, &handler.pattern);
                 for word in remaining.clone() {
@@ -496,6 +523,11 @@ impl Engine<'_> {
                         continue;
                     }
                     let mut state = path.state.clone();
+                    state.trace.set_exit(None);
+                    // try all may resume this return after handling the collected Errors.
+                    if let Some(Control::Return(value)) = &saved {
+                        state.record_handoff(std::iter::once(value));
+                    }
                     let outer: BTreeSet<_> = state.env.keys().cloned().collect();
                     match &handler.pattern {
                         CatchPattern::Binding(binding) => {
@@ -537,6 +569,7 @@ impl Engine<'_> {
                             && let Some(saved) = &saved
                         {
                             caught.control = saved.clone();
+                            caught.state.trace.set_exit(saved_exit);
                         }
                         result.push(caught);
                     }
@@ -551,6 +584,9 @@ impl Engine<'_> {
                 if let Control::Error(_, token) = &path.control {
                     residual.control = Control::Error(word, token.clone());
                 }
+                if saved.is_some() {
+                    residual.state.trace.set_exit(None);
+                }
                 result.push(residual);
             }
         }
@@ -559,10 +595,15 @@ impl Engine<'_> {
             return result;
         };
         let mut cleaned = Vec::new();
-        for incoming in result {
+        for mut incoming in result {
             if matches!(incoming.control, Control::Diverges | Control::Recurse(_)) {
                 cleaned.push(incoming);
                 continue;
+            }
+            let incoming_exit = incoming.state.trace.exit();
+            incoming.state.trace.set_exit(None);
+            if let Control::Return(value) = &incoming.control {
+                incoming.state.record_handoff(std::iter::once(value));
             }
             for mut path in self.block(
                 cleanup,
@@ -575,7 +616,10 @@ impl Engine<'_> {
                 match (&incoming.control, &path.control) {
                     (Control::Panic, Control::Diverges | Control::Recurse(_)) => {}
                     (Control::Panic, _) => path.control = Control::Panic,
-                    (_, Control::Normal) => path.control = incoming.control.clone(),
+                    (_, Control::Normal) => {
+                        path.control = incoming.control.clone();
+                        path.state.trace.set_exit(incoming_exit);
+                    }
                     (Control::Error(first, _), Control::Error(second, _)) => {
                         let errors = concatenate(
                             &Language::from([first.clone()]),
@@ -675,6 +719,12 @@ fn boolean_result(control: &Control) -> Option<Option<bool>> {
     }
 }
 fn join_path(previous: &mut Path, path: &Path) {
+    // An exact duplicate can keep a whole witness from its representative.
+    // A widened state may only use evidence shared by its incoming paths.
+    let exact_trace = (previous.state.trace.is_enabled() && previous == path).then(|| {
+        previous.state.trace.prefer_exact(&path.state.trace);
+        std::mem::take(&mut previous.state.trace)
+    });
     if let (Some(left), Some(right)) = (
         boolean_result(&previous.control),
         boolean_result(&path.control),
@@ -686,6 +736,9 @@ fn join_path(previous: &mut Path, path: &Path) {
         })));
     }
     previous.state.join(&path.state);
+    if let Some(trace) = exact_trace {
+        previous.state.trace = trace;
+    }
 }
 fn path_hash(path: &Path) -> u64 {
     use std::hash::{Hash, Hasher};

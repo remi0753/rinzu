@@ -74,6 +74,7 @@ impl Engine<'_> {
             context,
             stack,
             allow_field_watch: self.allow_field_watch,
+            replay: None,
         };
         let paths = nested.block(
             &function.declaration.body,
