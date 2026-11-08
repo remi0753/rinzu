@@ -6,10 +6,7 @@ fn reference_model_consumes_the_shared_production_vectors() {
         "../../../tests/conformance/runtime-model-host-vectors.json"
     ))
     .unwrap();
-    assert_eq!(
-        document["schema"],
-        "rinzu.runtime-model.host-vectors"
-    );
+    assert_eq!(document["schema"], "rinzu.runtime-model.host-vectors");
     assert_eq!(document["version"], 1);
     for vector in document["vectors"].as_array().unwrap() {
         let name = vector["name"].as_str().unwrap();
