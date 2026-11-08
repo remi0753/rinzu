@@ -63,16 +63,24 @@ impl Analyzer<'_> {
         let mut exiting: Option<Environment> = None;
         for statement in &block.statements {
             if active.is_empty() {
-                if self.diagnose {
+                if self.check_dead_code() {
                     self.statement(statement, &mut env.clone());
                 }
                 continue;
             }
             let before = env.clone();
             let next = self.statement(statement, env);
+            let independent = self.catch_trace.is_none()
+                || !active.iter().any(|word| !word.prefix.is_empty())
+                || !Reads::statement(self.checked, statement, &before);
             let non_error = next.exit_words();
             if next.returns || next.breaks || next.continues {
-                finished.extend(concatenate(&active, &non_error, self.bound));
+                finished.extend(language::concatenate_with_evidence(
+                    &active,
+                    &non_error,
+                    self.bound,
+                    independent,
+                ));
                 let saved = exiting.get_or_insert_with(|| before.clone());
                 join_env(saved, env);
             }
@@ -96,7 +104,8 @@ impl Analyzer<'_> {
                     *value = Value::Unbound(Box::new(std::mem::take(value)));
                 }
             }
-            active = concatenate(&active, &continued, self.bound);
+            active =
+                language::concatenate_with_evidence(&active, &continued, self.bound, independent);
             result.returns |= next.returns;
             result.breaks |= next.breaks;
             result.continues |= next.continues;

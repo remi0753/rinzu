@@ -44,13 +44,20 @@ Configure the extension in workspace settings:
 }
 ```
 
-With `rinzu.workspace` unset, the extension uses the opened folder's `rinzu.toml` if present. Otherwise, the editor service looks for the closest `rinzu.toml` in the source file's parent directories. Files outside a package receive single-buffer library checks.
+With `rinzu.workspace` unset, the editor service selects the closest `rinzu.toml` for each open source file. Files outside a package receive single-buffer library checks.
 
 Use `rinzu.entry` for an explicit standalone source file; it takes precedence over the package workspace. Relative workspace/entry paths resolve against the opened folder. `rinzu.executable` is one executable path, not a shell command with arguments. Reload the window after changing the service configuration.
 
 The extension provides syntax highlighting for keywords, built-in types, numbers, comments, and String/Bytes literals, including raw Strings and formatted String expressions. Colors follow the selected VS Code theme. Highlighting does not require the Rinzu executable. After updating a linked local extension, run **Developer: Reload Window** to reload its grammar.
 
-The extension also supports diagnostics for open buffers, definition/reference navigation, completion, formatting, and import organization. Use **Rinzu: Refresh Diagnostics** after external SDK changes. Import organization sorts/deduplicates eligible groups without guessing which imports are unused. It does not provide complete member completion or general recovery from arbitrary invalid syntax.
+The extension also supports diagnostics for open buffers, definition/reference navigation, completion, formatting, and import organization. Diagnostics show related source locations and explanation-only suggestions under **Help**. Results for separate packages stay visible as you switch between files. **Rinzu: Refresh Diagnostics** rechecks the open buffers and their dependencies. Import organization sorts and deduplicates eligible groups without guessing which imports are unused.
+
+Run the integration tests with an installed VS Code from a desktop session. The runner creates a temporary workspace and profile. On macOS the process must be able to register a desktop application.
+
+```sh
+cargo build -p rinzu-driver --bin rinzu
+python3 tests/integration/test_vscode_editor.py
+```
 
 This is a local development extension, not an automatically installed Marketplace package. The editor service is a versioned JSON-lines protocol; it is not a claim of full LSP compatibility. It supports one folder/service and file documents. Native provider/header/receipt validation still requires CLI check/build with actual inputs.
 

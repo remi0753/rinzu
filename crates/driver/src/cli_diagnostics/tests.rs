@@ -111,9 +111,14 @@ fn file_level_and_unavailable_ranges_do_not_turn_into_eof_insertions() {
 }
 
 #[test]
-fn excerpts_use_one_line_and_only_underline_when_alignment_is_unambiguous() {
-    let render = |text, start, end| {
-        let file = SourceFile::new(FileId(1), "<formatted names.rinzu>", text);
+fn excerpts_mark_the_first_line_and_quote_width_dependent_ranges() {
+    let render = |text: &str, start, end| {
+        let file = SourceFile::from_utf8(
+            FileId(1),
+            "<formatted names.rinzu>",
+            text.as_bytes().to_vec(),
+        )
+        .unwrap();
         renderer().render(
             &Diagnostic::error(
                 Code::ExpectedToken,
@@ -126,11 +131,19 @@ fn excerpts_use_one_line_and_only_underline_when_alignment_is_unambiguous() {
     };
     assert_eq!(
         render("abc\ndef", 1, 5),
-        "<formatted names.rinzu>:1:2: RZ0102: unexpected\n  1 | abc\n  help: fix\n"
+        "<formatted names.rinzu>:1:2: RZ0102: unexpected\n  1 | abc\n    |  ^^\n  range continues through line 2\n  help: fix\n"
     );
     assert_eq!(
         render("\t😀x", 5, 6),
-        "<formatted names.rinzu>:1:3: RZ0102: unexpected\n  1 | \t😀x\n  help: fix\n"
+        "<formatted names.rinzu>:1:3: RZ0102: unexpected\n  1 | \t😀x\n  range: \"x\"\n  help: fix\n"
+    );
+    assert_eq!(
+        render("\u{feff}\t日本😀x\r\nnext\r\n", 4, 19),
+        "<formatted names.rinzu>:1:2: RZ0102: unexpected\n  1 | \t日本😀x\n  range: \"日本😀x\"\n  range continues through line 2\n  help: fix\n"
+    );
+    assert_eq!(
+        render("abc\r\ndef", 1, 5),
+        "<formatted names.rinzu>:1:2: RZ0102: unexpected\n  1 | abc\n    |  ^^\n  help: fix\n"
     );
     let long = format!("{}X{}", "a".repeat(150), "b".repeat(150));
     let rendered = render(&long, 150, 151);

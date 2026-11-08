@@ -77,17 +77,18 @@ impl Checker<'_> {
         context.all_depth = if all { previous_all + 1 } else { 0 };
         self.check_block(body, context);
         context.all_depth = previous_all;
-        let mut caught_all = false;
-        for handler in handlers {
-            if caught_all {
-                self.diagnostics.push(Diagnostic::error(
-                    DiagnosticCode::InvalidCatchPattern,
-                    handler.range,
-                    "catch is unreachable after a whole-list binding",
-                    "remove this catch or put the more specific pattern first",
-                ));
+        let mut caught_all = None;
+        for (index, handler) in handlers.iter().enumerate() {
+            if let Some(earlier) = caught_all {
+                self.diagnostics.push(
+                    crate::error_effects::catch_diagnostics::shadowed_by_binding(
+                        handler,
+                        &handlers[earlier],
+                    ),
+                );
+            } else if matches!(handler.pattern, CatchPattern::Binding(_)) {
+                caught_all = Some(index);
             }
-            caught_all |= matches!(handler.pattern, CatchPattern::Binding(_));
             let names_before = context.declared_names.clone();
             let mut bindings = Vec::new();
             match &handler.pattern {

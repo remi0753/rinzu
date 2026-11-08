@@ -1,4 +1,4 @@
-use rinzu_compiler::{DiagnosticCode, FileId, SourceFile, compile_source};
+use rinzu_compiler::{Diagnostic, DiagnosticCode, FileId, SourceFile, SourceRange, compile_source};
 
 fn compile(
     text: &str,
@@ -278,4 +278,482 @@ fn cleanup_reads_include_states_at_earlier_failing_statements() {
         fn main(){try{work(true);}catch[C,Error]{}catch[e:Error]{} }
     "#,
     );
+}
+
+fn only_diagnostic(text: &str, code: DiagnosticCode) -> Diagnostic {
+    let diagnostics = compile(text).unwrap_err();
+    let mut matching = diagnostics.iter().filter(|d| d.code == code);
+    let diagnostic = matching
+        .next()
+        .unwrap_or_else(|| panic!("{diagnostics:#?}\n{text}"));
+    assert!(matching.next().is_none(), "{diagnostics:#?}");
+    diagnostic.clone()
+}
+
+fn span(text: &str, range: SourceRange) -> &str {
+    &text[range.start_byte as usize..range.end_byte as usize]
+}
+
+fn notes<'a>(text: &'a str, diagnostic: &Diagnostic) -> Vec<&'a str> {
+    diagnostic
+        .secondary
+        .iter()
+        .map(|(range, _)| span(text, *range))
+        .collect()
+}
+
+#[test]
+fn catches_explain_length_type_order_and_collective_coverage() {
+    let declarations = r#"
+        error WriteFailed {}
+        error CloseFailed {}
+        type Other = WriteFailed;
+        fn persist() {
+            try { throw WriteFailed(message: "disk full"); }
+            finally { throw CloseFailed(message: "close failed"); }
+        }
+    "#;
+    for (handlers, primary, message) in [
+        (
+            "catch [first: WriteFailed] {}",
+            "[first: WriteFailed]",
+            "requires exactly 1 Error, and this path can produce 2",
+        ),
+        (
+            "catch [CloseFailed, WriteFailed] {}",
+            "CloseFailed",
+            "Error 1 is WriteFailed in the possible list [WriteFailed, CloseFailed]",
+        ),
+        (
+            "catch [WriteFailed, next: Other] {}",
+            "Other",
+            "Error 2 is CloseFailed in the possible list [WriteFailed, CloseFailed]",
+        ),
+        (
+            "catch [WriteFailed, CloseFailed, Error, ...rest] {}",
+            "[WriteFailed, CloseFailed, Error, ...rest]",
+            "requires at least 3 Errors",
+        ),
+        (
+            "catch [WriteFailed] {} catch [CloseFailed] {}",
+            "catch",
+            "no catch pattern covers the possible Error list [WriteFailed, CloseFailed]",
+        ),
+    ] {
+        let text = format!("{declarations} fn main() {{ try {{ persist(); }} {handlers} }}");
+        let error = only_diagnostic(&text, DiagnosticCode::NonExhaustiveCatch);
+        assert_eq!(span(&text, error.primary), primary);
+        assert!(error.message.contains(message), "{error:#?}");
+        if primary == "Other" {
+            assert!(
+                error
+                    .message
+                    .contains("The catch expects Other at that position")
+            );
+        }
+        assert!(notes(&text, &error).ends_with(&[
+            "persist()",
+            "throw WriteFailed(message: \"disk full\");",
+            "throw CloseFailed(message: \"close failed\");",
+        ]));
+        assert_eq!(
+            error.secondary.last().unwrap().1,
+            "Error 2 of 2 is CloseFailed added by `finally`"
+        );
+        assert!(
+            error
+                .suggestions
+                .iter()
+                .all(|help| help.replacement.is_none())
+        );
+        if primary == "[first: WriteFailed]" {
+            assert!(
+                error.suggestions[0]
+                    .message
+                    .contains("`[first: WriteFailed, ...rest]` and handle the remaining Errors")
+            );
+        }
+    }
+}
+
+#[test]
+fn the_selected_sequence_uses_only_the_uncaught_path_and_is_deterministic() {
+    let text = r#"
+        error A {} error B {} error C {}
+        fn main() {
+            try {
+                try { throw A(message: "recovered"); }
+                catch [A] { throw B(message: "new"); }
+                finally { throw C(message: "close"); }
+            }
+            catch [B] {}
+        }
+    "#;
+    let error = only_diagnostic(text, DiagnosticCode::NonExhaustiveCatch);
+    assert_eq!(
+        notes(text, &error),
+        ["throw B(message: \"new\");", "throw C(message: \"close\");"]
+    );
+    assert_eq!(
+        error,
+        only_diagnostic(text, DiagnosticCode::NonExhaustiveCatch)
+    );
+
+    for body in [
+        r#"try { throw A(message: "recovered"); } catch [A] {} finally { throw C(message: "close"); }"#,
+        r#"try { return; } finally { throw C(message: "close"); }"#,
+        r#"try {} finally { throw C(message: "close"); }"#,
+    ] {
+        let text =
+            format!(r#"error A {{}} error C {{}} fn main() {{ try {{ {body} }} catch [A] {{}} }}"#);
+        let error = only_diagnostic(&text, DiagnosticCode::NonExhaustiveCatch);
+        assert_eq!(notes(&text, &error), ["throw C(message: \"close\");"]);
+        assert!(
+            error.secondary[0]
+                .1
+                .contains("Error 1 of 1 is C added by `finally`")
+        );
+    }
+}
+
+#[test]
+fn ordered_replay_checks_dead_catches_and_marks_rethrows_at_the_new_throw() {
+    let dead = r#"
+        error A {} error B {}
+        fn main() {
+            return;
+            try { throw A(message: "dead"); } catch [B] {}
+        }
+    "#;
+    let error = only_diagnostic(dead, DiagnosticCode::NonExhaustiveCatch);
+    assert_eq!(span(dead, error.primary), "B");
+    assert_eq!(notes(dead, &error), ["throw A(message: \"dead\");"]);
+
+    let rethrow = r#"
+        error A {} error B {}
+        fn main() {
+            try { try { throw A(message: "original"); } catch [problem: A] { throw problem; } }
+            catch [B] {}
+        }
+    "#;
+    let error = only_diagnostic(rethrow, DiagnosticCode::NonExhaustiveCatch);
+    assert_eq!(notes(rethrow, &error), ["throw problem;"]);
+}
+
+#[test]
+fn cleanup_does_not_claim_an_order_for_values_joined_from_different_exits() {
+    let text = r#"
+        error A {} error B {} error C {}
+        fn work(flag: Bool) {
+            var cleanup: Error = B(message: "first");
+            try {
+                try {
+                    if flag { throw A(message: "first"); }
+                    cleanup = C(message: "second");
+                    throw A(message: "second");
+                }
+                finally { throw cleanup; }
+            }
+            catch [A] {}
+        }
+        fn main() {}
+    "#;
+    let error = only_diagnostic(text, DiagnosticCode::NonExhaustiveCatch);
+    assert!(
+        error.message.contains("longer lists shaped like [A, ...]"),
+        "{error:#?}"
+    );
+    assert!(
+        error
+            .secondary
+            .iter()
+            .any(|(_, note)| note.starts_with("Error 1 is A"))
+    );
+    assert!(
+        error
+            .secondary
+            .iter()
+            .any(|(_, note)| note.contains("`finally` can add Errors"))
+    );
+    assert!(
+        error
+            .secondary
+            .iter()
+            .all(|(_, note)| !note.starts_with("Error 2"))
+    );
+}
+
+#[test]
+fn a_merged_tail_keeps_one_concrete_branch_with_its_own_positions() {
+    let text = r#"
+        error A {} error B {} error C {}
+        fn work(flag: Bool) {
+            try {
+                try all {
+                    if flag { try { throw A(message: "first B"); } finally { throw B(message: "B"); } }
+                    else { try { throw A(message: "first C"); } finally { throw C(message: "C"); } }
+                } finally {}
+            }
+            catch [A] {}
+        }
+        fn main() {}
+    "#;
+    let error = only_diagnostic(text, DiagnosticCode::NonExhaustiveCatch);
+    assert_eq!(
+        notes(text, &error),
+        ["throw A(message: \"first B\");", "throw B(message: \"B\");"]
+    );
+}
+
+#[test]
+fn declared_and_symbolic_failures_report_the_upper_bound_without_invented_origins() {
+    for (bound, pattern, message) in [
+        (
+            "A",
+            "A",
+            "the Error bound permits lists of at least 2 Errors",
+        ),
+        ("A, B", "A, ...rest", "Error 1 is B in the possible list"),
+        (
+            "Error",
+            "A, ...rest",
+            "The catch expects A at that position",
+        ),
+    ] {
+        let text = format!(
+            r#"
+            error A {{}} error B {{}}
+            fn save(write: fn () throws({bound}) -> Unit) {{
+                try {{ write(); }} catch [{pattern}] {{}}
+            }}
+            fn main() {{}}
+        "#
+        );
+        let error = only_diagnostic(&text, DiagnosticCode::NonExhaustiveCatch);
+        assert!(error.message.contains(message), "{error:#?}");
+        assert_eq!(
+            notes(&text, &error),
+            ["write()", &format!("throws({bound})")]
+        );
+        assert!(
+            error
+                .secondary
+                .iter()
+                .all(|(_, note)| !note.starts_with("Error 1"))
+        );
+    }
+    let text = r#"
+        error A {} error B {}
+        fn persist() throws(A) { throw A(message: "body"); }
+        fn main() { try { persist(); } catch [B, ...rest] {} }
+    "#;
+    let error = only_diagnostic(text, DiagnosticCode::NonExhaustiveCatch);
+    assert_eq!(notes(text, &error), ["persist()", "throws(A)"]);
+}
+
+#[test]
+fn expand_only_a_direct_call_with_matching_inferred_evidence() {
+    let declarations = r#"
+        error A {} error B {} error C {}
+        fn leaf() { throw A(message: "internal"); }
+        fn relay() { leaf(); }
+        fn recursive(n: Int) { if n == 0 { throw A(message: "recursive"); } recursive(n - 1); }
+        fn chosen(flag: Bool) { if flag { throw A(message: "guarded"); } else { throw B(message: "other"); } }
+        fn independent(unused: Bool) { throw A(message: "independent"); }
+        fn labelled(label: String) {
+            try { throw A(message: label); }
+            finally { throw B(message: label); }
+        }
+        fn argument() -> Error { throw A(message: "argument"); }
+        async fn task(value: Error) { throw B(message: "task"); }
+    "#;
+    for (body, pattern, expected) in [
+        ("relay();", "C", vec!["relay()", "leaf()"]),
+        ("recursive(1);", "C", vec!["recursive(1)"]),
+        ("chosen(true);", "A", vec!["chosen(true)"]),
+        (
+            r#"labelled("same");"#,
+            "A",
+            vec![
+                r#"labelled("same")"#,
+                "throw A(message: label);",
+                "throw B(message: label);",
+            ],
+        ),
+        (
+            "independent(false);",
+            "C",
+            vec!["independent(false)", "throw A(message: \"independent\");"],
+        ),
+        (
+            "throw argument();",
+            "C",
+            vec!["argument()", "throw A(message: \"argument\");"],
+        ),
+        (
+            "await task(argument());",
+            "B",
+            vec!["argument()", "throw A(message: \"argument\");"],
+        ),
+    ] {
+        let text =
+            format!("{declarations} async fn main() {{ try {{ {body} }} catch [{pattern}] {{}} }}");
+        let error = only_diagnostic(&text, DiagnosticCode::NonExhaustiveCatch);
+        assert_eq!(notes(&text, &error), expected, "{error:#?}");
+    }
+}
+
+#[test]
+fn try_all_shows_confirmed_order_and_bounds_the_number_of_positions() {
+    let text = format!(
+        r#"error A {{}} fn main() {{ try all {{ {} }} catch [A] {{}} }}"#,
+        "throw A(message: \"next\"); ".repeat(10)
+    );
+    let error = only_diagnostic(&text, DiagnosticCode::NonExhaustiveCatch);
+    assert!(error.message.contains("produce 10 Errors"), "{error:#?}");
+    assert_eq!(error.secondary.len(), 8);
+    assert!(
+        error
+            .secondary
+            .last()
+            .unwrap()
+            .1
+            .starts_with("Error 8 of 10")
+    );
+
+    let fresh = r#"
+        error A {} error B {}
+        async fn task() { try { throw A(message: "body"); } finally { throw B(message: "close"); } }
+        async fn main() { try { await task(); } catch [A] {} }
+    "#;
+    let error = only_diagnostic(fresh, DiagnosticCode::NonExhaustiveCatch);
+    assert!(error.message.contains("produce 2 Errors"));
+    assert_eq!(
+        notes(fresh, &error),
+        [
+            "await task()",
+            "throw A(message: \"body\");",
+            "throw B(message: \"close\");"
+        ]
+    );
+
+    let alias = r#"
+        error A {}
+        async fn task() { throw A(message: "body"); }
+        async fn main() {
+            let pending = task();
+            try all { await pending; await pending; } catch [A] {}
+        }
+    "#;
+    let error = only_diagnostic(alias, DiagnosticCode::NonExhaustiveCatch);
+    assert!(
+        error.message.contains("longer lists shaped like [A, ...]"),
+        "{error:#?}"
+    );
+    assert_eq!(notes(alias, &error), ["await pending", "await pending"]);
+    assert!(
+        error
+            .secondary
+            .iter()
+            .all(|(_, note)| !note.contains("Error 2"))
+    );
+
+    let loop_body = r#"
+        error A {} error B {}
+        fn work(repeat: Bool) {
+            try all {
+                throw A(message: "before the loop");
+                while repeat { throw B(message: "inside the loop"); break; }
+            }
+            catch [A] {}
+        }
+        fn main() {}
+    "#;
+    let error = only_diagnostic(loop_body, DiagnosticCode::NonExhaustiveCatch);
+    assert_eq!(
+        notes(loop_body, &error),
+        ["throw A(message: \"before the loop\");"]
+    );
+    assert!(error.secondary[0].1.starts_with("Error 1 is A"));
+}
+
+#[test]
+fn unreachable_catches_name_the_earlier_patterns_that_prove_coverage() {
+    for (handlers, primary, covered_by) in [
+        (
+            "catch failures {} catch [first: A] {}",
+            "[first: A]",
+            vec!["failures"],
+        ),
+        (
+            "catch [A] {} catch [A, Error, ...tail] {} catch [A, ...rest] {}",
+            "[A, ...rest]",
+            vec!["[A]", "[A, Error, ...tail]"],
+        ),
+        (
+            "catch [A] {} catch failures {} catch [A, ...rest] {}",
+            "[A, ...rest]",
+            vec!["failures"],
+        ),
+    ] {
+        let text = format!("error A {{}} fn main() {{ try {{}} {handlers} }}");
+        let error = only_diagnostic(&text, DiagnosticCode::InvalidCatchPattern);
+        assert_eq!(span(&text, error.primary), primary);
+        assert_eq!(notes(&text, &error), covered_by);
+    }
+}
+
+#[test]
+fn main_boundary_links_only_the_error_that_reaches_it() {
+    let declarations = r#"error A {} error B {}
+        fn fail() { throw A(message: "call"); }
+        async fn task() { throw B(message: "await"); }
+    "#;
+    for (header, body, origin, error_type) in [
+        (
+            "fn main()",
+            r#"throw A(message: "direct");"#,
+            r#"throw A(message: "direct");"#,
+            "A",
+        ),
+        ("fn main()", "fail();", "fail()", "A"),
+        ("async fn main()", "await task();", "await task()", "B"),
+        (
+            "fn main()",
+            r#"try all { throw A(message: "collected"); } finally {}"#,
+            r#"throw A(message: "collected");"#,
+            "A",
+        ),
+        (
+            "fn main()",
+            r#"try { fail(); } catch [A] {} finally { throw B(message: "finally"); }"#,
+            r#"throw B(message: "finally");"#,
+            "B",
+        ),
+        (
+            "fn main()",
+            r#"try { fail(); } catch [A] { throw B(message: "handler"); }"#,
+            r#"throw B(message: "handler");"#,
+            "B",
+        ),
+        ("fn main() throws(A)", "", "throws(A)", "A"),
+        (
+            "fn main()",
+            r#"try { fail(); } finally { throw B(message: "finally"); }"#,
+            "fn main() ",
+            "an ordinary Error",
+        ),
+    ] {
+        let text = format!("{declarations} {header} {{ {body} }}");
+        let error = only_diagnostic(&text, DiagnosticCode::ErrorEscapesBoundary);
+        assert_eq!(span(&text, error.primary), origin, "{error:#?}\n{text}");
+        assert!(
+            error
+                .message
+                .starts_with(&format!("{error_type} can escape the Main entry"))
+        );
+        if !origin.ends_with(' ') {
+            assert_eq!(notes(&text, &error), [format!("{header} ")]);
+        }
+    }
 }

@@ -1,6 +1,6 @@
 use super::substitution::instantiate;
 use super::*;
-use language::{Origin, OriginKind, concatenate, one, unknown};
+use language::{Origin, OriginKind, Reception, concatenate, one, unknown};
 use std::sync::Arc;
 mod all;
 mod values;
@@ -72,6 +72,7 @@ pub(super) struct Analyzer<'a> {
     diagnostics: Vec<Diagnostic>,
     all: bool,
     trace_bound: Option<Arc<BTreeSet<Tag>>>,
+    catch_trace: Option<Box<catch_diagnostics::Replay>>,
     in_finally: bool,
 }
 
@@ -91,6 +92,7 @@ impl<'a> Analyzer<'a> {
             diagnostics: Vec::new(),
             all: false,
             trace_bound: None,
+            catch_trace: None,
             in_finally: false,
         }
     }
@@ -104,12 +106,33 @@ impl<'a> Analyzer<'a> {
         mut self,
         function: &crate::CheckedFunction,
         allowed: BTreeSet<Tag>,
-    ) -> Language {
+        replay: Option<catch_diagnostics::Replay>,
+    ) -> (Language, Option<Box<catch_diagnostics::Replay>>) {
         self.trace_bound = Some(Arc::new(allowed));
-        self.function(function).0.errors
+        self.catch_trace = replay.map(Box::new);
+        let summary = self.analyze_function(function);
+        (summary.errors, self.catch_trace)
+    }
+
+    fn check_dead_code(&self) -> bool {
+        self.diagnose
+            || self
+                .catch_trace
+                .as_ref()
+                .is_some_and(|trace| trace.has_targets())
     }
 
     fn at(&self, errors: Language, range: SourceRange, kind: OriginKind) -> Language {
+        self.at_reception(errors, range, kind, None)
+    }
+
+    fn at_reception(
+        &self,
+        errors: Language,
+        range: SourceRange,
+        kind: OriginKind,
+        reception: Option<Arc<Reception>>,
+    ) -> Language {
         if let Some(allowed) = &self.trace_bound {
             errors.at(
                 allowed,
@@ -118,6 +141,8 @@ impl<'a> Analyzer<'a> {
                     kind,
                     in_finally: self.in_finally,
                 },
+                self.catch_trace.is_some(),
+                reception,
             )
         } else {
             errors
@@ -125,6 +150,11 @@ impl<'a> Analyzer<'a> {
     }
 
     pub fn function(mut self, function: &crate::CheckedFunction) -> (Summary, Vec<Diagnostic>) {
+        let summary = self.analyze_function(function);
+        (summary, self.diagnostics)
+    }
+
+    fn analyze_function(&mut self, function: &crate::CheckedFunction) -> Summary {
         let mut env = Environment::new();
         for (index, (parameter, ty)) in function
             .declaration
@@ -157,14 +187,11 @@ impl<'a> Analyzer<'a> {
         if flow.normal {
             returned.join(self.typed(&function.result_type));
         }
-        (
-            Summary {
-                errors: language::normalize(flow.errors),
-                success,
-                returned: returned.finite(),
-            },
-            self.diagnostics,
-        )
+        Summary {
+            errors: language::normalize(flow.errors),
+            success,
+            returned: returned.finite(),
+        }
     }
 
     fn typed(&self, ty: &Type) -> Value {
@@ -227,7 +254,7 @@ impl<'a> Analyzer<'a> {
                 }
                 flow.normal = false;
                 flow.join(next);
-            } else if self.diagnose {
+            } else if self.check_dead_code() {
                 // Still check an unreachable catch locally, but never let dead
                 // assignments alter the environment seen by finally.
                 self.statement(statement, &mut env.clone());
@@ -574,15 +601,19 @@ impl<'a> Analyzer<'a> {
             errors: Language::new(),
             ..body
         };
+        let diagnose = self.diagnose && !self.proof;
+        let targeted = self
+            .catch_trace
+            .as_ref()
+            .is_some_and(|trace| trace.targets(range));
         let mut previous = Vec::new();
-        for handler in handlers {
+        for (index, handler) in handlers.iter().enumerate() {
             let pattern = pattern(self.checked, &handler.pattern);
-            if self.diagnose && pattern.covered_by(&previous, self.bound) {
-                self.diagnostics.push(Diagnostic::error(
-                    DiagnosticCode::InvalidCatchPattern,
-                    handler.range,
-                    "catch is unreachable because earlier patterns cover every list it can match",
-                    "remove the catch or put a more specific pattern first",
+            if diagnose && let Some(proof) = pattern.covered_by(&previous, self.bound) {
+                self.diagnostics.push(catch_diagnostics::unreachable(
+                    handler,
+                    &handlers[..index],
+                    proof,
                 ));
             }
             let matched = remaining
@@ -622,21 +653,21 @@ impl<'a> Analyzer<'a> {
                 join_env(env, &catch_env);
             }
             remaining = language::subtract(&remaining, &pattern);
-            previous.push(pattern);
+            if diagnose || targeted {
+                previous.push(pattern);
+            }
         }
-        if self.diagnose
-            && !handlers.is_empty()
-            && let Some(word) = remaining.first()
-        {
-            self.diagnostics.push(Diagnostic::error(
-                DiagnosticCode::NonExhaustiveCatch,
-                range,
-                format!(
-                    "catch patterns do not cover the possible Error list {}",
-                    word.display()
-                ),
-                "cover every possible ordered list, or add a whole-list catch binding",
-            ));
+        if !handlers.is_empty() && !remaining.is_empty() {
+            if diagnose {
+                self.diagnostics
+                    .push(catch_diagnostics::pending(range, &remaining));
+            }
+            if targeted {
+                self.catch_trace
+                    .as_mut()
+                    .unwrap()
+                    .record(range, &remaining, handlers, previous);
+            }
         }
         flow.errors.extend(remaining);
         self.cleanup(flow, cleanup, env)
@@ -647,8 +678,12 @@ impl<'a> Analyzer<'a> {
             return flow;
         };
         let in_finally = std::mem::replace(&mut self.in_finally, true);
-        let cleaned = self.block(cleanup, env);
+        let independent = self.catch_trace.is_none() || !Reads::block(self.checked, cleanup, env);
+        let mut cleaned = self.block(cleanup, env);
         self.in_finally = in_finally;
+        if self.catch_trace.is_some() && !cleaned.errors.is_empty() {
+            cleaned.errors.mark_cleanup(cleanup.range, independent);
+        }
         let mut errors = concatenate(&flow.errors, &cleaned.errors, self.bound);
         if flow.has_non_error_exit() {
             errors.extend(cleaned.errors);
@@ -789,19 +824,29 @@ impl<'a> Analyzer<'a> {
                     .checked
                     .expression_type(operand.range)
                     .map_or_else(String::new, ToString::to_string);
-                let operand = self.expression(operand, env, true);
-                let mut errors = operand.errors;
+                let evaluated = self.expression(operand, env, true);
+                let mut errors = evaluated.errors;
                 let (failed, success, value) =
-                    operand
+                    evaluated
                         .value
                         .awaited(self.bound, self.expression_value(expression), &ty);
-                if operand.success {
-                    errors.extend(self.at(failed, expression.range, OriginKind::Await));
+                if evaluated.success {
+                    let reception = if self.catch_trace.is_some() && !failed.is_empty() {
+                        self.await_reception(operand, expression.range)
+                    } else {
+                        None
+                    };
+                    errors.extend(self.at_reception(
+                        failed,
+                        expression.range,
+                        OriginKind::Await,
+                        reception,
+                    ));
                 }
                 Evaluated {
                     value,
                     errors,
-                    success: operand.success && success,
+                    success: evaluated.success && success,
                 }
             }
 
@@ -956,6 +1001,27 @@ impl<'a> Analyzer<'a> {
         (values, errors, success)
     }
 
+    fn await_reception(&mut self, operand: &Expression, at: SourceRange) -> Option<Arc<Reception>> {
+        let target = match &operand.kind {
+            ExpressionKind::Call { target, .. } | ExpressionKind::GenericCall { target, .. } => {
+                target
+            }
+            _ => return None,
+        };
+        if self.checked.indirect_fields.contains_key(&operand.range) {
+            return None;
+        }
+        let name = target.join(".");
+        let function = self
+            .checked
+            .functions
+            .iter()
+            .find(|f| f.declaration.name == name && f.declaration.is_async)?;
+        self.catch_trace
+            .as_mut()
+            .map(|trace| trace.direct(at, &function.declaration))
+    }
+
     fn call(
         &mut self,
         expression: &Expression,
@@ -996,7 +1062,7 @@ impl<'a> Analyzer<'a> {
             .checked
             .indirect_signatures
             .get(&expression.range)
-            .and_then(|signature| {
+            .and_then(|call| {
                 if self.proof {
                     let value = self.project_name(target, env, Value::Plain);
                     Some(self.proven_bound(&value).map_or_else(
@@ -1004,30 +1070,43 @@ impl<'a> Analyzer<'a> {
                         |bound| contracts::for_bound(&bound, self.bound),
                     ))
                 } else {
-                    signature
+                    call.signature
                         .error_bound
                         .as_ref()
                         .map(|bound| contracts::for_bound(bound, self.bound))
                 }
             });
         let bounded_invocation = invocation.is_some();
-        if argument_success && let Some(invocation) = invocation {
-            errors.extend(self.at(invocation, expression.range, OriginKind::Call));
-        }
         let name = target.join(".");
-        let mut targets = self
-            .checked
-            .indirect_calls
-            .get(&expression.range)
-            .cloned()
-            .unwrap_or_else(|| vec![name.clone()]);
+        if argument_success && let Some(invocation) = invocation {
+            let reception = if invocation.is_empty() {
+                None
+            } else {
+                self.catch_trace
+                    .as_mut()
+                    .map(|trace| trace.callback(self.checked, expression.range, &name))
+            };
+            errors.extend(self.at_reception(
+                invocation,
+                expression.range,
+                OriginKind::Call,
+                reception,
+            ));
+        }
+        let indirect = self.checked.indirect_calls.get(&expression.range);
+        let mut targets = indirect.cloned().unwrap_or_else(|| vec![name.clone()]);
         if targets.is_empty() {
             targets.push(name.clone());
             if argument_success && !bounded_invocation {
-                errors.extend(self.at(
+                let reception = self
+                    .catch_trace
+                    .as_mut()
+                    .map(|trace| trace.callback(self.checked, expression.range, &name));
+                errors.extend(self.at_reception(
                     unknown(self.bound),
                     expression.range,
                     OriginKind::UnknownCallback,
+                    reception,
                 ));
             }
         }
@@ -1048,13 +1127,15 @@ impl<'a> Analyzer<'a> {
                 super::operations::scalar_constructor(self.checked, expression, target).is_none()
             }) {
                 let summary = instantiate(summary, name, &values, self.bound);
-                let asynchronous = spawn
-                    || self
-                        .checked
+                let function = if spawn {
+                    None
+                } else {
+                    self.checked
                         .functions
                         .iter()
                         .find(|function| function.declaration.name == *name)
-                        .is_some_and(|function| function.declaration.is_async);
+                };
+                let asynchronous = spawn || function.is_some_and(|f| f.declaration.is_async);
                 if asynchronous {
                     let future = self.condition_value(
                         Value::Future {
@@ -1068,10 +1149,29 @@ impl<'a> Analyzer<'a> {
                     success = true;
                 } else {
                     if argument_success && !bounded_invocation {
-                        errors.extend(self.at(
-                            restrict(&summary.errors),
+                        let propagated = restrict(&summary.errors);
+                        let reception = if propagated.is_empty() {
+                            None
+                        } else {
+                            self.catch_trace.as_mut().map(|trace| {
+                                if let Some(function) = function
+                                    && !self.checked.indirect_fields.contains_key(&expression.range)
+                                {
+                                    trace.direct(expression.range, &function.declaration)
+                                } else {
+                                    trace.callback(
+                                        self.checked,
+                                        expression.range,
+                                        &target.join("."),
+                                    )
+                                }
+                            })
+                        };
+                        errors.extend(self.at_reception(
+                            propagated,
                             expression.range,
                             OriginKind::Call,
+                            reception,
                         ));
                     }
                     result.join(self.condition_value(summary.returned, &paths));
@@ -1104,6 +1204,140 @@ impl<'a> Analyzer<'a> {
             success: argument_success && success,
         }
     }
+}
+
+// The semantic environment joins different exits. A later statement that
+// reads one of its values may depend on which exit was taken, even when both
+// sides have compatible Error guards. Keep the earlier witness in that case.
+struct Reads<'a> {
+    checked: &'a CheckedModule,
+    env: &'a Environment,
+    found: bool,
+    payload_reads: HashSet<SourceRange>,
+}
+
+impl Reads<'_> {
+    fn block(checked: &CheckedModule, block: &Block, env: &Environment) -> bool {
+        if !env.is_empty() {
+            let mut reads = Reads {
+                checked,
+                env,
+                found: false,
+                payload_reads: HashSet::new(),
+            };
+            ast_walk::block(&mut block.clone(), &mut reads);
+            return reads.found;
+        }
+        false
+    }
+
+    fn statement(checked: &CheckedModule, statement: &Statement, env: &Environment) -> bool {
+        if !env.is_empty() {
+            let mut reads = Reads {
+                checked,
+                env,
+                found: false,
+                payload_reads: HashSet::new(),
+            };
+            ast_walk::statement(&mut statement.clone(), &mut reads);
+            return reads.found;
+        }
+        false
+    }
+
+    fn ignore_payload_read(&mut self, expression: &Expression) {
+        if let ExpressionKind::Name(path) = &expression.kind
+            && let [name] = path.as_slice()
+            && self.env.get(name).is_some_and(|value| {
+                !matches!(value, Value::Unbound(_) | Value::Union(_) | Value::Bottom)
+            })
+            && !self.checked.native_record_reads.contains(&expression.range)
+            && self
+                .checked
+                .expression_type(expression.range)
+                .is_some_and(|ty| *ty == Type::String || ty.scalar().is_some())
+        {
+            self.payload_reads.insert(expression.range);
+        }
+    }
+}
+
+impl Visitor for Reads<'_> {
+    fn enter_statement(&mut self, statement: &Statement) {
+        // Reading an initialized scalar for the message or payload of a
+        // directly thrown nominal Error cannot change the resulting tag.
+        if self.found {
+            return;
+        }
+        let StatementKind::Throw(expression) = &statement.kind else {
+            return;
+        };
+        let (ExpressionKind::Call { target, arguments }
+        | ExpressionKind::GenericCall {
+            target, arguments, ..
+        }) = &expression.kind
+        else {
+            return;
+        };
+        if self.env.contains_key(&target[0])
+            || !self
+                .checked
+                .source_types
+                .get(&target.join("."))
+                .is_some_and(|ty| ty.kind == "error")
+        {
+            return;
+        }
+        match arguments {
+            Arguments::Positional(values) => values
+                .iter()
+                .for_each(|value| self.ignore_payload_read(value)),
+            Arguments::Named(values) => values
+                .iter()
+                .for_each(|(_, value, _)| self.ignore_payload_read(value)),
+        }
+    }
+
+    fn expression(&mut self, expression: &mut Expression) {
+        if self.found || self.payload_reads.remove(&expression.range) {
+            return;
+        }
+        let path = match &expression.kind {
+            ExpressionKind::Name(path)
+            | ExpressionKind::Call { target: path, .. }
+            | ExpressionKind::GenericCall { target: path, .. }
+            | ExpressionKind::Spawn { target: path, .. }
+            | ExpressionKind::Bind { target: path, .. } => path,
+            _ => return,
+        };
+        self.found |= path.first().and_then(|root| self.env.get(root)).is_some_and(|value| {
+            path.len() != 1
+                || !matches!(expression.kind, ExpressionKind::Name(_))
+                || !(matches!(value, Value::Bool(Some(_)))
+                    || matches!(value, Value::Error(tags) if tags.len() == 1 && matches!(tags.first(), Some(Tag::Named(_)))))
+        });
+    }
+}
+
+pub(super) fn arguments_independent(
+    checked: &CheckedModule,
+    function: &crate::CheckedFunction,
+) -> bool {
+    let declaration = &function.declaration;
+    if declaration.parameters.is_empty() {
+        return true;
+    }
+    let inputs = declaration
+        .parameters
+        .iter()
+        .zip(&function.parameter_types)
+        .map(|(parameter, ty)| {
+            let value =
+                tag(checked, ty).map_or(Value::Plain, |tag| Value::Error(BTreeSet::from([tag])));
+            (parameter.name.clone(), value)
+        })
+        .collect();
+    !Reads::block(checked, &declaration.body, &inputs)
 }
 
 fn join_env(env: &mut Environment, other: &Environment) {

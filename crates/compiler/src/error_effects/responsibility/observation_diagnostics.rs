@@ -6,6 +6,8 @@ use std::collections::HashMap;
 pub(super) struct Replay {
     direct_calls: BTreeMap<Site, String>,
     witnesses: HashMap<Requirement, Witness>,
+    escaping: Option<BTreeMap<(language::Word, language::Guards), Site>>,
+    actual_escape: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -22,6 +24,8 @@ impl Eq for Trace {}
 #[derive(Clone, Debug, Default)]
 struct PathEvidence {
     exit: Option<Site>,
+    error_origin: Option<Site>,
+    error_groups: Option<Vec<Option<Site>>>,
     replacements: BTreeMap<Token, Replacement>,
     // A call, an opaque store or a saved return may keep an alias outside
     // the local environment.
@@ -49,8 +53,11 @@ struct Witness {
 }
 
 impl Trace {
-    pub fn enabled() -> Self {
-        Self(Some(Box::default()))
+    pub fn enabled(boundary: bool) -> Self {
+        Self(Some(Box::new(PathEvidence {
+            error_groups: boundary.then(Vec::new),
+            ..PathEvidence::default()
+        })))
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -64,7 +71,54 @@ impl Trace {
     pub fn set_exit(&mut self, exit: Option<Site>) {
         if let Some(path) = &mut self.0 {
             path.exit = exit;
+            path.error_origin = None;
         }
+    }
+
+    pub fn sites(&self) -> (Option<Site>, Option<Site>) {
+        self.0
+            .as_ref()
+            .map_or((None, None), |path| (path.exit, path.error_origin))
+    }
+
+    pub fn restore_sites(&mut self, (exit, error_origin): (Option<Site>, Option<Site>)) {
+        if let Some(path) = &mut self.0 {
+            path.exit = exit;
+            path.error_origin = error_origin;
+        }
+    }
+
+    pub fn error_origin(&mut self, at: Site) {
+        if let Some(path) = &mut self.0 {
+            path.error_origin = Some(at);
+        }
+    }
+
+    pub fn enter_group(&mut self) {
+        if let Some(groups) = self.0.as_mut().and_then(|path| path.error_groups.as_mut()) {
+            groups.push(None);
+        }
+    }
+
+    pub fn collect_error(&mut self, previous: &Language, word: &language::Word) {
+        if let Some(path) = &mut self.0
+            && let Some(origin) = path
+                .error_groups
+                .as_mut()
+                .and_then(|groups| groups.last_mut())
+        {
+            *origin = path.error_origin.filter(|_| {
+                !word.longer
+                    && word.prefix.len() == 1
+                    && previous
+                        .iter()
+                        .all(|word| word.prefix.is_empty() && !word.longer)
+            });
+        }
+    }
+
+    pub fn leave_group(&mut self) -> Option<Site> {
+        self.0.as_mut()?.error_groups.as_mut()?.pop().flatten()
     }
 
     pub fn prefer_exact(&mut self, other: &Self) {
@@ -81,6 +135,16 @@ impl Trace {
         };
         if left.exit != right.exit {
             left.exit = None;
+        }
+        if left.error_origin != right.error_origin {
+            left.error_origin = None;
+        }
+        if let (Some(left), Some(right)) = (&mut left.error_groups, &right.error_groups) {
+            for (saved, next) in left.iter_mut().zip(right) {
+                if saved != next {
+                    *saved = None;
+                }
+            }
         }
         left.handed_off.extend(right.handed_off.iter().cloned());
         left.replacements.retain(|token, replacement| {
@@ -265,6 +329,88 @@ impl PathEvidence {
 }
 
 impl Replay {
+    pub fn new(boundary: bool) -> Self {
+        Self {
+            escaping: boundary.then(BTreeMap::new),
+            ..Self::default()
+        }
+    }
+
+    pub fn tracks_boundary(&self) -> bool {
+        self.escaping.is_some()
+    }
+
+    pub fn record_escape(&mut self, exit: &Exit, origin: Option<Site>) {
+        if let Some(escaping) = &mut self.escaping
+            && let Err(Stop::Error(word, _)) = &exit.result
+        {
+            self.actual_escape = true;
+            if !word.longer
+                && word.prefix.len() == 1
+                && let Some(origin) = origin.filter(|origin| origin.4 == 0)
+            {
+                escaping
+                    .entry(((**word).clone(), exit.guards.clone()))
+                    .and_modify(|at| *at = (*at).min(origin))
+                    .or_insert(origin);
+            }
+        }
+    }
+
+    pub fn main_diagnostic(&self, function: &FunctionDecl, contract: &Contract) -> Diagnostic {
+        let header = SourceRange {
+            end_byte: function.body.range.start_byte,
+            ..function.range
+        };
+        let errors = || {
+            contract.exits.iter().filter_map(|exit| {
+                if let Err(Stop::Error(word, _)) = &exit.result {
+                    Some((word, &exit.guards))
+                } else {
+                    None
+                }
+            })
+        };
+        let origin = errors()
+            .filter_map(|(word, guards)| {
+                self.escaping
+                    .as_ref()?
+                    .get(&((**word).clone(), guards.clone()))
+                    .map(|&at| (at, &word.prefix[0]))
+            })
+            .min_by_key(|(at, tag)| (*at, *tag));
+        let declared = function
+            .error_contract
+            .as_ref()
+            .filter(|_| !self.actual_escape);
+        let primary = origin
+            .map(|(at, _)| range(at))
+            .or_else(|| declared.map(|c| c.range))
+            .unwrap_or(header);
+        let tag = origin
+            .map(|(_, tag)| tag)
+            .or_else(|| declared.and_then(|_| errors().find_map(|(word, _)| word.prefix.first())));
+        let subject = tag
+            .filter(|tag| matches!(tag, Tag::Named(_) | Tag::Set(_)))
+            .map_or_else(
+                || "an ordinary Error".into(),
+                super::super::catch_diagnostics::display_tag,
+            );
+        let mut diagnostic = Diagnostic::error(
+            DiagnosticCode::ErrorEscapesBoundary,
+            primary,
+            format!("{subject} can escape the Main entry"),
+            "handle the Error before it leaves `main`",
+        );
+        if primary != header {
+            diagnostic = diagnostic.with_secondary(
+                header,
+                "`main` must handle every ordinary Error before it exits",
+            );
+        }
+        diagnostic
+    }
+
     pub fn direct_call(&mut self, at: Site, target: &[String]) {
         // Package linking and specialization can rewrite the target. Display
         // a name only when the target still has a source spelling.

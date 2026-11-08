@@ -7,8 +7,10 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 mod origins;
+mod sequence;
 use origins::Origins;
 pub(super) use origins::{Kind as OriginKind, Origin, outside};
+pub(super) use sequence::{Count, Part, PartKind, Reception, Sequence, VISIBLE_ERRORS};
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub(crate) struct Input {
@@ -63,7 +65,27 @@ pub(crate) struct Language {
 #[derive(Clone, Debug)]
 struct Trace {
     allowed: Arc<BTreeSet<Tag>>,
-    origins: BTreeMap<Word, Origins>,
+    witnesses: BTreeMap<Word, Witness>,
+}
+
+#[derive(Clone, Debug)]
+struct Witness {
+    origins: Origins,
+    sequence: Option<Sequence>,
+}
+
+impl Witness {
+    fn merge(&mut self, other: Self, prefix: &[Tag], allowed: &BTreeSet<Tag>) {
+        self.origins.merge(other.origins, prefix, allowed);
+        if let Some(next) = other.sequence
+            && self
+                .sequence
+                .as_ref()
+                .is_none_or(|current| next.precedes(current))
+        {
+            self.sequence = Some(next);
+        }
+    }
 }
 
 impl Language {
@@ -82,54 +104,95 @@ impl Language {
 
     pub fn extend(&mut self, other: Self) {
         if let Some(trace) = other.trace {
-            for (word, origins) in trace.origins {
-                self.record(&trace.allowed, &word, origins);
+            for (word, witness) in trace.witnesses {
+                self.record(&trace.allowed, &word, witness);
             }
         }
         self.words.extend(other.words);
     }
 
-    pub(super) fn at(mut self, allowed: &Arc<BTreeSet<Tag>>, origin: Origin) -> Self {
+    pub(super) fn at(
+        mut self,
+        allowed: &Arc<BTreeSet<Tag>>,
+        origin: Origin,
+        ordered: bool,
+        reception: Option<Arc<Reception>>,
+    ) -> Self {
         if !self.words.is_empty() {
-            let origins = self
+            let witnesses = self
                 .words
                 .iter()
-                .map(|word| (word.clone(), Origins::at(word, origin)))
+                .map(|word| {
+                    (
+                        word.clone(),
+                        Witness {
+                            origins: Origins::at(word, origin),
+                            sequence: ordered
+                                .then(|| Sequence::at(word, origin, reception.clone())),
+                        },
+                    )
+                })
                 .collect();
             self.trace = Some(Box::new(Trace {
                 allowed: allowed.clone(),
-                origins,
+                witnesses,
             }));
         }
         self
     }
 
     pub(super) fn origins(&self, word: &Word) -> Option<&Origins> {
-        self.trace.as_ref()?.origins.get(word)
+        Some(&self.witness(word)?.origins)
     }
 
-    fn record(&mut self, allowed: &Arc<BTreeSet<Tag>>, word: &Word, origins: Origins) {
+    pub(super) fn sequence(&self, word: &Word) -> Option<&Sequence> {
+        self.witness(word)?.sequence.as_ref()
+    }
+
+    fn witness(&self, word: &Word) -> Option<&Witness> {
+        self.trace.as_ref()?.witnesses.get(word)
+    }
+
+    pub(super) fn mark_cleanup(&mut self, range: crate::SourceRange, independent: bool) {
+        if let Some(trace) = &mut self.trace {
+            for (word, witness) in &mut trace.witnesses {
+                if let Some(sequence) = &mut witness.sequence {
+                    if !independent {
+                        *sequence = Sequence::unknown(word, Some(range));
+                    } else {
+                        sequence.mark_cleanup(range);
+                    }
+                }
+            }
+        }
+    }
+
+    fn record(&mut self, allowed: &Arc<BTreeSet<Tag>>, word: &Word, witness: Witness) {
         let trace = self.trace.get_or_insert_with(|| {
             Box::new(Trace {
                 allowed: allowed.clone(),
-                origins: BTreeMap::new(),
+                witnesses: BTreeMap::new(),
             })
         });
-        match trace.origins.entry(word.clone()) {
+        match trace.witnesses.entry(word.clone()) {
             std::collections::btree_map::Entry::Occupied(mut entry) => {
-                entry.get_mut().merge(origins, &word.prefix, allowed);
+                entry.get_mut().merge(witness, &word.prefix, allowed);
             }
             std::collections::btree_map::Entry::Vacant(entry) => {
-                entry.insert(origins);
+                entry.insert(witness);
             }
         }
     }
 
     fn insert_from(&mut self, next: Word, source: &Self, previous: &Word) {
         if let Some(trace) = &source.trace
-            && let Some(origins) = trace.origins.get(previous)
+            && let Some(witness) = trace.witnesses.get(previous)
         {
-            self.record(&trace.allowed, &next, origins.clone());
+            let mut witness = witness.clone();
+            witness.sequence = witness
+                .sequence
+                .and_then(|sequence| sequence.restrict(&next));
+            self.record(&trace.allowed, &next, witness);
         }
         self.insert(next);
     }
@@ -137,7 +200,7 @@ impl Language {
     pub(super) fn retain(&mut self, keep: impl Fn(&Word) -> bool) {
         self.words.retain(&keep);
         if let Some(trace) = &mut self.trace {
-            trace.origins.retain(|word, _| keep(word));
+            trace.witnesses.retain(|word, _| keep(word));
         }
     }
 }
@@ -245,9 +308,20 @@ pub(super) fn independent_elements(errors: &Language) -> Language {
             guards,
         };
         if let Some(trace) = &errors.trace
-            && let Some(origins) = trace.origins.get(word)
+            && let Some(witness) = trace.witnesses.get(word)
         {
-            result.record(&trace.allowed, &next, origins.remap_tail(independent));
+            result.record(
+                &trace.allowed,
+                &next,
+                Witness {
+                    origins: witness.origins.remap_tail(independent),
+                    // A loop may visit a different element on each iteration.
+                    sequence: witness
+                        .sequence
+                        .as_ref()
+                        .map(|_| Sequence::unknown(&next, None)),
+                },
+            );
         }
         result.insert(next);
     }
@@ -273,20 +347,58 @@ impl Word {
         }
     }
 
-    pub fn display(&self) -> String {
-        let mut parts = self
-            .prefix
-            .iter()
-            .map(|tag| match tag {
-                Tag::Named(name) => name.clone(),
-                Tag::Set(names) => names.iter().cloned().collect::<Vec<_>>().join(" | "),
-                Tag::Any | Tag::Parameter(..) | Tag::FutureElement(..) => "Error".into(),
-            })
-            .collect::<Vec<_>>();
-        if self.longer {
-            parts.push("...".into());
+    fn concatenate(&self, right: &Self, guards: Guards, bound: usize) -> Self {
+        let available = self.available(bound);
+        let mut prefix = self.prefix.clone();
+        prefix.extend(right.prefix.iter().take(available).cloned());
+        let mut tail = self.tail.clone();
+        tail.extend(right.tail.iter().cloned());
+        tail.extend(right.prefix.iter().skip(available).cloned());
+        Self {
+            prefix,
+            tail,
+            longer: self.longer || right.longer || self.prefix.len() + right.prefix.len() > bound,
+            guards,
         }
-        format!("[{}]", parts.join(", "))
+    }
+
+    fn available(&self, bound: usize) -> usize {
+        if self.longer {
+            0
+        } else {
+            bound.saturating_sub(self.prefix.len())
+        }
+    }
+
+    pub(super) fn contains(&self, other: &Self) -> bool {
+        fn includes(upper: &Tag, actual: &Tag) -> bool {
+            match (upper, actual) {
+                (Tag::Any, _) => true,
+                (Tag::Set(names), Tag::Named(name)) => names.contains(name),
+                (Tag::Set(names), Tag::Set(actual)) => actual.is_subset(names),
+                _ => upper == actual,
+            }
+        }
+        self.longer == other.longer
+            && self.prefix.len() == other.prefix.len()
+            && self
+                .prefix
+                .iter()
+                .zip(&other.prefix)
+                .all(|(a, b)| includes(a, b))
+            && other
+                .tail
+                .iter()
+                .all(|b| self.tail.iter().any(|a| includes(a, b)))
+            && self.guards.iter().all(|(input, guard)| {
+                other.guards.get(input).is_some_and(|actual| {
+                    actual == guard
+                        || matches!(
+                            (guard, actual),
+                            (Guard::Future(None), Guard::Future(Some(_)))
+                        )
+                })
+            })
     }
 }
 
@@ -441,6 +553,15 @@ pub(super) fn conditioned(errors: &Language, paths: &Language) -> Language {
 }
 
 pub(crate) fn concatenate(left: &Language, right: &Language, bound: usize) -> Language {
+    concatenate_with_evidence(left, right, bound, true)
+}
+
+pub(super) fn concatenate_with_evidence(
+    left: &Language,
+    right: &Language,
+    bound: usize,
+    independent: bool,
+) -> Language {
     let mut result = Language::new();
     let trace = left.trace.as_ref().or(right.trace.as_ref());
     for a in left {
@@ -448,30 +569,31 @@ pub(crate) fn concatenate(left: &Language, right: &Language, bound: usize) -> La
             let Some(guards) = merge_guards(&a.guards, &b.guards) else {
                 continue;
             };
-            let mut prefix = a.prefix.clone();
-            let mut tail = a.tail.clone();
-            tail.extend(b.tail.iter().cloned());
-            let available = if a.longer {
-                0
-            } else {
-                bound.saturating_sub(prefix.len())
-            };
-            tail.extend(b.prefix.iter().skip(available).cloned());
-            prefix.extend(b.prefix.iter().take(available).cloned());
-            let word = Word {
-                prefix,
-                tail,
-                longer: a.longer || b.longer || a.prefix.len() + b.prefix.len() > bound,
-                guards,
-            };
+            let word = a.concatenate(b, guards, bound);
             if let Some(trace) = trace {
-                let left_origins = left.origins(a);
-                let right_origins = right.origins(b);
-                if left_origins.is_some() || right_origins.is_some() {
+                let left = left.witness(a);
+                let right = right.witness(b);
+                if left.is_some() || right.is_some() {
                     result.record(
                         &trace.allowed,
                         &word,
-                        Origins::concatenate(a, b, left_origins, right_origins, available),
+                        Witness {
+                            origins: Origins::concatenate(
+                                a,
+                                b,
+                                left.map(|w| &w.origins),
+                                right.map(|w| &w.origins),
+                                a.available(bound),
+                            ),
+                            sequence: Sequence::join(
+                                a,
+                                b,
+                                left.and_then(|w| w.sequence.as_ref()),
+                                right.and_then(|w| w.sequence.as_ref()),
+                                bound,
+                                independent,
+                            ),
+                        },
                     );
                 }
             }
@@ -486,18 +608,18 @@ pub(crate) fn concatenate(left: &Language, right: &Language, bound: usize) -> La
 pub(super) fn normalize(errors: Language) -> Language {
     let mut words = BTreeMap::<(Vec<Tag>, bool, Guards), BTreeSet<Tag>>::new();
     let mut trace = errors.trace;
-    let mut witnesses = BTreeMap::<(Vec<Tag>, bool, Guards), Origins>::new();
+    let mut witnesses = BTreeMap::<(Vec<Tag>, bool, Guards), Witness>::new();
     for word in errors.words {
         if let Some(trace) = &mut trace
-            && let Some(origins) = trace.origins.remove(&word)
+            && let Some(witness) = trace.witnesses.remove(&word)
         {
             let shape = (word.prefix.clone(), word.longer, word.guards.clone());
             match witnesses.entry(shape) {
                 std::collections::btree_map::Entry::Occupied(mut entry) => {
-                    entry.get_mut().merge(origins, &word.prefix, &trace.allowed);
+                    entry.get_mut().merge(witness, &word.prefix, &trace.allowed);
                 }
                 std::collections::btree_map::Entry::Vacant(entry) => {
-                    entry.insert(origins);
+                    entry.insert(witness);
                 }
             }
         }
@@ -541,6 +663,14 @@ pub(crate) enum Match {
     All,
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum Mismatch {
+    TooLong,
+    TooShort,
+    Type(usize),
+    Open(usize),
+}
+
 impl Pattern {
     pub fn whole() -> Self {
         Self {
@@ -548,40 +678,73 @@ impl Pattern {
             rest: true,
         }
     }
+    fn length_mismatch(&self, word: &Word) -> Option<Mismatch> {
+        if !self.rest && (word.longer || word.prefix.len() > self.prefix.len()) {
+            Some(Mismatch::TooLong)
+        } else if word.prefix.len() < self.prefix.len() {
+            Some(Mismatch::TooShort)
+        } else {
+            None
+        }
+    }
+
+    fn match_tag(expected: &Tag, actual: &Tag) -> Match {
+        if *expected == Tag::Any || expected == actual {
+            return Match::All;
+        }
+        match actual {
+            Tag::Set(names) => match expected {
+                Tag::Named(name) if !names.contains(name) => Match::Never,
+                Tag::Named(_) if names.len() == 1 => Match::All,
+                _ => Match::Some,
+            },
+            Tag::Any | Tag::Parameter(..) | Tag::FutureElement(..) => Match::Some,
+            Tag::Named(_) => Match::Never,
+        }
+    }
+
     pub fn matches(&self, word: &Word) -> Match {
-        if (!self.rest && (word.longer || word.prefix.len() != self.prefix.len()))
-            || word.prefix.len() < self.prefix.len()
-        {
+        if self.length_mismatch(word).is_some() {
             return Match::Never;
         }
         let mut result = Match::All;
         for (expected, actual) in self.prefix.iter().zip(&word.prefix) {
-            if *expected == Tag::Any || expected == actual {
-                continue;
-            }
-            match actual {
-                Tag::Set(names) => {
-                    if let Tag::Named(name) = expected {
-                        if !names.contains(name) {
-                            return Match::Never;
-                        }
-                        if names.len() > 1 {
-                            result = Match::Some;
-                        }
-                    } else {
-                        result = Match::Some;
-                    }
-                }
-                Tag::Any | Tag::Parameter(..) | Tag::FutureElement(..) => result = Match::Some,
-                Tag::Named(_) => return Match::Never,
+            match Self::match_tag(expected, actual) {
+                Match::Never => return Match::Never,
+                Match::Some => result = Match::Some,
+                Match::All => {}
             }
         }
         result
     }
+
+    pub(super) fn mismatch(&self, word: &Word) -> Option<Mismatch> {
+        if let Some(length) = self.length_mismatch(word) {
+            return Some(length);
+        }
+        let mut open = None;
+        for (i, (expected, actual)) in self.prefix.iter().zip(&word.prefix).enumerate() {
+            match Self::match_tag(expected, actual) {
+                Match::Never => return Some(Mismatch::Type(i)),
+                Match::Some => {
+                    open.get_or_insert(Mismatch::Open(i));
+                }
+                Match::All => {}
+            }
+        }
+        open
+    }
     /// A finite positive set of nominal tests cannot exhaust an open Error
     /// position unless one test accepts that whole position. Splitting by
     /// length also catches unions such as [A] followed by [A, Error, ...].
-    pub fn covered_by(&self, previous: &[Self], bound: usize) -> bool {
+    pub(super) fn covered_by(
+        &self,
+        previous: &[Self],
+        bound: usize,
+    ) -> Option<Vec<(usize, Option<Shape>)>> {
+        if previous.is_empty() {
+            return None;
+        }
         let mut witnesses = Language::new();
         if self.rest {
             for len in self.prefix.len().max(1)..=bound {
@@ -610,11 +773,35 @@ impl Pattern {
                 guards: Guards::new(),
             });
         }
-        witnesses.iter().all(|word| {
+        let covering = |word: &Word| {
             previous
                 .iter()
-                .any(|pattern| pattern.matches(word) == Match::All)
-        })
+                .position(|pattern| pattern.matches(word) == Match::All)
+        };
+        if !witnesses.iter().all(|word| covering(word).is_some()) {
+            return None;
+        }
+        if let Some(index) = previous.iter().position(|pattern| {
+            witnesses
+                .iter()
+                .all(|word| pattern.matches(word) == Match::All)
+        }) {
+            return Some(vec![(index, None)]);
+        }
+        Some(
+            witnesses
+                .iter()
+                .map(|word| {
+                    (
+                        covering(word).unwrap(),
+                        Some(Shape {
+                            length: word.prefix.len(),
+                            longer: word.longer,
+                        }),
+                    )
+                })
+                .collect(),
+        )
     }
 }
 
@@ -676,6 +863,8 @@ mod tests {
                     kind: OriginKind::Throw,
                     in_finally: false,
                 },
+                true,
+                None,
             )
         };
         for bound in [1, 2] {

@@ -255,6 +255,35 @@ fn same_signature(a: &FunctionDecl, b: &FunctionDecl) -> bool {
         && spelling(&a.result) == spelling(&b.result)
 }
 
+fn conflicting_requirements(
+    at: SourceRange,
+    message: &str,
+    first: &FunctionDecl,
+    second: &FunctionDecl,
+) -> Diagnostic {
+    let signature = |method: &FunctionDecl| {
+        let parameters = method
+            .parameters
+            .iter()
+            .map(|p| format!("{}: {}", p.name, spelling(&p.ty)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let contract = method
+            .error_contract
+            .as_ref()
+            .map_or_else(String::new, |c| c.spelling(spelling));
+        let asynchronous = if method.is_async { "async " } else { "" };
+        format!(
+            "required signature `{asynchronous}fn {}({parameters}){contract} -> {}`",
+            method.name,
+            spelling(&method.result)
+        )
+    };
+    error(at, message)
+        .with_secondary(first.range, signature(first))
+        .with_secondary(second.range, signature(second))
+}
+
 fn bound(contract: &ErrorContract) -> BTreeSet<String> {
     contract.types.iter().map(spelling).collect()
 }
@@ -418,7 +447,7 @@ fn prepare_inner(module: &Module) -> Result<Module, Diagnostic> {
                     "interface type argument count does not match its declaration",
                 ));
             }
-            if applications.insert(name, args).is_some() {
+            if applications.insert(name, (args, source.range)).is_some() {
                 return Err(error(
                     source.range,
                     "an interface can be declared only once on an owner",
@@ -437,14 +466,23 @@ fn prepare_inner(module: &Module) -> Result<Module, Diagnostic> {
                 .get(&format!("{}.{}", d.name(), dispatch.member))
                 .copied()
             else {
+                let (required, at) = &applications[&dispatch.interfaces[0]];
+                let request = method(
+                    &interfaces[&dispatch.interfaces[0]],
+                    required,
+                    &owner,
+                    &dispatch.member,
+                )
+                .unwrap();
                 return Err(error(
-                    d.range(),
+                    *at,
                     format!(
                         "`{}` is missing required method `{}`",
                         d.name(),
                         dispatch.member
                     ),
-                ));
+                )
+                .with_secondary(request.range, "the required method is declared here"));
             };
             if actual.is_private
                 || !actual.parameters.first().is_some_and(|p| p.name == "self")
@@ -457,14 +495,24 @@ fn prepare_inner(module: &Module) -> Result<Module, Diagnostic> {
             }
             let mut expected: Option<FunctionDecl> = None;
             for name in &dispatch.interfaces {
-                let request = method(
-                    &interfaces[name],
-                    &applications[name],
-                    &owner,
-                    &dispatch.member,
-                )
-                .unwrap();
+                let (args, at) = &applications[name];
+                let request = method(&interfaces[name], args, &owner, &dispatch.member).unwrap();
                 if !same_signature(actual, &request) {
+                    if let Some(other) = applications
+                        .iter()
+                        .filter(|(other, _)| *other != name)
+                        .filter_map(|(other, (args, _))| {
+                            method(&interfaces[other], args, &owner, &dispatch.member)
+                        })
+                        .find(|other| !same_signature(other, &request))
+                    {
+                        return Err(conflicting_requirements(
+                            *at,
+                            "incompatible same-name interface requirements",
+                            &other,
+                            &request,
+                        ));
+                    }
                     return Err(error(
                         actual.range,
                         format!("method `{}` does not match interface `{name}`", actual.name),
@@ -485,9 +533,11 @@ fn prepare_inner(module: &Module) -> Result<Module, Diagnostic> {
                 }
                 if let Some(previous) = &mut expected {
                     if !same_signature(previous, &request) {
-                        return Err(error(
-                            d.range(),
+                        return Err(conflicting_requirements(
+                            *at,
                             "incompatible same-name interface requirements",
+                            previous,
+                            &request,
                         ));
                     }
                     intersect(
@@ -548,11 +598,12 @@ fn prepare_inner(module: &Module) -> Result<Module, Diagnostic> {
                     if let Some(previous) = requirements.insert(m.name.clone(), request.clone())
                         && !same_signature(&previous, &request)
                     {
-                        return Err(error(
+                        return Err(conflicting_requirements(
                             source.range,
                             "conflicting same-name methods in interface constraints",
-                        )
-                        .with_secondary(previous.range, "the other requirement is declared here"));
+                            &previous,
+                            &request,
+                        ));
                     }
                 }
             }
@@ -952,8 +1003,13 @@ impl Resolver<'_> {
             let requests = self.requirements(&ty, &member);
             if !requests.is_empty() {
                 let first = &requests[0].1;
-                if requests.iter().any(|(_, m)| !same_signature(first, m)) {
-                    return Err(error(e.range, "conflicting interface method signatures"));
+                if let Some((_, other)) = requests.iter().find(|(_, m)| !same_signature(first, m)) {
+                    return Err(conflicting_requirements(
+                        e.range,
+                        "conflicting interface method signatures",
+                        first,
+                        other,
+                    ));
                 }
                 let mut names = requests.into_iter().map(|(n, _)| n).collect::<Vec<_>>();
                 names.sort();

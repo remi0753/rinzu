@@ -254,6 +254,12 @@ pub(crate) struct BoundFunction {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct IndirectSignature {
+    pub signature: FunctionReferenceType,
+    pub contract: Option<SourceRange>,
+}
+
+#[derive(Clone, Debug)]
 pub struct CheckedModule {
     pub(crate) error_upcasts: HashMap<SourceRange, Type>,
     pub(crate) error_patterns: HashMap<SourceRange, Type>,
@@ -280,7 +286,7 @@ pub struct CheckedModule {
     pub source_native_calls: HashMap<SourceRange, crate::SourceNativeSignature>,
     pub reference_targets: HashMap<SourceRange, Vec<String>>,
     pub indirect_calls: HashMap<SourceRange, Vec<String>>,
-    pub(crate) indirect_signatures: HashMap<SourceRange, FunctionReferenceType>,
+    pub(crate) indirect_signatures: HashMap<SourceRange, IndirectSignature>,
     pub(crate) error_conversions: HashMap<SourceRange, ErrorConversion>,
     pub supplant_calls: HashMap<SourceRange, SupplantCall>,
     pub source_native_signatures: Vec<crate::SourceNativeSignature>,
@@ -605,7 +611,7 @@ pub fn check_module_with_options(
             checked
                 .indirect_signatures
                 .into_iter()
-                .filter(|(_, signature)| signature.error_bound.is_some()),
+                .filter(|(_, call)| call.signature.error_bound.is_some()),
         );
         result.closure_source = Some(file);
         result
@@ -679,7 +685,7 @@ struct Checker<'a> {
     native_captures: HashMap<SourceRange, Type>,
     reference_targets: HashMap<SourceRange, Vec<String>>,
     indirect_calls: HashMap<SourceRange, Vec<String>>,
-    indirect_signatures: HashMap<SourceRange, FunctionReferenceType>,
+    indirect_signatures: HashMap<SourceRange, IndirectSignature>,
     error_conversions: HashMap<SourceRange, ErrorConversion>,
     supplant_calls: HashMap<SourceRange, SupplantCall>,
     constants: std::collections::BTreeMap<String, IntegerConstant>,
@@ -1800,7 +1806,7 @@ impl<'a> Checker<'a> {
                     }
                     return;
                 };
-                self.check_switch(&enum_name, cases, context);
+                self.check_switch(&enum_name, value.range, cases, context);
             }
             StatementKind::TryCatch {
                 body,
@@ -1868,6 +1874,7 @@ impl<'a> Checker<'a> {
     fn check_switch(
         &mut self,
         enum_name: &str,
+        value: SourceRange,
         cases: &[crate::ast::SwitchCase],
         context: &mut FunctionContext<'_>,
     ) {
@@ -1952,15 +1959,29 @@ impl<'a> Checker<'a> {
             .variants
             .iter()
             .filter(|variant| !seen.contains(&variant.name))
-            .map(|variant| variant.name.as_str())
             .collect();
         if !missing.is_empty() {
-            self.diagnostics.push(Diagnostic::error(
+            let names = missing
+                .iter()
+                .map(|variant| variant.name.as_str())
+                .collect::<Vec<_>>();
+            let mut diagnostic = Diagnostic::error(
                 DiagnosticCode::NonExhaustiveSwitch,
-                cases.first().map_or(enum_decl.range, |case| case.range),
-                format!("switch is missing variants: {}", missing.join(", ")),
-                "add one case for every missing variant; language 0.1 has no default case",
-            ));
+                value,
+                format!("switch is missing variants: {}", names.join(", ")),
+                "add one case for every missing variant",
+            );
+            for variant in missing {
+                if variant.range.file_id != crate::FileId::MANIFEST
+                    && variant.range != enum_decl.range
+                {
+                    diagnostic = diagnostic.with_secondary(
+                        variant.range,
+                        format!("missing variant `{}` is declared here", variant.name),
+                    );
+                }
+            }
+            self.diagnostics.push(diagnostic);
         }
     }
 
@@ -2574,6 +2595,31 @@ impl<'a> Checker<'a> {
         })
     }
 
+    fn callback_call_contract(
+        &self,
+        target: &[String],
+        context: &FunctionContext<'_>,
+    ) -> Option<SourceRange> {
+        let (root, fields) = target.split_first()?;
+        let local = context.locals.get(root)?;
+        let Some((last, fields)) = fields.split_last() else {
+            return local.callback_contract;
+        };
+        let field = |ty: &Type, field: &str| {
+            let Type::Named(name) = ty else { return None };
+            self.record_declaration(name)?
+                .fields
+                .iter()
+                .find(|f| f.name == field)
+        };
+        let mut ty = local.ty.clone();
+        for name in fields {
+            ty = self.resolve_type_readonly(&field(&ty, name)?.ty)?;
+        }
+        let annotation = &field(&ty, last)?.ty;
+        callback_type_contract(&self.resolve_type_readonly(annotation)?, Some(annotation))
+    }
+
     fn check_name(
         &mut self,
         path: &[String],
@@ -3167,7 +3213,17 @@ impl<'a> Checker<'a> {
                 );
             } else {
                 self.indirect_calls.insert(range, possible);
-                self.indirect_signatures.insert(range, (*signature).clone());
+                let contract = signature
+                    .error_bound
+                    .as_ref()
+                    .and_then(|_| self.callback_call_contract(target, context));
+                self.indirect_signatures.insert(
+                    range,
+                    IndirectSignature {
+                        signature: (*signature).clone(),
+                        contract,
+                    },
+                );
             }
             context.facts.may_fail = true;
             return Some(*signature.result);

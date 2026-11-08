@@ -73,27 +73,38 @@ fn language_for_tags(allowed: BTreeSet<Tag>, bound: usize) -> Language {
         .collect()
 }
 
-pub(super) fn validate(
+pub(super) fn violation(
     checked: &CheckedModule,
     function: &FunctionDecl,
     actual: &Summary,
-    trace: impl FnOnce(BTreeSet<Tag>) -> Language,
-) -> Option<Diagnostic> {
-    use language::{OriginKind, outside};
-
+) -> Option<BTreeSet<Tag>> {
     let contract = function.error_contract.as_ref()?;
     let allowed = allowed(checked, contract);
-    if allowed.contains(&Tag::Any) {
-        return None;
-    }
+    (!allowed.contains(&Tag::Any)
+        && actual
+            .errors
+            .iter()
+            .flat_map(|word| word.prefix.iter().chain(&word.tail))
+            .any(|tag| language::outside(tag, &allowed)))
+    .then_some(allowed)
+}
+
+pub(super) fn diagnostic(
+    function: &FunctionDecl,
+    actual: &Summary,
+    allowed: BTreeSet<Tag>,
+    traced: &Language,
+) -> Diagnostic {
+    use language::{OriginKind, outside};
+    let contract = function.error_contract.as_ref().unwrap();
     let first = actual
         .errors
         .iter()
         .flat_map(|word| word.prefix.iter().chain(&word.tail))
-        .find(|tag| outside(tag, &allowed))?;
-    let traced = trace(allowed.clone());
+        .find(|tag| outside(tag, &allowed))
+        .unwrap();
     debug_assert_eq!(
-        traced, actual.errors,
+        traced, &actual.errors,
         "tracing changed the escaping Error language"
     );
     let traced_violation = traced.iter().find_map(|word| {
@@ -201,7 +212,7 @@ pub(super) fn validate(
         };
         diagnostic = diagnostic.with_secondary(contract.range, note);
     }
-    Some(diagnostic)
+    diagnostic
 }
 
 pub(super) fn display_identity(name: &str) -> String {

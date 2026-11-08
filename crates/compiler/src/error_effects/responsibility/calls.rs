@@ -217,7 +217,7 @@ impl Engine<'_> {
             .checked
             .indirect_signatures
             .get(&expression.range)
-            .and_then(|signature| signature.error_bound.as_ref())
+            .and_then(|call| call.signature.error_bound.as_ref())
             .map(|bound| super::super::contracts::for_bound(bound, self.bound));
         let callee = if indirect.is_some() && state.env.contains_key(&target[0]) {
             self.expression(

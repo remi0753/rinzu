@@ -1,5 +1,6 @@
 //! Normal Error effects, separate from traps, cancellation and runtime faults.
 //! Inference is the default; explicit contracts bound escaping ordinary Errors.
+pub(crate) mod catch_diagnostics;
 mod contracts;
 mod flow;
 mod language;
@@ -11,7 +12,7 @@ use crate::ast::*;
 use crate::ast_walk::{self, Visitor};
 use crate::{CheckedModule, Diagnostic, DiagnosticCode, SourceRange, Type};
 use language::{Input, Language, Match, Pattern, Tag};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use value::{Projection, Value};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -217,6 +218,7 @@ fn analysis_bound(checked: &CheckedModule) -> usize {
 fn infer(
     checked: &CheckedModule,
     functions: &BTreeMap<String, &crate::CheckedFunction>,
+    graph: &BTreeMap<String, BTreeSet<String>>,
     bound: usize,
     proof: bool,
 ) -> BTreeMap<String, Summary> {
@@ -224,7 +226,7 @@ fn infer(
         .keys()
         .map(|name| (name.clone(), Summary::default()))
         .collect::<BTreeMap<_, _>>();
-    let order = function_order(&function_graph(checked));
+    let order = function_order(graph);
     let mut timing = crate::timing::span("frontend.effects.summaries");
     let mut evaluated = 0;
     let mut rounds = 0;
@@ -270,8 +272,8 @@ pub(crate) fn verify_conversions(checked: &CheckedModule) -> Result<(), Vec<Diag
     }
     let functions = functions_by_name(checked);
     let bound = analysis_bound(checked);
-    let summaries = infer(checked, &functions, bound, true);
-    let mut seen = std::collections::HashSet::new();
+    let summaries = infer(checked, &functions, &function_graph(checked), bound, true);
+    let mut seen = HashSet::new();
     let diagnostics: Vec<_> = functions
         .values()
         .flat_map(|function| {
@@ -299,22 +301,32 @@ pub(crate) fn analyze(
     let _timing = crate::timing::span("frontend.effects");
     let functions = functions_by_name(checked);
     let bound = analysis_bound(checked);
-    let summaries = infer(checked, &functions, bound, false);
-    let mut diagnostics = Vec::new();
+    let graph = function_graph(checked);
+    let summaries = infer(checked, &functions, &graph, bound, false);
+    let mut failures = Vec::new();
     for function in functions.values() {
         let (actual, errors) =
             flow::Analyzer::new(checked, &summaries, bound, true).function(function);
-        diagnostics.extend(errors);
-        diagnostics.extend(contracts::validate(
-            checked,
-            &function.declaration,
-            &actual,
-            |allowed| {
-                flow::Analyzer::new(checked, &summaries, bound, false)
-                    .traced_function(function, allowed)
-            },
-        ));
+        let violation = contracts::violation(checked, &function.declaration, &actual);
+        if !errors.is_empty() || violation.is_some() {
+            failures.push((
+                *function,
+                errors,
+                violation.map(|allowed| (actual, allowed)),
+            ));
+        }
     }
+    if failures.is_empty() {
+        let diagnostics = responsibility::validate(checked, &summaries, &graph, bound, entry);
+        return if diagnostics.is_empty() {
+            Ok(summaries)
+        } else {
+            Err(diagnostics)
+        };
+    }
+
+    let mut diagnostics =
+        effect_diagnostics(checked, &functions, &graph, &summaries, bound, failures);
     let mut seen = BTreeSet::new();
     diagnostics.retain(|diagnostic| {
         seen.insert((
@@ -325,14 +337,131 @@ pub(crate) fn analyze(
             diagnostic.message.clone(),
         ))
     });
-    if diagnostics.is_empty() {
-        diagnostics.extend(responsibility::validate(checked, &summaries, bound, entry));
+    Err(diagnostics)
+}
+
+type FunctionFailure<'a> = (
+    &'a crate::CheckedFunction,
+    Vec<Diagnostic>,
+    Option<(Summary, BTreeSet<Tag>)>,
+);
+
+fn effect_diagnostics(
+    checked: &CheckedModule,
+    functions: &BTreeMap<String, &crate::CheckedFunction>,
+    graph: &BTreeMap<String, BTreeSet<String>>,
+    summaries: &BTreeMap<String, Summary>,
+    bound: usize,
+    failures: Vec<FunctionFailure<'_>>,
+) -> Vec<Diagnostic> {
+    let mut timing = crate::timing::span("frontend.effects.diagnostics");
+    let ordered = failures.iter().any(|(_, diagnostics, _)| {
+        diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::NonExhaustiveCatch)
+    });
+    let mut traces = BTreeMap::new();
+    let mut replays = Vec::new();
+    for (function, diagnostics, violation) in &failures {
+        let targets: HashSet<_> = diagnostics
+            .iter()
+            .filter_map(|d| (d.code == DiagnosticCode::NonExhaustiveCatch).then_some(d.primary))
+            .collect();
+        if targets.is_empty() && violation.is_none() {
+            replays.push(None);
+            continue;
+        }
+        let replay = ordered.then(|| catch_diagnostics::Replay::new(targets));
+        let allowed = violation
+            .as_ref()
+            .map_or_else(BTreeSet::new, |(_, allowed)| allowed.clone());
+        let (errors, replay) = flow::Analyzer::new(checked, summaries, bound, false)
+            .traced_function(function, allowed, replay);
+        traces.insert(function.declaration.name.as_str(), errors);
+        replays.push(replay);
     }
-    if diagnostics.is_empty() {
-        Ok(summaries)
-    } else {
-        Err(diagnostics)
+    timing.set_counter("functions", traces.len() as u64);
+    let mut callee_replays = 0;
+    let mut expandable = BTreeMap::new();
+    let mut diagnostics = Vec::new();
+    for ((function, errors, violation), replay) in failures.into_iter().zip(replays) {
+        let mut reported = HashSet::new();
+        for mut diagnostic in errors {
+            if diagnostic.code == DiagnosticCode::NonExhaustiveCatch {
+                let at = diagnostic.primary;
+                if !reported.insert(at) {
+                    continue;
+                }
+                if let Some(detail) = replay.as_ref().and_then(|replay| {
+                    replay.diagnostic(at, |callee, word| {
+                        let (name, function) = functions.get_key_value(callee)?;
+                        if !*expandable.entry(name.as_str()).or_insert_with(|| {
+                            let source = function.declaration.body.range.file_id;
+                            source != crate::FileId::MANIFEST
+                                && checked.closure_source != Some(source)
+                                && source != crate::collections::source_file().id()
+                                && !is_recursive(name, graph)
+                                && flow::arguments_independent(checked, function)
+                        }) {
+                            return None;
+                        }
+                        let errors = traces.entry(name.as_str()).or_insert_with(|| {
+                            callee_replays += 1;
+                            flow::Analyzer::new(checked, summaries, bound, false)
+                                .traced_function(
+                                    function,
+                                    BTreeSet::new(),
+                                    Some(catch_diagnostics::Replay::new(HashSet::new())),
+                                )
+                                .0
+                        });
+                        catch_diagnostics::best_sequence(errors.iter().filter_map(|candidate| {
+                            let sequence = errors.sequence(candidate)?;
+                            (sequence.word.guards.is_empty()
+                                && sequence.word.prefix.iter().chain(&sequence.word.tail).all(
+                                    |tag| {
+                                        !matches!(tag, Tag::Parameter(_) | Tag::FutureElement(..))
+                                    },
+                                )
+                                && word.contains(&sequence.word))
+                            .then_some(sequence)
+                        }))
+                        .cloned()
+                    })
+                }) {
+                    diagnostic = detail;
+                }
+            }
+            diagnostics.push(diagnostic);
+        }
+        if let Some((actual, allowed)) = violation {
+            let traced = &traces[function.declaration.name.as_str()];
+            diagnostics.push(contracts::diagnostic(
+                &function.declaration,
+                &actual,
+                allowed,
+                traced,
+            ));
+        }
     }
+    timing.set_counter("callee_replays", callee_replays);
+    diagnostics
+}
+
+fn is_recursive(name: &str, graph: &BTreeMap<String, BTreeSet<String>>) -> bool {
+    let mut visited = BTreeSet::new();
+    let mut pending = graph[name].iter().collect::<Vec<_>>();
+    while let Some(next) = pending.pop() {
+        if next == name {
+            return true;
+        }
+        if visited.insert(next)
+            && let Some(edges) = graph.get(next)
+        {
+            pending.extend(edges);
+        }
+    }
+    false
 }
 
 fn function_graph(checked: &CheckedModule) -> BTreeMap<String, BTreeSet<String>> {

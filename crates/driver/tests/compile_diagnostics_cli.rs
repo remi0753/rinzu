@@ -1,5 +1,8 @@
+#[path = "fixtures/catch_diagnostics.rs"]
+mod catch_diagnostics;
 #[path = "fixtures/frozen_cli.rs"]
 mod frozen_cli;
+use catch_diagnostics::SAVE;
 
 use std::fs;
 use std::io::Write;
@@ -171,7 +174,7 @@ fn source_bytes_and_paths_resolve_including_stdin_unicode_and_eof() {
             "{stderr}"
         );
         assert!(
-            stderr.contains(&format!("\n  2 | {line}\n  help: ")),
+            stderr.contains(&format!("\n  2 | {line}\n  range: \"@\"\n  help: ")),
             "{stderr}"
         );
     }
@@ -599,9 +602,9 @@ fn compiler_errors_preserve_their_actual_message_span_and_recovery_hint() {
         (
             "RZ0405",
             "enum Choice { A, B } fn main() { switch Choice.A() { case Choice.A: {} } }",
-            "case Choice.A: {}",
+            "Choice.A()",
             "switch is missing variants: B",
-            "add one case for every missing variant; language 0.1 has no default case",
+            "add one case for every missing variant",
         ),
         (
             "RZ0406",
@@ -634,21 +637,21 @@ fn compiler_errors_preserve_their_actual_message_span_and_recovery_hint() {
         (
             "RZ0412",
             "error A {} error B {} fn main() { try { throw A(message: \"a\"); } catch [b: B] {} }",
-            "try { throw A(message: \"a\"); } catch [b: B] {}",
-            "catch patterns do not cover the possible Error list [A]",
-            "cover every possible ordered list, or add a whole-list catch binding",
+            "B",
+            "Error 1 is A in the possible list [A]. The catch expects B at that position",
+            "cover every possible ordered list, or add a whole-list catch and handle its Errors",
         ),
         (
             "RZ0413",
             "error E {} fn main() { throw E(message: \"bad\"); }",
-            "{ throw E(message: \"bad\"); }",
-            "a normal Error can escape the Main entry",
-            "catch every normal Error before Main returns, including callees, awaited failures, catch handlers and finally",
+            "throw E(message: \"bad\");",
+            "E can escape the Main entry",
+            "handle the Error before it leaves `main`",
         ),
         (
             "RZ0415",
             "interface I { fn run(self: Self) nothrow; } class C interface I {} fn main() {}",
-            "class C interface I {}",
+            "I",
             "`C` is missing required method `run`",
             "declare conformance on the class or enum and provide matching public instance methods",
         ),
@@ -666,13 +669,28 @@ fn compiler_errors_preserve_their_actual_message_span_and_recovery_hint() {
         let start = source.rfind(span).unwrap();
         let column = start + 1;
         let caret = "^".repeat(span.len());
-        let note = if code == "RZ0406" {
-            format!(
+        let note = match code {
+            "RZ0406" => format!(
                 "  note: source.rinzu:1:{}: this exit does not preserve an observation path\n",
                 source.len()
-            )
-        } else {
-            String::new()
+            ),
+            "RZ0405" => format!(
+                "  note: source.rinzu:1:{}: missing variant `B` is declared here\n",
+                source.find("B }").unwrap() + 1
+            ),
+            "RZ0412" => format!(
+                "  note: source.rinzu:1:{}: Error 1 of 1 is A from the try body\n",
+                source.find("throw").unwrap() + 1
+            ),
+            "RZ0413" => format!(
+                "  note: source.rinzu:1:{}: `main` must handle every ordinary Error before it exits\n",
+                source.find("fn main").unwrap() + 1
+            ),
+            "RZ0415" => format!(
+                "  note: source.rinzu:1:{}: the required method is declared here\n",
+                source.find("fn run").unwrap() + 1
+            ),
+            _ => String::new(),
         };
         assert_eq!(
             stderr,
@@ -683,6 +701,122 @@ fn compiler_errors_preserve_their_actual_message_span_and_recovery_hint() {
             "{code}, {source}"
         );
     }
+}
+
+#[test]
+fn catch_diagnostic_renders_the_same_four_positions_as_the_editor() {
+    let fixture = Fixture::new();
+    fixture.file("save.rinzu", SAVE);
+    let stderr = rejected(fixture.cli(&["check", "save.rinzu"]));
+    assert_eq!(
+        stderr,
+        concat!(
+            "save.rinzu:17:11: RZ0412: this catch requires exactly 1 Error, and this path can produce 2 Errors\n",
+            "  17 |     catch [first: WriteFailed] {}\n",
+            "     |           ^^^^^^^^^^^^^^^^^^^^\n",
+            "  note: save.rinzu:15:9: `persist()` can propagate [WriteFailed, CloseFailed] here\n",
+            "  note: save.rinzu:6:9: Error 1 of 2 is WriteFailed from the try body\n",
+            "  note: save.rinzu:9:9: Error 2 of 2 is CloseFailed added by `finally`\n",
+            "  help: match all Errors explicitly, or use `[first: WriteFailed, ...rest]` and handle the remaining Errors\n",
+            "rinzu: input failed to check\n",
+        )
+    );
+}
+
+#[test]
+fn sdk_contract_is_related_without_expanding_its_implementation() {
+    let fixture = Fixture::new();
+    fixture.file(
+        "sdk/rinzu.toml",
+        "[package]\nname = \"example.persist\"\nkind = \"sdk\"\nlanguage = \"0.5\"\n",
+    );
+    fixture.file(
+        "sdk/src/persist.rinzu",
+        r#"error WriteFailed {}
+
+fn save() throws(WriteFailed) {
+    throw WriteFailed(message: "sdk");
+}
+
+export WriteFailed;
+export save;
+"#,
+    );
+    fixture.file(
+        "app/rinzu.toml",
+        format!("{PACKAGE}[dependencies]\nexample.persist = {{ path = \"../sdk\" }}\n"),
+    );
+    fixture.file(
+        "app/src/main.rinzu",
+        r#"import example.persist as disk;
+
+fn main() {
+    try {
+        disk.save();
+    }
+    catch [disk.WriteFailed] {}
+}
+"#,
+    );
+    let stderr = rejected(fixture.cli(&["check", "app"]));
+    assert!(stderr.contains("app/src/main.rinzu:7:11: RZ0412: this catch requires exactly 1 Error, and the Error bound permits lists of at least 2 Errors"), "{stderr}");
+    assert!(stderr.contains("  note: app/src/main.rinzu:5:9:"));
+    assert!(stderr.contains(
+        "  note: sdk/src/persist.rinzu:3:11: the Error type upper bound is declared here"
+    ));
+    assert!(!stderr.contains("sdk/src/persist.rinzu:4:"));
+}
+
+#[test]
+fn diagnostics_replay_once_per_invalid_function_and_share_the_direct_callee() {
+    let fixture = Fixture::new();
+    let timings = |source: &str, succeeds: bool| {
+        fixture.file("source.rinzu", source);
+        let output = fixture
+            .command(&["check", "source.rinzu"])
+            .env("RINZU_COMPILE_TIMINGS", "1")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert_eq!(output.status.success(), succeeds, "{stderr}");
+        stderr
+            .lines()
+            .filter_map(|line| line.strip_prefix("RINZU_COMPILE_TIMING="))
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>()
+    };
+    let no_errors = SAVE.replace("[first: WriteFailed]", "[first: WriteFailed, ...rest]");
+    assert!(
+        timings(&no_errors, true)
+            .iter()
+            .all(|span| span["phase"] != "frontend.effects.diagnostics")
+    );
+
+    let both = SAVE.replace("fn main()", "fn main() nothrow").replace(
+        "catch [first: WriteFailed] {}",
+        "catch [first: WriteFailed] {}\n    try { persist(); } catch [WriteFailed] {}",
+    );
+    let spans = timings(&both, false);
+    let diagnostics: Vec<_> = spans
+        .iter()
+        .filter(|span| span["phase"] == "frontend.effects.diagnostics")
+        .collect();
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(
+        diagnostics[0]["counters"],
+        json!({"functions":1,"callee_replays":1})
+    );
+
+    let boundary = r#"error A {} async fn work() { throw A(message: "task"); }
+        fn main() { let pending = work(); throw A(message: "main"); }"#;
+    let spans = timings(boundary, false);
+    assert_eq!(
+        spans
+            .iter()
+            .filter(|span| span["phase"] == "frontend.responsibility.diagnostics")
+            .count(),
+        1
+    );
 }
 
 #[test]

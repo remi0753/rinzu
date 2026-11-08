@@ -154,3 +154,35 @@ fn worker_results_retain_symbolic_interface_bounds_after_await() {
         "{declarations}fn identity<T:Transferable>(value:T) nothrow->T{{return value;}}async fn read<R:Transferable interface Reader>(reader:R) nothrow->String{{let pending=spawn identity(reader);let value=await pending;return value.read();}}async fn main(){{let text=await read(MemoryReader(text:\"ok\"));}}"
     ));
 }
+
+#[test]
+fn missing_methods_and_conflicting_signatures_link_their_requirements() {
+    let declarations = "interface I { fn value(self: Self) nothrow -> Int; } interface J { fn value(self: Self) nothrow -> String; }";
+    for owner in ["class C interface I {}", "enum C interface I { Only }"] {
+        let text = format!("{declarations} {owner} fn main() {{}}");
+        let errors = compile_source(&file(&text)).unwrap_err();
+        let diagnostic = &errors[0];
+        let span = |range: rinzu_compiler::SourceRange| {
+            &text[range.start_byte as usize..range.end_byte as usize]
+        };
+        assert_eq!(diagnostic.code, DiagnosticCode::InvalidInterface);
+        assert_eq!(span(diagnostic.primary), "I");
+        assert_eq!(
+            span(diagnostic.secondary[0].0),
+            "fn value(self: Self) nothrow -> Int;"
+        );
+    }
+    for conflicting in [
+        "class C interface I+J { fn value(self: C) nothrow -> Int { return 1; } }",
+        "fn generic<T interface I+J>(value: T) {}",
+        "fn generic<T interface I+J>(value: T) { value.value(); }",
+    ] {
+        let text = format!("{declarations} {conflicting} fn main() {{}}");
+        let errors = compile_source(&file(&text)).unwrap_err();
+        let diagnostic = &errors[0];
+        assert_eq!(diagnostic.code, DiagnosticCode::InvalidInterface);
+        assert_eq!(diagnostic.secondary.len(), 2, "{diagnostic:#?}");
+        assert!(diagnostic.secondary[0].1.contains("nothrow -> Int"));
+        assert!(diagnostic.secondary[1].1.contains("nothrow -> String"));
+    }
+}

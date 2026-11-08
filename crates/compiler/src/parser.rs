@@ -1153,6 +1153,7 @@ impl Parser<'_> {
             elements.push(CatchElement {
                 binding,
                 range: element_start.join(ty.range),
+                type_spelling: crate::interfaces::spelling(&ty).into(),
                 ty,
             });
             if self.consume(&TokenKind::Comma).is_none() {

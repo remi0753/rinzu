@@ -45,6 +45,7 @@ impl Engine<'_> {
                         if token.as_ref().is_none_or(|token| {
                             !token.observable() || group.observed.insert(token.clone())
                         }) {
+                            path.state.trace.collect_error(&group.errors, word);
                             group.errors = concatenate(
                                 &group.errors,
                                 &Language::from([word.clone()]),
@@ -129,7 +130,9 @@ impl Engine<'_> {
                             for word in value.effect().thrown_errors() {
                                 if let Some(mut state) = evaluated.state.condition(&word.guards) {
                                     if self.replay.is_some() {
-                                        state.trace.set_exit(Some(self.at(statement.range)));
+                                        let at = self.at(statement.range);
+                                        state.trace.set_exit(Some(at));
+                                        state.trace.error_origin(at);
                                     }
                                     result.push(Path {
                                         state,
@@ -585,7 +588,10 @@ impl Engine<'_> {
                     residual.control = Control::Error(word, token.clone());
                 }
                 if saved.is_some() {
-                    residual.state.trace.set_exit(None);
+                    residual
+                        .state
+                        .trace
+                        .restore_sites((None, residual.state.trace.sites().1));
                 }
                 result.push(residual);
             }
@@ -600,7 +606,7 @@ impl Engine<'_> {
                 cleaned.push(incoming);
                 continue;
             }
-            let incoming_exit = incoming.state.trace.exit();
+            let incoming_exit = incoming.state.trace.sites();
             incoming.state.trace.set_exit(None);
             if let Control::Return(value) = &incoming.control {
                 incoming.state.record_handoff(std::iter::once(value));
@@ -618,7 +624,7 @@ impl Engine<'_> {
                     (Control::Panic, _) => path.control = Control::Panic,
                     (_, Control::Normal) => {
                         path.control = incoming.control.clone();
-                        path.state.trace.set_exit(incoming_exit);
+                        path.state.trace.restore_sites(incoming_exit);
                     }
                     (Control::Error(first, _), Control::Error(second, _)) => {
                         let errors = concatenate(
@@ -641,6 +647,7 @@ impl Engine<'_> {
         self.unique_paths(cleaned)
     }
     fn collect_block(&self, body: &Block, mut state: State) -> Vec<(Path, Option<Control>)> {
+        state.trace.enter_group();
         state.groups.push(Group {
             errors: language::empty_word(),
             observed: BTreeSet::new(),
@@ -655,6 +662,7 @@ impl Engine<'_> {
             true,
         ) {
             let group = path.state.groups.pop().expect("lexical Error group");
+            let origin = path.state.trace.leave_group();
             if matches!(
                 path.control,
                 Control::Diverges | Control::Panic | Control::Recurse(_)
@@ -669,6 +677,9 @@ impl Engine<'_> {
                     let saved = path.control.clone();
                     let mut failed = path.clone();
                     failed.control = Control::Error(word, None);
+                    if let Some(origin) = origin {
+                        failed.state.trace.error_origin(origin);
+                    }
                     result.push((failed, Some(saved)));
                 }
             }

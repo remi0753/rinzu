@@ -546,8 +546,8 @@ impl Visitor for Converter<'_> {
             target,
             arguments: Arguments::Positional(arguments),
         } = &mut e.kind
-            && let Some(signature) = self.checked.indirect_signatures.get(&e.range)
-            && let Some(shape) = self.shapes.get(&signature.runtime_shape()).cloned()
+            && let Some(call) = self.checked.indirect_signatures.get(&e.range)
+            && let Some(shape) = self.shapes.get(&call.signature.runtime_shape()).cloned()
         {
             let callee = self.name(target.clone());
             arguments.insert(0, callee);

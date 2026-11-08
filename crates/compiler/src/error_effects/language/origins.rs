@@ -20,7 +20,7 @@ pub(in crate::error_effects) struct Origin {
 }
 
 impl Origin {
-    fn order(self) -> (u32, u32, u32, Kind) {
+    pub(super) fn order(self) -> (u32, u32, u32, Kind) {
         (
             self.range.file_id.0,
             self.range.start_byte,

@@ -226,12 +226,17 @@ fn excerpt(output: &mut String, input: Input<'_>, range: SourceRange) {
         &line[byte(left)..byte(right)]
     )
     .unwrap();
-    let ascii = line.bytes().all(|byte| (b' '..=b'~').contains(&byte));
-    if ascii
-        && let Some((end_line, end_column)) = input.position(range.end_byte as usize)
-        && number == end_line
-    {
-        let width = (end_column - 1).min(right).saturating_sub(start).max(1);
+    let Some((end_line, end_column)) = input.position(range.end_byte as usize) else {
+        return;
+    };
+    let end = if number == end_line {
+        end_column - 1
+    } else {
+        length
+    };
+    let end = end.clamp(start, right);
+    if line.bytes().all(|byte| (b' '..=b'~').contains(&byte)) {
+        let width = (end - start).max(1);
         let padding = number.to_string().len() + 3;
         let indent = before.len() + start - left;
         writeln!(
@@ -242,6 +247,22 @@ fn excerpt(output: &mut String, input: Input<'_>, range: SourceRange) {
             "^".repeat(width)
         )
         .unwrap();
+    } else if start < end {
+        writeln!(
+            output,
+            "  range: {:?}{}",
+            &line[byte(start)..byte(end)],
+            if end == right && right < length && (end_line > number || end_column - 1 > right) {
+                "..."
+            } else {
+                ""
+            }
+        )
+        .unwrap();
+    }
+    let last = end_line - usize::from(end_line > number && end_column == 1);
+    if last > number {
+        writeln!(output, "  range continues through line {last}").unwrap();
     }
 }
 

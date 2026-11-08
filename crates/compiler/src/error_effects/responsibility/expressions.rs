@@ -215,13 +215,22 @@ impl Engine<'_> {
         let mut results = self.raw_expression(expression, state);
         if self.replay.is_some() {
             for evaluated in &mut results {
-                if matches!(evaluated.result, Err(Stop::Error(..)))
-                    && evaluated.state.trace.exit().is_none()
-                {
-                    evaluated
-                        .state
-                        .trace
-                        .set_exit(Some(self.at(expression.range)));
+                if matches!(evaluated.result, Err(Stop::Error(..))) {
+                    let at = self.at(expression.range);
+                    let previous = evaluated.state.trace.exit();
+                    if previous.is_none() {
+                        evaluated.state.trace.set_exit(Some(at));
+                    }
+                    if previous.is_none_or(|previous| previous.4 != at.4)
+                        && matches!(
+                            expression.kind,
+                            ExpressionKind::Call { .. }
+                                | ExpressionKind::GenericCall { .. }
+                                | ExpressionKind::Await(_)
+                        )
+                    {
+                        evaluated.state.trace.error_origin(at);
+                    }
                 }
             }
         }

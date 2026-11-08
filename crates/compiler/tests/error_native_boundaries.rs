@@ -52,9 +52,28 @@ fn explicit_fallback_covers_error_propagation_and_cleanup() {
 }
 #[test]
 fn input_conversion_needs_fallback_before_the_body_can_catch() {
-    check(
-        "native{fn input(handler:fn(String)->Int)->Int symbol \"input\";}fn callback(text:String)->Int{try{return 1;}catch errors{return -1;}}fn main(){let result=input(callback);}",
-        false,
+    let text = "native{fn input(handler:fn(String)->Int)->Int symbol \"input\";}fn callback(text:String)->Int{try{return 1;}catch errors{return -1;}}fn main(){let result=input(callback);}";
+    let errors =
+        compile_source(&SourceFile::new(FileId(278), "native-input.rinzu", text)).unwrap_err();
+    let diagnostic = errors
+        .iter()
+        .find(|d| d.code == DiagnosticCode::ErrorEscapesBoundary)
+        .unwrap();
+    assert!(
+        diagnostic
+            .message
+            .contains("input conversion can fail before the handler runs")
+    );
+    assert!(
+        diagnostic.suggestions[0]
+            .message
+            .contains("ABI-compatible callback fallback")
+    );
+    assert!(
+        diagnostic
+            .secondary
+            .iter()
+            .all(|(at, _)| *at != diagnostic.primary)
     );
     check(
         "native{fn input(handler:fn(String)->Int)->Int symbol \"input\";}fn callback(text:String)->Int fallback -1{return 1;}fn main(){let result=input(callback);}",

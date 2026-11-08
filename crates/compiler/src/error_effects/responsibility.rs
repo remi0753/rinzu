@@ -151,13 +151,17 @@ fn concatenate(left: &Language, right: &Language, bound: usize) -> Language {
 pub(super) fn validate(
     checked: &CheckedModule,
     effects: &BTreeMap<String, Summary>,
+    graph: &BTreeMap<String, BTreeSet<String>>,
     bound: usize,
     entry: bool,
 ) -> Vec<Diagnostic> {
     let _timing = crate::timing::span("frontend.responsibility");
-    let graph = super::function_graph(checked);
-    let recursive = recursive_functions(&graph);
-    let order = super::function_order(&graph);
+    let recursive: BTreeSet<_> = graph
+        .keys()
+        .map(String::as_str)
+        .filter(|name| super::is_recursive(name, graph))
+        .collect();
+    let order = super::function_order(graph);
     let functions: BTreeMap<_, _> = checked
         .functions
         .iter()
@@ -234,6 +238,14 @@ pub(super) fn validate(
         }
     }
     let mut diagnostics = Vec::new();
+    let replay_contract = |name: &str, contract: &Contract, boundary: bool| {
+        let _timing = crate::timing::span("frontend.responsibility.diagnostics");
+        let replay = RefCell::new(Replay::new(boundary));
+        let result = analyze(&contracts, name, Some(&replay));
+        debug_assert_eq!(&result, contract);
+        replay.into_inner()
+    };
+    let mut main_replay = None;
     if entry
         && let Some(contract) = contracts.get("main")
         && contract
@@ -241,21 +253,18 @@ pub(super) fn validate(
             .iter()
             .any(|exit| matches!(exit.result, Err(Stop::Error(..))))
     {
-        let main = checked
-            .functions
-            .iter()
-            .find(|function| function.declaration.name == "main")
-            .expect("checked Main entry");
-        diagnostics.push(Diagnostic::error(
-            DiagnosticCode::ErrorEscapesBoundary, main.declaration.body.range,
-            "a normal Error can escape the Main entry",
-            "catch every normal Error before Main returns, including callees, awaited failures, catch handlers and finally",
-        ));
+        let replay = replay_contract("main", contract, true);
+        diagnostics.push(replay.main_diagnostic(&functions["main"].declaration, contract));
+        main_replay = Some(replay);
     }
     let mut seen = BTreeSet::new();
     let mut seen_requirements = BTreeSet::new();
     for (name, contract) in contracts.iter() {
-        let mut replay = None;
+        let mut replay = if name == "main" {
+            main_replay.take()
+        } else {
+            None
+        };
         for exit in &contract.exits {
             for restriction in &exit.restrictions {
                 if restriction.forbidden && seen.insert((restriction.origin, restriction.origin)) {
@@ -291,14 +300,8 @@ pub(super) fn validate(
                 }
                 let (code, message, help, secondary) = match requirement.kind {
                     RequirementKind::Observation => {
-                        let replay = replay.get_or_insert_with(|| {
-                            let _timing =
-                                crate::timing::span("frontend.responsibility.diagnostics");
-                            let replay = RefCell::new(Replay::default());
-                            let result = analyze(&contracts, name, Some(&replay));
-                            debug_assert_eq!(&result, contract);
-                            replay.into_inner()
-                        });
+                        let replay =
+                            replay.get_or_insert_with(|| replay_contract(name, contract, false));
                         diagnostics.push(replay.diagnostic(&requirement));
                         continue;
                     }
@@ -321,10 +324,13 @@ pub(super) fn validate(
                         "a catch inside the callback cannot handle its adapter's input conversion",
                     ),
                 };
-                diagnostics.push(
-                    Diagnostic::error(code, range(requirement.origin), message, help)
-                        .with_secondary(range(requirement.exit), secondary),
-                );
+                let primary = range(requirement.origin);
+                let boundary = range(requirement.exit);
+                let mut diagnostic = Diagnostic::error(code, primary, message, help);
+                if primary != boundary {
+                    diagnostic = diagnostic.with_secondary(boundary, secondary);
+                }
+                diagnostics.push(diagnostic);
             }
         }
     }
@@ -344,27 +350,6 @@ fn displayed_requirement(requirement: &Requirement, owner: &str) -> Option<Requi
 }
 fn symbolic(word: &language::Word, owner: &str) -> bool {
     word.guards.keys().any(|input|input.owner==owner) || word.prefix.iter().any(|tag|matches!(tag,Tag::Parameter(input)|Tag::FutureElement(input,_) if input.owner==owner))
-}
-fn recursive_functions(graph: &BTreeMap<String, BTreeSet<String>>) -> BTreeSet<String> {
-    graph
-        .keys()
-        .filter(|name| {
-            let mut visited = BTreeSet::new();
-            let mut pending = graph[*name].iter().cloned().collect::<Vec<_>>();
-            while let Some(next) = pending.pop() {
-                if next == **name {
-                    return true;
-                }
-                if visited.insert(next.clone())
-                    && let Some(edges) = graph.get(&next)
-                {
-                    pending.extend(edges.iter().cloned());
-                }
-            }
-            false
-        })
-        .cloned()
-        .collect()
 }
 struct Engine<'a> {
     checked: &'a CheckedModule,
@@ -446,8 +431,8 @@ impl Engine<'_> {
     fn function(&self, function: &crate::CheckedFunction) -> Contract {
         let name = &function.declaration.name;
         let mut state = State::default();
-        if self.replay.is_some() {
-            state.trace = Trace::enabled();
+        if let Some(replay) = self.replay {
+            state.trace = Trace::enabled(replay.borrow().tracks_boundary());
         }
         for (index, (parameter, ty)) in function
             .declaration
@@ -696,6 +681,11 @@ impl Engine<'_> {
                 saved,
                 async_stores,
             };
+            if let Some(replay) = self.replay {
+                replay
+                    .borrow_mut()
+                    .record_escape(&exit, state.trace.sites().1);
+            }
             if !exits.contains(&exit) {
                 exits.push(exit);
             }

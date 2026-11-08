@@ -3,6 +3,17 @@ const vscode = require('vscode');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { setTimeout: delay } = require('node:timers/promises');
+
+async function waitFor(lookup, description) {
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    const result = lookup();
+    if (result) return result;
+    await delay(25);
+  }
+  assert.fail(description);
+}
 
 async function run() {
   const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
@@ -28,11 +39,36 @@ async function run() {
       assert.equal(main.getText().startsWith('\ufeff'),false);
       const response=await client.check(main);const error=response.result.diagnostics.find(d=>d.code==='RZ0301');assert.ok(error);
       const editorDiagnostics=api.diagnostics.get(main.uri);assert.ok(editorDiagnostics?.length);
+      assert.match(editorDiagnostics[0].message, /\nHelp: /);
+      assert.equal(response.result.diagnosticScopes[0].path, path.join(root, 'rinzu.toml'));
       const start=main.offsetAt(api.range(error.primary.range).start);
       assert.equal(error.primary.originalBytes.start,Buffer.byteLength(main.getText().slice(0,start))+3);
       assert.deepEqual(error.primary.range.start,{line:1,character:main.positionAt(start).character});
       assert.equal(main.eol,vscode.EndOfLine.CRLF);
       return {utf16:error.primary.range.start,originalBytes:error.primary.originalBytes,diagnostic:error.code,visibleDiagnostics:editorDiagnostics.length,bomExcluded:true};
+    });
+    await test('Problems receives the catch range, Error order and Help across packages', async () => {
+      const catchFile = vscode.Uri.file(path.join(root, 'coverage', 'src', 'main.rinzu'));
+      const document = await vscode.workspace.openTextDocument(catchFile);
+      await vscode.window.showTextDocument(document);
+      const find = (uri, code) => vscode.languages.getDiagnostics(uri).find(item => item.code === code);
+      const diagnostic = await waitFor(() => find(catchFile, 'RZ0412'), 'RZ0412 did not reach Problems');
+      assert.equal(document.getText(diagnostic.range), '[first: WriteFailed]');
+      assert.match(diagnostic.message, /requires exactly 1 Error, and this path can produce 2 Errors/);
+      assert.match(diagnostic.message, /\nHelp: .*\[first: WriteFailed, \.\.\.rest\]/);
+      assert.deepEqual(diagnostic.relatedInformation.map(info => {
+        assert.equal(info.location.uri.fsPath, catchFile.fsPath);
+        return document.getText(info.location.range);
+      }), ['persist()', 'throw WriteFailed(message: "disk full");', 'throw CloseFailed(message: "close failed");']);
+      assert.ok(find(main.uri, 'RZ0301'), 'opening the second package hid the first diagnostic');
+
+      await replace(document, document.getText().replace('[first: WriteFailed]', '[first: WriteFailed, ...rest]'));
+      const result = (await client.check(document)).result;
+      assert.deepEqual(result.diagnostics, []);
+      assert.deepEqual(result.diagnosticScopes.map(scope => scope.path), [path.join(root, 'coverage', 'rinzu.toml')]);
+      await waitFor(() => !find(catchFile, 'RZ0412'), 'repair left a stale diagnostic in Problems');
+      assert.ok(find(main.uri, 'RZ0301'), 'repairing the second package hid the first diagnostic');
+      return { code: diagnostic.code, relatedLocations: 3, helpVisible: true, independentPackageRetained: true };
     });
     await test('Unsaved dependency changes real diagnostics definition and completion providers',async()=>{
       model=await open('model.rinzu');await replace(model,'fn value()->Int{return 42;}fn hidden()->Int{return 99;}export value;');

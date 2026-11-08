@@ -303,7 +303,7 @@ impl Session {
             "diagnostics" | "definition" | "references" | "completion" | "format"
             | "organizeImports" => {
                 let path = self.current(params)?;
-                let analysis = self.analyze(&path)?;
+                let analysis = self.analyze(&path, method == "diagnostics")?;
                 let mut result = json!({"syntaxOnly":analysis.syntax_only,"stale":analysis.stale,
                     "inputs":analysis.receipts,"parseCache":{"hits":analysis.hits,"misses":analysis.misses}});
                 if analysis.stale {
@@ -320,6 +320,7 @@ impl Session {
                     "diagnostics" => {
                         result["diagnostics"] = Value::Array(analysis.diagnostics);
                         result["omittedDiagnostics"] = json!(analysis.omitted);
+                        result["diagnosticScopes"] = json!(analysis.scopes);
                     }
                     "definition" | "references" | "completion" => {
                         let position: Utf16Position = serde_json::from_value(
@@ -452,7 +453,12 @@ impl Session {
         }
     }
     fn current(&self, params: &Value) -> Result<PathBuf> {
-        let path = document_path(params)?;
+        let requested = Path::new(string(params, "path")?);
+        let path = if self.buffers.contains_key(requested) {
+            requested.to_owned()
+        } else {
+            document_path(params)?
+        };
         let buffer = self
             .buffers
             .get(&path)
@@ -463,7 +469,7 @@ impl Session {
         Ok(path)
     }
 
-    fn analyze(&mut self, path: &Path) -> Result<Analysis> {
+    fn analyze(&mut self, path: &Path, diagnostics_only: bool) -> Result<Analysis> {
         let overlays = self
             .buffers
             .iter()
@@ -479,6 +485,7 @@ impl Session {
         let mut snapshot = SourceSnapshot::new(&mut self.cache, overlays);
         snapshot.set_limits(DOCUMENT_BYTES + 3, SNAPSHOT_FILES);
         let mut errors = Vec::new();
+        let mut scopes = Vec::new();
         let mut linked = Vec::<Module>::new();
         let mut artifact = None;
         let mut syntax_only = false;
@@ -512,6 +519,11 @@ impl Session {
                     syntax_only = true;
                 }
             }
+            scopes.push(DiagnosticScope::new(
+                "entry",
+                entry.clone(),
+                0..errors.len(),
+            ));
         } else if let Some(workspace) = workspace {
             match rinzu_compiler::check_package_with_sources(workspace, &mut snapshot) {
                 Ok((_, a)) => {
@@ -522,9 +534,15 @@ impl Session {
                     syntax_only = true;
                 }
             }
+            let manifest = manifest
+                .as_deref()
+                .and_then(|path| canonical(path).ok())
+                .unwrap_or_else(|| workspace.join("rinzu.toml"));
+            scopes.push(DiagnosticScope::new("package", manifest, 0..errors.len()));
         }
         // A loose/unreferenced buffer still gets current syntax and library checks.
         if !snapshot.sources().contains_key(path) {
+            let start = errors.len();
             let bytes = snapshot
                 .read_bytes(path)
                 .map_err(|e| fail("AnalysisUnavailable", e.to_string()))?;
@@ -540,8 +558,10 @@ impl Session {
                     },
                 ) {
                     Ok(checked) => {
-                        linked.push(module);
-                        linked.push(checked.syntax);
+                        if !diagnostics_only {
+                            linked.push(module);
+                            linked.push(checked.syntax);
+                        }
                     }
                     Err(e) => {
                         errors.extend(e);
@@ -553,22 +573,33 @@ impl Session {
                     syntax_only = true;
                 }
             }
-        }
-        if let Some(a) = &artifact {
-            linked.push(a.syntax.clone());
-            linked.push(a.checked.syntax.clone());
-            for package in &a.sdk_packages {
-                if let Some(source) = &package.source {
-                    linked.push(source.syntax.clone());
-                }
-            }
+            scopes.push(DiagnosticScope::new(
+                "file",
+                path.to_owned(),
+                start..errors.len(),
+            ));
         }
         let sources = snapshot.sources().clone();
-        let modules = snapshot.parsed_modules();
-        let mut index = build_editor_index(&sources, &modules, &linked.iter().collect::<Vec<_>>());
-        if let Some(a) = &artifact {
-            import_symbols(&mut index, &sources, a);
-        }
+        let index = if diagnostics_only {
+            EditorIndex::default()
+        } else {
+            if let Some(a) = &artifact {
+                linked.push(a.syntax.clone());
+                linked.push(a.checked.syntax.clone());
+                for package in &a.sdk_packages {
+                    if let Some(source) = &package.source {
+                        linked.push(source.syntax.clone());
+                    }
+                }
+            }
+            let modules = snapshot.parsed_modules();
+            let mut index =
+                build_editor_index(&sources, &modules, &linked.iter().collect::<Vec<_>>());
+            if let Some(a) = &artifact {
+                import_symbols(&mut index, &sources, a);
+            }
+            index
+        };
         let mut paths = BTreeMap::new();
         for d in &errors {
             for range in std::iter::once(&d.primary).chain(d.secondary.iter().map(|(r, _)| r)) {
@@ -602,6 +633,7 @@ impl Session {
             index,
             diagnostics,
             omitted,
+            scopes,
             receipts,
             syntax_only,
             stale,
@@ -617,11 +649,33 @@ struct Analysis {
     index: EditorIndex,
     diagnostics: Vec<Value>,
     omitted: usize,
+    scopes: Vec<DiagnosticScope>,
     receipts: Vec<Value>,
     syntax_only: bool,
     stale: bool,
     hits: usize,
     misses: usize,
+}
+
+#[derive(serde::Serialize)]
+struct DiagnosticScope {
+    kind: &'static str,
+    path: PathBuf,
+    indices: Vec<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    omitted: Option<usize>,
+}
+
+impl DiagnosticScope {
+    fn new(kind: &'static str, path: PathBuf, errors: std::ops::Range<usize>) -> Self {
+        let omitted = errors.end.saturating_sub(errors.start.max(DIAGNOSTICS));
+        Self {
+            kind,
+            path,
+            indices: (errors.start..errors.end.min(DIAGNOSTICS)).collect(),
+            omitted: (omitted != 0).then_some(omitted),
+        }
+    }
 }
 
 fn location(

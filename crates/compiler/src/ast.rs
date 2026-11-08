@@ -280,6 +280,8 @@ pub struct CatchElement {
     pub binding: Option<CatchBinding>,
     pub ty: TypeRef,
     pub range: SourceRange,
+    /// Source spelling survives linking, alias expansion and specialization.
+    pub(crate) type_spelling: std::sync::Arc<str>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -293,6 +295,13 @@ pub enum CatchPattern {
 }
 
 impl CatchPattern {
+    pub(crate) fn range(&self) -> SourceRange {
+        match self {
+            Self::Binding(binding) => binding.range,
+            Self::List { range, .. } => *range,
+        }
+    }
+
     pub fn bindings(&self) -> impl Iterator<Item = &CatchBinding> {
         let (single, elements, rest): (Option<&CatchBinding>, &[CatchElement], _) = match self {
             Self::Binding(binding) => (Some(binding), &[], None),

@@ -1,5 +1,8 @@
+#[path = "fixtures/catch_diagnostics.rs"]
+mod catch_diagnostics;
 #[path = "fixtures/frozen_cli.rs"]
 mod frozen_cli;
+use catch_diagnostics::SAVE;
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -125,6 +128,164 @@ fn formatted(path: &Path, text: &str) -> String {
         text,
     ))
     .unwrap()
+}
+
+#[test]
+fn catch_diagnostics_preserve_ranges_and_help_in_overlays() {
+    let fixture = Fixture::new();
+    let path = fixture.file("save.rinzu", "fn main() {}\n");
+    let mut client = Client::new(None);
+    client.open(&path, 1, SAVE);
+    let response = client.query("diagnostics", &path, 1, Value::Null);
+    let result = &response["result"];
+    assert_eq!(
+        result["diagnosticScopes"],
+        json!([{"kind":"file","path":path,"indices":[0]}])
+    );
+    let diagnostic = &result["diagnostics"][0];
+    assert_eq!(diagnostic["code"], "RZ0412");
+    assert_eq!(
+        diagnostic["primary"]["range"],
+        json!({
+            "start":{"line":16,"character":10},"end":{"line":16,"character":30}
+        })
+    );
+    assert_eq!(
+        diagnostic["primary"]["originalBytes"],
+        json!({"start":255,"end":275})
+    );
+    assert_eq!(
+        diagnostic["suggestions"],
+        json!([{
+            "applicability":"Explanation",
+            "message":"match all Errors explicitly, or use `[first: WriteFailed, ...rest]` and handle the remaining Errors",
+            "replacement":null
+        }])
+    );
+    let secondary = diagnostic["secondary"].as_array().unwrap();
+    assert_eq!(secondary.len(), 3);
+    for (note, (line, end, start_byte, end_byte)) in
+        secondary
+            .iter()
+            .zip([(14, 17, 228, 237), (5, 48, 76, 116), (8, 51, 145, 188)])
+    {
+        assert_eq!(note["location"]["path"], json!(path));
+        assert_eq!(
+            note["location"]["range"],
+            json!({
+                "start":{"line":line,"character":8},"end":{"line":line,"character":end}
+            })
+        );
+        assert_eq!(
+            note["location"]["originalBytes"],
+            json!({"start":start_byte,"end":end_byte})
+        );
+    }
+
+    let overlay = SAVE
+        .replace("\n", "\r\n")
+        .replace("catch [", "catch /* 日本😀 */\t[");
+    client.ok(
+        "change",
+        json!({"path":path,"version":2,"text":overlay,"bom":true}),
+    );
+    let response = client.query("diagnostics", &path, 2, Value::Null);
+    let diagnostic = &response["result"]["diagnostics"][0];
+    let pattern = "[first: WriteFailed]";
+    let byte = overlay.find(pattern).unwrap();
+    let logical = position(&overlay, pattern);
+    let character = logical["character"].as_u64().unwrap();
+    assert_eq!(
+        diagnostic["primary"]["range"],
+        json!({
+            "start":logical,"end":{"line":16,"character":character + pattern.len() as u64}
+        })
+    );
+    assert_eq!(
+        diagnostic["primary"]["scalarStart"],
+        json!({"line":17,"column":character})
+    );
+    assert_eq!(
+        diagnostic["primary"]["originalBytes"],
+        json!({"start":byte+3,"end":byte+pattern.len()+3})
+    );
+    assert_eq!(
+        diagnostic["secondary"][0]["location"]["range"],
+        secondary[0]["location"]["range"]
+    );
+    client.shutdown();
+}
+
+#[test]
+fn diagnostics_group_package_entry_and_unreferenced_buffers_including_empty_scopes() {
+    let fixture = Fixture::new();
+    let manifest = fixture.file(
+        "app/rinzu.toml",
+        "[package]\nname=\"app\"\nlanguage=\"0.5\"\n",
+    );
+    let main = fixture.file("app/src/main.rinzu", "fn main() { let n: Int = \"bad\"; }");
+    let scratch = fixture.file("app/scratch.rinzu", "");
+    let standalone = fixture.file("solo.rinzu", "fn main() {}");
+    let mut client = Client::new(None);
+    client.open(&main, 1, &std::fs::read_to_string(&main).unwrap());
+    client.open(&scratch, 1, "fn test() { let n: Int = \"bad\"; }");
+    client.open(&standalone, 1, "fn main() {}");
+    let response = client.query("diagnostics", &scratch, 1, Value::Null);
+    let result = &response["result"];
+    assert_eq!(
+        result["diagnosticScopes"],
+        json!([
+            {"kind":"package","path":manifest,"indices":[0]},
+            {"kind":"file","path":scratch,"indices":[1]}
+        ])
+    );
+    assert_eq!(result["diagnostics"][0]["primary"]["path"], json!(main));
+    assert_eq!(result["diagnostics"][1]["primary"]["path"], json!(scratch));
+    client.ok(
+        "change",
+        json!({"path":scratch,"version":2,"text":"fn test() {}"}),
+    );
+    let response = client.query("diagnostics", &scratch, 2, Value::Null);
+    assert_eq!(
+        response["result"]["diagnosticScopes"][1],
+        json!({"kind":"file","path":scratch,"indices":[]})
+    );
+    client.ok("initialize", json!({"entry":standalone}));
+    let response = client.query("diagnostics", &scratch, 2, Value::Null);
+    assert_eq!(
+        response["result"]["diagnosticScopes"],
+        json!([
+            {"kind":"entry","path":standalone,"indices":[]},
+            {"kind":"file","path":scratch,"indices":[]}
+        ])
+    );
+    client.shutdown();
+}
+
+#[test]
+fn scope_indices_respect_the_global_diagnostics_limit() {
+    let fixture = Fixture::new();
+    fixture.package();
+    let manifest = fixture.0.join("rinzu.toml");
+    let errors = (0..257)
+        .map(|i| format!("let value{i}: Int = \"bad\";\n"))
+        .collect::<String>();
+    fixture.file("src/main.rinzu", &format!("fn main() {{\n{errors}}}"));
+    let scratch = fixture.file("scratch.rinzu", "");
+    let mut client = Client::new(None);
+    client.open(&scratch, 1, "fn test() { let n: Int = \"bad\"; }");
+    let response = client.query("diagnostics", &scratch, 1, Value::Null);
+    let result = &response["result"];
+    assert_eq!(result["diagnostics"].as_array().unwrap().len(), 256);
+    assert_eq!(result["omittedDiagnostics"], 2);
+    assert_eq!(
+        result["diagnosticScopes"],
+        json!([
+            {"kind":"package","path":manifest,"indices":(0..256).collect::<Vec<_>>(),"omitted":1},
+            {"kind":"file","path":scratch,"indices":[],"omitted":1}
+        ])
+    );
+    client.shutdown();
 }
 
 #[test]

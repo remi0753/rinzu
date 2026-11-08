@@ -6,7 +6,17 @@ const { spawn } = require('node:child_process');
 const { createInterface } = require('node:readline');
 
 const isSource = document => document.languageId === 'rinzu' && document.uri.scheme === 'file';
-const canonical = filename => { try { return fs.realpathSync(filename); } catch { return path.join(fs.realpathSync(path.dirname(filename)), path.basename(filename)); } };
+function canonical(filename) {
+  try { return fs.realpathSync(filename); }
+  catch {
+    try { return path.join(fs.realpathSync(path.dirname(filename)), path.basename(filename)); }
+    catch { return path.resolve(filename); }
+  }
+}
+function within(root, filename) {
+  const relative = path.relative(root, filename);
+  return relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative);
+}
 const range = value => new vscode.Range(value.start.line, value.start.character, value.end.line, value.end.character);
 const locations = values => values.filter(value => value.path && value.range).map(value => new vscode.Location(vscode.Uri.file(value.path), range(value.range)));
 function modified(message = 'Source changed before this response could be used') {
@@ -19,19 +29,51 @@ function hasBom(filename) {
   finally { if (fd !== undefined) fs.closeSync(fd); }
 }
 
+function diagnosticsByFile(items, output) {
+  const byFile = new Map();
+  for (const item of items) {
+    const primary = item.primary;
+    if (!primary.path) {
+      output.appendLine(`${item.code}: ${item.message}`);
+      continue;
+    }
+    const help = (item.suggestions || [])
+      .filter(suggestion => suggestion.applicability === 'Explanation' && !suggestion.replacement)
+      .map(suggestion => `\nHelp: ${suggestion.message}`).join('');
+    const diagnostic = new vscode.Diagnostic(primary.range ? range(primary.range) : new vscode.Range(0, 0, 0, 0), item.message + help, vscode.DiagnosticSeverity.Error);
+    diagnostic.code = item.code;
+    diagnostic.source = 'Rinzu';
+    diagnostic.relatedInformation = item.secondary.flatMap(info =>
+      locations([info.location]).map(location => new vscode.DiagnosticRelatedInformation(location, info.message)));
+    const key = JSON.stringify([item.code, primary.range || primary.originalBytes, item.message, item.secondary]);
+    if (!byFile.has(primary.path)) byFile.set(primary.path, new Map());
+    byFile.get(primary.path).set(key, diagnostic);
+  }
+  return byFile;
+}
+
 class SourceClient {
   constructor(output, diagnostics) {
     this.output = output; this.diagnostics = diagnostics;
     this.epoch = 0; this.nextId = 0; this.pending = new Map(); this.sent = new Map();
     this.syncTail = Promise.resolve(); this.diskDirty = false; this.disposed = false;
+    this.scoped = undefined;
+    this.scopes = new Map();
+    this.scopeVersions = new Map();
+    this.documentScopes = new Map();
+    this.resolve = new Set();
     const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const config = vscode.workspace.getConfiguration('rinzu');
     const configured = config.get('workspace', '');
-    this.workspace = configured ? path.resolve(folder || process.cwd(), configured) : folder && fs.existsSync(path.join(folder, 'rinzu.toml')) ? folder : undefined;
+    this.workspace = configured ? path.resolve(folder || process.cwd(), configured) : undefined;
     const entry = config.get('entry', '');
     this.entry = entry ? path.resolve(folder || process.cwd(), entry) : undefined;
     const args = ['editor', '--stdio']; if (this.workspace) args.push(this.workspace);
     this.child = spawn(config.get('executable', 'rinzu'), args, { cwd: folder, stdio: ['pipe', 'pipe', 'pipe'] });
+    this.spawned = new Promise((resolve, reject) => {
+      this.child.once('spawn', resolve);
+      this.child.once('error', reject);
+    });
     this.child.stderr.on('data', bytes => output.append(bytes.toString()));
     this.child.on('error', error => { this.exited = true; output.appendLine(error.message); this.rejectPending(error); });
     this.child.on('exit', (code, signal) => { this.exited = true; this.rejectPending(new Error(`Rinzu editor exited (${code ?? signal})`)); });
@@ -45,12 +87,14 @@ class SourceClient {
       if (response.error) { const error = new Error(response.error.message); error.code = response.error.code; pending.reject(error); }
       else pending.resolve(response);
     });
-    this.ready = this.entry ? this.raw('initialize', { entry: this.entry }) : Promise.resolve();
+    this.ready = this.entry ? this.raw('initialize', { entry: this.entry }) : this.spawned;
     this.ready.catch(error => output.appendLine(error.message));
   }
   rejectPending(error) { for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(error); } this.pending.clear(); }
-  raw(method, params = {}) {
-    if (this.disposed || this.exited) return Promise.reject(new Error('Rinzu source service is closed'));
+  async raw(method, params = {}) {
+    if (this.disposed || this.exited) throw new Error('Rinzu source service is closed');
+    await this.spawned;
+    if (this.disposed || this.exited) throw new Error('Rinzu source service is closed');
     const id = ++this.nextId;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this.pending.delete(id); reject(new Error('Rinzu editor request timed out')); }, 60000);
@@ -58,10 +102,80 @@ class SourceClient {
       this.child.stdin.write(JSON.stringify({ id, method, params }) + '\n');
     });
   }
-  invalidate(disk = false) {
-    ++this.epoch; this.diskDirty ||= disk; this.diagnostics.clear();
+  invalidate(disk = false, filenames = [], structural = false) {
+    ++this.epoch;
+    this.diskDirty ||= disk;
+    this.scopeVersions.clear();
+    if (!this.scoped) {
+      this.diagnostics.clear();
+      return;
+    }
+    const changed = filenames.map(canonical);
+    const manifests = structural ? changed.filter(filename => path.basename(filename) === 'rinzu.toml') : [];
+    const open = new Set(this.documents().map(document => canonical(document.uri.fsPath)));
+    const files = new Set();
+    for (const [filename] of this.documentScopes) {
+      if (!open.has(filename)) this.documentScopes.delete(filename);
+      else if (manifests.some(manifest => within(path.dirname(manifest), filename))) this.resolve.add(filename);
+    }
+    for (const filename of this.resolve) if (!open.has(filename)) this.resolve.delete(filename);
+    for (const scope of this.scopes.values()) {
+      const affected = !changed.length || changed.some(filename =>
+        scope.path === filename || scope.inputs.has(filename) ||
+        (structural && (within(filename, scope.path) ||
+          (scope.kind !== 'file' && (scope.unresolved || within(path.dirname(scope.path), filename))) ||
+          [...scope.inputs].some(input => within(filename, input)))));
+      if (affected && scope.byFile) {
+        for (const file of scope.byFile.keys()) files.add(file);
+        scope.byFile = null;
+      }
+    }
+    this.dropUnusedScopes(files);
+    this.publish(files);
   }
-  documents() { return vscode.workspace.textDocuments.filter(isSource); }
+  documents() { return vscode.workspace.textDocuments.filter(document => isSource(document) && !document.isClosed); }
+  dropUnusedScopes(files) {
+    const used = new Set([...this.documentScopes.values()].flatMap(document => document.keys));
+    for (const [key, scope] of this.scopes) {
+      if (used.has(key)) continue;
+      for (const file of scope.byFile?.keys() || []) files.add(file);
+      this.scopes.delete(key);
+    }
+  }
+  publish(files) {
+    for (const filename of files) {
+      const combined = new Map();
+      for (const scope of this.scopes.values()) {
+        for (const [key, diagnostic] of scope.byFile?.get(filename) || []) {
+          if (!combined.has(key)) combined.set(key, diagnostic);
+        }
+      }
+      const uri = vscode.Uri.file(filename);
+      if (combined.size) this.diagnostics.set(uri, [...combined.values()]);
+      else this.diagnostics.delete(uri);
+    }
+    this.onScopesChanged?.();
+  }
+  needsCheck(filename) {
+    const document = this.documentScopes.get(filename);
+    return !document || this.resolve.has(filename) || document.keys.some(key => !this.scopes.get(key)?.byFile);
+  }
+  async checkOpen(active, report) {
+    if (this.disposed) return;
+    const documents = this.documents();
+    if (this.scoped === undefined && !documents.includes(active)) active = documents[0];
+    if (active && isSource(active)) {
+      const index = documents.indexOf(active);
+      if (index > 0) documents.unshift(...documents.splice(index, 1));
+    }
+    for (const document of documents) {
+      if (document.isClosed) continue;
+      if (!this.scoped && document !== active) continue;
+      if (this.scoped && !this.needsCheck(canonical(document.uri.fsPath))) continue;
+      try { await this.check(document); }
+      catch (error) { report(error); }
+    }
+  }
   synchronize() {
     const work = async () => {
       await this.ready;
@@ -69,7 +183,11 @@ class SourceClient {
         const documents = this.documents();
         const desired = new Map(documents.map(document => [canonical(document.uri.fsPath), document]));
         for (const [filename, previous] of this.sent) {
-          if (!desired.has(filename)) { await this.raw('close', { path: filename, version: previous.version }); this.sent.delete(filename); }
+          // VS Code may restart the version counter when a file is reopened.
+          if (desired.get(filename) !== previous.document) {
+            await this.raw('close', { path: filename, version: previous.version });
+            this.sent.delete(filename);
+          }
         }
         if (this.diskDirty) { this.diskDirty = false; await this.raw('refresh'); }
         for (const [filename, document] of desired) {
@@ -77,11 +195,15 @@ class SourceClient {
           if (previous?.version === document.version) continue;
           const version = document.version;
           const text = document.getText();
-          await this.raw(previous ? 'change' : 'open', { path: filename, version, text, bom: previous?.bom ?? hasBom(filename) });
-          this.sent.set(filename, { version, bom: previous?.bom ?? hasBom(filename) });
+          const bom = previous?.bom ?? hasBom(filename);
+          await this.raw(previous ? 'change' : 'open', { path: filename, version, text, bom });
+          this.sent.set(filename, { document, version, bom });
         }
         const current = this.documents();
-        if (current.length === this.sent.size && current.every(document => this.sent.get(canonical(document.uri.fsPath))?.version === document.version) && !this.diskDirty) return;
+        if (current.length === this.sent.size && !this.diskDirty && current.every(document => {
+          const sent = this.sent.get(canonical(document.uri.fsPath));
+          return sent?.document === document && sent.version === document.version;
+        })) return;
       }
       throw modified('Buffers kept changing during synchronization');
     };
@@ -119,23 +241,64 @@ class SourceClient {
   }
   async check(document) {
     const response = await this.query('diagnostics', document);
-    this.assertFresh(response);
-    const byFile = new Map();
-    for (const item of response.result.diagnostics) {
-      const primary = item.primary; if (!primary.path) { this.output.appendLine(`${item.code}: ${item.message}`); continue; }
-      const diagnostic = new vscode.Diagnostic(primary.range ? range(primary.range) : new vscode.Range(0, 0, 0, 0), item.message, vscode.DiagnosticSeverity.Error);
-      diagnostic.code = item.code; diagnostic.source = 'Rinzu';
-      diagnostic.relatedInformation = item.secondary.filter(info => info.location.path && info.location.range).map(info => new vscode.DiagnosticRelatedInformation(locations([info.location])[0], info.message));
-      const group = byFile.get(primary.path) || []; group.push(diagnostic); byFile.set(primary.path, group);
-    }
-    this.assertFresh(response); this.diagnostics.clear();
-    for (const [filename, items] of byFile) this.diagnostics.set(vscode.Uri.file(filename), items);
-    if (response.result.omittedDiagnostics) this.output.appendLine(`${response.result.omittedDiagnostics} additional diagnostics omitted`);
+    this.acceptDiagnostics(response, document);
     return response;
+  }
+  acceptDiagnostics(response, document) {
+    this.assertFresh(response);
+    const result = response.result;
+    if (!Array.isArray(result.diagnosticScopes)) {
+      this.scoped = false;
+      this.scopes.clear();
+      this.documentScopes.clear();
+      this.resolve.clear();
+      this.diagnostics.clear();
+      this.onScopesChanged?.();
+      for (const [file, items] of diagnosticsByFile(result.diagnostics, this.output)) {
+        this.diagnostics.set(vscode.Uri.file(file), [...items.values()]);
+      }
+      if (result.omittedDiagnostics) this.output.appendLine(`${result.omittedDiagnostics} additional diagnostics omitted`);
+      return;
+    }
+    this.scoped = true;
+    const filename = canonical(document.uri.fsPath);
+    if ((this.documentScopes.get(filename)?.version ?? 0) > response.id) return;
+    const files = new Set();
+    const keys = [];
+    const separate = new Set(result.diagnosticScopes.filter(scope => scope.kind === 'file').map(scope => scope.path));
+    for (const scope of result.diagnosticScopes) {
+      const key = JSON.stringify([scope.kind, scope.path]);
+      keys.push(key);
+      if ((this.scopeVersions.get(key) ?? 0) > response.id) continue;
+      const items = scope.indices.map(index => result.diagnostics[index]);
+      const inputs = new Set(scope.kind === 'file' ? [scope.path] :
+        result.inputs.map(input => input.path).filter(input => !separate.has(input)));
+      const unresolved = Boolean(scope.omitted) || items.some(item =>
+        item.code.startsWith('RZ06') || item.code === 'RZ0202' || item.code === 'RZ0203');
+      const byFile = diagnosticsByFile(items, this.output);
+      const previous = this.scopes.get(key);
+      for (const file of previous?.byFile?.keys() || []) files.add(file);
+      for (const file of byFile.keys()) files.add(file);
+      this.scopes.set(key, { kind: scope.kind, path: scope.path, inputs, unresolved, byFile });
+      this.scopeVersions.set(key, response.id);
+      if (scope.omitted) this.output.appendLine(`${scope.path}: ${scope.omitted} additional diagnostics omitted`);
+      if (scope.kind !== 'file') {
+        for (const [target, selection] of this.documentScopes) {
+          if (target !== filename && selection.keys.includes(key) &&
+              previous?.inputs.has(target) !== inputs.has(target)) this.resolve.add(target);
+        }
+      }
+    }
+    this.documentScopes.set(filename, { keys, version: response.id });
+    this.resolve.delete(filename);
+    this.dropUnusedScopes(files);
+    this.publish(files);
   }
   dispose() {
     if (this.disposed) return;
-    this.disposed = true; this.child.stdin.end(); this.rejectPending(new Error('Rinzu editor disposed'));
+    this.disposed = true;
+    if (!this.exited) this.child.stdin.end();
+    this.rejectPending(new Error('Rinzu editor disposed'));
     const child = this.child; setTimeout(() => { if (child.exitCode === null && child.signalCode === null) child.kill(); }, 2000).unref();
   }
 }
@@ -148,21 +311,24 @@ function activate(context) {
   const selector = { language: 'rinzu', scheme: 'file' };
   let timer;
   const report = error => { if (error.code !== 'ContentModified') output.appendLine(error.stack || error.message); };
-  const schedule = () => {
-    clearTimeout(timer); timer = setTimeout(() => {
-      const document = vscode.window.activeTextEditor?.document;
-      if (document && isSource(document)) client.check(document).catch(report);
-    }, 180);
+  let checkTail = Promise.resolve();
+  const checkOpen = () => {
+    checkTail = checkTail.then(() => client.checkOpen(vscode.window.activeTextEditor?.document, report)).catch(report);
+    return checkTail;
   };
-  const changed = disk => { client.invalidate(disk); schedule(); };
+  const schedule = () => {
+    clearTimeout(timer);
+    timer = setTimeout(checkOpen, 180);
+  };
+  const changed = (disk, files, structural) => { client.invalidate(disk, files, structural); schedule(); };
   const safe = async (operation, fallback) => { try { return await operation(); } catch (error) { report(error); return fallback; } };
   context.subscriptions.push(output, diagnostics, client,
     { dispose() { clearTimeout(timer); } },
-    vscode.workspace.onDidOpenTextDocument(document => { if (isSource(document)) changed(false); }),
-    vscode.workspace.onDidChangeTextDocument(event => { if (isSource(event.document)) changed(false); }),
-    vscode.workspace.onDidCloseTextDocument(document => { if (isSource(document)) changed(false); }),
-    vscode.workspace.onDidSaveTextDocument(document => { if (isSource(document)) changed(true); }),
-    vscode.workspace.onDidRenameFiles(() => changed(true)),
+    vscode.workspace.onDidOpenTextDocument(document => { if (isSource(document)) changed(false, [document.uri.fsPath], document.isDirty); }),
+    vscode.workspace.onDidChangeTextDocument(event => { if (isSource(event.document) && event.contentChanges.length) changed(false, [event.document.uri.fsPath], !fs.existsSync(event.document.uri.fsPath)); }),
+    vscode.workspace.onDidCloseTextDocument(document => { if (isSource(document)) changed(false, [document.uri.fsPath], !fs.existsSync(document.uri.fsPath)); }),
+    vscode.workspace.onDidSaveTextDocument(document => { if (isSource(document)) changed(true, [document.uri.fsPath]); }),
+    vscode.workspace.onDidRenameFiles(event => changed(true, event.files.flatMap(file => [file.oldUri.fsPath, file.newUri.fsPath]), true)),
     vscode.window.onDidChangeActiveTextEditor(editor => { if (editor && isSource(editor.document)) schedule(); }),
     vscode.languages.registerDefinitionProvider(selector, { provideDefinition: (document, position, token) => safe(async () => locations((await client.query('definition', document, { position }, token)).result.locations), []) }),
     vscode.languages.registerReferenceProvider(selector, { provideReferences: (document, position, referenceContext, token) => safe(async () => locations((await client.query('references', document, { position, includeDeclaration: referenceContext.includeDeclaration }, token)).result.locations), []) }),
@@ -181,16 +347,42 @@ function activate(context) {
       return response.result.edits.map(edit => vscode.TextEdit.replace(range(edit.range), edit.newText));
     }, []) }),
     vscode.commands.registerCommand('rinzu.refresh', async () => {
-      client.invalidate(true); const document = vscode.window.activeTextEditor?.document;
-      if (document && isSource(document)) return client.check(document);
+      client.invalidate(true);
+      return checkOpen();
     }),
     vscode.commands.registerCommand('rinzu.organizeImports', async () => {
       const document = vscode.window.activeTextEditor?.document;
       if (document && isSource(document)) return safe(async () => client.applyEdits(document, await client.query('organizeImports', document)), false);
     })
   );
-  const watcher = vscode.workspace.createFileSystemWatcher('**/*.{rinzu,toml,lock}');
-  context.subscriptions.push(watcher, watcher.onDidChange(() => changed(true)), watcher.onDidCreate(() => changed(true)), watcher.onDidDelete(() => changed(true)));
+  const watcher = vscode.workspace.createFileSystemWatcher('**/*.{rinzu,toml,lock,h,hpp}');
+  const watch = watcher => {
+    watcher.onDidChange(uri => changed(true, [uri.fsPath]));
+    watcher.onDidCreate(uri => changed(true, [uri.fsPath], true));
+    watcher.onDidDelete(uri => changed(true, [uri.fsPath], true));
+    return watcher;
+  };
+  const external = new Map();
+  client.onScopesChanged = () => {
+    const roots = (vscode.workspace.workspaceFolders || []).map(folder => canonical(folder.uri.fsPath));
+    const directories = new Set();
+    for (const scope of client.scopes.values()) {
+      for (const input of [scope.path, ...scope.inputs]) {
+        if (!roots.some(root => within(root, input))) directories.add(path.dirname(input));
+      }
+    }
+    for (const [directory, watcher] of external) {
+      if (directories.has(directory)) continue;
+      watcher.dispose();
+      external.delete(directory);
+    }
+    for (const directory of directories) {
+      if (!external.has(directory)) {
+        external.set(directory, watch(vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(directory, '*'))));
+      }
+    }
+  };
+  context.subscriptions.push(watch(watcher), { dispose() { for (const watcher of external.values()) watcher.dispose(); } });
   schedule();
   return { client, diagnostics, range };
 }
