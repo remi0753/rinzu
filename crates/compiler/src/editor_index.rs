@@ -7,6 +7,10 @@ use crate::ast_walk::{self, Visitor};
 use crate::lexer::{FormattedPart, Token, TokenKind, lex};
 use crate::{SourceFile, SourceRange};
 
+#[path = "editor_hover.rs"]
+mod hover;
+pub use hover::{EditorHover, EditorHoverIndex, build_hover_index};
+
 #[derive(Clone, Debug)]
 pub struct EditorSymbol {
     pub name: String,
@@ -114,6 +118,8 @@ fn flatten(tokens: &[Token], output: &mut Vec<(String, SourceRange)>) {
     for token in tokens {
         if let TokenKind::Identifier(name) = &token.kind {
             output.push((name.clone(), token.range));
+        } else if token.kind == TokenKind::Await {
+            output.push(("await".into(), token.range));
         }
         if let TokenKind::FormattedString(parts) = &token.kind {
             for part in parts {
@@ -138,12 +144,13 @@ impl Names {
         Self(names)
     }
     fn span(&self, range: SourceRange, name: &str) -> Option<SourceRange> {
-        self.0
-            .get(&range.file_id.0)?
+        let identifiers = self.0.get(&range.file_id.0)?;
+        let start = identifiers.partition_point(|(_, token)| token.start_byte < range.start_byte);
+        identifiers[start..]
             .iter()
+            .take_while(|(_, token)| token.start_byte < range.end_byte)
             .find(|(identifier, token)| {
                 identifier == base_name(name)
-                    && token.start_byte >= range.start_byte
                     && token.end_byte <= range.end_byte
                     // A method named `private` can also have the contextual modifier.
                     && !(identifier == "private"

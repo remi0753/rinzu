@@ -226,3 +226,40 @@ test('a new candidate rechecks unresolved imports while preserving other package
   assert.ok(!client.needsCheck(unrelated.uri.fsPath));
   assert.deepEqual([...visible.keys()], [unrelated.uri.fsPath]);
 });
+
+test('shares hover requests and checks cancellation and document freshness per caller', async t => {
+  const { client, open, close, response } = fixture(t);
+  const document = open('main.rinzu');
+  const position = { line: 1, character: 4 };
+  client.ready = Promise.resolve({ result: { methods: ['hover'] } });
+  let resolve, requests = 0;
+  client.query = () => {
+    ++requests;
+    return new Promise(done => { resolve = done; });
+  };
+  const cancelled = { isCancellationRequested: false };
+  const one = client.hover(document, position, cancelled);
+  const two = client.hover(document, position, { isCancellationRequested: false });
+  await new Promise(done => setImmediate(done));
+  assert.equal(requests, 1);
+  cancelled.isCancellationRequested = true;
+  const result = response([], [], []);
+  result.result.hover = { label: 'await pending' };
+  resolve(result);
+  assert.equal(await one, undefined);
+  assert.equal((await two).label, 'await pending');
+
+  const stale = client.hover(document, position, { isCancellationRequested: false });
+  await new Promise(done => setImmediate(done));
+  close(document);
+  open('main.rinzu');
+  resolve(result);
+  await assert.rejects(stale, { code: 'ContentModified' });
+});
+
+test('hover does not query an older driver that lacks the capability', async t => {
+  const { client, open } = fixture(t);
+  client.ready = Promise.resolve({ result: { methods: ['definition'] } });
+  client.query = () => assert.fail('unsupported hover was sent');
+  assert.equal(await client.hover(open('main.rinzu'), { line: 0, character: 0 }), undefined);
+});

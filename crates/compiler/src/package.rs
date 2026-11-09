@@ -191,7 +191,10 @@ pub(crate) fn check_file_with_sources(
         link_modules("entry", loader.modules, "", &external, None)?;
     let own_syntax = syntax.clone();
     let own_graph = module_graph.clone();
-    let mut options = CompilerOptions::default();
+    let mut options = CompilerOptions {
+        editor_file: sources.editor_file(),
+        ..CompilerOptions::default()
+    };
     append_sdk_declarations(&mut syntax, &mut options, &sdk_packages);
     for package in &sdk_packages {
         if let Some(source) = &package.source {
@@ -361,8 +364,10 @@ fn check_request(
 ) -> Result<(Manifest, FrontendArtifact, Vec<crate::PackageTestCase>), Vec<Diagnostic>> {
     let manifest_path = find_manifest(start).map_err(|error| vec![error.into_diagnostic()])?;
     let mut manifest = load_manifest_with_sources(&manifest_path, sources)?;
-    crate::canonicalize_native_inputs(&mut manifest)
-        .map_err(|error| vec![error.into_diagnostic()])?;
+    crate::manifest::canonicalize_native_inputs_with(&mut manifest, |path| {
+        sources.canonical_path(path)
+    })
+    .map_err(|error| vec![error.into_diagnostic()])?;
     let _timing = crate::timing::span("frontend.package").detail(&manifest.name);
     let entry_module = module_name_from_entry(&manifest.entry).map_err(|errors| {
         errors
@@ -474,7 +479,7 @@ fn check_request(
             ]);
         }
         let mut source_paths = Vec::new();
-        collect_source_paths(&loader.source_root, &mut source_paths)?;
+        collect_source_paths(&loader.source_root, &mut source_paths, loader.sources)?;
         source_paths.sort();
         for path in source_paths {
             loader.load_path(path, None)?;
@@ -493,7 +498,7 @@ fn check_request(
     }
     if tests.is_some_and(|tests| tests.unit) && manifest.kind != PackageKind::Sdk {
         let mut paths = Vec::new();
-        collect_source_paths(&loader.source_root, &mut paths)?;
+        collect_source_paths(&loader.source_root, &mut paths, loader.sources)?;
         paths.sort();
         for path in paths {
             loader.load_path(path, None)?;
@@ -769,7 +774,10 @@ fn check_request(
                     }),
             );
     }
-    let options = package_options;
+    let options = CompilerOptions {
+        editor_file: sources.editor_file(),
+        ..package_options
+    };
     for package in &sdk_packages {
         if let Some(source) = &package.source {
             module_graph.extend(source.module_graph.iter().cloned().map(|mut node| {
@@ -1376,11 +1384,15 @@ pub(crate) fn validate_public_signatures(
     }
 }
 
-fn collect_source_paths(root: &Path, paths: &mut Vec<PathBuf>) -> Result<(), Vec<Diagnostic>> {
-    let canonical_root = root.canonicalize().map_err(|error| {
+fn collect_source_paths(
+    root: &Path,
+    paths: &mut Vec<PathBuf>,
+    sources: &mut SourceSnapshot<'_>,
+) -> Result<(), Vec<Diagnostic>> {
+    let canonical_root = sources.canonical_path(root).map_err(|error| {
         vec![package_diagnostic(error.to_string(), "make SDK sources readable").with_path(root)]
     })?;
-    collect_source_directory(root, &canonical_root, &mut HashSet::new(), paths)
+    collect_source_directory(root, &canonical_root, &mut HashSet::new(), paths, sources)
 }
 
 fn collect_source_directory(
@@ -1388,8 +1400,9 @@ fn collect_source_directory(
     canonical_root: &Path,
     visiting: &mut HashSet<PathBuf>,
     paths: &mut Vec<PathBuf>,
+    sources: &mut SourceSnapshot<'_>,
 ) -> Result<(), Vec<Diagnostic>> {
-    let canonical = root.canonicalize().map_err(|error| {
+    let canonical = sources.canonical_path(root).map_err(|error| {
         vec![package_diagnostic(error.to_string(), "make SDK sources readable").with_path(root)]
     })?;
     if !canonical.starts_with(canonical_root) || !visiting.insert(canonical.clone()) {
@@ -1401,7 +1414,7 @@ fn collect_source_directory(
             .with_path(root),
         ]);
     }
-    let entries = std::fs::read_dir(root).map_err(|error| {
+    let entries = sources.source_entries(root).map_err(|error| {
         vec![
             package_diagnostic(
                 format!("cannot enumerate SDK source directory: {error}"),
@@ -1410,22 +1423,10 @@ fn collect_source_directory(
             .with_path(root),
         ]
     })?;
-    for entry in entries {
-        let entry = entry.map_err(|error| {
-            vec![package_diagnostic(error.to_string(), "make SDK sources readable").with_path(root)]
-        })?;
-        let path = entry.path();
-        let kind = entry.file_type().map_err(|error| {
-            vec![
-                package_diagnostic(error.to_string(), "make SDK sources readable").with_path(&path),
-            ]
-        })?;
-        if kind.is_dir() || (kind.is_symlink() && path.is_dir()) {
-            collect_source_directory(&path, canonical_root, visiting, paths)?;
-        } else if path
-            .extension()
-            .is_some_and(|extension| extension == "rinzu")
-        {
+    for (path, directory) in entries {
+        if directory {
+            collect_source_directory(&path, canonical_root, visiting, paths, sources)?;
+        } else {
             paths.push(path);
         }
     }
@@ -1453,7 +1454,7 @@ fn resolve_dependencies(
 ) -> Result<(), Vec<Diagnostic>> {
     for dependency in &parent.dependencies {
         let root = parent.root.join(&dependency.path);
-        let canonical = root.canonicalize().map_err(|error| {
+        let canonical = sources.canonical_path(&root).map_err(|error| {
             vec![
                 package_diagnostic(
                     format!(
@@ -1499,8 +1500,10 @@ fn resolve_dependencies(
         }
         let manifest_path = canonical.join("rinzu.toml");
         let mut manifest = load_manifest_with_sources(&manifest_path, sources)?;
-        crate::canonicalize_native_inputs(&mut manifest)
-            .map_err(|error| vec![error.into_diagnostic()])?;
+        crate::manifest::canonicalize_native_inputs_with(&mut manifest, |path| {
+            sources.canonical_path(path)
+        })
+        .map_err(|error| vec![error.into_diagnostic()])?;
         if packages.iter().any(|package| {
             package.manifest.name == manifest.name
                 && package.manifest.root.canonicalize().ok().as_ref() != Some(&canonical)
@@ -1720,7 +1723,7 @@ impl<'a, 'b> Loader<'a, 'b> {
         sources: &'a mut SourceSnapshot<'b>,
     ) -> Self {
         let source_root = manifest.root.join("src");
-        let canonical_root = source_root.canonicalize().ok();
+        let canonical_root = sources.canonical_path(&source_root).ok();
         let entry_path = sources
             .canonical_path(&manifest.root.join(&manifest.entry))
             .unwrap_or_else(|_| manifest.root.join(&manifest.entry));

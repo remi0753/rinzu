@@ -68,6 +68,7 @@ pub(super) struct Analyzer<'a> {
     summaries: &'a BTreeMap<String, Summary>,
     pub(super) bound: usize,
     diagnose: bool,
+    editor_effects: Option<&'a mut EditorEffects>,
     proof: bool,
     diagnostics: Vec<Diagnostic>,
     all: bool,
@@ -91,6 +92,7 @@ impl<'a> Analyzer<'a> {
             summaries,
             bound,
             diagnose,
+            editor_effects: None,
             proof: false,
             diagnostics: Vec::new(),
             all: false,
@@ -100,6 +102,29 @@ impl<'a> Analyzer<'a> {
             caught: Vec::new(),
             rethrow_paths: Default::default(),
             dead: false,
+        }
+    }
+
+    pub fn recording(mut self, editor_effects: Option<&'a mut EditorEffects>) -> Self {
+        self.editor_effects = editor_effects;
+        self
+    }
+
+    fn editor_effect(&mut self, range: SourceRange, errors: &Language, awaiting: bool) {
+        if !self.dead
+            && let Some(sink) = &mut self.editor_effects
+            && sink.file == range.file_id
+        {
+            let table = if awaiting {
+                &mut sink.awaits
+            } else {
+                &mut sink.calls
+            };
+            let bound = table.entry(range).or_default();
+            bound.extend(public_error_types(errors));
+            if bound.contains("Error") {
+                bound.retain(|ty| ty == "Error");
+            }
         }
     }
 
@@ -471,7 +496,10 @@ impl<'a> Analyzer<'a> {
                     if condition.success && known != Some(true) {
                         result.normal = true;
                     }
+                    let dead = self.dead;
+                    self.dead |= !condition.success || known == Some(false);
                     let body = self.block(body, &mut loop_env);
+                    self.dead = dead;
                     if condition.success && known != Some(false) {
                         result.normal |= body.breaks;
                         result.returns |= body.returns;
@@ -728,7 +756,10 @@ impl<'a> Analyzer<'a> {
                 self.caught
                     .push((handler.body.range, language::accepted(&remaining, &pattern)));
             }
+            let dead = self.dead;
+            self.dead |= matched.is_empty();
             let mut caught = self.block(&handler.body, &mut catch_env);
+            self.dead = dead;
             if !self.checked.rethrows.is_empty() {
                 self.caught.pop();
             }
@@ -916,6 +947,7 @@ impl<'a> Analyzer<'a> {
                         .value
                         .awaited(self.bound, self.expression_value(expression), &ty);
                 if evaluated.success {
+                    self.editor_effect(expression.range, &failed, true);
                     let reception = if self.catch_trace.is_some() && !failed.is_empty() {
                         self.await_reception(operand, expression.range)
                     } else {
@@ -1131,18 +1163,30 @@ impl<'a> Analyzer<'a> {
                 success: false,
             };
         }
-        let (values, mut errors, argument_success) = self.arguments(arguments, env);
+        let (values, mut argument_errors, argument_success) = self.arguments(arguments, env);
         if self.checked.data_operations.get(&expression.range) == Some(&crate::DataOperation::Panic)
         {
+            if argument_success {
+                self.editor_effect(expression.range, &Language::new(), false);
+            }
             return Evaluated {
                 value: Value::Bottom,
-                errors,
+                errors: argument_errors,
                 success: false,
             };
         }
         if matches!(unbound, Some(Value::Unbound(_))) {
-            errors.extend(self.at(one(Tag::Any), expression.range, OriginKind::Operation));
+            argument_errors.extend(self.at(one(Tag::Any), expression.range, OriginKind::Operation));
         }
+        let record = self
+            .editor_effects
+            .as_ref()
+            .is_some_and(|sink| sink.file == expression.range.file_id);
+        let mut errors = if record {
+            Language::new()
+        } else {
+            std::mem::take(&mut argument_errors)
+        };
         let invocation = self
             .checked
             .indirect_signatures
@@ -1282,6 +1326,13 @@ impl<'a> Analyzer<'a> {
         if bounded_invocation && !success {
             result.join(self.expression_value(expression));
             success = true;
+        }
+        if record {
+            if argument_success {
+                self.editor_effect(expression.range, &errors, false);
+            }
+            argument_errors.extend(errors);
+            errors = argument_errors;
         }
         Evaluated {
             value: result,

@@ -81,6 +81,14 @@ async function run() {
       assert.ok(completions.items.some(item=>item.label==='model.value'));assert.ok(!completions.items.some(item=>item.label==='model.hidden'));
       return {dirtyDependency:model.isDirty,diskType:'String',overlayType:'Int',definition:definitions[0].uri.fsPath,publicCompletion:true,privateCompletion:false};
     });
+    await test('Hover provider displays current checked signature at the call token',async()=>{
+      const hovers = await vscode.commands.executeCommand('vscode.executeHoverProvider', main.uri, at(main, 'value()'));
+      const hover = hovers.find(result => result.contents.some(part => /fn model\.value\(\) -> Int/.test(part.value)));
+      assert.ok(hover, JSON.stringify(hovers));
+      assert.equal(main.getText(hover.range), 'value');
+      assert.ok(hover.contents.some(part => part.value.replaceAll('&nbsp;', ' ').includes('no ordinary Errors')));
+      return { range: main.getText(hover.range), result: 'Int', overlay: model.isDirty };
+    });
     await test('Generic closure shadowing and references use actual registered providers',async()=>{
       logic=await open('logic.rinzu');
       const text='fn id<T>(a:T)->T{return a;}fn test()->Int{let item:Int=7;let read=fn(item:Int)->Int{return item;};let capture=fn()->Int{return item;};let text="item";return id<Int>(read(capture()));}// item\n';

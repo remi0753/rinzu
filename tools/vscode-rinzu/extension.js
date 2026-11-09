@@ -52,12 +52,48 @@ function diagnosticsByFile(items, output) {
   return byFile;
 }
 
+function renderHover(hover) {
+  if (!hover?.target?.range) return undefined;
+  const text = new vscode.MarkdownString();
+  if (hover.signature) {
+    text.appendCodeblock(hover.signature, 'rinzu');
+    if (hover.kind === 'call' && hover.valueType) {
+      text.appendText('Result · ' + hover.valueType);
+      text.appendMarkdown('\n\n');
+    }
+  } else {
+    text.appendText([hover.label, hover.valueType].filter(Boolean).join(' → '));
+    text.appendMarkdown('\n\n');
+  }
+  if (hover.resolution === 'syntax') text.appendText('Syntax only. Type checking is incomplete.');
+  if (hover.operandType) {
+    text.appendText('Awaited value · ' + hover.operandType);
+    text.appendMarkdown('\n\n');
+  }
+  const phases = { call: 'Call', future: 'Future observation', await: 'Await observation' };
+  const bases = { declared: 'declared', inferred: 'inferred', flow: 'flow analysis', language: 'language rule' };
+  for (const { phase, basis, bound } of hover.effects || []) {
+    const description = bound.kind === 'finite' ? bound.types.join(', ')
+      : bound.kind === 'none' ? 'no ordinary Errors'
+      : bound.kind === 'open' ? 'Error (open bound)' : 'bound unavailable';
+    text.appendText(phases[phase] + ' · ' + bases[basis] + ' · ' + description);
+    text.appendMarkdown('\n\n');
+  }
+  if (hover.variesBySpecialization) {
+    text.appendText('Some types or Error bounds vary by specialization.');
+    text.appendMarkdown('\n\n');
+  }
+  if (hover.publicName) text.appendText('Definition · ' + hover.publicName);
+  return new vscode.Hover(text, range(hover.target.range));
+}
+
 class SourceClient {
   constructor(output, diagnostics) {
     this.output = output; this.diagnostics = diagnostics;
     this.epoch = 0; this.nextId = 0; this.pending = new Map(); this.sent = new Map();
     this.syncTail = Promise.resolve(); this.diskDirty = false; this.disposed = false;
     this.scoped = undefined;
+    this.hoverRequests = new WeakMap();
     this.scopes = new Map();
     this.scopeVersions = new Map();
     this.documentScopes = new Map();
@@ -231,6 +267,30 @@ class SourceClient {
     }
     return response;
   }
+  async hover(document, position, token) {
+    if (token?.isCancellationRequested || document.isClosed) return undefined;
+    this.hoverCapability ??= this.ready.then(response => response || this.raw('initialize'))
+      .then(response => response.result.methods?.includes('hover') === true);
+    if (!await this.hoverCapability || token?.isCancellationRequested || document.isClosed) return undefined;
+    let pending = this.hoverRequests.get(document);
+    if (!pending) {
+      pending = new Map();
+      this.hoverRequests.set(document, pending);
+    }
+    const epoch = this.epoch;
+    const version = document.version;
+    const key = [epoch, version, position.line, position.character].join('/');
+    let request = pending.get(key);
+    if (!request) {
+      request = this.query('hover', document, { position }).finally(() => pending.delete(key));
+      pending.set(key, request);
+    }
+    const response = await request;
+    if (token?.isCancellationRequested) return undefined;
+    if (document.isClosed || document.version !== version || this.epoch !== epoch) throw modified();
+    this.assertFresh(response);
+    return response.result.hover;
+  }
   async applyEdits(document, response) {
     this.assertFresh(response);
     if (!response.result.edits?.length) return true;
@@ -330,6 +390,13 @@ function activate(context) {
     vscode.workspace.onDidSaveTextDocument(document => { if (isSource(document)) changed(true, [document.uri.fsPath]); }),
     vscode.workspace.onDidRenameFiles(event => changed(true, event.files.flatMap(file => [file.oldUri.fsPath, file.newUri.fsPath]), true)),
     vscode.window.onDidChangeActiveTextEditor(editor => { if (editor && isSource(editor.document)) schedule(); }),
+    vscode.languages.registerHoverProvider(selector, { provideHover: (document, position, token) => safe(async () => {
+      const epoch = client.epoch;
+      const version = document.version;
+      const hover = await client.hover(document, position, token);
+      if (token.isCancellationRequested || document.isClosed || document.version !== version || client.epoch !== epoch) return undefined;
+      return renderHover(hover);
+    }, undefined) }),
     vscode.languages.registerDefinitionProvider(selector, { provideDefinition: (document, position, token) => safe(async () => locations((await client.query('definition', document, { position }, token)).result.locations), []) }),
     vscode.languages.registerReferenceProvider(selector, { provideReferences: (document, position, referenceContext, token) => safe(async () => locations((await client.query('references', document, { position, includeDeclaration: referenceContext.includeDeclaration }, token)).result.locations), []) }),
     vscode.languages.registerCompletionItemProvider(selector, { provideCompletionItems: (document, position, token) => safe(async () => {

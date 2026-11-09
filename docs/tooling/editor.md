@@ -52,6 +52,8 @@ After updating the checkout, rebuild the driver selected by `rinzu.executable` w
 
 The extension provides syntax highlighting for keywords, built-in types, numbers, comments, and String/Bytes literals, including raw Strings and formatted String expressions. Colors follow the selected VS Code theme. Highlighting does not require the Rinzu executable. After updating a linked local extension, run **Developer: Reload Window** to reload its grammar.
 
+Hover shows checked function signatures, type aliases, and the types of bindings. Call hovers distinguish a declared Error bound from an inferred bound. An async call shows when the bound applies to its Future. Hovering over an await keyword shows the operand type, the result type, and the ordinary Errors that can be observed there. During an incomplete type check, hover can still show a declaration or annotation from the current buffer.
+
 The extension also supports diagnostics for open buffers, definition/reference navigation, completion, formatting, and import organization. Diagnostics show related source locations and explanation-only suggestions under **Help**. Results for separate packages stay visible as you switch between files. **Rinzu: Refresh Diagnostics** rechecks the open buffers and their dependencies. Import organization sorts and deduplicates eligible groups without guessing which imports are unused.
 
 Run the integration tests with an installed VS Code from a desktop session. The runner creates a temporary workspace and profile. On macOS the process must be able to register a desktop application.
@@ -60,6 +62,8 @@ Run the integration tests with an installed VS Code from a desktop session. The 
 cargo build -p rinzu-driver --bin rinzu
 python3 tests/integration/test_vscode_editor.py
 ```
+
+The optional hover method accepts the same document version and UTF-16 position as definition. Its result includes a token range, checked or syntax resolution, and any available definition and contract locations. Each checked effect gives the phase, the basis, and a none, finite, open, or unknown bound. Consecutive requests in a verified snapshot reuse a bounded index.
 
 This is a local development extension, not an automatically installed Marketplace package. The editor service is a versioned JSON-lines protocol; it is not a claim of full LSP compatibility. It supports one folder/service and file documents. Native provider/header/receipt validation still requires CLI check/build with actual inputs.
 

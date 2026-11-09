@@ -40,6 +40,8 @@ pub struct NativeFunction {
 
 #[derive(Clone, Debug, Default)]
 pub struct CompilerOptions {
+    /// Collect editor information only for this file in the final check.
+    pub editor_file: Option<crate::FileId>,
     pub sdk_files: HashSet<crate::FileId>,
     pub is_library: bool,
     pub owner_sync_handlers: HashSet<String>,
@@ -105,6 +107,7 @@ pub(crate) struct IndirectSignature {
 
 #[derive(Clone, Debug)]
 pub struct CheckedModule {
+    pub(crate) editor_effects: Option<crate::error_effects::EditorEffects>,
     pub(crate) error_upcasts: HashMap<SourceRange, Type>,
     pub(crate) error_patterns: HashMap<SourceRange, Type>,
     pub(crate) rethrows: HashMap<SourceRange, errors::Rethrow>,
@@ -464,7 +467,12 @@ pub fn check_module_with_options(
         checked
     };
     checked.in_bounds_collection_updates = crate::ir::collection_buffers::in_bounds(&checked);
-    let summaries = crate::error_effects::analyze(&checked, !options.is_library)?;
+    let mut editor_effects = options
+        .editor_file
+        .map(crate::error_effects::EditorEffects::new);
+    let summaries =
+        crate::error_effects::analyze(&checked, !options.is_library, editor_effects.as_mut())?;
+    checked.editor_effects = editor_effects;
     for function in &mut checked.functions {
         function.error_types =
             crate::error_effects::public_types(&summaries[&function.declaration.name]);
@@ -767,6 +775,7 @@ impl<'a> Checker<'a> {
             .collect();
         Ok(CheckedModule {
             error_upcasts: self.error_upcasts,
+            editor_effects: None,
             error_patterns: self.error_patterns,
             rethrows: self.rethrows,
             error_tests: self.error_tests,

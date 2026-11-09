@@ -180,9 +180,12 @@ pub(crate) fn conversion_error(
 }
 
 pub(crate) fn public_types(summary: &Summary) -> Vec<String> {
+    public_error_types(&summary.errors)
+}
+
+fn public_error_types(errors: &Language) -> Vec<String> {
     let mut types = BTreeSet::new();
-    for tag in summary
-        .errors
+    for tag in errors
         .iter()
         .flat_map(|word| word.prefix.iter().chain(&word.tail))
     {
@@ -304,9 +307,27 @@ pub(crate) fn verify_conversions(checked: &CheckedModule) -> Result<(), Vec<Diag
     }
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct EditorEffects {
+    pub file: crate::FileId,
+    pub awaits: std::collections::HashMap<SourceRange, BTreeSet<String>>,
+    pub calls: std::collections::HashMap<SourceRange, BTreeSet<String>>,
+}
+
+impl EditorEffects {
+    pub fn new(file: crate::FileId) -> Self {
+        Self {
+            file,
+            awaits: Default::default(),
+            calls: Default::default(),
+        }
+    }
+}
+
 pub(crate) fn analyze(
     checked: &CheckedModule,
     entry: bool,
+    mut editor_effects: Option<&mut EditorEffects>,
 ) -> Result<BTreeMap<String, Summary>, Vec<Diagnostic>> {
     let _timing = crate::timing::span("frontend.effects");
     let functions = functions_by_name(checked);
@@ -315,8 +336,9 @@ pub(crate) fn analyze(
     let summaries = infer(checked, &functions, &graph, bound, false);
     let mut failures = Vec::new();
     for function in functions.values() {
-        let (actual, errors) =
-            flow::Analyzer::new(checked, &summaries, bound, true).function(function);
+        let (actual, errors) = flow::Analyzer::new(checked, &summaries, bound, true)
+            .recording(editor_effects.as_deref_mut())
+            .function(function);
         let violation = contracts::violation(checked, &function.declaration, &actual);
         if !errors.is_empty() || violation.is_some() {
             failures.push((

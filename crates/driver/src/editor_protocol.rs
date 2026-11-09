@@ -4,8 +4,9 @@ use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
 use rinzu_compiler::{
-    CompilerOptions, Diagnostic, EditorIndex, FileId, Module, SourceCache, SourceFile, SourceRange,
-    SourceSnapshot, Utf16Position, build_editor_index,
+    CompilerOptions, Diagnostic, EditorHover, EditorHoverIndex, EditorIndex, FileId, Module,
+    SourceCache, SourceFile, SourceFreshness, SourceRange, SourceSnapshot, Utf16Position,
+    build_editor_index, build_hover_index,
 };
 use serde_json::{Value, json};
 
@@ -14,6 +15,7 @@ const OPEN_DOCUMENTS: usize = 32;
 const SNAPSHOT_FILES: usize = 256;
 const FRAME_BYTES: usize = 8 * 1024 * 1024;
 const DIAGNOSTICS: usize = 256;
+const HOVER_CACHE_BYTES: usize = 8 * 1024 * 1024;
 
 struct Buffer {
     version: u64,
@@ -26,6 +28,7 @@ struct Session {
     entry: Option<PathBuf>,
     buffers: BTreeMap<PathBuf, Buffer>,
     cache: SourceCache,
+    hover_cache: Option<CachedHover>,
     generation: u64,
     shutdown: bool,
 }
@@ -226,11 +229,12 @@ impl Session {
                     self.workspace = next_workspace;
                     self.entry = next_entry;
                     self.cache = SourceCache::default();
+                    self.hover_cache = None;
                     self.generation += 1;
                 }
                 Ok(
                     json!({"workspace":self.workspace,"entry":self.entry,"language":rinzu_compiler::LANGUAGE_SEMANTICS_REVISION,
-                    "positionEncoding":"utf-16","methods":["initialize","open","change","close","refresh","diagnostics","definition","references","completion","format","organizeImports","shutdown"],
+                    "positionEncoding":"utf-16","methods":["initialize","open","change","close","refresh","diagnostics","definition","references","completion","hover","format","organizeImports","shutdown"],
                     "limits":{"documentBytes":DOCUMENT_BYTES,"openDocuments":OPEN_DOCUMENTS,"snapshotFiles":SNAPSHOT_FILES,"frameBytes":FRAME_BYTES,"diagnostics":DIAGNOSTICS},
                     "typechecking":"whole linked graph; unchanged module parse cache",
                     "fileEntry":"initialize.entry; .rinzu path; disk or open overlay; entry takes precedence over workspace",
@@ -279,6 +283,7 @@ impl Session {
                         bom,
                     },
                 );
+                self.hover_cache = None;
                 self.generation += 1;
                 Ok(json!({"path":path,"version":next_version}))
             }
@@ -286,24 +291,28 @@ impl Session {
                 let path = self.current(params)?;
                 self.buffers.remove(&path);
                 self.cache = SourceCache::default();
+                self.hover_cache = None;
                 self.generation += 1;
                 Ok(json!({"closed":path}))
             }
             "refresh" => {
                 self.cache = SourceCache::default();
+                self.hover_cache = None;
                 self.generation += 1;
                 Ok(json!({"refreshed":true}))
             }
             "shutdown" => {
                 self.buffers.clear();
                 self.cache = SourceCache::default();
+                self.hover_cache = None;
                 self.shutdown = true;
                 Ok(json!({"shutdown":true}))
             }
+            "hover" => self.hover(params),
             "diagnostics" | "definition" | "references" | "completion" | "format"
             | "organizeImports" => {
                 let path = self.current(params)?;
-                let analysis = self.analyze(&path, method == "diagnostics")?;
+                let analysis = self.analyze(&path, method == "diagnostics", false)?;
                 let mut result = json!({"syntaxOnly":analysis.syntax_only,"stale":analysis.stale,
                     "inputs":analysis.receipts,"parseCache":{"hits":analysis.hits,"misses":analysis.misses}});
                 if analysis.stale {
@@ -323,14 +332,7 @@ impl Session {
                         result["diagnosticScopes"] = json!(analysis.scopes);
                     }
                     "definition" | "references" | "completion" => {
-                        let position: Utf16Position = serde_json::from_value(
-                            params.get("position").cloned().unwrap_or(Value::Null),
-                        )
-                        .map_err(|e| fail("InvalidPosition", e.to_string()))?;
-                        let byte = file
-                            .original_byte_at_utf16(position)
-                            .map_err(|e| fail("InvalidPosition", e))?;
-                        let point = SourceRange::empty(file.id(), byte);
+                        let point = source_point(file, position(params)?)?;
                         if method == "completion" {
                             let mut items: Vec<_> = analysis.index.visible_symbols(point).into_iter()
                                 .map(|symbol| json!({"label":symbol.name,"kind":symbol.kind,"definition":location(symbol.definition,&analysis.sources,&analysis.paths)})).collect();
@@ -470,7 +472,62 @@ impl Session {
         Ok(path)
     }
 
-    fn analyze(&mut self, path: &Path, diagnostics_only: bool) -> Result<Analysis> {
+    fn manifest(&self, path: &Path) -> Option<PathBuf> {
+        if self.entry.is_some() {
+            return None;
+        }
+        self.workspace
+            .as_deref()
+            .or(path.parent())
+            .and_then(|start| rinzu_compiler::find_manifest(start).ok())
+    }
+
+    fn hover(&mut self, params: &Value) -> Result<Value> {
+        let path = self.current(params)?;
+        let position = position(params)?;
+        let manifest = self.manifest(&path);
+        if let Some(cache) = &self.hover_cache
+            && cache.path == path
+            && cache.manifest == manifest
+            && cache.freshness.disk_is_current()
+        {
+            let point = source_point(&cache.sources[&path], position)?;
+            let hover = cache
+                .entries
+                .at(point)
+                .map(|hover| hover_value(hover, &cache.sources, &cache.paths));
+            return Ok(json!({"syntaxOnly":false,"stale":false,"hover":hover,
+                "inputs":cache.receipts,"parseCache":{"hits":0,"misses":0},"hoverCache":"hit"}));
+        }
+        self.hover_cache = None;
+        let analysis = self.analyze(&path, false, true)?;
+        if analysis.stale || self.manifest(&path) != manifest {
+            return Err(fail(
+                "ContentModified",
+                "disk inputs changed during analysis; refresh and retry",
+            ));
+        }
+        let file = analysis
+            .sources
+            .get(&path)
+            .ok_or_else(|| fail("AnalysisUnavailable", "document could not be decoded"))?;
+        let point = source_point(file, position)?;
+        let hover = analysis
+            .hover
+            .at(point)
+            .map(|hover| hover_value(hover, &analysis.sources, &analysis.paths));
+        let result = json!({"syntaxOnly":analysis.syntax_only,"stale":false,"hover":hover,
+            "inputs":analysis.receipts,"parseCache":{"hits":analysis.hits,"misses":analysis.misses},"hoverCache":"miss"});
+        self.hover_cache = analysis.into_hover_cache(path, manifest);
+        Ok(result)
+    }
+
+    fn analyze(
+        &mut self,
+        path: &Path,
+        diagnostics_only: bool,
+        hover_requested: bool,
+    ) -> Result<Analysis> {
         let overlays = self
             .buffers
             .iter()
@@ -483,21 +540,18 @@ impl Session {
                 (path.clone(), bytes)
             })
             .collect();
+        let manifest = self.manifest(path);
         let mut snapshot = SourceSnapshot::new(&mut self.cache, overlays);
         snapshot.set_limits(DOCUMENT_BYTES + 3, SNAPSHOT_FILES);
+        if hover_requested {
+            snapshot.set_editor_file(path.to_owned());
+        }
         let mut errors = Vec::new();
         let mut scopes = Vec::new();
         let mut linked = Vec::<Module>::new();
         let mut artifact = None;
+        let mut loose = None;
         let mut syntax_only = false;
-        let manifest = if self.entry.is_none() {
-            self.workspace
-                .as_deref()
-                .or(path.parent())
-                .and_then(|start| rinzu_compiler::find_manifest(start).ok())
-        } else {
-            None
-        };
         let workspace = self
             .workspace
             .as_deref()
@@ -555,13 +609,19 @@ impl Session {
                     &module,
                     &CompilerOptions {
                         is_library: true,
+                        editor_file: hover_requested.then_some(file.id()),
                         ..CompilerOptions::default()
                     },
                 ) {
                     Ok(checked) => {
                         if !diagnostics_only {
                             linked.push(module);
-                            linked.push(checked.syntax);
+                            if hover_requested {
+                                linked.push(checked.syntax.clone());
+                                loose = Some(checked);
+                            } else {
+                                linked.push(checked.syntax);
+                            }
                         }
                     }
                     Err(e) => {
@@ -581,8 +641,8 @@ impl Session {
             ));
         }
         let sources = snapshot.sources().clone();
-        let index = if diagnostics_only {
-            EditorIndex::default()
+        let (index, hover) = if diagnostics_only {
+            (EditorIndex::default(), EditorHoverIndex::default())
         } else {
             if let Some(a) = &artifact {
                 linked.push(a.syntax.clone());
@@ -594,12 +654,45 @@ impl Session {
                 }
             }
             let modules = snapshot.parsed_modules();
-            let mut index =
-                build_editor_index(&sources, &modules, &linked.iter().collect::<Vec<_>>());
+            let linked: Vec<_> = linked.iter().collect();
+            let mut index = build_editor_index(&sources, &modules, &linked);
             if let Some(a) = &artifact {
                 import_symbols(&mut index, &sources, a);
             }
-            index
+            let hover = if hover_requested {
+                let checked = (!syntax_only)
+                    .then(|| {
+                        loose
+                            .as_ref()
+                            .or_else(|| artifact.as_ref().map(|a| &a.checked))
+                    })
+                    .flatten();
+                let graph = artifact
+                    .as_ref()
+                    .map_or(&[][..], |a| a.module_graph.as_slice());
+                let declarations: Vec<_> = artifact
+                    .iter()
+                    .flat_map(|artifact| {
+                        std::iter::once(&artifact.syntax).chain(
+                            artifact.sdk_packages.iter().filter_map(|package| {
+                                package.source.as_ref().map(|source| &source.syntax)
+                            }),
+                        )
+                    })
+                    .collect();
+                build_hover_index(
+                    path,
+                    &sources,
+                    &modules,
+                    &declarations,
+                    &index,
+                    checked,
+                    graph,
+                )
+            } else {
+                EditorHoverIndex::default()
+            };
+            (index, hover)
         };
         let mut paths = BTreeMap::new();
         for d in &errors {
@@ -622,6 +715,11 @@ impl Session {
             .collect();
         let receipts=snapshot.input_receipts().into_iter().map(|(path,kind,bytes,hash)|json!({"path":path,"kind":kind,"bytes":bytes,"fnv1a64":format!("{hash:016x}")})).collect();
         let stale = !snapshot.disk_is_current();
+        let freshness = if hover_requested && !syntax_only && !stale {
+            snapshot.freshness(HOVER_CACHE_BYTES)
+        } else {
+            None
+        };
         let hits = snapshot.parse_hits;
         let misses = snapshot.parse_misses;
         let mut keep = snapshot.read_paths();
@@ -632,6 +730,8 @@ impl Session {
             sources,
             paths,
             index,
+            hover,
+            freshness,
             diagnostics,
             omitted,
             scopes,
@@ -648,6 +748,8 @@ struct Analysis {
     sources: BTreeMap<PathBuf, SourceFile>,
     paths: BTreeMap<u32, PathBuf>,
     index: EditorIndex,
+    hover: EditorHoverIndex,
+    freshness: Option<SourceFreshness>,
     diagnostics: Vec<Value>,
     omitted: usize,
     scopes: Vec<DiagnosticScope>,
@@ -656,6 +758,78 @@ struct Analysis {
     stale: bool,
     hits: usize,
     misses: usize,
+}
+
+struct CachedHover {
+    path: PathBuf,
+    manifest: Option<PathBuf>,
+    freshness: SourceFreshness,
+    receipts: Vec<Value>,
+    entries: EditorHoverIndex,
+    sources: BTreeMap<PathBuf, SourceFile>,
+    paths: BTreeMap<u32, PathBuf>,
+}
+
+fn position(params: &Value) -> Result<Utf16Position> {
+    serde_json::from_value(params.get("position").cloned().unwrap_or(Value::Null))
+        .map_err(|error| fail("InvalidPosition", error.to_string()))
+}
+
+fn source_point(file: &SourceFile, position: Utf16Position) -> Result<SourceRange> {
+    let byte = file
+        .original_byte_at_utf16(position)
+        .map_err(|error| fail("InvalidPosition", error))?;
+    Ok(SourceRange::empty(file.id(), byte))
+}
+
+fn hover_value(
+    hover: &EditorHover,
+    sources: &BTreeMap<PathBuf, SourceFile>,
+    paths: &BTreeMap<u32, PathBuf>,
+) -> Value {
+    let mut value = json!(hover);
+    let at = |range| location(range, sources, paths);
+    value["target"] = at(hover.target);
+    if let Some(definition) = hover.definition {
+        value["definition"] = at(definition);
+    }
+    if let Some(contract) = hover.contract {
+        value["contract"] = at(contract);
+    }
+    value
+}
+
+impl Analysis {
+    fn into_hover_cache(self, path: PathBuf, manifest: Option<PathBuf>) -> Option<CachedHover> {
+        let freshness = self.freshness?;
+        let mut files = BTreeSet::from([self.sources.get(&path)?.id().0]);
+        for hover in self.hover.entries() {
+            for range in [hover.definition, hover.contract].into_iter().flatten() {
+                files.insert(range.file_id.0);
+            }
+        }
+        let sources: BTreeMap<_, _> = self
+            .sources
+            .into_iter()
+            .filter(|(_, source)| files.contains(&source.id().0))
+            .collect();
+        let bytes = sources
+            .values()
+            .map(|file| file.text().len())
+            .sum::<usize>();
+        if bytes + self.hover.retained_bytes() > HOVER_CACHE_BYTES {
+            return None;
+        }
+        Some(CachedHover {
+            path,
+            manifest,
+            freshness,
+            receipts: self.receipts,
+            entries: self.hover,
+            sources,
+            paths: self.paths,
+        })
+    }
 }
 
 #[derive(serde::Serialize)]

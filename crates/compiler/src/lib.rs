@@ -58,7 +58,10 @@ pub use diagnostic::{Applicability, Diagnostic, DiagnosticCode, Severity, Sugges
 pub use documentation::{
     SourceDeclarationDocumentation, SourceMemberDocumentation, source_documentation,
 };
-pub use editor_index::{EditorIndex, EditorReference, EditorSymbol, build_editor_index};
+pub use editor_index::{
+    EditorHover, EditorHoverIndex, EditorIndex, EditorReference, EditorSymbol, build_editor_index,
+    build_hover_index,
+};
 pub use fallback::FallbackConstant;
 pub use formatter::format_source;
 pub use ir::{
@@ -90,7 +93,7 @@ pub use sema::{
 };
 pub use source::{FileId, SourceFile, SourceRange, Utf16Position};
 pub use source_locations::SourceCoordinates;
-pub use source_provider::{SourceCache, SourceSnapshot};
+pub use source_provider::{SourceCache, SourceFreshness, SourceSnapshot};
 
 /// Complete result of compiling one Rinzu source file through verified typed IR.
 #[derive(Clone, Debug)]

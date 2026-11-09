@@ -1046,3 +1046,268 @@ fn rz0414_uses_the_edited_propagation_site_and_original_contract_coordinates() {
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "fn main() {}\n");
     client.shutdown();
 }
+
+fn hover_point(text: &str, marker: &str, advance: usize) -> Value {
+    let byte = text.find(marker).expect("hover marker") + advance;
+    let prefix = &text[..byte];
+    json!({
+        "line": prefix.bytes().filter(|byte| *byte == b'\n').count(),
+        "character": prefix.rsplit('\n').next().unwrap().encode_utf16().count(),
+    })
+}
+
+#[test]
+fn hover_shows_sdk_aliases_and_await_flow_from_the_current_snapshot() {
+    let fixture = Fixture::new();
+    fixture.file("rinzu.toml", "[package]\nname=\"hover_app\"\nlanguage=\"0.5\"\n[dependencies]\n\"example.callbacks\"={path=\"callbacks\"}\n");
+    fixture.file("callbacks/rinzu.toml", "[package]\nname=\"example.callbacks\"\nkind=\"sdk\"\nlanguage=\"0.5\"\nentry=\"src/callbacks.rinzu\"\n");
+    let sdk = r#"
+error InvalidPort {}
+type PortValidator = fn (Int) throws(InvalidPort) -> Int;
+fn apply(validate: PortValidator, value: Int) throws(InvalidPort) -> Int { return value; }
+export InvalidPort;
+export PortValidator;
+export apply;
+"#;
+    let dependency = fixture.file("callbacks/src/callbacks.rinzu", sdk);
+    let text = r#"import example.callbacks as cb;
+
+error ReadFailed {}
+fn validate(port: Int) nothrow -> Int { return port; }
+async fn readPort() throws(ReadFailed) -> Int { return 8080; }
+fn start() nothrow -> Future<Int> { return readPort(); }
+
+async fn main() {
+    let validator: cb.PortValidator = validate;
+    try {
+        let waiting = start();
+        let caption = "日本語🙂"; let port = await waiting;
+        let checked = cb.apply(validator, port);
+        let invoked = validator(port);
+    }
+    catch [cb.InvalidPort, ...invalid] {}
+    catch [ReadFailed, ...unread] {}
+}
+"#
+    .replace('\n', "\r\n");
+    let path = fixture.file("src/main.rinzu", &format!("\u{feff}{text}"));
+    let mut client = Client::new(Some(&fixture.0));
+    assert!(
+        client.ok("initialize", json!({}))["result"]["methods"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("hover"))
+    );
+    client.ok(
+        "open",
+        json!({"path":path,"version":3,"text":text,"bom":true}),
+    );
+    let query = |client: &mut Client, marker: &str, advance| {
+        client.query("hover", &path, 3, hover_point(&text, marker, advance))["result"].clone()
+    };
+    let start = std::time::Instant::now();
+    let awaited = query(&mut client, "await waiting", 0);
+    let cold = start.elapsed();
+    assert_eq!(awaited["hoverCache"], "miss");
+    assert_eq!(awaited["hover"]["kind"], "await", "{awaited:#}");
+    assert_eq!(
+        awaited["hover"]["target"]["range"]["start"],
+        hover_point(&text, "await waiting", 0)
+    );
+    assert_eq!(
+        awaited["hover"]["target"]["range"]["end"],
+        hover_point(&text, "await waiting", 5)
+    );
+    assert_eq!(awaited["hover"]["valueType"], "Int");
+    assert_eq!(awaited["hover"]["operandType"], "Future<Int>");
+    assert_eq!(
+        awaited["hover"]["effects"],
+        json!([
+            {"phase":"await","basis":"flow","bound":{"kind":"finite","types":["ReadFailed"]}}
+        ])
+    );
+    let start = std::time::Instant::now();
+    let apply = query(&mut client, "cb.apply", 3);
+    let warm = start.elapsed();
+    eprintln!("SDK hover cold {cold:?}, warm {warm:?}");
+    assert_eq!(apply["hoverCache"], "hit");
+    assert_eq!(
+        apply["hover"]["signature"],
+        "fn cb.apply(validate: cb.PortValidator, value: Int) throws(cb.InvalidPort) -> Int"
+    );
+    assert_eq!(apply["hover"]["definition"]["path"], json!(dependency));
+    assert_eq!(
+        apply["hover"]["effects"][0]["bound"]["types"],
+        json!(["cb.InvalidPort"])
+    );
+
+    let alias = query(&mut client, "cb.PortValidator", 3);
+    assert_eq!(
+        alias["hover"]["signature"],
+        "type cb.PortValidator = fn (Int) throws(cb.InvalidPort) -> Int"
+    );
+    let validator = query(&mut client, "validator, port", 0);
+    assert_eq!(validator["hover"]["valueType"], "cb.PortValidator");
+    assert_eq!(
+        validator["hover"]["effects"][0]["bound"]["types"],
+        json!(["cb.InvalidPort"]),
+        "{validator:#}"
+    );
+    let invocation = query(&mut client, "validator(port)", 0);
+    assert_eq!(
+        invocation["hover"]["effects"][0]["bound"]["types"],
+        json!(["cb.InvalidPort"]),
+        "{invocation:#}"
+    );
+    let factory = query(&mut client, "start();", 0);
+    assert_eq!(factory["hover"]["effects"][0]["bound"]["kind"], "none");
+
+    std::fs::write(
+        &dependency,
+        sdk.replace("value: Int) throws(InvalidPort)", "value: Int) nothrow"),
+    )
+    .unwrap();
+    let updated = query(&mut client, "cb.apply", 3);
+    assert_eq!(updated["hoverCache"], "miss");
+    assert_eq!(updated["hover"]["effects"][0]["bound"]["kind"], "none");
+
+    let broken = text.replace("let caption = ", "let caption: Int = ");
+    client.ok("change", json!({"path":path,"version":4,"text":broken}));
+    let stale = client.request(
+        "hover",
+        json!({"path":path,"version":3,"position":hover_point(&text,"start();",0)}),
+    );
+    assert_eq!(stale["error"]["code"], "ContentModified");
+    let syntax = client.query("hover", &path, 4, hover_point(&broken, "start();", 0));
+    assert_eq!(
+        syntax["result"]["hover"]["resolution"], "syntax",
+        "{syntax:#}"
+    );
+    assert!(syntax["result"]["hover"].get("effects").is_none());
+    let no_await = client.query("hover", &path, 4, hover_point(&broken, "await waiting", 0));
+    assert!(no_await["result"]["hover"].is_null());
+    client.shutdown();
+}
+
+#[test]
+fn hover_keeps_generic_instantiations_distinct_and_uses_the_smallest_token() {
+    let fixture = Fixture::new();
+    let text = r#"
+fn id<T>(value: T) nothrow -> T {
+    let saved = value;
+    return saved;
+}
+fn wrap(value: Int) nothrow -> Int { return value; }
+fn main() {
+    let a = wrap(id<Int>(1));
+    let b = id<String>("🙂");
+}
+"#;
+    let file = fixture.file("main.rinzu", text);
+    let mut client = Client::new(None);
+    client.ok("initialize", json!({"entry":file}));
+    client.open(&file, 1, text);
+    let query = |client: &mut Client, marker| {
+        client.query("hover", &file, 1, hover_point(text, marker, 0))["result"]["hover"].clone()
+    };
+    assert_eq!(query(&mut client, "id<Int>")["valueType"], "Int");
+    assert_eq!(query(&mut client, "id<String>")["valueType"], "String");
+    assert_eq!(
+        query(&mut client, "saved =")["variesBySpecialization"],
+        true
+    );
+    assert_eq!(query(&mut client, "wrap(id")["label"], "wrap");
+    client.shutdown();
+}
+
+#[test]
+fn hover_separates_operand_errors_and_distinguishes_open_empty_and_unknown_bounds() {
+    let fixture = Fixture::new();
+    let text = r#"
+error InputFailed {}
+error ReadFailed {}
+fn input() throws(InputFailed) -> Bool { return true; }
+async fn read(flag: Bool) throws(ReadFailed) -> Int { return 1; }
+async fn empty() nothrow -> Int { return 2; }
+async fn observe(pending: Future<Int>) throws(Error) -> Int { return await pending; }
+async fn main() {
+    try { let value = await read(input()); }
+    catch errors {}
+    let clean = await empty();
+    if false { let unreachable = await read(true); }
+}
+"#;
+    let path = fixture.file("main.rinzu", text);
+    let mut client = Client::new(None);
+    client.ok("initialize", json!({"entry":path}));
+    client.open(&path, 1, text);
+    let query = |client: &mut Client, marker| {
+        client.query("hover", &path, 1, hover_point(text, marker, 0))["result"]["hover"].clone()
+    };
+    let awaiting = query(&mut client, "await read(input())");
+    assert_eq!(
+        awaiting["effects"][0]["bound"]["types"],
+        json!(["ReadFailed"]),
+        "{awaiting:#}"
+    );
+    let read = query(&mut client, "read(input())");
+    assert_eq!(read["valueType"], "Future<Int>");
+    assert_eq!(
+        read["effects"],
+        json!([
+            {"phase":"call","basis":"language","bound":{"kind":"none"}},
+            {"phase":"future","basis":"declared","bound":{"kind":"finite","types":["ReadFailed"]}}
+        ])
+    );
+    assert_eq!(
+        query(&mut client, "input());")["effects"][0]["bound"]["types"],
+        json!(["InputFailed"])
+    );
+    assert_eq!(
+        query(&mut client, "await pending")["effects"][0]["bound"]["kind"],
+        "open"
+    );
+    assert_eq!(
+        query(&mut client, "await empty()")["effects"][0]["bound"]["kind"],
+        "none"
+    );
+    assert_eq!(
+        query(&mut client, "await read(true)")["effects"][0]["bound"]["kind"],
+        "unknown"
+    );
+    client.shutdown();
+}
+
+#[cfg(unix)]
+#[test]
+fn hover_rechecks_sdk_resolution_after_a_symlink_changes() {
+    let fixture = Fixture::new();
+    fixture.file("rinzu.toml", "[package]\nname=\"hover_app\"\nlanguage=\"0.5\"\n[dependencies]\n\"example.lib\"={path=\"selected\"}\n");
+    for (folder, declaration) in [
+        ("first", "fn value() nothrow -> Int { return 1; }"),
+        ("second", "fn value() nothrow -> String { return \"new\"; }"),
+    ] {
+        fixture.file(&format!("{folder}/rinzu.toml"), "[package]\nname=\"example.lib\"\nkind=\"sdk\"\nlanguage=\"0.5\"\nentry=\"src/lib.rinzu\"\n");
+        fixture.file(
+            &format!("{folder}/src/lib.rinzu"),
+            &format!("{declaration}\nexport value;\n"),
+        );
+    }
+    let link = fixture.0.join("selected");
+    std::os::unix::fs::symlink("first", &link).unwrap();
+    let text = "import example.lib as lib; fn main() { let value = lib.value(); }";
+    let path = fixture.file("src/main.rinzu", text);
+    let mut client = Client::new(Some(&fixture.0));
+    client.open(&path, 1, text);
+    let query = |client: &mut Client| {
+        client.query("hover", &path, 1, hover_point(text, "lib.value", 4))["result"].clone()
+    };
+    assert_eq!(query(&mut client)["hover"]["valueType"], "Int");
+    assert_eq!(query(&mut client)["hoverCache"], "hit");
+    std::fs::remove_file(&link).unwrap();
+    std::os::unix::fs::symlink("second", &link).unwrap();
+    let changed = query(&mut client);
+    assert_eq!(changed["hoverCache"], "miss");
+    assert_eq!(changed["hover"]["valueType"], "String");
+    client.shutdown();
+}

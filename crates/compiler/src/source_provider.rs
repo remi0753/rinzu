@@ -9,6 +9,7 @@ use crate::{Diagnostic, FileId, Module, SourceFile};
 
 type ParseResult = Result<Module, Vec<Diagnostic>>;
 type CachedParse = (Vec<u8>, ParseResult);
+type SourceEntries = Vec<(PathBuf, bool)>;
 
 #[derive(Default)]
 pub struct SourceCache {
@@ -23,10 +24,63 @@ impl SourceCache {
     }
 }
 
+/// Bounded, exact evidence for reuse of one editor analysis.
+pub struct SourceFreshness {
+    resolved_paths: BTreeMap<PathBuf, Option<PathBuf>>,
+    disk: BTreeMap<PathBuf, Vec<u8>>,
+    source_directories: BTreeMap<PathBuf, SourceEntries>,
+}
+
+impl SourceFreshness {
+    pub fn disk_is_current(&self) -> bool {
+        paths_current(&self.resolved_paths)
+            && self.disk.iter().all(file_current)
+            && directories_current(&self.source_directories)
+    }
+}
+
+fn paths_current(paths: &BTreeMap<PathBuf, Option<PathBuf>>) -> bool {
+    paths
+        .iter()
+        .all(|(path, resolved)| path.canonicalize().ok() == *resolved)
+}
+
+fn file_current((path, bytes): (&PathBuf, &Vec<u8>)) -> bool {
+    std::fs::metadata(path).is_ok_and(|metadata| metadata.len() == bytes.len() as u64)
+        && std::fs::read(path).is_ok_and(|now| now == *bytes)
+}
+
+fn source_entries(directory: &Path) -> io::Result<SourceEntries> {
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        let kind = entry.file_type()?;
+        let directory = kind.is_dir() || (kind.is_symlink() && path.is_dir());
+        if directory
+            || path
+                .extension()
+                .is_some_and(|extension| extension == "rinzu")
+        {
+            entries.push((path, directory));
+        }
+    }
+    entries.sort();
+    Ok(entries)
+}
+
+fn directories_current(directories: &BTreeMap<PathBuf, SourceEntries>) -> bool {
+    directories.iter().all(|(directory, entries)| {
+        source_entries(directory).is_ok_and(|current| current == *entries)
+    })
+}
+
 pub struct SourceSnapshot<'a> {
     cache: &'a mut SourceCache,
     overlays: BTreeMap<PathBuf, Vec<u8>>,
-    resolved_paths: RefCell<BTreeMap<PathBuf, PathBuf>>,
+    resolved_paths: RefCell<BTreeMap<PathBuf, Option<PathBuf>>>,
+    editor_file: Option<PathBuf>,
+    source_directories: BTreeMap<PathBuf, SourceEntries>,
     reads: BTreeMap<PathBuf, Vec<u8>>,
     config_reads: BTreeMap<PathBuf, Vec<u8>>,
     native_headers: BTreeSet<PathBuf>,
@@ -42,6 +96,8 @@ impl<'a> SourceSnapshot<'a> {
             cache,
             overlays,
             resolved_paths: RefCell::new(BTreeMap::new()),
+            editor_file: None,
+            source_directories: BTreeMap::new(),
             reads: BTreeMap::new(),
             config_reads: BTreeMap::new(),
             native_headers: BTreeSet::new(),
@@ -50,6 +106,16 @@ impl<'a> SourceSnapshot<'a> {
             parse_misses: 0,
             limits: None,
         }
+    }
+
+    pub fn set_editor_file(&mut self, path: PathBuf) {
+        self.editor_file = Some(path);
+    }
+
+    pub(crate) fn editor_file(&self) -> Option<FileId> {
+        self.sources
+            .get(self.editor_file.as_ref()?)
+            .map(SourceFile::id)
     }
 
     pub fn set_limits(&mut self, maximum_bytes: usize, maximum_files: usize) {
@@ -67,7 +133,7 @@ impl<'a> SourceSnapshot<'a> {
                 self.resolved_paths
                     .borrow_mut()
                     .entry(path.to_owned())
-                    .or_insert_with(|| canonical.clone());
+                    .or_insert_with(|| Some(canonical.clone()));
                 Ok(canonical)
             }
             Err(original) => {
@@ -75,16 +141,30 @@ impl<'a> SourceSnapshot<'a> {
                     .parent()
                     .filter(|parent| !parent.as_os_str().is_empty())
                     .unwrap_or_else(|| Path::new("."));
-                let candidate = parent
-                    .canonicalize()?
-                    .join(path.file_name().ok_or(original.kind())?);
+                let resolved_parent = parent.canonicalize()?;
+                let candidate = resolved_parent.join(path.file_name().ok_or(original.kind())?);
                 if self.overlays.contains_key(&candidate) {
+                    let mut resolutions = self.resolved_paths.borrow_mut();
+                    resolutions
+                        .entry(parent.to_owned())
+                        .or_insert(Some(resolved_parent));
+                    resolutions.entry(path.to_owned()).or_insert(None);
                     Ok(candidate)
                 } else {
                     Err(original)
                 }
             }
         }
+    }
+
+    pub(crate) fn source_entries(&mut self, directory: &Path) -> io::Result<SourceEntries> {
+        let entries = source_entries(directory)?;
+        if self.editor_file.is_some() {
+            self.source_directories
+                .entry(directory.to_owned())
+                .or_insert_with(|| entries.clone());
+        }
+        Ok(entries)
     }
 
     pub fn read_bytes(&mut self, path: &Path) -> io::Result<Vec<u8>> {
@@ -117,7 +197,7 @@ impl<'a> SourceSnapshot<'a> {
 
     /// Configuration is disk-only, pinned separately from source overlays.
     pub(crate) fn read_config(&mut self, path: &Path) -> io::Result<Vec<u8>> {
-        let path = path.canonicalize()?;
+        let path = self.canonical_path(path)?;
         if let Some(bytes) = self.config_reads.get(&path) {
             return Ok(bytes.clone());
         }
@@ -268,19 +348,43 @@ impl<'a> SourceSnapshot<'a> {
         self.reads.keys().cloned().collect()
     }
 
+    fn disk_reads(&self) -> impl Iterator<Item = (&PathBuf, &Vec<u8>)> {
+        self.reads
+            .iter()
+            .filter(|(path, _)| !self.overlays.contains_key(*path))
+            .chain(&self.config_reads)
+    }
+
+    pub fn freshness(&self, maximum_bytes: usize) -> Option<SourceFreshness> {
+        let bytes = self
+            .disk_reads()
+            .map(|(_, bytes)| bytes.len())
+            .sum::<usize>();
+        let directory_entries = self
+            .source_directories
+            .values()
+            .map(Vec::len)
+            .sum::<usize>();
+        if bytes > maximum_bytes
+            || directory_entries > 1024
+            || self.resolved_paths.borrow().len() > 1024
+        {
+            return None;
+        }
+        Some(SourceFreshness {
+            resolved_paths: self.resolved_paths.borrow().clone(),
+            source_directories: self.source_directories.clone(),
+            disk: self
+                .disk_reads()
+                .map(|(path, bytes)| (path.clone(), bytes.clone()))
+                .collect(),
+        })
+    }
+
     #[must_use]
     pub fn disk_is_current(&self) -> bool {
-        self.resolved_paths
-            .borrow()
-            .iter()
-            .all(|(path, canonical)| path.canonicalize().is_ok_and(|now| now == *canonical))
-            && self.reads.iter().all(|(path, bytes)| {
-                self.overlays.contains_key(path)
-                    || std::fs::read(path).is_ok_and(|now| now == *bytes)
-            })
-            && self
-                .config_reads
-                .iter()
-                .all(|(path, bytes)| std::fs::read(path).is_ok_and(|now| now == *bytes))
+        paths_current(&self.resolved_paths.borrow())
+            && self.disk_reads().all(file_current)
+            && directories_current(&self.source_directories)
     }
 }

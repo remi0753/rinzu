@@ -143,7 +143,10 @@ impl Analyzer<'_> {
             };
             condition_errors.extend(value.errors);
             may_exit |= value.success && known != Some(true);
+            let dead = self.dead;
+            self.dead |= !value.success || known == Some(false);
             let flow = self.block(body, &mut loop_env);
+            self.dead = dead;
             if value.success && known != Some(false) {
                 may_enter = true;
                 body_flow.join(flow);

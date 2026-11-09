@@ -416,8 +416,15 @@ pub(crate) fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, Ma
 
 /// Resolve declared inputs within their owning package; path dependencies have separate roots.
 pub fn canonicalize_native_inputs(manifest: &mut Manifest) -> Result<(), ManifestError> {
+    canonicalize_native_inputs_with(manifest, Path::canonicalize)
+}
+
+pub(crate) fn canonicalize_native_inputs_with(
+    manifest: &mut Manifest,
+    resolve: impl Fn(&Path) -> std::io::Result<PathBuf>,
+) -> Result<(), ManifestError> {
     let manifest_path = manifest.root.join("rinzu.toml");
-    let root = manifest.root.canonicalize().map_err(|error| {
+    let root = resolve(&manifest.root).map_err(|error| {
         ManifestError::new(
             &manifest_path,
             error.to_string(),
@@ -432,7 +439,7 @@ pub fn canonicalize_native_inputs(manifest: &mut Manifest) -> Result<(), Manifes
         (&mut manifest.native.search_paths, true),
     ] {
         for path in paths {
-            let canonical = manifest.root.join(&*path).canonicalize().map_err(|error| {
+            let canonical = resolve(&manifest.root.join(&*path)).map_err(|error| {
                 ManifestError::new(
                     &manifest_path,
                     format!("cannot resolve native input `{}`: {error}", path.display()),
