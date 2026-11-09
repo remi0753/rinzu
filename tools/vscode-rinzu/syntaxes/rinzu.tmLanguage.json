@@ -5,7 +5,7 @@
     { "include": "#comments" },
     { "include": "#strings" },
     { "include": "#keywords" },
-    { "include": "#collection-modules" },
+    { "include": "#rinzu-modules" },
     { "include": "#types" },
     { "include": "#numbers" },
     { "include": "#operators" },
@@ -129,9 +129,9 @@
         { "name": "variable.language.rinzu", "match": "\\bself\\b" }
       ]
     },
-    "collection-modules": {
+    "rinzu-modules": {
       "name": "support.module.rinzu",
-      "match": "\\brinzu\\.(?:list|map)\\b"
+      "match": "(?<![.\\w])rinzu[ \\t]*\\.[ \\t]*[a-z][a-z0-9_]*\\b"
     },
     "types": {
       "name": "support.type.rinzu",
