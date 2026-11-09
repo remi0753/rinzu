@@ -13,7 +13,7 @@ fn sdk_usage_fixtures_check_as_real_entries() {
         "sdk/io/tests/dynamic.rinzu",
         "sdk/io/tests/cancel.rinzu",
         "sdk/io/tests/main.rinzu",
-        "sdk/log/tests/main.rinzu",
+        "sdk/log/tests/src/main.rinzu",
         "sdk/http/tests/main.rinzu",
         "sdk/http/tests/stress.rinzu",
         "sdk/stream/tests/basic.rinzu",
@@ -25,7 +25,6 @@ fn sdk_usage_fixtures_check_as_real_entries() {
         "sdk/sqlite/tests/native-results.rinzu",
         "sdk/sqlite/tests/native-observer.rinzu",
         "sdk/sqlite/tests/rows/src/main.rinzu",
-        "sdk/macos/tests/graphics/src/main.rinzu",
         "sdk/sdl2/tests/native-records/src/main.rinzu",
     ] {
         if !name.contains(&filter) {
@@ -35,20 +34,17 @@ fn sdk_usage_fixtures_check_as_real_entries() {
         eprintln!("checking fixture {name}");
         let temporary =
             std::env::temp_dir().join(format!("rinzu-migration-{}", std::process::id()));
-        let result = if name.starts_with("sdk/macos/") || name.starts_with("sdk/sdl2/") {
+        let result = if ["sdk/sdl2/", "sdk/log/", "sdk/sqlite/tests/rows/"]
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+        {
             check_package(root.join(name).parent().unwrap().parent().unwrap()).map(|_| ())
-        } else if name.starts_with("sdk/sqlite/") || name.starts_with("sdk/log/") {
-            let sdk = if name.starts_with("sdk/sqlite/") {
-                "sqlite"
-            } else {
-                "log"
-            };
+        } else if name.starts_with("sdk/sqlite/") {
             std::fs::create_dir_all(temporary.join("src")).unwrap();
             std::fs::copy(root.join(name), temporary.join("src/main.rinzu")).unwrap();
-            copy_sdk(&root.join("sdk").join(sdk), &temporary.join("sdk"));
+            copy_sdk(&root.join("sdk/sqlite"), &temporary.join("sdk"));
             if name.ends_with("owned-cancel.rinzu") {
-                // This fixture is run with the same private receipt gate in
-                // the resource regression runner, not a production SDK API.
+                // Supply the private receipt gate declarations for this compiler fixture.
                 let api = temporary.join("sdk/src/sqlite.rinzu");
                 let source=std::fs::read_to_string(&api).unwrap().replacen("native {",r#"async fn gateCompleted(receipt: GateReceipt) -> Unit { await nativeCompleted(receipt); }
 native {
@@ -62,9 +58,11 @@ native {
                 let source = std::fs::read_to_string(&header).unwrap();
                 std::fs::write(header,format!("{source}\nvoid *rinzu_owned_gate_receipt(void);\nvoid rinzu_owned_gate_release(void);\n")).unwrap();
             }
-            std::fs::write(temporary.join("rinzu.toml"), format!(
-                "[package]\nname=\"migration_fixture\"\nlanguage=\"0.5\"\n[dependencies]\n\"rinzu.{sdk}\"={{path=\"sdk\"}}\n"
-            )).unwrap();
+            std::fs::write(
+                temporary.join("rinzu.toml"),
+                "[package]\nname=\"migration_fixture\"\nlanguage=\"0.5\"\n[dependencies]\n\"rinzu.sqlite\"={path=\"sdk\"}\n",
+            )
+            .unwrap();
             let result = check_package(&temporary).map(|_| ());
             std::fs::remove_dir_all(&temporary).unwrap();
             result

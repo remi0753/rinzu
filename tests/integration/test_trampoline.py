@@ -5,7 +5,7 @@ import platform
 import subprocess
 import tempfile
 
-root = pathlib.Path(__file__).resolve().parents[3]
+root = pathlib.Path(__file__).resolve().parents[2]
 assert platform.system() == "Darwin" and platform.machine() == "arm64"
 with tempfile.TemporaryDirectory(prefix="rinzu-trampoline-") as directory:
     binary = pathlib.Path(directory) / "spike"

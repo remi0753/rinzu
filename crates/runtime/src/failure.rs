@@ -27,6 +27,28 @@ pub enum FailureCause {
 }
 
 impl FailureCause {
+    /// Encoded cause used in native diagnostics and Worker failure packets.
+    pub const fn diagnostic_code(self) -> u8 {
+        match self {
+            Self::ArithmeticTrap => 1,
+            Self::Cancelled => 2,
+            Self::Overloaded => 3,
+            Self::Shutdown => 4,
+            Self::Error(ErrorKind::Conversion) => 5,
+            Self::Unsupported => 6,
+            Self::RuntimePanic => 7,
+            Self::Error(ErrorKind::NullNativeValue) => 8,
+            Self::Error(ErrorKind::InvalidUtf8) => 9,
+            Self::Error(ErrorKind::NativeRecordBusy) => 10,
+            Self::Error(ErrorKind::UnobservedChildFailure) => 11,
+            Self::Error(ErrorKind::Io) => 12,
+            Self::Error(ErrorKind::SupplantBusy) => 13,
+            Self::Error(ErrorKind::UnboundValue) => 14,
+            Self::Error(ErrorKind::User) => 15,
+            Self::Panic => 16,
+        }
+    }
+
     pub const fn recoverable(self) -> bool {
         matches!(self, Self::Error(_))
     }

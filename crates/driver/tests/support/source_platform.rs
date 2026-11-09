@@ -1,46 +1,12 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, Output};
 
-pub fn bounded(command: &mut Command) -> Output {
-    bounded_for(command, 60)
-}
-pub fn bounded_tool(command: &mut Command) -> Output {
-    bounded_for(command, 300)
-}
-fn bounded_for(command: &mut Command, seconds: u64) -> Output {
-    let mut child = command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
-    let read = |mut pipe: Box<dyn std::io::Read + Send>| {
-        std::thread::spawn(move || {
-            let mut bytes = Vec::new();
-            pipe.read_to_end(&mut bytes).unwrap();
-            bytes
-        })
-    };
-    let out = read(Box::new(stdout));
-    let err = read(Box::new(stderr));
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
-    let status = loop {
-        if let Some(status) = child.try_wait().unwrap() {
-            break status;
-        }
-        if std::time::Instant::now() >= deadline {
-            child.kill().unwrap();
-            break child.wait().unwrap();
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    };
-    Output {
-        status,
-        stdout: out.join().unwrap(),
-        stderr: err.join().unwrap(),
-    }
-}
+#[path = "../../../../tests/support/process.rs"]
+mod process;
+// Integration targets use different subsets of the shared runners.
+#[allow(unused_imports)]
+pub use process::{bounded, bounded_tool};
+
 pub fn success(output: &Output) {
     assert!(output.status.success(), "{output:?}");
 }
@@ -124,24 +90,35 @@ pub fn sign(binary: &Path, root: &Path) {
 }
 
 #[allow(dead_code)]
-pub fn ordinary_import(root: &Path) -> PathBuf {
-    fn copy(from: &Path, to: &Path) {
-        std::fs::create_dir_all(to).unwrap();
-        for entry in std::fs::read_dir(from).unwrap() {
-            let entry = entry.unwrap();
-            if ["build", ".rinzu"].contains(&entry.file_name().to_str().unwrap_or("")) {
-                continue;
-            }
-            if entry.file_type().unwrap().is_dir() {
-                copy(&entry.path(), &to.join(entry.file_name()));
-            } else {
-                std::fs::copy(entry.path(), to.join(entry.file_name())).unwrap();
-            }
+pub fn copy_fixture(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        if ["build", ".rinzu"].contains(&entry.file_name().to_str().unwrap_or("")) {
+            continue;
+        }
+        if entry.file_type().unwrap().is_dir() {
+            copy_fixture(&entry.path(), &to.join(entry.file_name()));
+        } else {
+            std::fs::copy(entry.path(), to.join(entry.file_name())).unwrap();
         }
     }
+}
+
+#[allow(dead_code)]
+pub fn stage_fixture(scratch: &Path, relative: impl AsRef<Path>) -> PathBuf {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let relative = relative.as_ref();
+    let target = scratch.join(relative);
+    copy_fixture(&workspace.join(relative), &target);
+    target
+}
+
+#[allow(dead_code)]
+pub fn ordinary_import(root: &Path) -> PathBuf {
     let source =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/programs/source-callback");
     let app = root.join("app");
-    copy(&source, &app);
+    copy_fixture(&source, &app);
     app
 }

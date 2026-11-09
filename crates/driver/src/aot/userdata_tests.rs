@@ -1,10 +1,12 @@
 #![cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use super::equivalence::{diagnostic_signature, parse_line, parse_resource_numbers};
 use super::*;
+use std::process::Command;
 mod fixture {
-    include!("../tests/fixtures/native_userdata_sdk/setup.rs");
+    include!("../../tests/fixtures/native_userdata_sdk/setup.rs");
 }
 mod context_fixture {
-    include!("../tests/fixtures/native_context_records_sdk/setup.rs");
+    include!("../../tests/fixtures/native_context_records_sdk/setup.rs");
 }
 
 #[test]

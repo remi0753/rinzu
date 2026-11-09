@@ -191,7 +191,9 @@ pub fn repository(root: &Path, files: &BTreeSet<PathBuf>) -> Result<(), String> 
             )
         })
         .collect();
-    let report = root.join("target/rinzu-quality.json");
+    let report = root
+        .join(std::env::var_os("CARGO_TARGET_DIR").unwrap_or_else(|| "target".into()))
+        .join("rinzu-quality.json");
     fs::create_dir_all(report.parent().unwrap()).map_err(|error| error.to_string())?;
     fs::write(&report, serde_json::to_vec_pretty(&sources).unwrap())
         .map_err(|error| error.to_string())?;

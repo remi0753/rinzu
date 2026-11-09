@@ -9,6 +9,48 @@ use std::time::{Duration, Instant};
 mod frozen_cli;
 
 static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(0);
+
+#[test]
+fn published_rinzu_documentation_examples_pass() {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let files = Command::new("git")
+        .args(["ls-files", "-z", "docs"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert!(files.status.success(), "{files:?}");
+    let standard = Fixture::new("fn main() {}\n");
+    let codec = Fixture::new("fn main() {}\n");
+    codec.dependency("codec");
+    let mut cases = 0;
+    for name in std::str::from_utf8(&files.stdout)
+        .unwrap()
+        .split_terminator('\0')
+        .filter(|name| name.ends_with(".md"))
+    {
+        let document = repo.join(name);
+        let text = std::fs::read_to_string(&document).unwrap();
+        let count = text
+            .lines()
+            .filter(|line| line.trim() == "```rinzu-test")
+            .count();
+        if count != 0 {
+            cases += count;
+            let fixture = if name == "docs/reference/sdk-codec.md" {
+                &codec
+            } else {
+                &standard
+            };
+            let report = fixture.report(
+                &["--timeout-ms", "30000", "--doc", document.to_str().unwrap()],
+                true,
+            );
+            assert_eq!(report["summary"]["passed"], count, "{name}: {report:#}");
+        }
+    }
+    assert!(cases > 0);
+}
+
 struct Fixture(PathBuf);
 impl Fixture {
     fn new(source: &str) -> Self {

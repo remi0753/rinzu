@@ -21,6 +21,7 @@ class NativeEditorTests(unittest.TestCase):
         messages = queue.Queue()
         with tempfile.TemporaryFile() as log:
             process = subprocess.Popen([str(quality.ROOT / "tools/clangd"), "--clang-tidy",
+                                        f"--compile-commands-dir={quality.DATABASE}",
                                         "--background-index=false", "--log=error"],
                                        cwd=quality.ROOT, stdin=subprocess.PIPE,
                                        stdout=subprocess.PIPE, stderr=log)

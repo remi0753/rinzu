@@ -76,74 +76,14 @@ fn diagnostics(path: &Path, errors: Vec<Diagnostic>) -> String {
         .join("\n")
 }
 
-/// Render syntax holes reversibly. Comments stand in for declaration/statement
-/// holes; identifiers stand in for expressions. Quoted holes remain literals.
-fn syntax_input(path: &Path, source: &str) -> (String, Vec<(String, String)>) {
-    let mut text = source.to_owned();
-    let mut replacements = Vec::new();
-    let name = path.file_name().unwrap().to_str().unwrap();
-    let (comments, expressions): (&[&str], &[&str]) = match name {
-        "parser-local-oracle.rinzu.in" => (&["CASE_FUNCTION"], &["BYTES"]),
-        "parser-pair-oracle.rinzu.in" | "parser-state-oracle.rinzu.in" => {
-            (&["MUTATIONS", "FAULTS"], &["CASES", "BYTES"])
-        }
-        "w04-request-oracle.rinzu.in" => (
-            &[
-                "NATIVE",
-                "FUNCTIONS",
-                "ADAPTERS",
-                "PARSE",
-                "CASES",
-                "RUN_CASES",
-            ],
-            &["CLOSE", "CONVERT"],
-        ),
-        "w05-request-oracle.rinzu.in" => (&["FUNCTIONS", "ADAPTERS", "CASES"], &["COUNT"]),
-        _ => (&[], &[]),
-    };
-    for (holes, comment) in [(comments, true), (expressions, false)] {
-        for name in holes {
-            let hole = format!("@{name}@");
-            let replacement = if comment {
-                format!("// rinzu-quality-hole:{name}")
-            } else {
-                format!("rinzuQualityHole{name}")
-            };
-            if text.contains(&replacement) {
-                panic!("reserved quality marker in {}", path.display());
-            }
-            text = text.replace(&hole, &replacement);
-            replacements.push((replacement, hole));
-        }
-    }
-    if name == "parser-pair-oracle.rinzu.in" {
-        let replacement = "rinzu-quality-checks.rinzu";
-        text = text.replace("@CHECKS@", replacement);
-        replacements.push((replacement.into(), "@CHECKS@".into()));
-    }
-    // This archived, deliberately rejected version uses the reserved keyword
-    // `fallback` as a variable. Preserve its tokens while formatting whitespace.
-    if name == "w18-boundaries-initial01.rinzu.in" {
-        let replacement = "rinzuQualityReservedFallback";
-        text = text.replace("fallback", replacement);
-        replacements.push((replacement.into(), "fallback".into()));
-    }
-    (text, replacements)
-}
-
 fn formatted(path: &Path, bytes: &[u8]) -> Result<Vec<u8>, String> {
     let source = SourceFile::from_utf8(FileId(1), path, bytes.to_vec())
         .map_err(|errors| diagnostics(path, errors))?;
-    let (input, replacements) = syntax_input(path, source.text());
-    let input = SourceFile::new(FileId(1), path, input);
-    let mut text = format_source(&input).map_err(|errors| diagnostics(path, errors))?;
+    let text = format_source(&source).map_err(|errors| diagnostics(path, errors))?;
     let output = SourceFile::new(FileId(1), path, &text);
     parse_source(&output).map_err(|errors| diagnostics(path, errors))?;
     if format_source(&output).map_err(|errors| diagnostics(path, errors))? != text {
         return Err(format!("formatter is not idempotent: {}", path.display()));
-    }
-    for (replacement, hole) in replacements {
-        text = text.replace(&replacement, &hole);
     }
     let mut result = Vec::new();
     if source.original_offset(0) != 0 {
@@ -374,19 +314,6 @@ mod tests {
                 "src/main.rinzu"
             ]
         );
-    }
-
-    #[test]
-    fn template_holes_survive_formatting_and_unknown_syntax_is_rejected() {
-        let path = Path::new("parser-local-oracle.rinzu.in");
-        let input = b"@CASE_FUNCTION@\nfn main(){let data=@BYTES@;if ! true{}}";
-        let output = formatted(path, input).unwrap();
-        assert_eq!(
-            output,
-            b"@CASE_FUNCTION@\nfn main() {\n    let data = @BYTES@;\n    if !true {}\n}\n"
-        );
-        assert_eq!(formatted(path, &output).unwrap(), output);
-        assert!(formatted(Path::new("unknown.rinzu.in"), b"@UNKNOWN@\n").is_err());
     }
 
     #[test]

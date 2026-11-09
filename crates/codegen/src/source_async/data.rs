@@ -1,9 +1,11 @@
 //! Each Domain's typed frames share its real Owner heap.
 use super::*;
 use rinzu_compiler::{SourceRange, StackRoot, Type};
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use rinzu_runtime::data::NativeRecordLayout;
 use rinzu_runtime::data::{
-    DataError, ManagedData, ManagedHandle, ManagedRoots, ManagedSlot, NativeRecordLayout,
-    NativeUserDataEvidence, NativeUserDataInvocation, NativeUserDataRegistry, NativeUserDataScope,
+    DataError, ManagedData, ManagedHandle, ManagedRoots, ManagedSlot, NativeUserDataEvidence,
+    NativeUserDataInvocation, NativeUserDataRegistry, NativeUserDataScope,
 };
 use rinzu_runtime::heap::{CollectionKind, DomainHeap, HeapError};
 use rinzu_runtime::value::ValueType;

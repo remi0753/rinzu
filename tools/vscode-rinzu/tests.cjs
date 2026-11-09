@@ -8,7 +8,7 @@ const { setTimeout: delay } = require('node:timers/promises');
 async function waitFor(lookup, description) {
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
-    const result = lookup();
+    const result = await lookup();
     if (result) return result;
     await delay(25);
   }
@@ -34,6 +34,7 @@ async function run() {
   const api=await extension.activate();const client=api.client;
   const valid='// 😀日本\r\nimport model;fn main(){let n:Int=model.value();}';
   let model,logic;
+  let completed = false;
   try {
     await test('BOM CRLF Unicode diagnostic in a real text editor',async()=>{
       assert.equal(main.getText().startsWith('\ufeff'),false);
@@ -130,9 +131,19 @@ async function run() {
       await replace(model,'fn value()->Int{return 42;}export value;');
       assert.equal(await model.save(),true);
       const edit=new vscode.WorkspaceEdit();edit.renameFile(model.uri,uri('fresh.rinzu'));assert.equal(await vscode.workspace.applyEdit(edit),true);
-      const fresh=await open('fresh.rinzu');await replace(main,'// 😀日本\r\nimport fresh;fn main(){let n:Int=fresh.value();}');client.invalidate(true);
-      assert.deepEqual((await client.check(main)).result.diagnostics,[]);
-      const definitions=await vscode.commands.executeCommand('vscode.executeDefinitionProvider',main.uri,at(main,'value()'));assert.equal(definitions[0].uri.fsPath,fresh.uri.fsPath);
+      const fresh = await open('fresh.rinzu');
+      await replace(main, '// 😀日本\r\nimport fresh;fn main(){let n:Int=fresh.value();}');
+      // The workspace rename and filesystem watchers can invalidate different requests.
+      const response = await waitFor(async () => {
+        try { return await client.check(main); }
+        catch (error) { if (error.code !== 'ContentModified') throw error; }
+      }, 'diagnostics did not settle after the rename');
+      assert.deepEqual(response.result.diagnostics, []);
+      const definitions = await waitFor(async () => {
+        const locations = await vscode.commands.executeCommand('vscode.executeDefinitionProvider', main.uri, at(main, 'value()'));
+        return locations?.length ? locations : undefined;
+      }, 'definition was unavailable after the rename');
+      assert.equal(definitions[0].uri.fsPath, fresh.uri.fsPath);
       assert.ok(!fs.existsSync(path.join(root,'src/model.rinzu')));assert.ok(![...client.sent.keys()].some(filename=>filename.endsWith('/model.rinzu')));
       return {newPath:fresh.uri.fsPath,definitionMoved:true,oldOverlayRemoved:true};
     });
@@ -166,9 +177,23 @@ async function run() {
       finally {faulty.dispose();await config.update('executable',original,vscode.ConfigurationTarget.Workspace);}
       return {failedSpawn:true,pendingRequests:0,subsequentQueryRejected:true};
     });
+    completed = true;
   } finally {
-    client.dispose();evidence.finishedUtc=new Date().toISOString();
-    const output=process.env.RINZU_EDITOR_HOST_EVIDENCE || path.join(root,'host-evidence.json');fs.writeFileSync(output,JSON.stringify(evidence,null,2)+'\n');
+    client.dispose();
+    // The temporary workspace deliberately leaves dirty buffers in several cases.
+    // Revert them before the extension host exits so quit cannot prompt for a save.
+    for (const document of vscode.workspace.textDocuments) {
+      if (!document.isDirty || document.uri.scheme !== 'file') continue;
+      const relative = path.relative(root, document.uri.fsPath);
+      if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) continue;
+      await vscode.window.showTextDocument(document);
+      await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+    }
+    evidence.completed = completed;
+    evidence.finishedUtc = new Date().toISOString();
+    const output = process.env.RINZU_EDITOR_HOST_EVIDENCE || path.join(root, 'host-evidence.json');
+    fs.writeFileSync(`${output}.tmp`, JSON.stringify(evidence, null, 2) + '\n');
+    fs.renameSync(`${output}.tmp`, output);
   }
   assert.equal(evidence.cases.filter(row=>row.status==='failed').length,0,JSON.stringify(evidence,null,2));
 }

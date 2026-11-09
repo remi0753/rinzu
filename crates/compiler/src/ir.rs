@@ -7,6 +7,7 @@ pub use proven_roots::{proven_frame_memberships, proven_frame_roots};
 mod fresh_futures;
 pub use fresh_futures::fresh_return_consuming_awaits;
 mod errors;
+mod native_calls;
 mod virtual_options;
 pub use dead_roots::{dead_local_roots, dead_temporary_roots};
 use std::collections::{HashMap, HashSet};
@@ -1943,7 +1944,8 @@ impl<'a> Builder<'a> {
                         .collect::<Vec<_>>(),
                     Arguments::Positional(_) => Vec::new(),
                 };
-                let arguments = self.lower_arguments(arguments);
+                let source_arguments = arguments;
+                let arguments = self.lower_arguments(source_arguments);
                 if let Type::Named(identity) = &ty
                     && target.join(".") == *identity
                     && self
@@ -1960,118 +1962,13 @@ impl<'a> Builder<'a> {
                     );
                 }
                 if let Some(signature) = self.checked.source_native_calls.get(&expression.range) {
-                    self.emit_poll(PollReason::NativeCall, expression.range);
-                    if signature.is_async {
-                        self.emit_value(
-                            OperationKind::SourceNativeCall {
-                                call: None,
-                                signature: signature.clone(),
-                                arguments,
-                                failure: self.failure,
-                                error: self.error_edge(),
-                                cleanup_chain: self.cleanup_chain(),
-                            },
-                            ty,
-                            expression.range,
-                        )
-                    } else {
-                        let call = NativeCallId(self.next_native_call);
-                        self.next_native_call += 1;
-                        let crate::ast::Arguments::Positional(source_arguments) =
-                            expression_arguments(expression)
-                        else {
-                            unreachable!("checked positional call")
-                        };
-                        let callbacks = signature
-                            .parameters
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, parameter)| {
-                                matches!(parameter, crate::SourceAbiType::Callback { .. })
-                            })
-                            .map(|(index, _)| CallbackArgumentPlan {
-                                index,
-                                capture: self
-                                    .checked
-                                    .native_captures
-                                    .get(&source_arguments[index].range)
-                                    .cloned(),
-                                targets: self
-                                    .checked
-                                    .reference_targets
-                                    .get(&source_arguments[index].range)
-                                    .cloned()
-                                    .unwrap_or_default(),
-                            })
-                            .collect();
-                        self.emit(
-                            OperationKind::PrepareNativeCall {
-                                call,
-                                signature: signature.clone(),
-                                arguments: arguments.clone(),
-                                retained: arguments.clone(),
-                                callbacks,
-                                failure: self.failure,
-                                error: self.error_edge(),
-                                cleanup_chain: self.cleanup_chain(),
-                            },
-                            None,
-                            expression.range,
-                        );
-                        self.active_native_calls.push(call);
-                        self.emit(
-                            OperationKind::SourceNativeCall {
-                                call: Some(call),
-                                signature: signature.clone(),
-                                arguments,
-                                failure: self.failure,
-                                error: ErrorEdge {
-                                    target: self.failure,
-                                    cleanup_chain: self.cleanup_chain(),
-                                    release_scopes: self
-                                        .scope_stack
-                                        .iter()
-                                        .rev()
-                                        .copied()
-                                        .collect(),
-                                    release_native_calls: vec![call],
-                                },
-                                cleanup_chain: self.cleanup_chain(),
-                            },
-                            None,
-                            expression.range,
-                        );
-                        self.emit(
-                            OperationKind::CloseNativeCall { call },
-                            None,
-                            expression.range,
-                        );
-                        self.emit(
-                            OperationKind::SettleNativeAdmissions {
-                                call,
-                                origin: ResumeDomain::Origin,
-                            },
-                            None,
-                            expression.range,
-                        );
-                        let value = self.emit_value(
-                            OperationKind::ReadNativeResult {
-                                call,
-                                failure: self.failure,
-                                error: self.error_edge(),
-                                cleanup_chain: self.cleanup_chain(),
-                            },
-                            ty,
-                            expression.range,
-                        );
-                        self.emit(
-                            OperationKind::ReleaseNativeCall { call },
-                            None,
-                            expression.range,
-                        );
-                        self.active_native_calls.pop();
-                        value
-                    }
+                    self.lower_source_native_call(
+                        signature,
+                        source_arguments,
+                        arguments,
+                        ty,
+                        expression.range,
+                    )
                 } else if let Some(call_class) = self.checked.native_calls.get(&expression.range) {
                     self.emit_poll(PollReason::NativeCall, expression.range);
                     let transition = match call_class {
@@ -2238,27 +2135,15 @@ impl<'a> Builder<'a> {
                     let Arguments::Positional(source_arguments) = arguments else {
                         unreachable!("checked supplant arguments")
                     };
-                    let callbacks = call
-                        .signature
-                        .parameters
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, ty)| matches!(ty, Type::FunctionReference(_)))
-                        .map(|(index, _)| CallbackArgumentPlan {
-                            index,
-                            capture: self
-                                .checked
-                                .native_captures
-                                .get(&source_arguments[index].range)
-                                .cloned(),
-                            targets: self
-                                .checked
-                                .reference_targets
-                                .get(&source_arguments[index].range)
-                                .cloned()
-                                .unwrap_or_default(),
-                        })
-                        .collect();
+                    let callbacks =
+                        self.callback_arguments(
+                            source_arguments,
+                            call.signature.parameters.iter().enumerate().filter_map(
+                                |(index, ty)| {
+                                    matches!(ty, Type::FunctionReference(_)).then_some(index)
+                                },
+                            ),
+                        );
                     let arguments = self.lower_arguments(arguments);
                     let mut retained = arguments.clone();
                     retained.extend(callee);
@@ -4686,13 +4571,6 @@ fn scope_chain_valid(scopes: &[SourceRange], info: &HashMap<SourceRange, &ScopeI
         parent = Some(*scope);
     }
     true
-}
-
-fn expression_arguments(expression: &Expression) -> &Arguments {
-    let ExpressionKind::Call { arguments, .. } = &expression.kind else {
-        unreachable!("call expression")
-    };
-    arguments
 }
 
 fn callback_plan_valid(

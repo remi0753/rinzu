@@ -40,3 +40,20 @@ fn invalid_trace_command_fails() {
         .unwrap();
     assert!(!output.status.success());
 }
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+fn resource_profile_confirms_os_thread_retirement() {
+    for _ in 0..10 {
+        let output = Command::new(env!("CARGO_BIN_EXE_rinzu-conformance"))
+            .arg("resource-profile")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            report["deltaFromIdle"]["shutdown"]["threads"], 0,
+            "{report}"
+        );
+    }
+}

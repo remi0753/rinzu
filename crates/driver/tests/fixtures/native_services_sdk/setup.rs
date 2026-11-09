@@ -1,3 +1,8 @@
+// Trigger control shortly after submission, even with GC stress and a busy host.
+pub const CONTROL_POLLS: usize = 10;
+// The sleep deadline in cancel.rinzu.
+pub const TIMER_DURATION: std::time::Duration = std::time::Duration::from_secs(1);
+
 pub fn create(root: &std::path::Path, cancelled: bool) {
     let _ = std::fs::remove_dir_all(root);
     for directory in ["app/src", "app/data", "services/src"] {

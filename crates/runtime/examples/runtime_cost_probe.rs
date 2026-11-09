@@ -1,5 +1,5 @@
 //! Isolated baseline-runtime costs. Build once per revision, then compare the
-//! frozen executables with tools/compare_runtime_costs.py (no Cargo in timing).
+//! frozen executables directly to keep build time out of the measurements.
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::hint::black_box;
 use std::sync::OnceLock;

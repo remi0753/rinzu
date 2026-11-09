@@ -2,6 +2,9 @@
 mod fixture {
     include!("../tests/fixtures/native_services_sdk/setup.rs");
 }
+#[allow(dead_code)]
+#[path = "../tests/support/scratch.rs"]
+mod scratch;
 use rinzu_codegen::{SourceAsyncEvent, SourceAsyncOptions};
 use rinzu_runtime::failure::{ErrorKind, FailureCause};
 mod io_fixture {
@@ -134,10 +137,9 @@ fn closed_timer_yields_rejects_negative_and_keeps_gc_roots_in_source_and_compile
 
 #[test]
 fn cancelled_and_shutdown_timers_wait_for_physical_return_before_origin_scope_settles() {
-    let root =
-        std::env::temp_dir().join(format!("rinzu-closed-timer-cancel-{}", std::process::id()));
-    fixture::create(&root, true);
-    let (manifest, artifact) = rinzu_compiler::check_package(&root.join("app")).unwrap();
+    let root = scratch::Scratch::new("rinzu-closed-timer-cancel");
+    fixture::create(root.path(), true);
+    let (manifest, artifact) = rinzu_compiler::check_package(&root.path().join("app")).unwrap();
     let built = crate::native_package::build_with_native_inputs(
         &artifact.sdk_packages,
         &manifest.root,
@@ -146,9 +148,9 @@ fn cancelled_and_shutdown_timers_wait_for_physical_return_before_origin_scope_se
     .unwrap();
     for shutdown in [false, true] {
         let (cancel_limit, shutdown_limit) = if shutdown {
-            (None, Some(100))
+            (None, Some(fixture::CONTROL_POLLS))
         } else {
-            (Some(100), None)
+            (Some(fixture::CONTROL_POLLS), None)
         };
         let started = std::time::Instant::now();
         let source = rinzu_codegen::run_source_async_report(
@@ -166,7 +168,7 @@ fn cancelled_and_shutdown_timers_wait_for_physical_return_before_origin_scope_se
             },
         )
         .unwrap();
-        assert!(started.elapsed() >= std::time::Duration::from_millis(120));
+        assert!(started.elapsed() >= fixture::TIMER_DURATION);
         assert_eq!(
             source.failure_details.as_ref().unwrap().primary.cause,
             if shutdown {
@@ -176,15 +178,16 @@ fn cancelled_and_shutdown_timers_wait_for_physical_return_before_origin_scope_se
             }
         );
         assert!(source.resources_returned && source.heap.collections > 10);
-        assert_eq!(source.cancelled_children.len(), 1);
-        assert_eq!(
-            source
-                .events
-                .iter()
-                .filter(|event| matches!(event, SourceAsyncEvent::TimerCompleted { .. }))
-                .count(),
-            1
-        );
+        let completed: Vec<_> = source
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                SourceAsyncEvent::TimerCompleted { future } => Some(*future),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(source.cancelled_children.len(), 1, "{:?}", source.events);
+        assert_eq!(completed, source.cancelled_children);
         let jit =
             crate::compiled_async::run(&manifest, &artifact, cancel_limit, shutdown_limit, true)
                 .unwrap();
@@ -192,5 +195,4 @@ fn cancelled_and_shutdown_timers_wait_for_physical_return_before_origin_scope_se
         crate::aot::compare_source_async_values_and_transport(&source, &jit.output).unwrap();
         crate::aot::compare_source_async_failures(&source, &jit.output).unwrap();
     }
-    std::fs::remove_dir_all(root).unwrap();
 }

@@ -13,7 +13,6 @@ import time
 
 ROOT = Path(__file__).resolve().parents[2]
 SDK = ROOT / "sdk/macos"
-APP = SDK / "tests/app"
 SAMPLE = ROOT / "tests/fixtures/programs/macos-metal"
 
 
@@ -61,11 +60,12 @@ def main():
             scratch = Path(directory)
             cli = scratch / "rinzu"
             shutil.copy2(args.rinzu.resolve(), cli)
-            env = dict(os.environ, RINZU_CACHE_DIR=str(scratch / "cache"),
+            env = dict(os.environ, TMPDIR=str(scratch), RINZU_CACHE_DIR=str(scratch / "cache"),
                        ASAN_OPTIONS="detect_leaks=0", UBSAN_OPTIONS="halt_on_error=1")
             env.pop("RINZU_TOOLCHAIN_ROOT", None)
 
-            def run(name, command, expected=0, extra=None, contains=(), skip=False, timeout=None):
+            def run(name, command, expected=0, extra=None, contains=(), skip=False, timeout=None,
+                    allow_occluded=False):
                 timeout = args.timeout if timeout is None else timeout
                 started = time.monotonic()
                 row = {"name": name, "command": list(map(str, command))}
@@ -88,6 +88,11 @@ def main():
                     if args.require_gpu:
                         raise AssertionError(f"{name}: required GPU unavailable")
                     print(name + ": skipped (no Metal device)", flush=True)
+                    return False
+                if allow_occluded and result.returncode == 77 and "SKIP:frames:real-window-occluded" in result.stdout:
+                    row["skipped"] = True
+                    save()
+                    print(name + ": skipped (window occluded)", flush=True)
                     return False
                 assert result.returncode == expected, row
                 for value in contains:
@@ -112,10 +117,18 @@ def main():
             gpu = args.require_gpu
             if not args.source_only:
                 native = scratch / "native"
-                flags = ["-std=c11", "-fobjc-arc", "-Wall", "-Wextra", "-Werror", "-I", ROOT / "include",
-                         "-I", SDK / "native/include", SDK / "tests/native.m", "-framework", "AppKit",
-                         "-framework", "Foundation", "-framework", "Metal", "-framework", "QuartzCore", "-framework", "ImageIO", "-framework", "CoreGraphics", "-framework", "CoreText"]
-                run("native-build", ["xcrun", "clang", *flags, "-o", native])
+                flags = ["-std=c11", "-fobjc-arc", "-Wall", "-Wextra", "-Werror",
+                         "-I", ROOT / "include", "-I", SDK / "native/include"]
+                frameworks = ["AppKit", "Foundation", "Metal", "QuartzCore", "ImageIO",
+                              "CoreGraphics", "CoreText"]
+                for framework in frameworks:
+                    flags.extend(["-framework", framework])
+
+                def build_probe(case, name, binary, extra=()):
+                    run(case, ["xcrun", "clang", *flags, *extra,
+                        SDK / f"tests/{name}.m", "-o", binary])
+
+                build_probe("native-build", "native", native)
                 run("native-core", [native, "core"])
                 run("native-pools", [native, "pools"], extra={"OBJC_DEBUG_MISSING_POOLS": "YES"})
                 run("native-oom", [native, "oom"], expected=70)
@@ -124,10 +137,27 @@ def main():
                     run("native-ui", [native, "ui"], timeout=45)
                     if gpu:
                         run("native-ui-metal", [native, "ui-metal"], timeout=45)
+                probes = {"data": ["model", "tree"], "resources": [""], "text": ["measure"]}
+                if gpu:
+                    probes["text"].append("raster")
+                    probes["metal2d"] = ["transfer", "images", "render", "compute", "sampling"]
+                if args.ui:
+                    probes["data"].extend(["list", "large"])
+                    if gpu:
+                        probes["frames"] = ["fixture", ""]
+                        probes["frames_multi"] = [""]
+                for name, modes in probes.items():
+                    binary = scratch / f"native-{name}"
+                    build_probe(f"native-{name}-build", name, binary)
+                    for mode in modes:
+                        command = [binary, mode] if mode else [binary]
+                        run(f"native-{name}-{mode}" if mode else f"native-{name}", command,
+                            contains=["PASS:"], timeout=45,
+                            allow_occluded=name == "frames" and not mode)
                 if args.sanitize:
                     sanitized = scratch / "native-sanitized"
-                    run("sanitizer-build", ["xcrun", "clang", *flags, "-O1", "-g",
-                        "-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-o", sanitized])
+                    build_probe("sanitizer-build", "native", sanitized,
+                                ["-O1", "-g", "-fsanitize=address,undefined", "-fno-omit-frame-pointer"])
                     run("sanitizer-core", [sanitized, "core"])
                     if gpu:
                         run("sanitizer-gpu", [sanitized, "gpu"])
@@ -137,17 +167,21 @@ def main():
                             run("sanitizer-ui-metal", [sanitized, "ui-metal"], timeout=45)
                 if args.tsan:
                     threaded = scratch / "native-tsan"
-                    run("tsan-build", ["xcrun", "clang", *flags, "-O1", "-g", "-fsanitize=thread", "-o", threaded])
+                    build_probe("tsan-build", "native", threaded, ["-O1", "-g", "-fsanitize=thread"])
                     run("tsan-core", [threaded, "core"], extra={"TSAN_OPTIONS": "halt_on_error=1"})
                     if gpu:
                         run("tsan-gpu", [threaded, "gpu"], extra={"TSAN_OPTIONS": "halt_on_error=1"})
             if not args.native_only:
+                staged_sdk = scratch / SDK.relative_to(ROOT)
+                ignore_outputs = shutil.ignore_patterns("build", ".rinzu")
+                shutil.copytree(SDK, staged_sdk, ignore=ignore_outputs)
+                app = staged_sdk / "tests/app"
                 modes = ["core"] + (["callback"] if args.ui else []) + (["gpu", "recording", "close", "cancel"] if gpu else [])
                 if args.phase != "all":
                     modes = [mode for mode in modes if mode == args.phase]
                 if modes:
-                    run("source-check", [cli, "check", APP])
-                    run("source-build", [cli, "build", APP, "--output", scratch / "app"])
+                    run("source-check", [cli, "check", app])
+                    run("source-build", [cli, "build", app, "--output", scratch / "app"])
                 for mode in modes:
                     expected = 1 if mode == "cancel" else 0
                     markers = ["SOURCE:closed"]
@@ -157,7 +191,7 @@ def main():
                         markers.append("SOURCE:callback-ok:2:42")
                     for backend in ("jit", "aot"):
                         report = scratch / f"{mode}-{backend}.jsonl"
-                        command = [cli, "run", APP, "--resource-report", str(report), "--resource-interval-ms", "0"] if backend == "jit" else [scratch / "app"]
+                        command = [cli, "run", app, "--resource-report", str(report), "--resource-interval-ms", "0"] if backend == "jit" else [scratch / "app"]
                         run(f"source-{mode}-{backend}", command, expected,
                             extra={"RINZU_MACOS_TEST": mode, "RINZU_RESOURCE_REPORT": str(report),
                                    "RINZU_RESOURCE_INTERVAL_MS": "0", "RINZU_GC_STRESS": "1" if mode == "callback" else "0"},
@@ -176,16 +210,18 @@ def main():
                             extra={"RINZU_MACOS_TEST": mode, "RINZU_GC_STRESS": "1",
                                    "RINZU_RESOURCE_REPORT": str(report), "RINZU_RESOURCE_INTERVAL_MS": "0"},
                             contains=markers, timeout=45)
-                    run(f"source-{mode}-equivalence", [cli, "verify-aot", APP],
+                    run(f"source-{mode}-equivalence", [cli, "verify-aot", app],
                         extra={"RINZU_MACOS_TEST": mode}, contains=["JIT/AOT equivalent:"])
                 if args.ui and gpu and args.phase in ("all", "sample"):
-                    run("sample-check", [cli, "check", SAMPLE])
-                    run("sample-build", [cli, "build", SAMPLE, "--output", scratch / "sample"])
+                    sample = scratch / SAMPLE.relative_to(ROOT)
+                    shutil.copytree(SAMPLE, sample, ignore=ignore_outputs)
+                    run("sample-check", [cli, "check", sample])
+                    run("sample-build", [cli, "build", sample, "--output", scratch / "sample"])
                     for backend in ("jit", "aot"):
-                        command = [cli, "run", SAMPLE] if backend == "jit" else [scratch / "sample"]
+                        command = [cli, "run", sample] if backend == "jit" else [scratch / "sample"]
                         run("sample-" + backend, command, extra={"RINZU_MACOS_FRAMES": "3"},
                             contains=["MACOS:compute-ok", "MACOS:frames=3", "MACOS:closed"])
-                    run("sample-equivalence", [cli, "verify-aot", SAMPLE],
+                    run("sample-equivalence", [cli, "verify-aot", sample],
                         extra={"RINZU_MACOS_FRAMES": "3"}, contains=["JIT/AOT equivalent:"])
             evidence["passed"] = True
     finally:

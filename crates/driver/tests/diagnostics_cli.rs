@@ -446,7 +446,7 @@ fn mixed_resource_contexts_invalid_ranges_and_strict_trace_schema_are_visible() 
 }
 
 #[test]
-fn resource_site_budget_and_fifo_inputs_do_not_hide_limits_or_block() {
+fn resource_site_budget_reports_omitted_rows() {
     let fixture = Fixture::new("fn main() {\n}\n", false);
     let resources = fixture.0.join("resources.jsonl");
     assert!(
@@ -486,6 +486,17 @@ fn resource_site_budget_and_fifo_inputs_do_not_hide_limits_or_block() {
         4096
     );
     assert_eq!(analysis["resources"]["omittedRowObservations"], 904);
+}
+
+#[test]
+fn fifo_diagnostic_inputs_are_rejected_without_blocking() {
+    let fixture = Fixture::new("fn main() {}\n", false);
+    assert!(
+        fixture
+            .run(&["--diagnostic-report", text(&fixture.report_path())])
+            .status
+            .success()
+    );
     let fifo = fixture.0.join("fifo");
     let path = std::ffi::CString::new(text(&fifo)).unwrap();
     // SAFETY: NUL-terminated path names this fixture's writable temporary directory.
@@ -495,13 +506,19 @@ fn resource_site_budget_and_fifo_inputs_do_not_hide_limits_or_block() {
         .arg(fixture.report_path())
         .args(["--native-log", text(&fifo)])
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .spawn()
         .unwrap();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        if let Some(status) = child.try_wait().unwrap() {
-            assert!(!status.success());
+        if child.try_wait().unwrap().is_some() {
+            let output = child.wait_with_output().unwrap();
+            assert!(!output.status.success(), "{output:?}");
+            assert!(
+                String::from_utf8_lossy(&output.stderr)
+                    .contains("diagnostic inputs must be regular files"),
+                "{output:?}"
+            );
             break;
         }
         if std::time::Instant::now() >= deadline {

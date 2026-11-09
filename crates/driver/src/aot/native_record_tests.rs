@@ -1,16 +1,17 @@
 #![cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use super::*;
+use std::process::Command;
 mod fixture {
-    include!("../tests/fixtures/native_record_writeback_sdk/setup.rs");
+    include!("../../tests/fixtures/native_record_writeback_sdk/setup.rs");
 }
 mod qualifier_fixture {
-    include!("../tests/fixtures/native_record_qualifiers_sdk/setup.rs");
+    include!("../../tests/fixtures/native_record_qualifiers_sdk/setup.rs");
 }
 mod sqlite_fixture {
-    include!("../tests/fixtures/sqlite_native_data/setup.rs");
+    include!("../../tests/fixtures/sqlite_native_data/setup.rs");
 }
 mod supplant_capture_fixture {
-    include!("../tests/fixtures/native_supplant_capture_sdk/setup.rs");
+    include!("../../tests/fixtures/native_supplant_capture_sdk/setup.rs");
 }
 
 fn assert_record_scratch_output(output: &str) {
@@ -385,7 +386,7 @@ fn supplant_records_aot_copy_at_entry_and_settle_before_cancel_or_shutdown() {
         fixture::create(&root);
         fs::write(
             root.join("app/src/main.rinzu"),
-            include_str!("../tests/fixtures/native_record_writeback_sdk/supplant.rinzu")
+            include_str!("../../tests/fixtures/native_record_writeback_sdk/supplant.rinzu")
                 .replace("EARLY", if early { "true" } else { "false" }),
         )
         .unwrap();

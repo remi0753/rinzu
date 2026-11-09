@@ -5,6 +5,9 @@ mod fixture;
 mod frozen_cli;
 #[path = "support/source_platform.rs"]
 mod platform;
+#[allow(dead_code)]
+#[path = "support/scratch.rs"]
+mod scratch;
 use std::process::{Command, Output};
 
 fn evidence(output: &Output, failure: &str, timers: usize) {
@@ -73,18 +76,17 @@ fn closed_timer_file_and_gc_run_with_only_source_service_declarations_in_aot_sig
 
 #[test]
 fn timer_cancellation_and_shutdown_collect_the_real_deadline_before_scope_disposal() {
-    let root = std::env::temp_dir().join(format!(
-        "rinzu-closed-timer-cancel-cli-{}",
-        std::process::id()
-    ));
-    fixture::create(&root, true);
+    let scratch = scratch::Scratch::new("rinzu-closed-timer-cancel-cli");
+    let root = scratch.path();
+    fixture::create(root, true);
     let app = root.join("app");
-    platform::success(&platform::bounded(
+    platform::success(&platform::bounded_tool(
         Command::new(frozen_cli::path()).arg("build").arg(&app),
     ));
     let binary = app.join("build/services_app");
     let sanitized = platform::sanitize(&binary);
-    platform::sign(&binary, &root);
+    platform::sign(&binary, root);
+    let polls = fixture::CONTROL_POLLS.to_string();
     for (variable, failure, flag) in [
         (
             "RINZU_CANCEL_AFTER_POLLS",
@@ -101,22 +103,21 @@ fn timer_cancellation_and_shutdown_collect_the_real_deadline_before_scope_dispos
             let started = std::time::Instant::now();
             let output = platform::bounded(
                 Command::new(executable)
-                    .env(variable, "100")
+                    .env(variable, &polls)
                     .env("ASAN_OPTIONS", "detect_leaks=0")
                     .env("UBSAN_OPTIONS", "halt_on_error=1"),
             );
             evidence(&output, failure, 1);
             assert!(
-                started.elapsed() >= std::time::Duration::from_millis(120),
+                started.elapsed() >= fixture::TIMER_DURATION,
                 "cancellation cannot synthesize physical completion"
             );
         }
-        platform::success(&platform::bounded(
+        platform::success(&platform::bounded_tool(
             Command::new(frozen_cli::path())
                 .arg("verify-aot")
                 .arg(&app)
-                .args([flag, "100"]),
+                .args([flag, &polls]),
         ));
     }
-    std::fs::remove_dir_all(root).unwrap();
 }

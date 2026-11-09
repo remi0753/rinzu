@@ -188,7 +188,7 @@ fn actual_shutdown_blocker_preserves_native_roots_and_settles_after_real_return(
 #[ignore = "private subprocess witness for fatal allocation injection"]
 fn supplant_preparation_allocation_probe() {
     let root = std::path::PathBuf::from(std::env::var_os("RINZU_PROBE_ROOT").unwrap());
-    let budget: usize = std::env::var("RINZU_PROBE_BUDGET")
+    let budget: usize = std::env::var("RINZU_PREPARE_BUDGET")
         .unwrap()
         .parse()
         .unwrap();
@@ -225,7 +225,7 @@ fn supplant_preparation_allocation_probe() {
         );
     } else {
         assert_eq!(engine, "jit");
-        crate::compiled_async::configure_preparation_probe(budget);
+        crate::compiled_async::enable_preparation_probe();
         let run = crate::compiled_async::run(&manifest, &artifact, None, None, false).unwrap();
         assert_eq!(run.exit_code, 0, "{}", run.output);
         assert!(run.retired);
@@ -256,7 +256,7 @@ fn source_and_compiled_supplant_actual_prepare_allocations_fail_without_entry() 
                 ])
                 .env("RINZU_PROBE_ROOT", &root)
                 .env("RINZU_PROBE_ENGINE", engine)
-                .env("RINZU_PROBE_BUDGET", budget.to_string())
+                .env("RINZU_PREPARE_BUDGET", budget.to_string())
                 .output()
                 .unwrap()
         };

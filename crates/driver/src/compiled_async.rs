@@ -19,10 +19,10 @@ pub struct CompiledAsyncRun {
     pub retired: bool,
 }
 #[cfg(test)]
-thread_local! {static PREPARATION_PROBE: std::cell::Cell<Option<usize>> = const {std::cell::Cell::new(None)};}
+thread_local! {static PREPARATION_PROBE: std::cell::Cell<bool> = const {std::cell::Cell::new(false)};}
 #[cfg(test)]
-pub(crate) fn configure_preparation_probe(budget: usize) {
-    PREPARATION_PROBE.with(|probe| probe.set(Some(budget)));
+pub(crate) fn enable_preparation_probe() {
+    PREPARATION_PROBE.with(|probe| probe.set(true));
 }
 #[cfg(test)]
 thread_local! {static FOREIGN_RETURN_PROBE: std::cell::Cell<Option<usize>> = const {std::cell::Cell::new(None)};}
@@ -269,8 +269,8 @@ fn run_built(
         source
     };
     #[cfg(test)]
-    let source = if let Some(budget) = PREPARATION_PROBE.with(std::cell::Cell::get) {
-        preparation_probe::instrument(source, Some(budget))
+    let source = if PREPARATION_PROBE.with(std::cell::Cell::take) {
+        preparation_probe::instrument(source)
     } else {
         source
     };

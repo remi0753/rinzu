@@ -334,7 +334,7 @@ fn supplant_cancellation_and_result_error_gates_settle_before_restart_or_outer_f
 
 fn prepare_fault_binary(app: &Path, sanitized: bool) -> PathBuf {
     let source = std::fs::read_to_string(app.join("build/supplant_app.runtime.c")).unwrap();
-    let source = preparation::instrument(source, None);
+    let source = preparation::instrument(source);
     let path = app.join(if sanitized {
         "build/supplant-prepare-sanitized.c"
     } else {

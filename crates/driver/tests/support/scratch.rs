@@ -1,16 +1,22 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub struct Scratch(PathBuf);
 
 impl Scratch {
     pub fn new(prefix: &str) -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         let temp = std::env::temp_dir();
         std::fs::create_dir_all(&temp).unwrap();
-        let path = temp.join(format!("{prefix}-{}-{nonce}", std::process::id()));
+        let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
+        let path = temp.join(format!(
+            "{prefix}-{}-{nonce}-{sequence}",
+            std::process::id()
+        ));
         std::fs::create_dir(&path).unwrap();
         Self(path)
     }

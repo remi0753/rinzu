@@ -524,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "standalone performance probe; run via compare_runtime_costs.py"]
+    #[ignore = "standalone performance probe; select with --ignored"]
     fn readonly_allocation_cost_probe() {
         for count in [1_usize, 64, 4096] {
             let (mut memory, _) = MacOsArm64JitMemory::new_with_audit().unwrap();

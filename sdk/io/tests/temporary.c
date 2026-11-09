@@ -8,7 +8,7 @@ static void settled(void *file, int expected) {
   rinzu_io_finish(file);
 }
 int main(void) {
-  char directory[] = "/tmp/rinzu-temporary-XXXXXX";
+  char directory[] = "rinzu-temporary-XXXXXX";
   assert(mkdtemp(directory));
   char pattern[256], destination[256], missing[256];
   assert(snprintf(pattern, sizeof(pattern), "%s/document-XXXXXX", directory) > 0);

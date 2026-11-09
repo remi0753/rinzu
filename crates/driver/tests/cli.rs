@@ -3,6 +3,11 @@ mod checked_entry;
 #[path = "fixtures/frozen_cli.rs"]
 mod frozen_cli;
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[allow(dead_code)]
+#[path = "support/scratch.rs"]
+mod scratch;
+
 use std::process::Command;
 
 fn assert_static_rejection(root: &std::path::Path, code: &str) {
@@ -442,9 +447,10 @@ fn source_async_services_are_driven_by_source_declarations() {
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn source_callback_sdk_package_runs_from_an_ordinary_main() {
-    let package = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/programs/source-callback");
-    let output = source_platform::bounded(
+    let work = scratch::Scratch::new("rinzu-source-callback-program");
+    let package =
+        source_platform::stage_fixture(work.path(), "tests/fixtures/programs/source-callback");
+    let output = source_platform::bounded_tool(
         Command::new(frozen_cli::path())
             .arg("run")
             .arg(package)
@@ -469,8 +475,9 @@ fn source_callback_sdk_package_runs_from_an_ordinary_main() {
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn sdl2_sdk_package_uses_the_same_native_package_abi() {
-    let package =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/programs/sdl2");
+    let work = scratch::Scratch::new("rinzu-sdl2-program");
+    source_platform::stage_fixture(work.path(), "sdk/sdl2");
+    let package = source_platform::stage_fixture(work.path(), "tests/fixtures/programs/sdl2");
     let output = Command::new(frozen_cli::path())
         .arg("run")
         .arg(package)
@@ -494,9 +501,18 @@ fn sdl2_sdk_package_uses_the_same_native_package_abi() {
 #[test]
 fn compiler_and_codegen_do_not_name_framework_packages() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    for directory in ["crates/compiler/src", "crates/codegen/src"] {
-        for entry in std::fs::read_dir(workspace.join(directory)).unwrap() {
-            let path = entry.unwrap().path();
+    let mut directories = vec![
+        workspace.join("crates/compiler/src"),
+        workspace.join("crates/codegen/src"),
+    ];
+    while let Some(directory) = directories.pop() {
+        for entry in std::fs::read_dir(directory).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if entry.file_type().unwrap().is_dir() {
+                directories.push(path);
+                continue;
+            }
             if path.extension().is_none_or(|extension| extension != "rs") {
                 continue;
             }
@@ -520,15 +536,17 @@ fn compiler_and_codegen_do_not_name_framework_packages() {
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn native_sdk_packages_have_equivalent_jit_and_aot_execution() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let work = scratch::Scratch::new("rinzu-native-sdk-equivalence");
+    source_platform::stage_fixture(work.path(), "sdk/sdl2");
     for sample in [
         "tests/fixtures/programs/source-callback",
         "tests/fixtures/programs/sdl2",
     ] {
+        let package = source_platform::stage_fixture(work.path(), sample);
         let output = source_platform::bounded_tool(
             Command::new(frozen_cli::path())
                 .arg("verify-aot")
-                .arg(workspace.join(sample))
+                .arg(package)
                 .env("SDL_VIDEODRIVER", "dummy"),
         );
         assert!(

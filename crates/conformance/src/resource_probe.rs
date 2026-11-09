@@ -10,6 +10,7 @@ mod platform {
     use std::fs::File;
     use std::mem::{size_of, zeroed};
     use std::path::Path;
+    use std::time::{Duration, Instant};
 
     use anyhow::{Context, Result, ensure};
     use rinzu_codegen::with_jit_spike_inspection;
@@ -196,7 +197,7 @@ mod platform {
         drop(blocking_pool);
         drop(cpu_pool);
 
-        let shutdown = snapshot().context("measure shutdown resources")?;
+        let shutdown = measure_shutdown(idle.threads)?;
         let shutdown_delta = shutdown.delta_from(idle);
         ensure!(
             shutdown_delta.rss_bytes <= RSS_DELTA_LIMIT,
@@ -208,7 +209,9 @@ mod platform {
         );
         ensure!(
             shutdown.threads <= idle.threads,
-            "shutdown leaked OS threads"
+            "shutdown leaked OS threads: {} remained, baseline was {}",
+            shutdown.threads,
+            idle.threads,
         );
         ensure!(
             shutdown.file_descriptors <= idle.file_descriptors,
@@ -301,6 +304,18 @@ mod platform {
             delta.executable_bytes
         );
         Ok(())
+    }
+
+    fn measure_shutdown(idle_threads: u64) -> Result<Metrics> {
+        // Joined pthreads can still appear in the kernel's task snapshot briefly.
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            let metrics = snapshot().context("measure shutdown resources")?;
+            if metrics.threads <= idle_threads || Instant::now() >= deadline {
+                return Ok(metrics);
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
     }
 
     fn snapshot() -> Result<Metrics> {

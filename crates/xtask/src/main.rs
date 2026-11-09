@@ -4,6 +4,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Output, Stdio};
 
+const FUZZ_TARGETS: &[&str] = &["trace_schema", "source_formatter"];
+
 fn main() -> ExitCode {
     match run(env::args_os().skip(1).collect()) {
         Ok(()) => ExitCode::SUCCESS,
@@ -21,12 +23,12 @@ fn run(arguments: Vec<OsString>) -> Result<(), String> {
     match command {
         "fmt" => {
             run_rinzu("fmt")?;
-            run_inherited(spec("cargo", ["fmt", "--all", "--", "--check"]))?;
+            format_rust(true)?;
             run_native("fmt", &arguments[1..])
         }
         "fmt-write" => {
             run_rinzu("fmt-write")?;
-            run_inherited(spec("cargo", ["fmt", "--all"]))?;
+            format_rust(false)?;
             run_native("fmt-write", &arguments[1..])
         }
         "lint" => {
@@ -37,6 +39,7 @@ fn run(arguments: Vec<OsString>) -> Result<(), String> {
                     "clippy",
                     "--workspace",
                     "--all-targets",
+                    "--all-features",
                     "--",
                     "-D",
                     "warnings",
@@ -51,7 +54,20 @@ fn run(arguments: Vec<OsString>) -> Result<(), String> {
         "c-fmt-write" => run_native("fmt-write", &arguments[1..]),
         "c-lint" => run_native("lint", &arguments[1..]),
         "c-db" => run_native("db", &arguments[1..]),
-        "test" => run_inherited(spec("cargo", ["test", "--workspace", "--all-targets"])),
+        "test" => {
+            let mut failures = Vec::new();
+            for (name, step) in test_steps() {
+                println!("==> {name}");
+                if let Err(error) = run_inherited(step) {
+                    failures.push(format!("{name}: {error}"));
+                }
+            }
+            if failures.is_empty() {
+                Ok(())
+            } else {
+                Err(failures.join("\n"))
+            }
+        }
         "sanitize" => {
             let directory = root().join("tests/fixtures/c-abi");
             run_inherited(spec("make", ["sanitize"]).in_directory(directory.clone()))?;
@@ -114,39 +130,29 @@ fn run(arguments: Vec<OsString>) -> Result<(), String> {
                 ],
             ))
         }
-        "fuzz-build" => run_inherited(
-            spec("cargo", ["fuzz", "build", "trace_schema"])
-                .with_environment("RUSTC", nightly_rustc()?)
-                .in_directory(root().join("fuzz")),
-        ),
+        "fuzz-build" => run_fuzz_targets("build", &[]),
         "fuzz" => {
             let seconds = arguments
                 .get(1)
                 .and_then(|value| value.to_str())
                 .unwrap_or("10");
-            run_inherited(
-                spec(
-                    "cargo",
-                    [
-                        "fuzz",
-                        "run",
-                        "trace_schema",
-                        "--",
-                        &format!("-max_total_time={seconds}"),
-                    ],
-                )
-                .with_environment("RUSTC", nightly_rustc()?)
-                .in_directory(root().join("fuzz")),
-            )
+            run_fuzz_targets("run", &["--", &format!("-max_total_time={seconds}")])
         }
         "fuzz-replay" => {
             let artifact = arguments
                 .get(1)
                 .cloned()
                 .ok_or_else(|| "fuzz-replay requires an artifact path".to_owned())?;
+            let target = arguments
+                .get(2)
+                .map(|name| name.to_str().filter(|name| FUZZ_TARGETS.contains(name)))
+                .unwrap_or(Some("trace_schema"))
+                .ok_or_else(|| {
+                    "fuzz-replay target must be trace_schema or source_formatter".to_owned()
+                })?;
             run_inherited(Spec {
                 program: "cargo".into(),
-                arguments: vec!["fuzz".into(), "run".into(), "trace_schema".into(), artifact],
+                arguments: vec!["fuzz".into(), "run".into(), target.into(), artifact],
                 directory: root().join("fuzz"),
                 environment: vec![("RUSTC".into(), nightly_rustc()?)],
             })
@@ -237,6 +243,86 @@ fn run_native(command: &str, paths: &[OsString]) -> Result<(), String> {
         directory: root(),
         environment: Vec::new(),
     })
+}
+
+fn rustfmt_steps(check: bool) -> impl Iterator<Item = (&'static str, Spec)> {
+    [
+        ("fmt", None),
+        ("runtime-model-fmt", Some("tests/runtime-model/Cargo.toml")),
+        ("fuzz-fmt", Some("fuzz/Cargo.toml")),
+    ]
+    .into_iter()
+    .map(move |(name, manifest)| {
+        let mut step = spec("cargo", ["fmt", "--all"]);
+        if let Some(manifest) = manifest {
+            step.arguments
+                .extend(["--manifest-path".into(), manifest.into()]);
+        }
+        if check {
+            step.arguments.extend(["--".into(), "--check".into()]);
+        }
+        (name, step)
+    })
+}
+
+fn format_rust(check: bool) -> Result<(), String> {
+    for (_, step) in rustfmt_steps(check) {
+        run_inherited(step)?;
+    }
+    Ok(())
+}
+
+fn test_steps() -> impl IntoIterator<Item = (&'static str, Spec)> {
+    [
+        (
+            "test",
+            spec(
+                "cargo",
+                [
+                    "test",
+                    "--workspace",
+                    "--all-targets",
+                    "--all-features",
+                    "--no-fail-fast",
+                ],
+            ),
+        ),
+        (
+            "rust-doctests",
+            spec("cargo", ["test", "--workspace", "--doc", "--all-features"]),
+        ),
+        (
+            "runtime-model",
+            spec(
+                "cargo",
+                ["test", "--manifest-path", "tests/runtime-model/Cargo.toml"],
+            ),
+        ),
+        (
+            "vscode-unit-tests",
+            spec(
+                "node",
+                ["--test", "tools/vscode-rinzu/diagnostics.test.cjs"],
+            ),
+        ),
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        (
+            "trampoline-test",
+            spec("python3", ["tests/integration/test_trampoline.py"]),
+        ),
+    ]
+}
+
+fn run_fuzz_targets(command: &str, options: &[&str]) -> Result<(), String> {
+    let rustc = nightly_rustc()?;
+    for target in FUZZ_TARGETS {
+        let mut step = spec("cargo", ["fuzz", command, target])
+            .with_environment("RUSTC", rustc.clone())
+            .in_directory(root().join("fuzz"));
+        step.arguments.extend(options.iter().map(OsString::from));
+        run_inherited(step)?;
+    }
+    Ok(())
 }
 
 struct Spec {
@@ -343,11 +429,18 @@ fn run_ci(artifacts: &Path) -> Result<(), String> {
     let backend_argument = backend_directory.as_os_str().to_os_string();
     let resource_profile = artifacts.join("resource-profile.json");
     let resource_profile_argument = resource_profile.as_os_str().to_os_string();
-    let steps = [
+    for (name, step) in [
         ("rinzu-fmt", rinzu_spec("fmt")),
-        ("rinzu-lint", rinzu_spec("lint")),
-        ("fmt", spec("cargo", ["fmt", "--all", "--", "--check"])),
         ("c-fmt", spec("python3", ["tools/native_quality.py", "fmt"])),
+    ]
+    .into_iter()
+    .chain(rustfmt_steps(true))
+    {
+        run_logged(name, step, &artifacts)?;
+    }
+
+    let lint = [
+        ("rinzu-lint", rinzu_spec("lint")),
         (
             "c-lint",
             spec("python3", ["tools/native_quality.py", "lint"]),
@@ -368,23 +461,27 @@ fn run_ci(artifacts: &Path) -> Result<(), String> {
                     "clippy",
                     "--workspace",
                     "--all-targets",
+                    "--all-features",
                     "--",
                     "-D",
                     "warnings",
                 ],
             ),
         ),
-        (
-            "test",
-            spec(
-                "cargo",
-                ["test", "--workspace", "--all-targets", "--no-fail-fast"],
-            )
-            .with_environment(
-                "RINZU_GATE_ARTIFACTS",
-                artifacts.join("native").into_os_string(),
-            ),
-        ),
+    ];
+    for (name, step) in lint {
+        run_logged(name, step, &artifacts)?;
+    }
+    for (name, step) in test_steps() {
+        let step = if name == "test" {
+            step.with_environment("RINZU_GATE_ARTIFACTS", artifacts.join("native"))
+        } else {
+            step
+        };
+        run_logged(name, step, &artifacts)?;
+    }
+
+    let steps = [
         (
             "trace-schema",
             spec(
@@ -422,13 +519,6 @@ fn run_ci(artifacts: &Path) -> Result<(), String> {
             spec("make", ["thread-sanitize"]).in_directory(root().join("tests/fixtures/c-abi")),
         ),
         (
-            "runtime-model",
-            spec(
-                "cargo",
-                ["test", "--manifest-path", "tests/runtime-model/Cargo.toml"],
-            ),
-        ),
-        (
             "host-stress",
             spec(
                 "cargo",
@@ -442,76 +532,6 @@ fn run_ci(artifacts: &Path) -> Result<(), String> {
                     "8241981735943431729",
                     "--rounds",
                     "100",
-                ],
-            ),
-        ),
-        (
-            "sdk-platform",
-            spec(
-                "cargo",
-                [
-                    "test",
-                    "--package",
-                    "rinzu-driver",
-                    "--test",
-                    "source_callback_cli",
-                    "--test",
-                    "macos_interrupt_cli",
-                    "--",
-                    "--nocapture",
-                    "--test-threads=1",
-                ],
-            )
-            .with_environment(
-                "RINZU_GATE_ARTIFACTS",
-                artifacts.join("native").into_os_string(),
-            ),
-        ),
-        (
-            "sdk-sdl2",
-            spec(
-                "cargo",
-                [
-                    "test",
-                    "--package",
-                    "rinzu-driver",
-                    "--test",
-                    "sdl_source_cli",
-                    "--",
-                    "--nocapture",
-                    "--test-threads=1",
-                ],
-            ),
-        ),
-        (
-            "sdk-io",
-            spec(
-                "cargo",
-                [
-                    "test",
-                    "--package",
-                    "rinzu-driver",
-                    "--test",
-                    "io_source_cli",
-                    "--",
-                    "--nocapture",
-                ],
-            ),
-        ),
-        (
-            "jit-aot-differential",
-            spec(
-                "cargo",
-                [
-                    "test",
-                    "--package",
-                    "rinzu-driver",
-                    "--test",
-                    "cli",
-                    "jit_and_aot_traces_match_for_success_error_cancel_overload_and_shutdown",
-                    "--",
-                    "--exact",
-                    "--nocapture",
                 ],
             ),
         ),
@@ -578,5 +598,5 @@ fn print_output(output: &Output) {
 }
 
 fn usage() -> String {
-    "usage: cargo xtask <fmt|fmt-write|lint|rinzu-fmt [paths...]|rinzu-fmt-write [paths...]|rinzu-lint [paths...]|c-fmt [paths...]|c-fmt-write [paths...]|c-lint [paths...]|c-db|test|sanitize|memory-sanitize|race-sanitize|model|host-stress [options]|differential|resource-profile [file]|fuzz-build|fuzz [seconds]|fuzz-replay <artifact>|trace-validate [file]|backend-spike [dir]|ci [--artifacts dir]>".into()
+    "usage: cargo xtask <fmt|fmt-write|lint|rinzu-fmt [paths...]|rinzu-fmt-write [paths...]|rinzu-lint [paths...]|c-fmt [paths...]|c-fmt-write [paths...]|c-lint [paths...]|c-db|test|sanitize|memory-sanitize|race-sanitize|model|host-stress [options]|differential|resource-profile [file]|fuzz-build|fuzz [seconds]|fuzz-replay <artifact> [target]|trace-validate [file]|backend-spike [dir]|ci [--artifacts dir]>".into()
 }

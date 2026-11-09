@@ -1,5 +1,9 @@
 #[path = "fixtures/frozen_cli.rs"]
 mod frozen_cli;
+#[cfg(unix)]
+#[allow(dead_code)]
+#[path = "support/scratch.rs"]
+mod scratch;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
@@ -21,17 +25,16 @@ fn native_http_codec_preserves_request_line_fields_status_and_gc() {
 #[test]
 fn native_request_line_kernel_matches_mutations_under_sanitizers() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let work = std::env::temp_dir().join(format!("rinzu-httpcodec-kernel-{}", std::process::id()));
-    std::fs::create_dir_all(&work).unwrap();
+    let work = scratch::Scratch::new("rinzu-httpcodec-kernel");
     let output = std::process::Command::new("python3")
-        .arg(root.join("tests/fixtures/http/test_httpcodec.py"))
+        .arg(root.join("tests/integration/test_httpcodec.py"))
         .arg("--workdir")
-        .arg(&work)
+        .arg(work.path())
         .arg("--output")
-        .arg(work.join("result.json"))
+        .arg(work.path().join("result.json"))
         .env("PYTHONDONTWRITEBYTECODE", "1")
+        .env("TMPDIR", work.path())
         .output()
         .unwrap();
-    let _ = std::fs::remove_dir_all(work);
     assert!(output.status.success(), "{output:?}");
 }

@@ -13,7 +13,7 @@ import sys
 import tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
-DATABASE = ROOT / "target/native-quality"
+DATABASE = (ROOT / os.environ.get("CARGO_TARGET_DIR", "target") / "native-quality").resolve()
 LLVM_MAJOR = 21
 EXTENSIONS = {".c", ".h", ".m", ".cpp", ".mm"}
 MARKERS = {
@@ -285,16 +285,17 @@ def lint_units(selected, units, contexts, commands):
 
 def lint_files(paths, driver=None):
     tidy = tool("clang-tidy")
+    config = f"--config-file={ROOT / '.clang-tidy'}"
     selected = selected_files(paths)
     units, contexts, commands = compilation_database(driver)
     if paths:
         units = lint_units(selected, units, contexts, commands)
     for unit in units:
-        print(f"C lint: {Path(unit).relative_to(ROOT)}", flush=True)
+        print(f"C lint: {os.path.relpath(unit, ROOT)}", flush=True)
         # Analyze header paths with the definitions and callers in their real
         # consumers. Standalone headers get compiler and AST-based tidy checks.
         checks = ["--checks=-clang-analyzer-*"] if Path(unit).suffix == ".h" else []
-        result = subprocess.run([tidy, "--quiet", *checks, "-p", str(DATABASE), unit],
+        result = subprocess.run([tidy, "--quiet", config, *checks, "-p", str(DATABASE), unit],
                                 cwd=ROOT, capture_output=True, text=True)
         print(remap_diagnostics(result.stdout, unit), end="", flush=True)
         print(remap_diagnostics(result.stderr, unit), end="", file=sys.stderr, flush=True)

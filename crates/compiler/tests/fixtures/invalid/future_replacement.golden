@@ -1,0 +1,1 @@
+RZ0406|replacing `state` leaves the Future previously held in `state.pending` unobserved

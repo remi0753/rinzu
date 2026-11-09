@@ -100,7 +100,7 @@ int main(void) {
   assert(pthread_join(t, NULL) == 0);
   assert(rinzu_sqlite_deadline(c, 1) == RINZU_SQLITE_CLOSED);
   assert(rinzu_sqlite_allocator_current() == baseline);
-  char path[] = "/tmp/rinzu-sqlite-busy-XXXXXX";
+  char path[] = "rinzu-sqlite-busy-XXXXXX";
   int fd = mkstemp(path);
   assert(fd >= 0);
   assert(close(fd) == 0);

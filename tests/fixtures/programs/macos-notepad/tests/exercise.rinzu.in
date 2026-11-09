@@ -1,5 +1,5 @@
 import rinzu.timer;
-// Appended to a private sample/SDK copy by test_macos_notepad.py.
+// The repository quality check appends this to a private Notepad package with the sheet probes.
 import rinzu.testing;
 
 fn expect(condition: Bool, message: String) {

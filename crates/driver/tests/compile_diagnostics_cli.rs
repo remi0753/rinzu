@@ -824,7 +824,7 @@ fn future_replacement_shows_the_same_path_on_repeated_checks() {
     let fixture = Fixture::new();
     fixture.file(
         "refresh.rinzu",
-        include_str!("fixtures/future_replacement.rinzu"),
+        include_str!("../../compiler/tests/fixtures/invalid/future_replacement.rinzu"),
     );
     let expected = concat!(
         "refresh.rinzu:13:5: RZ0406: replacing `state` leaves the Future previously held in `state.pending` unobserved\n",
@@ -843,7 +843,7 @@ fn future_replacement_shows_the_same_path_on_repeated_checks() {
 #[test]
 fn future_diagnostic_replay_is_shared_by_failures_and_skipped_on_success() {
     let fixture = Fixture::new();
-    let source = include_str!("fixtures/future_replacement.rinzu");
+    let source = include_str!("../../compiler/tests/fixtures/invalid/future_replacement.rinzu");
     let source = source.replace(
         "    state = { pending = cached() };",
         "    let other = fetch();\n    state = { pending = cached() };",

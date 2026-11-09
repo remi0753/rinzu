@@ -1,5 +1,8 @@
 #![cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use super::equivalence::parse_line;
 use super::*;
+use rinzu_codegen::BaselineOptions;
+use std::process::Command;
 
 // Real process entries must handle logging and other ordinary Error effects.
 // An unexpected Error still fails these probes through an uncatchable trap.
@@ -31,7 +34,7 @@ fn guard_main_errors(text: &str) -> String {
 fn ordinary_async_finally_matches_backends_and_gc() {
     check_future_value_backends_inspect(
         "async_finally",
-        include_str!("../../codegen/tests/fixtures/async-finally.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/async-finally.rinzu"),
         b"body\ncleanup\npreserved-42\n",
         |_, _| {},
         true,
@@ -80,7 +83,7 @@ fn fail(){{try all{{panic("失敗🙂\u{{0}}tail");line("unreachable");}}catch e
 fn sdk_direct_results_and_error_payloads_match_backends() {
     check_future_value_backends_inspect(
         "sdk_direct_errors",
-        include_str!("../../codegen/tests/fixtures/sdk-direct-errors.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/sdk-direct-errors.rinzu"),
         b"610\n-7104\n-7504\n-7304\n0\n0\n0\n0\n0\n0\n",
         |source, _| {
             assert!(source.native_calls.is_baseline());
@@ -92,7 +95,7 @@ fn sdk_direct_results_and_error_payloads_match_backends() {
 #[test]
 fn fallible_data_intrinsics_match_source_compiled_jit_and_aot() {
     check_future_value_backends_inspect("fallible_data",
-        include_str!("../../codegen/tests/fixtures/fallible-data.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/fallible-data.rinzu"),
         b"42\nhello\n42\n42\n42\n42\n42\n0\n1\n201\n202\n200\n301\n300\n300\n300\n100\n-7\n101\n2\n", |_,_|{}, true);
 }
 
@@ -140,22 +143,22 @@ fn native_error_entries_match_source_compiled_jit_and_aot_with_gc() {
     fs::write(sdk.join("rinzu.toml"),"[package]\nname=\"handlers\"\nlanguage=\"0.5\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n[native]\nsources=[\"api.c\"]\nheaders=[\"api.h\"]\n").unwrap();
     fs::write(
         sdk.join("src/api.rinzu"),
-        include_str!("../tests/fixtures/error_native_sdk/api.rinzu"),
+        include_str!("../../tests/fixtures/error_native_sdk/api.rinzu"),
     )
     .unwrap();
     fs::write(
         sdk.join("api.h"),
-        include_str!("../tests/fixtures/error_native_sdk/api.h"),
+        include_str!("../../tests/fixtures/error_native_sdk/api.h"),
     )
     .unwrap();
     fs::write(
         sdk.join("api.c"),
-        include_str!("../tests/fixtures/error_native_sdk/api.c"),
+        include_str!("../../tests/fixtures/error_native_sdk/api.c"),
     )
     .unwrap();
     fs::write(
         app.join("src/main.rinzu"),
-        include_str!("../tests/fixtures/error_native_sdk/main.rinzu"),
+        include_str!("../../tests/fixtures/error_native_sdk/main.rinzu"),
     )
     .unwrap();
     let (manifest, artifact) = rinzu_compiler::check_package(&app).unwrap();
@@ -219,7 +222,7 @@ fn native_error_entries_match_source_compiled_jit_and_aot_with_gc() {
 fn async_start_errors_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_start_errors_backends",
-        include_str!("../../codegen/tests/fixtures/future-start-errors.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-start-errors.rinzu"),
         b"timer:0\npath:0\nargument:0\nbody:1\n1\n2\n",
     );
 }
@@ -228,7 +231,7 @@ fn async_start_errors_match_source_compiled_jit_and_aot() {
 fn future_gc_matches_source_compiled_jit_and_aot() {
     check_future_value_backends_inspect(
         "future_gc_backends",
-        include_str!("../../codegen/tests/fixtures/future-gc.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-gc.rinzu"),
         b"4096\n64\nretained through finally\nretained for queued observer\n",
         |reference, native| {
             assert!(reference.peak_future_records < 256);
@@ -255,12 +258,12 @@ fn future_gc_matches_source_compiled_jit_and_aot() {
 fn independent_task_lifetimes_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_lifetime_backends",
-        include_str!("../../codegen/tests/fixtures/future-lifetime.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-lifetime.rinzu"),
         b"17\nparent only\nmain complete\nlate:1\nlate:2\n",
     );
     check_future_value_backends(
         "future_sync_lifetime_backends",
-        include_str!("../../codegen/tests/fixtures/future-sync-lifetime.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-sync-lifetime.rinzu"),
         b"sync main complete\nretained after sync main\n",
     );
 }
@@ -269,7 +272,7 @@ fn independent_task_lifetimes_match_source_compiled_jit_and_aot() {
 fn future_metadata_gc_without_heap_allocations_matches_all_backends() {
     check_future_value_backends_inspect(
         "future_gc_unit_backends",
-        include_str!("../../codegen/tests/fixtures/future-gc-unit.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-gc-unit.rinzu"),
         b"",
         |reference, native| {
             assert_eq!(reference.heap.peak_objects, 0);
@@ -293,7 +296,7 @@ fn future_metadata_gc_without_heap_allocations_matches_all_backends() {
 fn queued_async_bodies_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_queued_backends",
-        include_str!("../../codegen/tests/fixtures/future-queued.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-queued.rinzu"),
         "1\n界\0🙂\n0\n".as_bytes(),
     );
 }
@@ -302,7 +305,7 @@ fn queued_async_bodies_match_source_compiled_jit_and_aot() {
 fn main_error_boundaries_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "error_main_boundaries_backends",
-        include_str!("../../codegen/tests/fixtures/error-main-boundaries.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/error-main-boundaries.rinzu"),
         b"383\n389\n397\n",
     );
 }
@@ -311,7 +314,7 @@ fn main_error_boundaries_match_source_compiled_jit_and_aot() {
 fn worker_local_errors_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "error_worker_boundaries_backends",
-        include_str!("../../codegen/tests/fixtures/error-worker-boundaries.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/error-worker-boundaries.rinzu"),
         b"347\n702\n726\n",
     );
 }
@@ -320,7 +323,7 @@ fn worker_local_errors_match_source_compiled_jit_and_aot() {
 fn future_observer_collections_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_observer_collections_backends",
-        include_str!("../../codegen/tests/fixtures/future-observer-collections.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-observer-collections.rinzu"),
         b"331\n337\n343\n",
     );
 }
@@ -329,7 +332,7 @@ fn future_observer_collections_match_source_compiled_jit_and_aot() {
 fn future_receiver_coverage_matches_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_receiver_coverage_backends",
-        include_str!("../../codegen/tests/fixtures/future-receiver-coverage.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-receiver-coverage.rinzu"),
         b"317\n319\n",
     );
 }
@@ -338,7 +341,7 @@ fn future_receiver_coverage_matches_source_compiled_jit_and_aot() {
 fn future_observer_controls_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_observer_control_backends",
-        include_str!("../../codegen/tests/fixtures/future-observer-controls.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-observer-controls.rinzu"),
         b"307\n311\n307\n",
     );
 }
@@ -347,7 +350,7 @@ fn future_observer_controls_match_source_compiled_jit_and_aot() {
 fn future_capture_matches_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_capture_backends",
-        include_str!("../../codegen/tests/fixtures/future-capture.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-capture.rinzu"),
         b"277\n281\n283\n293\n277\n",
     );
 }
@@ -356,7 +359,7 @@ fn future_capture_matches_source_compiled_jit_and_aot() {
 fn future_discard_matches_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_discard_backends",
-        include_str!("../../codegen/tests/fixtures/future-discard.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-discard.rinzu"),
         b"241\n251\n257\n263\n269\n",
     );
 }
@@ -365,7 +368,7 @@ fn future_discard_matches_source_compiled_jit_and_aot() {
 fn future_async_fields_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_async_field_backends",
-        include_str!("../../codegen/tests/fixtures/future-async-fields.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-async-fields.rinzu"),
         b"211\n223\n227\n229\n229\n233\n239\n",
     );
 }
@@ -374,7 +377,7 @@ fn future_async_fields_match_source_compiled_jit_and_aot() {
 fn future_field_observers_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_field_observer_backends",
-        include_str!("../../codegen/tests/fixtures/future-field-observers.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-field-observers.rinzu"),
         b"193\n197\n199\n203\n204\n",
     );
 }
@@ -383,7 +386,7 @@ fn future_field_observers_match_source_compiled_jit_and_aot() {
 fn future_field_calls_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_field_call_backends",
-        include_str!("../../codegen/tests/fixtures/future-field-calls.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-field-calls.rinzu"),
         b"163\n167\n173\n181\n181\n",
     );
 }
@@ -392,7 +395,7 @@ fn future_field_calls_match_source_compiled_jit_and_aot() {
 fn future_mutable_objects_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_mutable_object_backends",
-        include_str!("../../codegen/tests/fixtures/future-mutable-objects.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-mutable-objects.rinzu"),
         b"131\n137\n149\n157\n137\n",
     );
 }
@@ -401,7 +404,7 @@ fn future_mutable_objects_match_source_compiled_jit_and_aot() {
 fn future_growing_maps_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_growing_map_backends",
-        include_str!("../../codegen/tests/fixtures/future-growing-map.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-growing-map.rinzu"),
         b"0\n1\n2\n0\n1\n1\n",
     );
 }
@@ -410,7 +413,7 @@ fn future_growing_maps_match_source_compiled_jit_and_aot() {
 fn future_growing_lists_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_growing_list_backends",
-        include_str!("../../codegen/tests/fixtures/future-growing-list.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-growing-list.rinzu"),
         b"0\n1\n2\n0\n1\n1\n",
     );
 }
@@ -419,7 +422,7 @@ fn future_growing_lists_match_source_compiled_jit_and_aot() {
 fn future_map_observations_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_map_observation_backends",
-        include_str!("../../codegen/tests/fixtures/future-map-observations.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-map-observations.rinzu"),
         b"3\n0\n113\n1\n127\n",
     );
 }
@@ -428,7 +431,7 @@ fn future_map_observations_match_source_compiled_jit_and_aot() {
 fn future_pending_arguments_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_pending_argument_backends",
-        include_str!("../../codegen/tests/fixtures/future-pending-arguments.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-pending-arguments.rinzu"),
         b"101\n103\n101\n101\n",
     );
 }
@@ -437,7 +440,7 @@ fn future_pending_arguments_match_source_compiled_jit_and_aot() {
 fn future_list_observations_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_list_observation_backends",
-        include_str!("../../codegen/tests/fixtures/future-list-observations.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-list-observations.rinzu"),
         b"3\n0\n2\n",
     );
 }
@@ -446,7 +449,7 @@ fn future_list_observations_match_source_compiled_jit_and_aot() {
 fn future_observations_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_observation_backends",
-        include_str!("../../codegen/tests/fixtures/future-observations.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-observations.rinzu"),
         b"71\n73\n79\n83\n89\n97\n7\n",
     );
 }
@@ -455,7 +458,7 @@ fn future_observations_match_source_compiled_jit_and_aot() {
 fn normal_error_origins_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "normal_error_origin_backends",
-        include_str!("../../codegen/tests/fixtures/normal-error-origins.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/normal-error-origins.rinzu"),
         b"73\n79\n83\n",
     );
 }
@@ -464,7 +467,7 @@ fn normal_error_origins_match_source_compiled_jit_and_aot() {
 fn callable_effects_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "callable_effect_backends",
-        include_str!("../../codegen/tests/fixtures/callable-error-effects.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/callable-error-effects.rinzu"),
         b"41\n37\n47\n37\n43\n",
     );
 }
@@ -473,7 +476,7 @@ fn callable_effects_match_source_compiled_jit_and_aot() {
 fn future_factories_and_immutable_values_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_value_backends",
-        include_str!("../../codegen/tests/fixtures/future-error-values.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-error-values.rinzu"),
         b"11\n13\n17\n23\n29\n",
     );
 }
@@ -481,7 +484,7 @@ fn future_factories_and_immutable_values_match_source_compiled_jit_and_aot() {
 fn future_parameter_effects_match_source_compiled_jit_and_aot() {
     check_future_value_backends(
         "future_parameter_backends",
-        include_str!("../../codegen/tests/fixtures/future-parameter-errors.rinzu"),
+        include_str!("../../../codegen/tests/fixtures/future-parameter-errors.rinzu"),
         b"17\n29\n31\n17\n",
     );
 }
@@ -643,7 +646,7 @@ async fn main(){let pending=spawn work();try{let ignored=await pending;}catch er
         ),
         (
             3,
-            include_str!("../../codegen/tests/fixtures/scalar-source-locations.rinzu"),
+            include_str!("../../../codegen/tests/fixtures/scalar-source-locations.rinzu"),
             false,
         ),
     ] {

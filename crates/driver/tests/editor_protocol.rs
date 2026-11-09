@@ -333,7 +333,7 @@ fn future_replacement_ranges_match_the_cli_in_unsaved_unicode_buffers() {
     fixture.package();
     let entry = fixture.file("src/main.rinzu", "fn main() {}");
     let mut client = Client::new(Some(&fixture.0));
-    let source = include_str!("fixtures/future_replacement.rinzu");
+    let source = include_str!("../../compiler/tests/fixtures/invalid/future_replacement.rinzu");
     let unicode = format!(
         "\u{feff}{}",
         source

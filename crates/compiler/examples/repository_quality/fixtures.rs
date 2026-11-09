@@ -82,9 +82,6 @@ pub fn check(root: &Path, path: &Path, text: &str, temporary: &Path) -> Option<R
     if name.starts_with("sdk/sqlite/tests/") && !name.contains("/rows/") {
         return Some(dependencies::check(root, path, text, temporary, "sqlite"));
     }
-    if name == "sdk/log/tests/main.rinzu" {
-        return Some(dependencies::check(root, path, text, temporary, "log"));
-    }
     if name == "crates/driver/tests/fixtures/macos_interrupt/main.rinzu"
         || name == "sdk/macos/tests/binding/src/main.rinzu"
     {

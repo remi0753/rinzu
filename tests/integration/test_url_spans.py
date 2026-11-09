@@ -2,12 +2,13 @@
 """Compare URL values/errors against the bytewise model in Source/AOT and GC stress."""
 import argparse
 import json
+import os
 from pathlib import Path
 import random
 import shutil
 import subprocess
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def quoted(value):
@@ -42,9 +43,10 @@ def main():
         cases.append(''.join(randomizer.choice(alphabet) for _ in range(randomizer.randrange(65))))
     for length in [7, 8, 9, 15, 16, 17, 63, 64, 65, 512]:
         cases.extend(['a'*length+'%20x', '%20'+'a'*length, 'a'*length+'+x%21', '%41'*length])
+    # Keep only the active input live while stressing moving GC in both decoders.
+    calls = '\n    '.join(f'checkModes({index}, {quoted(value)});' for index, value in enumerate(cases))
     program = '''import "old_url.rinzu" as before;
 import "new_url.rinzu" as after;
-import rinzu.list;
 import rinzu.stdio;
 fn check(index: Int, value: String, plus: Bool, path: Bool) {
     var oldValue="";var oldMessage="";var oldFailed=false;
@@ -60,27 +62,19 @@ fn check(index: Int, value: String, plus: Bool, path: Bool) {
         panic("mismatch");
     }
 }
+fn checkModes(index: Int, value: String) {
+    check(index,value,false,false);check(index,value,false,true);
+    check(index,value,true,false);check(index,value,true,true);
+}
 fn main(){try{
-    let values: List<String> = [__CASES__];
-    var index=0;
-    while index<rinzu.list.length(values){
-        switch rinzu.list.get(values,index){
-            case Option.Some(value):{
-                check(index,value,false,false);check(index,value,false,true);
-                check(index,value,true,false);check(index,value,true,true);
-            }
-            case Option.None:{panic("missing");}
-        }
-        index=index+1;
-    }
+    __CASES__
     rinzu.stdio.writeLine("URL-DIFFERENTIAL:passed");
 }catch errors{panic("unexpected");}}
-'''.replace('__CASES__', ','.join(quoted(value) for value in cases))
+'''.replace('__CASES__', calls)
     entry = work / 'differential.rinzu'
     entry.write_text(program)
     rows = []
     for stress in [False, True]:
-        import os
         env = dict(os.environ, RINZU_GC_STRESS='1' if stress else '0')
         run = subprocess.run([str(args.rinzu.resolve()), 'verify-aot', str(entry)], env=env,
                              capture_output=True, text=True, timeout=600)

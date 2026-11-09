@@ -10,6 +10,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -97,9 +98,16 @@ def run_host(code, rinzu, root, timeout):
             start_new_session=True,
         )
         try:
-            status = process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired as error:
-            raise RuntimeError(f"VS Code host exceeded {timeout} seconds") from error
+            deadline = time.monotonic() + timeout
+            while process.poll() is None and not evidence.is_file():
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(f"VS Code host exceeded {timeout} seconds")
+                time.sleep(0.05)
+            # A finished extension host can leave its dedicated desktop app open.
+            # Give it time to exit normally before the runner closes its process group.
+            with suppress(subprocess.TimeoutExpired):
+                process.wait(timeout=3)
+            status = process.poll()
         finally:
             if process.poll() is None:
                 with suppress(ProcessLookupError):
@@ -119,7 +127,8 @@ def run_host(code, rinzu, root, timeout):
         raise RuntimeError(f"VS Code host exited with status {status}")
 
     result = json.loads(evidence.read_text(encoding="utf-8"))
-    if result.get("schema") != "rinzu-editor-host-tests/1" or not result.get("cases"):
+    if (result.get("schema") != "rinzu-editor-host-tests/1"
+            or result.get("completed") is not True or not result.get("cases")):
         raise RuntimeError("VS Code did not report its integration test cases")
     for case in result["cases"]:
         print(f"{case['status']}  {case['name']}")

@@ -61,26 +61,6 @@ pub fn failure_descriptor() -> TransferDescriptor {
         ),
     ])
 }
-fn cause_code(cause: FailureCause) -> u64 {
-    match cause {
-        FailureCause::ArithmeticTrap => 1,
-        FailureCause::Cancelled => 2,
-        FailureCause::Overloaded => 3,
-        FailureCause::Shutdown => 4,
-        FailureCause::Error(ErrorKind::Conversion) => 5,
-        FailureCause::Unsupported => 6,
-        FailureCause::RuntimePanic => 7,
-        FailureCause::Panic => 16,
-        FailureCause::Error(ErrorKind::NullNativeValue) => 8,
-        FailureCause::Error(ErrorKind::InvalidUtf8) => 9,
-        FailureCause::Error(ErrorKind::NativeRecordBusy) => 10,
-        FailureCause::Error(ErrorKind::UnobservedChildFailure) => 11,
-        FailureCause::Error(ErrorKind::Io) => 12,
-        FailureCause::Error(ErrorKind::SupplantBusy) => 13,
-        FailureCause::Error(ErrorKind::UnboundValue) => 14,
-        FailureCause::Error(ErrorKind::User) => 15,
-    }
-}
 fn cause(code: u64) -> Option<FailureCause> {
     Some(match code {
         1 => FailureCause::ArithmeticTrap,
@@ -107,7 +87,7 @@ fn scalar(kind: K, bits: u64) -> TransferValue {
 }
 fn diagnostic_value(diagnostic: Diagnostic) -> TransferValue {
     TransferValue::Record(vec![
-        scalar(K::U8, cause_code(diagnostic.cause)),
+        scalar(K::U8, u64::from(diagnostic.cause.diagnostic_code())),
         scalar(K::Bool, u64::from(diagnostic.source.is_some())),
         scalar(K::U64, diagnostic.source.map_or(0, |source| source.file)),
         scalar(
