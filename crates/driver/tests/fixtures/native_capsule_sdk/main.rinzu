@@ -1,5 +1,6 @@
 import rinzu.timer;
 import capsules;
+import rinzu.core;
 
 class Completion {
     ready: Bool,
@@ -10,12 +11,12 @@ fn worker(identity: CInt) -> Int {
     try {
         let retained = ["child Worker", "native callback Origin scope"];
         if retained != ["child Worker", "native callback Origin scope"] {
-            panic("lost");
+            rinzu.core.panic("lost");
         }
         return Int(identity);
     }
     catch unexpectedErrors {
-        panic("unexpected failure");
+        rinzu.core.panic("unexpected failure");
         return 0;
     }
 }
@@ -29,14 +30,14 @@ async fn child(identity: CInt, completion: Completion) -> Int {
         let future = capsules.readSize("data/proof.bin");
         let size = await future;
         if size != 8193 || retained != ["child Main", "root after native callback ends"] {
-            panic("lost");
+            rinzu.core.panic("lost");
         }
         capsules.mark(identity, 2);
         completion.complete = true;
         return size;
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
         return 0;
     }
 }
@@ -46,7 +47,7 @@ async fn readSize(path: String) -> Int {
         return await capsules.readSize(path);
     }
     catch unexpectedErrors {
-        panic("unexpected failure");
+        rinzu.core.panic("unexpected failure");
         return 0;
     }
 }
@@ -58,7 +59,7 @@ fn handler(identity: CInt, completion: Completion) -> CInt fallback -19 {
     let direct = readSize("data/proof.bin");
     capsules.mark(identity, 1);
     if retained != ["callback", "moving input and nested activation"] {
-        panic("lost");
+        rinzu.core.panic("lost");
     }
     return 41;
 }
@@ -72,16 +73,16 @@ async fn parent(identity: CInt, completion: Completion) -> Int {
             },
             identity
         ) != 41 {
-            panic("wrongCallback");
+            rinzu.core.panic("wrongCallback");
         }
         capsules.mark(identity, 3);
         if retained != ["parent", "captured Origin scope"] {
-            panic("lost");
+            rinzu.core.panic("lost");
         }
         return 7;
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
         return 0;
     }
 }
@@ -102,15 +103,15 @@ async fn main() {
             await rinzu.timer.sleep(0);
         }
         if one != 7 || two != 7 {
-            panic("lost");
+            rinzu.core.panic("lost");
         }
         capsules.mark(1, 5);
         capsules.mark(2, 5);
         if capsules.finish(0) != 2 {
-            panic("unfinished");
+            rinzu.core.panic("unfinished");
         }
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
     }
 }

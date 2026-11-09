@@ -1,5 +1,6 @@
 import rinzu.list;
 import rinzu.map;
+import rinzu.core;
 
 error Failed {}
 
@@ -17,14 +18,14 @@ async fn main() {
     for task in tasks {
         try {
             let unexpected = await task;
-            panic("task succeeded");
+            rinzu.core.panic("task succeeded");
         }
         catch [problem: Failed] {
             failures = failures + 1;
         }
     }
     if failures != 3 {
-        panic("missing map futures");
+        rinzu.core.panic("missing map futures");
     }
     let pending = fail(7);
     let input: List<{ key: Int, value: Future<Int> }> = [{ key = 7, value = pending }];
@@ -33,7 +34,7 @@ async fn main() {
         for entry in rinzu.map.entries(table) {
             try {
                 let unexpected = await entry.value;
-                panic("task succeeded");
+                rinzu.core.panic("task succeeded");
             }
             catch errors {
                 failures = failures + 1;
@@ -47,9 +48,9 @@ async fn main() {
             }
             catch errors {}
         }
-        panic("duplicate accepted");
+        rinzu.core.panic("duplicate accepted");
     }
     if failures != 4 {
-        panic("missing entry futures");
+        rinzu.core.panic("missing entry futures");
     }
 }

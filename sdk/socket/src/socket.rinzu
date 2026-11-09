@@ -1,4 +1,9 @@
 import rinzu.timer;
+import rinzu.bytes as bytesApi;
+import rinzu.error as err;
+import rinzu.native as bridge;
+import rinzu.number as num;
+import rinzu.string as textApi;
 
 native {
     opaque Listener;
@@ -96,8 +101,8 @@ class WriteFailureData {
 
 fn problem(status: Int, label: String) -> Error {
     try {
-        let resultValue8 = nativeStatus(status, label);
-        return error(-7504, label);
+        let resultValue8 = bridge.checkStatus(status, label);
+        return err.create(-7504, label);
     }
     catch [resultError8: Error, ...resultRest8] {
         return resultError8;
@@ -109,10 +114,10 @@ fn validPort(port: Int, connecting: Bool) -> Bool {
 }
 
 fn invalidHost(host: String) -> Bool {
-    if stringLength(host) == 0 {
+    if textApi.length(host) == 0 {
         return true;
     }
-    switch stringFind(host, "\u{0}", 0) {
+    switch textApi.find(host, "\u{0}", 0) {
         case Option.Some(index): {
             return true;
         }
@@ -126,7 +131,7 @@ fn address(host: String, port: Int) -> Address {
     if !validPort(port, false) || invalidHost(host) {
         throw problem(-7504, "socket.address");
     }
-    let resultValue7 = nativeStatus(Int(rawAddress(host, CInt(port))), "socket.address");
+    let resultValue7 = bridge.checkStatus(Int(rawAddress(host, CInt(port))), "socket.address");
     return (Address(host: host, port: port));
 }
 
@@ -143,12 +148,12 @@ fn validTimeout(milliseconds: Int) -> Bool {
 
 fn settle(operation: Operation) -> Future<Unit> {
     rawCancel(operation);
-    return nativeCompleted(rawCompletion(operation));
+    return bridge.completed(rawCompletion(operation));
 }
 
 fn settleTransfer(id: Int) -> Future<Unit> {
     rawCancelId(id);
-    return nativeCompleted(rawTransferCompletion(id));
+    return bridge.completed(rawTransferCompletion(id));
 }
 
 async fn listenerResult(id: Int, label: String) -> Listener {
@@ -157,9 +162,9 @@ async fn listenerResult(id: Int, label: String) -> Listener {
     }
     let operation = rawOperation(id);
     try {
-        await nativeCompleted(rawCompletion(operation));
+        await bridge.completed(rawCompletion(operation));
         try {
-            let resultValue6 = nativeStatus(Int(rawStatus(operation)), label);
+            let resultValue6 = bridge.checkStatus(Int(rawStatus(operation)), label);
             let value = rawListenerValue(operation);
             rawAck(operation);
             return (value);
@@ -182,9 +187,9 @@ async fn streamResult(id: Int, label: String) -> TcpStream {
     }
     let operation = rawOperation(id);
     try {
-        await nativeCompleted(rawCompletion(operation));
+        await bridge.completed(rawCompletion(operation));
         try {
-            let resultValue5 = nativeStatus(Int(rawStatus(operation)), label);
+            let resultValue5 = bridge.checkStatus(Int(rawStatus(operation)), label);
             let value = rawStreamValue(operation);
             rawAck(operation);
             return (value);
@@ -257,12 +262,12 @@ async fn receiving(stream: TcpStream, maximum: Int, milliseconds: Int) -> ReadCh
     }
     var acknowledged = false;
     try {
-        let result = await nativeTransferred(rawTransferCompletion(id));
+        let result = await bridge.transferred(rawTransferCompletion(id));
         try {
             // The low 17 bits are length; subtract before signed division so
             // negative SDK statuses preserve the same CInt value.
-            let length = bitAnd(result, 131071);
-            let resultValue4 = nativeStatus((result - length) / 131072, "socket.read");
+            let length = num.bitAnd(result, 131071);
+            let resultValue4 = bridge.checkStatus((result - length) / 131072, "socket.read");
             let data = rawBytesViewId(id);
             rawAckId(id);
             acknowledged = true;
@@ -297,16 +302,16 @@ async fn readWithTimeout(stream: TcpStream, maximum: Int, milliseconds: Int) -> 
 }
 
 async fn send(stream: TcpStream, data: ByteArray, all: Bool, milliseconds: Int) -> Int {
-    let id = rawWrite(stream, data, byteLength(data), all, milliseconds);
+    let id = rawWrite(stream, data, bytesApi.byteLength(data), all, milliseconds);
     if id < 0 {
         throw writeFailure(problem(id, "socket.write"), 0);
     }
     var acknowledged = false;
     try {
-        let result = await nativeTransferred(rawTransferCompletion(id));
-        let length = bitAnd(result, 131071);
+        let result = await bridge.transferred(rawTransferCompletion(id));
+        let length = num.bitAnd(result, 131071);
         try {
-            let resultValue3 = nativeStatus((result - length) / 131072, "socket.write");
+            let resultValue3 = bridge.checkStatus((result - length) / 131072, "socket.write");
             rawAckId(id);
             acknowledged = true;
             return (length);
@@ -354,8 +359,8 @@ async fn statusResult(id: Int, label: String) -> Int {
     }
     let operation = rawOperation(id);
     try {
-        await nativeCompleted(rawCompletion(operation));
-        let result = nativeStatus(Int(rawStatus(operation)), label);
+        await bridge.completed(rawCompletion(operation));
+        let result = bridge.checkStatus(Int(rawStatus(operation)), label);
         rawAck(operation);
         return result;
     }

@@ -1,3 +1,5 @@
+import rinzu.core;
+
 async fn readSize(path: String) -> Int {
     return await readResourceSize(path);
 }
@@ -29,7 +31,7 @@ native {
 fn receive(value: Witness, depth: CInt) -> CInt fallback -19 {
     let retained = ["日本語", "caller root after nested native call"];
     if ping(value) != 41 {
-        panic("wrongThread");
+        rinzu.core.panic("wrongThread");
     }
     try {
         if depth == 99 {
@@ -42,7 +44,7 @@ fn receive(value: Witness, depth: CInt) -> CInt fallback -19 {
     }
     finally {
         if retained != ["日本語", "caller root after nested native call"] || ping(value) != 41 {
-            panic("lostCaller");
+            rinzu.core.panic("lostCaller");
         }
     }
 }
@@ -52,16 +54,16 @@ fn exercise(main: CInt) -> Int {
         let value = create(main);
         let retained = ["outer", "moving root"];
         if invoke(value, receive, 12) != 53 || invoke(value, receive, 99) != -19 {
-            panic("wrongResult");
+            rinzu.core.panic("wrongResult");
         }
         if retained != ["outer", "moving root"] {
-            panic("lostRoot");
+            rinzu.core.panic("lostRoot");
         }
         destroy(value);
         return 1;
     }
     catch unexpectedErrors {
-        panic("failed");
+        rinzu.core.panic("failed");
         return 0;
     }
 }
@@ -70,12 +72,12 @@ fn orphan(main: CInt) -> Int {
     try {
         let value = create(main);
         if ping(value) != 41 {
-            panic("wrong");
+            rinzu.core.panic("wrong");
         }
         return 1;
     }
     catch unexpectedErrors {
-        panic("failed");
+        rinzu.core.panic("failed");
         return 0;
     }
 }
@@ -86,13 +88,13 @@ fn blocking() -> Int {
         let retained = ["blocked Worker", "root while I/O runs"];
         let result = block(value, receive);
         if result != 41 || retained != ["blocked Worker", "root while I/O runs"] {
-            panic("wrongBlock");
+            rinzu.core.panic("wrongBlock");
         }
         destroy(value);
         return 1;
     }
     catch unexpectedErrors {
-        panic("failed");
+        rinzu.core.panic("failed");
         return 0;
     }
 }

@@ -1,6 +1,7 @@
 import rinzu.macos;
 import rinzu.testing;
 import rinzu.stdio;
+import rinzu.core;
 
 fn expect(condition: Bool, context: String) {
     rinzu.testing.assertTrue(condition, context);
@@ -44,7 +45,7 @@ async fn body(app: rinzu.macos.UiApplication) {
             expect(!binding.receive(savedEvent), "binding step 6");
         }
         case Option.None: {
-            panic("missing owned input");
+            rinzu.core.panic("missing owned input");
         }
     }
     let queued = rinzu.macos.testInput(input.view, 0);
@@ -186,6 +187,6 @@ async fn main() {
         }
     }
     catch errors {
-        panic(f"binding failed: {errors}");
+        rinzu.core.panic(f"binding failed: {errors}");
     }
 }

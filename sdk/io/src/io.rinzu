@@ -1,3 +1,8 @@
+import rinzu.bytes as bytesApi;
+import rinzu.error as err;
+import rinzu.native as bridge;
+import rinzu.string as textApi;
+
 fn readSize(path: String) -> Future<Int> {
     return readResourceSize(path);
 }
@@ -70,10 +75,10 @@ class ReadChunk {
 }
 
 fn invalidPath(path: String) -> Bool {
-    if stringLength(path) == 0 {
+    if textApi.length(path) == 0 {
         return true;
     }
-    switch stringFind(path, "\u{0}", 0) {
+    switch textApi.find(path, "\u{0}", 0) {
         case Option.Some(index): {
             return true;
         }
@@ -85,8 +90,8 @@ fn invalidPath(path: String) -> Bool {
 
 fn problem(status: Int, label: String) -> Error {
     try {
-        let resultValue7 = nativeStatus(status, label);
-        return error(-7104, label);
+        let resultValue7 = bridge.checkStatus(status, label);
+        return err.create(-7104, label);
     }
     catch [resultError7: Error, ...resultRest7] {
         return resultError7;
@@ -94,7 +99,7 @@ fn problem(status: Int, label: String) -> Error {
 }
 
 async fn wait(file: File) {
-    await nativeCompleted(rawCompletion(file));
+    await bridge.completed(rawCompletion(file));
 }
 
 async fn settle(file: File) {
@@ -111,7 +116,7 @@ async fn open(path: String, writing: CInt) -> File {
     var delivered = false;
     try {
         await wait(file);
-        let resultValue6 = nativeStatus(Int(rawStatus(file)), "io.open");
+        let resultValue6 = bridge.checkStatus(Int(rawStatus(file)), "io.open");
         delivered = true;
         return (file);
     }
@@ -142,7 +147,7 @@ async fn openTemporary(template: String) -> File {
     var delivered = false;
     try {
         await wait(file);
-        let status = nativeStatus(Int(rawStatus(file)), "io.temporary");
+        let status = bridge.checkStatus(Int(rawStatus(file)), "io.temporary");
         delivered = true;
         return file;
     }
@@ -160,9 +165,9 @@ async fn installTemporary(file: File, destination: String) -> Int {
         throw problem(-7104, "io.temporary.destination");
     }
     try {
-        let admitted = nativeStatus(Int(rawInstallTemporary(file, destination)), "io.temporary.install");
+        let admitted = bridge.checkStatus(Int(rawInstallTemporary(file, destination)), "io.temporary.install");
         await wait(file);
-        return nativeStatus(Int(rawStatus(file)), "io.temporary.install");
+        return bridge.checkStatus(Int(rawStatus(file)), "io.temporary.install");
     }
     finally {
         if rawPending(file) {
@@ -176,7 +181,7 @@ async fn standard(stream: CInt) -> File {
     var delivered = false;
     try {
         await wait(file);
-        let resultValue5 = nativeStatus(Int(rawStatus(file)), "io.standard");
+        let resultValue5 = bridge.checkStatus(Int(rawStatus(file)), "io.standard");
         delivered = true;
         return (file);
     }
@@ -211,10 +216,10 @@ async fn read(file: File, maximum: Int) -> ReadChunk {
             throw problem(started, "io.read");
         }
         await wait(file);
-        let resultValue4 = nativeStatus(Int(rawStatus(file)), "io.read");
+        let resultValue4 = bridge.checkStatus(Int(rawStatus(file)), "io.read");
         let valid = rawLength(file);
-        let all = byteArray(rawBytes(file));
-        switch bytesSlice(all, 0, valid) {
+        let all = bytesApi.from(rawBytes(file));
+        switch bytesApi.slice(all, 0, valid) {
             case Option.Some(data): {
                 return (ReadChunk(data: data, eof: valid == 0));
             }
@@ -232,7 +237,7 @@ async fn read(file: File, maximum: Int) -> ReadChunk {
 }
 
 async fn write(file: File, data: ByteArray) -> Int {
-    if bytesLength(data) > 65536 {
+    if bytesApi.length(data) > 65536 {
         throw problem(-7104, "io.write");
     }
     let ready = Int(rawReadyStatus(file));
@@ -240,12 +245,12 @@ async fn write(file: File, data: ByteArray) -> Int {
         throw problem(ready, "io.write");
     }
     try {
-        let started = Int(rawWrite(file, data, byteLength(data)));
+        let started = Int(rawWrite(file, data, bytesApi.byteLength(data)));
         if started != 0 {
             throw problem(started, "io.write");
         }
         await wait(file);
-        let resultValue3 = nativeStatus(Int(rawStatus(file)), "io.write");
+        let resultValue3 = bridge.checkStatus(Int(rawStatus(file)), "io.write");
         return (rawLength(file));
     }
     finally {
@@ -257,7 +262,7 @@ async fn write(file: File, data: ByteArray) -> Int {
 }
 
 async fn writeAll(file: File, data: ByteArray) -> Int {
-    let length = bytesLength(data);
+    let length = bytesApi.length(data);
     if length > 65536 {
         throw problem(-7104, "io.writeAll");
     }
@@ -266,12 +271,12 @@ async fn writeAll(file: File, data: ByteArray) -> Int {
         throw problem(ready, "io.writeAll");
     }
     try {
-        let started = Int(rawWriteAll(file, data, byteLength(data)));
+        let started = Int(rawWriteAll(file, data, bytesApi.byteLength(data)));
         if started != 0 {
             throw problem(started, "io.writeAll");
         }
         await wait(file);
-        let resultValue2 = nativeStatus(Int(rawStatus(file)), "io.writeAll");
+        let resultValue2 = bridge.checkStatus(Int(rawStatus(file)), "io.writeAll");
         return (rawLength(file));
     }
     finally {
@@ -299,7 +304,7 @@ async fn control(file: File, flushing: Bool, label: String) -> Int {
             throw problem(started, label);
         }
         await wait(file);
-        return nativeStatus(Int(rawStatus(file)), label);
+        return bridge.checkStatus(Int(rawStatus(file)), label);
     }
     finally {
         if rawPending(file) {
@@ -342,7 +347,7 @@ async fn pathOperation(from: String, to: String, removing: CInt) -> Int {
     let operation = rawPath(from, to, removing);
     try {
         await wait(operation);
-        return nativeStatus(Int(rawStatus(operation)), "io.path");
+        return bridge.checkStatus(Int(rawStatus(operation)), "io.path");
     }
     finally {
         await settle(operation);

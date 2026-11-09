@@ -2,6 +2,10 @@ import rinzu.macos;
 import rinzu.process;
 import rinzu.stdio;
 import rinzu.testing;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
+import rinzu.future as future;
 
 class RunProbe {
     const view: rinzu.macos.View,
@@ -70,7 +74,7 @@ fn core() {
     }
     catch [problem: Error, ...rest] {
         rinzu.testing.assertEqual<Option<Int>>(
-            errorNativeStatus(problem),
+            err.nativeStatus(problem),
             Option<Int>.Some(value: -7804),
             "cycle status"
         );
@@ -84,7 +88,7 @@ fn core() {
     }
     catch [problem: Error, ...rest] {
         rinzu.testing.assertEqual<Option<Int>>(
-            errorNativeStatus(problem),
+            err.nativeStatus(problem),
             Option<Int>.Some(value: -7802),
             "closed alias status"
         );
@@ -105,7 +109,7 @@ kernel void increment(device uchar *data [[buffer(0)]], uint i [[thread_position
 "#
     );
     let pipeline = library.computePipeline("increment");
-    let buffer = device.buffer(byteArray(b"\x00\xff\x40\x7f"));
+    let buffer = device.buffer(bytesApi.from(b"\x00\xff\x40\x7f"));
     let command = device.command();
     var iteration = 0;
     while iteration < 3 {
@@ -124,9 +128,9 @@ kernel void increment(device uchar *data [[buffer(0)]], uint i [[thread_position
         }
         if cancelled {
             let pending = command.wait();
-            let requested = cancelFuture(pending);
+            let requested = future.cancel(pending);
             let result = await pending;
-            panic("queued waiter cancellation was lost");
+            rinzu.core.panic("queued waiter cancellation was lost");
         }
         let completed = await command.wait();
         iteration = iteration + 1;
@@ -135,7 +139,7 @@ kernel void increment(device uchar *data [[buffer(0)]], uint i [[thread_position
     let destroyed = buffer.destroy();
     rinzu.testing.assertEqual<ByteArray>(
         copied,
-        byteArray(b"\x03\x02\x43\x82"),
+        bytesApi.from(b"\x03\x02\x43\x82"),
         "owned GPU bytes after buffer destroy"
     );
     let abandoned = command.beginCompute(pipeline);
@@ -197,6 +201,6 @@ async fn main() {
             rinzu.stdio.writeLine(f"macOS SDK test: {errors}");
         }
         catch outputErrors {}
-        panic("macOS SDK source test failed");
+        rinzu.core.panic("macOS SDK source test failed");
     }
 }

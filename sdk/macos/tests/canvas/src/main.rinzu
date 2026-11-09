@@ -3,6 +3,9 @@ import rinzu.macos;
 import rinzu.timer;
 import rinzu.process;
 import rinzu.stdio;
+import rinzu.core;
+import rinzu.error as err;
+import rinzu.future as future;
 
 async fn textPixels() {
     let session = rinzu.macos.open();
@@ -11,7 +14,7 @@ async fn textPixels() {
     let text = device.text2D(font, "Rinzu 日本語 😀", 0.0, rinzu.macos.textLeft, 1.0);
     let metrics = text.metrics;
     if metrics.lines != 1 || metrics.width <= 0.0 || metrics.baseline <= 0.0 {
-        panic("text metrics mismatch");
+        rinzu.core.panic("text metrics mismatch");
     }
     let target = device.texture2D(
         text.width + 32,
@@ -32,7 +35,7 @@ async fn textPixels() {
     let original = text.texture.read(rinzu.macos.Scissor(x: 0, y: 0, width: text.width, height: text.height));
     let drawn = target.read(rinzu.macos.Scissor(x: 12, y: 12, width: text.width, height: text.height));
     if original != drawn {
-        panic("text texture pixel copy differs");
+        rinzu.core.panic("text texture pixel copy differs");
     }
     batch.destroy();
     text.destroy();
@@ -53,7 +56,7 @@ class TestState {
                 return value;
             }
             case Option.None: {
-                throw error(-7890, "canvas not initialized");
+                throw err.create(-7890, "canvas not initialized");
             }
         }
     }
@@ -74,7 +77,7 @@ class TestState {
             if self.submit {
                 let submitted = frame.batch.command.commit();
             }
-            throw error(-7890, "draw-test");
+            throw err.create(-7890, "draw-test");
         }
     }
 
@@ -83,7 +86,7 @@ class TestState {
         var guard = 0;
         while canvas.frames < 1 {
             if guard > 1000 {
-                panic("first frame timeout");
+                rinzu.core.panic("first frame timeout");
             }
             await rinzu.timer.sleep(5);
             guard = guard + 1;
@@ -102,7 +105,7 @@ class TestState {
         await rinzu.timer.sleep(40);
         let coalesced = canvas.clock.statistics();
         if coalesced.coalesced - initial.coalesced < 999 {
-            panic("invalidation did not coalesce");
+            rinzu.core.panic("invalidation did not coalesce");
         }
         let hidden = canvas.view.setHidden(true);
         let requested = canvas.invalidate();
@@ -110,7 +113,7 @@ class TestState {
         let resources = rinzu.macos.statistics();
         let invisible = canvas.clock.statistics();
         if resources.frameTimers != 0 || invisible.visible {
-            panic("hidden clock scheduled a timer");
+            rinzu.core.panic("hidden clock scheduled a timer");
         }
         let shown = canvas.view.setHidden(false);
         let old = canvas.frames;
@@ -167,7 +170,7 @@ async fn observe(clock: rinzu.macos.FrameClock) {
         let unexpected = await clock.next();
     }
     catch errors {
-        panic("clock await failed unexpectedly");
+        rinzu.core.panic("clock await failed unexpectedly");
     }
 }
 
@@ -185,15 +188,15 @@ async fn cancelBody(app: rinzu.macos.UiApplication) {
         var stats = clock.statistics();
         while !stats.pending {
             if guard > 1000 {
-                panic("idle reader did not admit");
+                rinzu.core.panic("idle reader did not admit");
             }
             await rinzu.timer.sleep(1);
             guard = guard + 1;
             stats = clock.statistics();
         }
-        let cancelled = cancelFuture(watching);
+        let cancelled = future.cancel(watching);
         await watching;
-        panic("idle frame cancellation was lost");
+        rinzu.core.panic("idle frame cancellation was lost");
     }
     finally {
         let stopped = clock.stop();
@@ -249,12 +252,12 @@ async fn actionsBody(app: rinzu.macos.UiApplication) {
         rejected = true;
     }
     if !rejected {
-        panic("duplicate action binding was accepted");
+        rinzu.core.panic("duplicate action binding was accepted");
     }
     actions.handle(scope, actionEvent(rinzu.macos.eventCloseRequested, scope.windowId + 1, 0));
     actions.handle(scope, actionEvent(rinzu.macos.eventAction, scope.windowId + 1, 42));
     if scope.isStopping() || state.calls != 0 {
-        panic("action crossed Window scope");
+        rinzu.core.panic("action crossed Window scope");
     }
     let event = actionEvent(rinzu.macos.eventAction, scope.windowId, 42);
     var index = 0;
@@ -266,14 +269,14 @@ async fn actionsBody(app: rinzu.macos.UiApplication) {
         await rinzu.timer.sleep(1);
     }
     if state.calls != 1 {
-        panic("busy action admitted duplicate jobs");
+        rinzu.core.panic("busy action admitted duplicate jobs");
     }
     state.release = true;
     let firstJoined = await scope.join();
     actions.handle(scope, event);
     let secondJoined = await scope.join();
     if state.calls != 2 {
-        panic("completed action could not be reused");
+        rinzu.core.panic("completed action could not be reused");
     }
     let parent = scope.session.view(rinzu.macos.Rect(x: 0.0, y: 0.0, width: 240.0, height: 160.0));
     let root = scope.window.contentView();
@@ -289,13 +292,13 @@ async fn actionsBody(app: rinzu.macos.UiApplication) {
     let fixedRow = fixed.view.frame();
     let flexibleRow = flexible.view.frame();
     if fixedRow.width != 40.0 || flexibleRow.x != 60.0 || flexibleRow.width != 170.0 {
-        panic("weighted row geometry mismatch");
+        rinzu.core.panic("weighted row geometry mismatch");
     }
     let column = rinzu.macos.weightedColumn(parent, items, 10.0, 10.0);
     let fixedColumn = fixed.view.frame();
     let flexibleColumn = flexible.view.frame();
     if fixedColumn.y != 110.0 || flexibleColumn.y != 10.0 || flexibleColumn.height != 90.0 {
-        panic("weighted column geometry mismatch");
+        rinzu.core.panic("weighted column geometry mismatch");
     }
     var invalid = false;
     try {
@@ -305,12 +308,12 @@ async fn actionsBody(app: rinzu.macos.UiApplication) {
         invalid = true;
     }
     if !invalid {
-        panic("invalid layout spacing was accepted");
+        rinzu.core.panic("invalid layout spacing was accepted");
     }
     actions.on(
         43,
         async fn (job: rinzu.macos.UiJob, event: rinzu.macos.UiEvent) {
-            throw error(-7891, "action-test");
+            throw err.create(-7891, "action-test");
         }
     );
     actions.handle(scope, actionEvent(rinzu.macos.eventAction, scope.windowId, 43));
@@ -321,7 +324,7 @@ async fn actionsBody(app: rinzu.macos.UiApplication) {
     catch errors {
         switch rinzu.list.get(errors, 0) {
             case Option.Some(problem): {
-                if errorCode(problem) == -7891 {
+                if err.code(problem) == Option<Int>.Some(value: -7891) {
                     failed = true;
                 }
                 else {
@@ -332,7 +335,7 @@ async fn actionsBody(app: rinzu.macos.UiApplication) {
         }
     }
     if !failed || !scope.isStopping() {
-        panic("async action failure did not stop its scope");
+        rinzu.core.panic("async action failure did not stop its scope");
     }
     rinzu.stdio.writeLine("CANVAS:actions:bounded:reusable:window-routing:error:weighted-layout");
 }
@@ -357,7 +360,7 @@ async fn exercise() {
             catch errors {
                 switch rinzu.list.get(errors, 0) {
                     case Option.Some(problem): {
-                        if errorCode(problem) == -7890 {
+                        if err.code(problem) == Option<Int>.Some(value: -7890) {
                             failed = true;
                         }
                         else {
@@ -368,7 +371,7 @@ async fn exercise() {
                 }
             }
             if (mode == "recording-failure" || mode == "submitted-failure") && !failed {
-                panic("draw error was not reported");
+                rinzu.core.panic("draw error was not reported");
             }
             rinzu.stdio.writeLine(f"CANVAS:{mode}:ok");
         }
@@ -377,7 +380,7 @@ async fn exercise() {
         let closed = await rinzu.macos.closeOwnerSessions();
         let stats = rinzu.macos.statistics();
         if stats.retainedControls != 0 || stats.textBytes != 0 || stats.frameTimers != 0 || stats.frameWaiters != 0 {
-            panic("canvas resources remained");
+            rinzu.core.panic("canvas resources remained");
         }
         rinzu.stdio.writeLine("CANVAS:closed");
     }
@@ -388,6 +391,6 @@ async fn main() {
         await exercise();
     }
     catch errors {
-        panic(f"canvas test failed: {errors}");
+        rinzu.core.panic(f"canvas test failed: {errors}");
     }
 }

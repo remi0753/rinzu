@@ -1,4 +1,5 @@
 import rinzu.stdio;
+import rinzu.core;
 
 enum Environment {
     Prefix(text: String)
@@ -36,6 +37,6 @@ fn main() {
         rinzu.stdio.writeLine(invoke(function, 42));
     }
     catch errors {
-        panic(f"unexpected Error in Main: {errors}");
+        rinzu.core.panic(f"unexpected Error in Main: {errors}");
     }
 }

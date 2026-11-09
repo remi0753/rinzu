@@ -1,5 +1,6 @@
 import rinzu.list;
 import rinzu.stdio;
+import rinzu.core;
 
 error Failed {
     payload: String
@@ -47,20 +48,20 @@ async fn main() {
                             rinzu.stdio.writeLine(problem.payload);
                         }
                         else {
-                            panic("failed");
+                            rinzu.core.panic("failed");
                         }
                     }
                     case Option.None: {
-                        panic("failed");
+                        rinzu.core.panic("failed");
                     }
                 }
             }
             case Option.None: {
-                panic("failed");
+                rinzu.core.panic("failed");
             }
         }
     }
     catch errors {
-        panic("failed");
+        rinzu.core.panic("failed");
     }
 }

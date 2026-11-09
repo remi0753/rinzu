@@ -2,6 +2,7 @@ import rinzu.macos;
 import rinzu.io;
 import rinzu.process;
 import rinzu.stdio;
+import rinzu.core;
 
 async fn exercise() {
     let session = rinzu.macos.open();
@@ -15,7 +16,7 @@ async fn exercise() {
             }
             case Option.None: {
                 if rinzu.process.setting("RINZU_BUNDLE_EXPECT_APP", "0") == "1" {
-                    panic("bundle resource root missing");
+                    rinzu.core.panic("bundle resource root missing");
                 }
                 let development = rinzu.process.setting("RINZU_BUNDLE_DEV_ROOT", "");
                 path = f"{development}/assets/日本語.txt";
@@ -29,15 +30,15 @@ async fn exercise() {
             rejected = true;
         }
         if !rejected {
-            panic("parent resource path accepted");
+            rinzu.core.panic("parent resource path accepted");
         }
         let text = await rinzu.macos.readDocument(path);
         if text != "Bundled resources 日本語 😀\n" {
-            panic("resource bytes differ");
+            rinzu.core.panic("resource bytes differ");
         }
         let legacy = await rinzu.io.readSize("data/probe.txt");
         if legacy != 4 {
-            panic("legacy resource relocation failed");
+            rinzu.core.panic("legacy resource relocation failed");
         }
         rinzu.stdio.writeLine("BUNDLE:resources:unicode:legacy:read");
     }
@@ -46,11 +47,11 @@ async fn exercise() {
         let closed = await session.close();
     }
     if rinzu.process.setting("RINZU_BUNDLE_EXPECT_APP", "0") == "1" && saved == "" {
-        panic("owned resource root lost");
+        rinzu.core.panic("owned resource root lost");
     }
     let stats = rinzu.macos.statistics();
     if stats.retainedControls + rinzu.io.liveFiles() + rinzu.io.liveBuffers() + rinzu.io.liveOperations() != 0 {
-        panic("bundle resources leaked");
+        rinzu.core.panic("bundle resources leaked");
     }
 }
 
@@ -75,12 +76,12 @@ async fn main() {
                 .io
                 .liveOperations()
                 != 0 {
-                panic("bundle final cleanup failed");
+                rinzu.core.panic("bundle final cleanup failed");
             }
             rinzu.stdio.writeLine("BUNDLE:closed");
         }
     }
     catch errors {
-        panic(f"bundle test failed: {errors}");
+        rinzu.core.panic(f"bundle test failed: {errors}");
     }
 }

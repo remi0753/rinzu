@@ -1,6 +1,9 @@
 import rinzu.list;
 import rinzu.sqlite;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
 
 class Snapshot {
     const rows: List<ByteArray>
@@ -9,13 +12,13 @@ class Snapshot {
 fn rejected(connection: rinzu.sqlite.Connection, sql: String, maximum: Int, status: Int) {
     try {
         let resultValue8 = connection.queryByteRows(sql, maximum);
-        panic("unexpectedSuccess");
+        rinzu.core.panic("unexpectedSuccess");
     }
     catch [resultError8: Error, ...resultRest8] {
         var matches = false;
-        switch errorNativeStatus(resultError8) {
+        switch err.nativeStatus(resultError8) {
             case Option.None: {
-                matches = errorCode(resultError8) == status;
+                matches = err.code(resultError8) == Option<Int>.Some(value: status);
             }
             case Option.Some(value): {
                 matches = value == status;
@@ -38,7 +41,7 @@ fn worker() -> Snapshot {
                 let resultValue6 = resultValue7.setDeadline(500);
             }
             catch [resultError6: Error, ...resultRest6] {
-                panic("failedDeadline");
+                rinzu.core.panic("failedDeadline");
             }
             let controls = rinzu.sqlite.retainedControlBytes();
             var i = 0;
@@ -48,12 +51,12 @@ fn worker() -> Snapshot {
                         "SELECT X'0001ff' UNION ALL SELECT zeroblob(0) UNION ALL SELECT X'80'",
                         3
                     );
-                    if resultValue5 != [byteArray(b"\x00\x01\xff"), byteArray(b""), byteArray(b"\x80")] {
+                    if resultValue5 != [bytesApi.from(b"\x00\x01\xff"), bytesApi.from(b""), bytesApi.from(b"\x80")] {
                         let incorrectRows = CInt8(300);
                     }
                 }
                 catch [resultError5: Error, ...resultRest5] {
-                    panic("failedRows");
+                    rinzu.core.panic("failedRows");
                 }
                 if rinzu.sqlite.ownedLive() != 0 || rinzu.sqlite.retainedControlBytes() != controls {
                     let growingControl = CInt8(300);
@@ -72,7 +75,7 @@ fn worker() -> Snapshot {
                 }
             }
             catch [resultError4: Error, ...resultRest4] {
-                panic("failedEmpty");
+                rinzu.core.panic("failedEmpty");
             }
             try {
                 let resultValue3 = resultValue7.queryByteRows(
@@ -82,7 +85,7 @@ fn worker() -> Snapshot {
                 return Snapshot(rows: resultValue3);
             }
             catch [resultError3: Error, ...resultRest3] {
-                panic("failedBoundary");
+                rinzu.core.panic("failedBoundary");
             }
         }
         finally {
@@ -90,12 +93,12 @@ fn worker() -> Snapshot {
                 let resultValue2 = resultValue7.close();
             }
             catch [resultError2: Error, ...resultRest2] {
-                panic("failedClose");
+                rinzu.core.panic("failedClose");
             }
         }
     }
     catch [resultError7: Error, ...resultRest7] {
-        panic("failedOpen");
+        rinzu.core.panic("failedOpen");
     }
     return Snapshot(rows: []);
 }
@@ -110,23 +113,23 @@ async fn main() {
         }
         let snapshot = await spawn worker();
         if rinzu.list.length(snapshot.rows) != 256 {
-            panic("failedTransport");
+            rinzu.core.panic("failedTransport");
         }
         var i = 0;
         while i < 256 {
             switch rinzu.list.get(snapshot.rows, i) {
                 case Option.None: {
-                    panic("missingRow");
+                    rinzu.core.panic("missingRow");
                 }
                 case Option.Some(row): {
-                    if bytesLength(row) != 256 {
+                    if bytesApi.length(row) != 256 {
                         let shortRow = CInt8(300);
                     }
                     var j = 0;
                     while j < 256 {
-                        switch bytesGet(row, j) {
+                        switch bytesApi.get(row, j) {
                             case Option.None: {
-                                panic("missingByte");
+                                rinzu.core.panic("missingByte");
                             }
                             case Option.Some(value): {
                                 if value != CUInt8(0) {
@@ -144,11 +147,11 @@ async fn main() {
             || rinzu.sqlite.ownedAllocations() != rinzu.sqlite.ownedReleases()
             || rinzu.sqlite.liveConnections() != 0
             || rinzu.sqlite.allocatorCurrent() != 0 {
-            panic("failedSettlement");
+            rinzu.core.panic("failedSettlement");
         }
         rinzu.stdio.writeLine("sqlite-owned-rows-ok 256 65536");
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

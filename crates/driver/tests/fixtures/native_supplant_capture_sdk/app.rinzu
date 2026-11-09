@@ -1,13 +1,14 @@
 import captures;
+import rinzu.core;
 
 async fn main() {
     try {
         let result = await captures.exercise(40);
         if result != 43 {
-            panic("wrong capture result");
+            rinzu.core.panic("wrong capture result");
         }
     }
     catch [error: Error, ...rest] {
-        panic(error.message);
+        rinzu.core.panic(error.message);
     }
 }

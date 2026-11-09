@@ -1,4 +1,5 @@
 import rinzu.stdio;
+import rinzu.string as textApi;
 
 fn main() {
     try {
@@ -9,8 +10,8 @@ footer"##;
         rinzu.stdio.writeLine(json);
         rinzu.stdio.writeLine(template);
         rinzu.stdio.writeLine(r"literal \n {name}" == "literal \\n {name}");
-        rinzu.stdio.writeLine(stringLength(r"é"));
-        rinzu.stdio.writeLine(f"value={stringLength(r#"}"#)}");
+        rinzu.stdio.writeLine(textApi.length(r"é"));
+        rinzu.stdio.writeLine(f"value={textApi.length(r#"}"#)}");
     }
     catch errors {}
 }

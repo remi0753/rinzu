@@ -241,7 +241,10 @@ impl Checker<'_> {
         }
         if let [root, module, ..] = target
             && root == "rinzu"
-            && matches!(module.as_str(), "list" | "map")
+            && (matches!(module.as_str(), "list" | "map")
+                || crate::core::PUBLIC_MODULES
+                    .iter()
+                    .any(|(name, _)| name.strip_prefix("rinzu.") == Some(module)))
         {
             // A valid import links the dotted path to a canonical symbol.
             self.unknown_name(&qualified, range);
@@ -283,17 +286,6 @@ impl Checker<'_> {
         }
         let core = crate::core::function_name(target)
             .filter(|_| !self.declarations.contains_key(&qualified));
-        if target.len() > 1
-            && core.is_some()
-            && !self
-                .module
-                .imports
-                .iter()
-                .any(|import| import.path == ["rinzu", "core"])
-        {
-            self.unknown_name(&qualified, range);
-            return None;
-        }
         if let Some(function) = crate::RuntimeFunction::from_path(target)
             .filter(|_| !self.declarations.contains_key(&qualified))
         {
@@ -392,7 +384,8 @@ impl Checker<'_> {
                 context.facts.may_fail = true;
                 return Some(result);
             }
-            let input = self.check_expression(&values[0], None, context)?;
+            let expected = op.has_error_receiver().then_some(&Type::Error);
+            let input = self.check_expression(&values[0], expected, context)?;
             let Some((parameters, result)) = crate::core::data_signature(op, &input) else {
                 self.type_error(
                     values[0].range,
@@ -416,7 +409,11 @@ impl Checker<'_> {
                 (StringFind | BytesFindAny | BytesFindNotAny, _) => Some(&Type::Int),
                 (BytesSlice, _) => Some(&Type::Bytes),
                 (BytesGet, _) => Some(&Type::Scalar(AbiScalar::U8)),
-                (ErrorCause, _) => Some(&Type::Error),
+                (ErrorCause | ErrorWithContextOption | ErrorWithCauseOption, _) => {
+                    Some(&Type::Error)
+                }
+                (ErrorContextOption, _) => Some(&Type::String),
+                (ErrorCodeOption, _) => Some(&Type::Int),
                 (ErrorSourceFile, _) => Some(&Type::Scalar(AbiScalar::U64)),
                 (ErrorSourceStart | ErrorSourceEnd | ErrorNativeStatus, _) => Some(&Type::Int),
                 (MapGet, Type::Map(_, v)) => Some(v.as_ref()),

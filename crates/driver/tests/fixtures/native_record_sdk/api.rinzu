@@ -1,4 +1,5 @@
 import rinzu.core;
+import rinzu.bytes as bytesApi;
 
 native {
     record Packet {
@@ -88,20 +89,20 @@ fn exercise() -> Sample {
     try {
         let original = original();
         if check(original, false) != 1 {
-            panic("wrongInput");
+            rinzu.core.panic("wrongInput");
         }
         let received = result(1);
-        let length: fn (Bytes(4)) -> CSize = byteLength;
+        let length: fn (Bytes(4)) -> CSize = bytesApi.byteLength;
         let callback = withCallback(original, length);
         mutate();
         if check(received, true) != 1 || check(callback, true) != 1 || check(original, false) != 1 {
-            panic("changedCopy");
+            rinzu.core.panic("changedCopy");
         }
         let padding = result(4);
         if check(padding, true) != 1
             || packetSnapshot(padding) == packetSnapshot(received)
             || packetSnapshot(received) == packetSnapshot(received) {
-            panic("wrongNaN");
+            rinzu.core.panic("wrongNaN");
         }
         var caught = 0;
         try {
@@ -109,7 +110,7 @@ fn exercise() -> Sample {
         }
         catch [nullError: Error, ...nullErrorRest] {
             if nullError.message != "native value is NULL" {
-                panic("wrongNull");
+                rinzu.core.panic("wrongNull");
             }
             caught = caught + 1;
         }
@@ -120,7 +121,7 @@ fn exercise() -> Sample {
             caught = caught + 1;
         }
         if caught != 2 {
-            panic("wrongCount");
+            rinzu.core.panic("wrongCount");
         }
         return Sample(
             original: packetSnapshot(original),
@@ -130,7 +131,7 @@ fn exercise() -> Sample {
         );
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
         let empty = emptyPacket();
         return Sample(
             original: packetSnapshot(empty),
@@ -168,14 +169,14 @@ fn leaks() -> Int {
         while index < 100 {
             let temporary = "record root through managed polls";
             if value.h != high {
-                panic("missingRoot");
+                rinzu.core.panic("missingRoot");
             }
             index = index + 1;
         }
         return index;
     }
     catch unexpectedErrors {
-        panic("unexpected failure");
+        rinzu.core.panic("unexpected failure");
         return 0;
     }
 }

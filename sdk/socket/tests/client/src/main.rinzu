@@ -3,6 +3,11 @@ import rinzu.socket;
 import rinzu.process;
 import rinzu.stdio;
 import rinzu.testing;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
+import rinzu.future as future;
+import rinzu.number as num;
 
 class Progress {
     ticks: Int,
@@ -17,13 +22,13 @@ async fn heartbeat(progress: Progress) {
 }
 
 fn pattern() -> ByteArray {
-    return byteArray(b"\x00\xff\x80A\x00B\xfeC");
+    return bytesApi.from(b"\x00\xff\x80A\x00B\xfeC");
 }
 
 fn payload() -> ByteArray {
     var data = pattern();
-    while bytesLength(data) < 65536 {
-        data = bytesConcat(data, data);
+    while bytesApi.length(data) < 65536 {
+        data = bytesApi.concat(data, data);
     }
     return data;
 }
@@ -31,9 +36,12 @@ fn payload() -> ByteArray {
 fn verify(data: ByteArray, offset: Int) {
     let expected = pattern();
     var index = 0;
-    while index < bytesLength(data) {
+    while index < bytesApi.length(data) {
         let position = offset + index;
-        assertTrue(bytesGet(data, index) == bytesGet(expected, position - (position / 8) * 8), "binary content");
+        assertTrue(
+            bytesApi.get(data, index) == bytesApi.get(expected, position - (position / 8) * 8),
+            "binary content"
+        );
         index = index + 1;
     }
 }
@@ -44,18 +52,18 @@ fn configuration(name: String, defaultValue: String) -> String {
         return resultValue6;
     }
     catch [resultError6: Error, ...resultRest6] {
-        assertTrue(false, errorMessage(resultError6));
+        assertTrue(false, err.message(resultError6));
     }
     return defaultValue;
 }
 
 fn integer(name: String) -> Int {
     try {
-        let resultValue5 = parseInt(configuration(name, "0"));
+        let resultValue5 = num.parseInt(configuration(name, "0"));
         return resultValue5;
     }
     catch [resultError5: Error, ...resultRest5] {
-        assertTrue(false, errorMessage(resultError5));
+        assertTrue(false, err.message(resultError5));
     }
     return 0;
 }
@@ -73,11 +81,11 @@ async fn put(stream: rinzu.socket.TcpStream, data: ByteArray) {
     try {
         try {
             let resultValue4 = await rinzu.socket.writeAll(stream, data);
-            assertEqual<Int>(resultValue4, bytesLength(data), "writeAll length");
+            assertEqual<Int>(resultValue4, bytesApi.length(data), "writeAll length");
         }
         catch [resultError4: Error, ...resultRest4] {
             if resultError4 is rinzu.socket.WriteFailure {
-                assertTrue(false, errorMessage(resultError4.payload.cause));
+                assertTrue(false, err.message(resultError4.payload.cause));
             }
             else {
                 throw resultError4;
@@ -85,7 +93,7 @@ async fn put(stream: rinzu.socket.TcpStream, data: ByteArray) {
         }
     }
     catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
-        assertTrue(false, errorMessage(unexpectedWorkerError));
+        assertTrue(false, err.message(unexpectedWorkerError));
     }
 }
 
@@ -95,11 +103,11 @@ async fn half(stream: rinzu.socket.TcpStream) {
             let resultValue3 = await rinzu.socket.shutdownWrite(stream);
         }
         catch [resultError3: Error, ...resultRest3] {
-            assertTrue(false, errorMessage(resultError3));
+            assertTrue(false, err.message(resultError3));
         }
     }
     catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
-        assertTrue(false, errorMessage(unexpectedWorkerError));
+        assertTrue(false, err.message(unexpectedWorkerError));
     }
 }
 
@@ -128,11 +136,11 @@ async fn receive(stream: rinzu.socket.TcpStream) {
                     break;
                 }
                 verify(resultValue2.data, total);
-                total = total + bytesLength(resultValue2.data);
+                total = total + bytesApi.length(resultValue2.data);
                 chunks = chunks + 1;
             }
             catch [resultError2: Error, ...resultRest2] {
-                assertTrue(false, errorMessage(resultError2));
+                assertTrue(false, err.message(resultError2));
                 return;
             }
         }
@@ -140,7 +148,7 @@ async fn receive(stream: rinzu.socket.TcpStream) {
         rinzu.stdio.writeLine(f"BINARY:{total}:CHUNKS:{chunks}");
     }
     catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
-        assertTrue(false, errorMessage(unexpectedWorkerError));
+        assertTrue(false, err.message(unexpectedWorkerError));
     }
 }
 
@@ -186,298 +194,298 @@ async fn main() {
                 let pending31 = connecting(rinzu.socket.Address(host: "127.0.0.1", port: port));
                 await delay(200);
                 var waiting = 0;
-                if !futureReady(pending0) {
+                if !future.isReady(pending0) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending1) {
+                if !future.isReady(pending1) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending2) {
+                if !future.isReady(pending2) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending3) {
+                if !future.isReady(pending3) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending4) {
+                if !future.isReady(pending4) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending5) {
+                if !future.isReady(pending5) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending6) {
+                if !future.isReady(pending6) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending7) {
+                if !future.isReady(pending7) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending8) {
+                if !future.isReady(pending8) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending9) {
+                if !future.isReady(pending9) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending10) {
+                if !future.isReady(pending10) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending11) {
+                if !future.isReady(pending11) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending12) {
+                if !future.isReady(pending12) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending13) {
+                if !future.isReady(pending13) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending14) {
+                if !future.isReady(pending14) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending15) {
+                if !future.isReady(pending15) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending16) {
+                if !future.isReady(pending16) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending17) {
+                if !future.isReady(pending17) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending18) {
+                if !future.isReady(pending18) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending19) {
+                if !future.isReady(pending19) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending20) {
+                if !future.isReady(pending20) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending21) {
+                if !future.isReady(pending21) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending22) {
+                if !future.isReady(pending22) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending23) {
+                if !future.isReady(pending23) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending24) {
+                if !future.isReady(pending24) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending25) {
+                if !future.isReady(pending25) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending26) {
+                if !future.isReady(pending26) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending27) {
+                if !future.isReady(pending27) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending28) {
+                if !future.isReady(pending28) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending29) {
+                if !future.isReady(pending29) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending30) {
+                if !future.isReady(pending30) {
                     waiting = waiting + 1;
                 }
-                if !futureReady(pending31) {
+                if !future.isReady(pending31) {
                     waiting = waiting + 1;
                 }
                 rinzu.stdio.writeLine(f"CONNECT:PENDING:{waiting}");
                 assertTrue(waiting > 0, "backlog makes connect pending");
-                if !futureReady(pending0) {
-                    let stopped1 = cancelFuture(pending0);
+                if !future.isReady(pending0) {
+                    let stopped1 = future.cancel(pending0);
                 }
-                if !futureReady(pending1) {
-                    let stopped2 = cancelFuture(pending1);
+                if !future.isReady(pending1) {
+                    let stopped2 = future.cancel(pending1);
                 }
-                if !futureReady(pending2) {
-                    let stopped3 = cancelFuture(pending2);
+                if !future.isReady(pending2) {
+                    let stopped3 = future.cancel(pending2);
                 }
-                if !futureReady(pending3) {
-                    let stopped4 = cancelFuture(pending3);
+                if !future.isReady(pending3) {
+                    let stopped4 = future.cancel(pending3);
                 }
-                if !futureReady(pending4) {
-                    let stopped5 = cancelFuture(pending4);
+                if !future.isReady(pending4) {
+                    let stopped5 = future.cancel(pending4);
                 }
-                if !futureReady(pending5) {
-                    let stopped6 = cancelFuture(pending5);
+                if !future.isReady(pending5) {
+                    let stopped6 = future.cancel(pending5);
                 }
-                if !futureReady(pending6) {
-                    let stopped7 = cancelFuture(pending6);
+                if !future.isReady(pending6) {
+                    let stopped7 = future.cancel(pending6);
                 }
-                if !futureReady(pending7) {
-                    let stopped8 = cancelFuture(pending7);
+                if !future.isReady(pending7) {
+                    let stopped8 = future.cancel(pending7);
                 }
-                if !futureReady(pending8) {
-                    let stopped9 = cancelFuture(pending8);
+                if !future.isReady(pending8) {
+                    let stopped9 = future.cancel(pending8);
                 }
-                if !futureReady(pending9) {
-                    let stopped10 = cancelFuture(pending9);
+                if !future.isReady(pending9) {
+                    let stopped10 = future.cancel(pending9);
                 }
-                if !futureReady(pending10) {
-                    let stopped11 = cancelFuture(pending10);
+                if !future.isReady(pending10) {
+                    let stopped11 = future.cancel(pending10);
                 }
-                if !futureReady(pending11) {
-                    let stopped12 = cancelFuture(pending11);
+                if !future.isReady(pending11) {
+                    let stopped12 = future.cancel(pending11);
                 }
-                if !futureReady(pending12) {
-                    let stopped13 = cancelFuture(pending12);
+                if !future.isReady(pending12) {
+                    let stopped13 = future.cancel(pending12);
                 }
-                if !futureReady(pending13) {
-                    let stopped14 = cancelFuture(pending13);
+                if !future.isReady(pending13) {
+                    let stopped14 = future.cancel(pending13);
                 }
-                if !futureReady(pending14) {
-                    let stopped15 = cancelFuture(pending14);
+                if !future.isReady(pending14) {
+                    let stopped15 = future.cancel(pending14);
                 }
-                if !futureReady(pending15) {
-                    let stopped16 = cancelFuture(pending15);
+                if !future.isReady(pending15) {
+                    let stopped16 = future.cancel(pending15);
                 }
-                if !futureReady(pending16) {
-                    let stopped17 = cancelFuture(pending16);
+                if !future.isReady(pending16) {
+                    let stopped17 = future.cancel(pending16);
                 }
-                if !futureReady(pending17) {
-                    let stopped18 = cancelFuture(pending17);
+                if !future.isReady(pending17) {
+                    let stopped18 = future.cancel(pending17);
                 }
-                if !futureReady(pending18) {
-                    let stopped19 = cancelFuture(pending18);
+                if !future.isReady(pending18) {
+                    let stopped19 = future.cancel(pending18);
                 }
-                if !futureReady(pending19) {
-                    let stopped20 = cancelFuture(pending19);
+                if !future.isReady(pending19) {
+                    let stopped20 = future.cancel(pending19);
                 }
-                if !futureReady(pending20) {
-                    let stopped21 = cancelFuture(pending20);
+                if !future.isReady(pending20) {
+                    let stopped21 = future.cancel(pending20);
                 }
-                if !futureReady(pending21) {
-                    let stopped22 = cancelFuture(pending21);
+                if !future.isReady(pending21) {
+                    let stopped22 = future.cancel(pending21);
                 }
-                if !futureReady(pending22) {
-                    let stopped23 = cancelFuture(pending22);
+                if !future.isReady(pending22) {
+                    let stopped23 = future.cancel(pending22);
                 }
-                if !futureReady(pending23) {
-                    let stopped24 = cancelFuture(pending23);
+                if !future.isReady(pending23) {
+                    let stopped24 = future.cancel(pending23);
                 }
-                if !futureReady(pending24) {
-                    let stopped25 = cancelFuture(pending24);
+                if !future.isReady(pending24) {
+                    let stopped25 = future.cancel(pending24);
                 }
-                if !futureReady(pending25) {
-                    let stopped26 = cancelFuture(pending25);
+                if !future.isReady(pending25) {
+                    let stopped26 = future.cancel(pending25);
                 }
-                if !futureReady(pending26) {
-                    let stopped27 = cancelFuture(pending26);
+                if !future.isReady(pending26) {
+                    let stopped27 = future.cancel(pending26);
                 }
-                if !futureReady(pending27) {
-                    let stopped28 = cancelFuture(pending27);
+                if !future.isReady(pending27) {
+                    let stopped28 = future.cancel(pending27);
                 }
-                if !futureReady(pending28) {
-                    let stopped29 = cancelFuture(pending28);
+                if !future.isReady(pending28) {
+                    let stopped29 = future.cancel(pending28);
                 }
-                if !futureReady(pending29) {
-                    let stopped30 = cancelFuture(pending29);
+                if !future.isReady(pending29) {
+                    let stopped30 = future.cancel(pending29);
                 }
-                if !futureReady(pending30) {
-                    let stopped31 = cancelFuture(pending30);
+                if !future.isReady(pending30) {
+                    let stopped31 = future.cancel(pending30);
                 }
-                if !futureReady(pending31) {
-                    let stopped32 = cancelFuture(pending31);
+                if !future.isReady(pending31) {
+                    let stopped32 = future.cancel(pending31);
                 }
                 // Cancellation does not imply physical completion.
                 var settling = true;
                 while settling {
                     settling = false;
-                    if !futureReady(pending0) {
+                    if !future.isReady(pending0) {
                         settling = true;
                     }
-                    if !futureReady(pending1) {
+                    if !future.isReady(pending1) {
                         settling = true;
                     }
-                    if !futureReady(pending2) {
+                    if !future.isReady(pending2) {
                         settling = true;
                     }
-                    if !futureReady(pending3) {
+                    if !future.isReady(pending3) {
                         settling = true;
                     }
-                    if !futureReady(pending4) {
+                    if !future.isReady(pending4) {
                         settling = true;
                     }
-                    if !futureReady(pending5) {
+                    if !future.isReady(pending5) {
                         settling = true;
                     }
-                    if !futureReady(pending6) {
+                    if !future.isReady(pending6) {
                         settling = true;
                     }
-                    if !futureReady(pending7) {
+                    if !future.isReady(pending7) {
                         settling = true;
                     }
-                    if !futureReady(pending8) {
+                    if !future.isReady(pending8) {
                         settling = true;
                     }
-                    if !futureReady(pending9) {
+                    if !future.isReady(pending9) {
                         settling = true;
                     }
-                    if !futureReady(pending10) {
+                    if !future.isReady(pending10) {
                         settling = true;
                     }
-                    if !futureReady(pending11) {
+                    if !future.isReady(pending11) {
                         settling = true;
                     }
-                    if !futureReady(pending12) {
+                    if !future.isReady(pending12) {
                         settling = true;
                     }
-                    if !futureReady(pending13) {
+                    if !future.isReady(pending13) {
                         settling = true;
                     }
-                    if !futureReady(pending14) {
+                    if !future.isReady(pending14) {
                         settling = true;
                     }
-                    if !futureReady(pending15) {
+                    if !future.isReady(pending15) {
                         settling = true;
                     }
-                    if !futureReady(pending16) {
+                    if !future.isReady(pending16) {
                         settling = true;
                     }
-                    if !futureReady(pending17) {
+                    if !future.isReady(pending17) {
                         settling = true;
                     }
-                    if !futureReady(pending18) {
+                    if !future.isReady(pending18) {
                         settling = true;
                     }
-                    if !futureReady(pending19) {
+                    if !future.isReady(pending19) {
                         settling = true;
                     }
-                    if !futureReady(pending20) {
+                    if !future.isReady(pending20) {
                         settling = true;
                     }
-                    if !futureReady(pending21) {
+                    if !future.isReady(pending21) {
                         settling = true;
                     }
-                    if !futureReady(pending22) {
+                    if !future.isReady(pending22) {
                         settling = true;
                     }
-                    if !futureReady(pending23) {
+                    if !future.isReady(pending23) {
                         settling = true;
                     }
-                    if !futureReady(pending24) {
+                    if !future.isReady(pending24) {
                         settling = true;
                     }
-                    if !futureReady(pending25) {
+                    if !future.isReady(pending25) {
                         settling = true;
                     }
-                    if !futureReady(pending26) {
+                    if !future.isReady(pending26) {
                         settling = true;
                     }
-                    if !futureReady(pending27) {
+                    if !future.isReady(pending27) {
                         settling = true;
                     }
-                    if !futureReady(pending28) {
+                    if !future.isReady(pending28) {
                         settling = true;
                     }
-                    if !futureReady(pending29) {
+                    if !future.isReady(pending29) {
                         settling = true;
                     }
-                    if !futureReady(pending30) {
+                    if !future.isReady(pending30) {
                         settling = true;
                     }
-                    if !futureReady(pending31) {
+                    if !future.isReady(pending31) {
                         settling = true;
                     }
                     if settling {
@@ -491,8 +499,8 @@ async fn main() {
                 if mode == "echo" {
                     let incoming = receive(resultValue1);
                     var small = pattern();
-                    while bytesLength(small) < 64 {
-                        small = bytesConcat(small, small);
+                    while bytesApi.length(small) < 64 {
+                        small = bytesApi.concat(small, small);
                     }
                     await put(resultValue1, small);
                     await put(resultValue1, small);
@@ -510,7 +518,7 @@ async fn main() {
                 }
             }
             catch [resultError1: Error, ...resultRest1] {
-                assertTrue(false, errorMessage(resultError1));
+                assertTrue(false, err.message(resultError1));
             }
         }
         finally {
@@ -521,7 +529,7 @@ async fn main() {
         }
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }
 
@@ -531,7 +539,7 @@ fn assertTrue(condition: Bool, message: String) {
         rinzu.testing.assertTrue(condition, message);
     }
     catch errors {
-        panic("failedAssertion");
+        rinzu.core.panic("failedAssertion");
     }
 }
 
@@ -540,7 +548,7 @@ fn assertEqual<T: Equality>(actual: T, expected: T, message: String) {
         rinzu.testing.assertEqual<T>(actual, expected, message);
     }
     catch errors {
-        panic("failedAssertion");
+        rinzu.core.panic("failedAssertion");
     }
 }
 
@@ -549,7 +557,7 @@ async fn delay(milliseconds: Int) {
         await rinzu.timer.sleep(milliseconds);
     }
     catch errors {
-        panic("unexpectedTimerFailure");
+        rinzu.core.panic("unexpectedTimerFailure");
     }
 }
 

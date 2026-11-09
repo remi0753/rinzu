@@ -217,14 +217,15 @@ fn backend_fixture_has_checked_error_entries_and_private_captures() {
     let api = include_str!("../../driver/tests/fixtures/error_native_sdk/api.rinzu")
         .replace("export apply;", "")
         .replace("export input;", "");
-    let app = include_str!("../../driver/tests/fixtures/error_native_sdk/main.rinzu")
-        .replace("import handlers;", "")
-        .replace("import rinzu.stdio;", "")
-        .replace("handlers.", "");
+    let (imports, app) = include_str!("../../driver/tests/fixtures/error_native_sdk/main.rinzu")
+        .split_once("\n\n")
+        .unwrap();
+    let imports = imports.strip_prefix("import handlers;\n").unwrap();
+    let app = app.replace("handlers.", "");
     compile_source(&SourceFile::new(
         FileId(278),
         "native-error-fixture.rinzu",
-        format!("import rinzu.stdio;{api}{app}"),
+        format!("{imports}\n{api}\n{app}"),
     ))
     .unwrap();
 }

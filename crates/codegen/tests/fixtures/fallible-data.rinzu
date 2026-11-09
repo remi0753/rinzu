@@ -1,93 +1,122 @@
 import rinzu.list;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
+import rinzu.native as bridge;
+import rinzu.number as num;
+import rinzu.string as textApi;
+
+fn addErrorCause(problem: Error, cause: Error) -> Error {
+    switch err.withCause(problem, cause) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            return problem;
+        }
+    }
+}
+
+fn requiredErrorCode(problem: Error) nothrow -> Int {
+    switch err.code(problem) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            rinzu.core.panic("expected a numeric error code");
+            return 0;
+        }
+    }
+}
 
 async fn main() {
     try {
-        rinzu.stdio.writeLine(parseInt("42"));
-        rinzu.stdio.writeLine(utf8Decode(byteArray(b"hello")));
-        rinzu.stdio.writeLine(checkedAdd(20, 22));
-        rinzu.stdio.writeLine(checkedSub(44, 2));
-        rinzu.stdio.writeLine(checkedMul(6, 7));
-        rinzu.stdio.writeLine(shiftLeft(21, 1));
-        rinzu.stdio.writeLine(shiftRight(84, 1));
-        rinzu.stdio.writeLine(nativeStatus(0, "success"));
-        let enriched = errorWithCause(error(1, "outer"), error(2, "inner"));
-        rinzu.stdio.writeLine(errorCode(enriched));
+        rinzu.stdio.writeLine(num.parseInt("42"));
+        rinzu.stdio.writeLine(textApi.decodeUtf8(bytesApi.from(b"hello")));
+        rinzu.stdio.writeLine(num.checkedAdd(20, 22));
+        rinzu.stdio.writeLine(num.checkedSub(44, 2));
+        rinzu.stdio.writeLine(num.checkedMul(6, 7));
+        rinzu.stdio.writeLine(num.shiftLeft(21, 1));
+        rinzu.stdio.writeLine(num.shiftRight(84, 1));
+        rinzu.stdio.writeLine(bridge.checkStatus(0, "success"));
+        let enriched = addErrorCause(err.create(1, "outer"), err.create(2, "inner"));
+        rinzu.stdio.writeLine(requiredErrorCode(enriched));
         try {
-            let invalidNumber = parseInt("x");
+            let invalidNumber = num.parseInt("x");
         }
         catch [numberError: Error] {
-            rinzu.stdio.writeLine(errorCode(numberError));
+            rinzu.stdio.writeLine(requiredErrorCode(numberError));
         }
         try {
-            let overflowNumber = parseInt("9223372036854775808");
+            let overflowNumber = num.parseInt("9223372036854775808");
         }
         catch [overflowError: Error] {
-            rinzu.stdio.writeLine(errorCode(overflowError));
+            rinzu.stdio.writeLine(requiredErrorCode(overflowError));
         }
         try {
-            let invalidText = utf8Decode(byteArray(b"\xff"));
+            let invalidText = textApi.decodeUtf8(bytesApi.from(b"\xff"));
         }
         catch [textError: Error] {
-            rinzu.stdio.writeLine(errorCode(textError));
+            rinzu.stdio.writeLine(requiredErrorCode(textError));
         }
         try {
-            let invalidShift = shiftLeft(1, 64);
+            let invalidShift = num.shiftLeft(1, 64);
         }
         catch [shiftError: Error] {
-            rinzu.stdio.writeLine(errorCode(shiftError));
+            rinzu.stdio.writeLine(requiredErrorCode(shiftError));
         }
         try {
-            let overflowAdd = checkedAdd(9223372036854775807, 1);
+            let overflowAdd = num.checkedAdd(9223372036854775807, 1);
         }
         catch [addError: Error] {
-            rinzu.stdio.writeLine(errorCode(addError));
+            rinzu.stdio.writeLine(requiredErrorCode(addError));
         }
         try {
-            let overflowSub = checkedSub(-9223372036854775807, 2);
+            let overflowSub = num.checkedSub(-9223372036854775807, 2);
         }
         catch [subError: Error] {
-            rinzu.stdio.writeLine(errorCode(subError));
+            rinzu.stdio.writeLine(requiredErrorCode(subError));
         }
         try {
-            let overflowMul = checkedMul(9223372036854775807, 2);
+            let overflowMul = num.checkedMul(9223372036854775807, 2);
         }
         catch [mulError: Error] {
-            rinzu.stdio.writeLine(errorCode(mulError));
+            rinzu.stdio.writeLine(requiredErrorCode(mulError));
         }
         try {
-            let failedNative = nativeStatus(-7, "native failure");
+            let failedNative = bridge.checkStatus(-7, "native failure");
         }
         catch [nativeError: Error] {
-            rinzu.stdio.writeLine(errorCode(nativeError));
-            switch errorNativeStatus(nativeError) {
+            rinzu.stdio.writeLine(requiredErrorCode(nativeError));
+            switch err.nativeStatus(nativeError) {
                 case Option.Some(status): {
                     rinzu.stdio.writeLine(status);
                 }
                 case Option.None: {}
             }
         }
-        var chain = error(3, "first");
+        var chain = err.create(3, "first");
         var count = 1;
         while count < 64 {
-            chain = errorWithCause(error(4, "outer"), chain);
+            chain = addErrorCause(err.create(4, "outer"), chain);
             count = count + 1;
         }
         try {
-            let tooDeep = errorWithCause(error(5, "overflow"), chain);
+            let tooDeep = addErrorCause(err.create(5, "overflow"), chain);
         }
         catch [causeError: Error] {
-            rinzu.stdio.writeLine(errorCode(causeError));
+            rinzu.stdio.writeLine(requiredErrorCode(causeError));
         }
         try all {
-            let a = parseInt("bad");
-            let b = utf8Decode(byteArray(b"\xff"));
+            let a = num.parseInt("bad");
+            let b = textApi.decodeUtf8(bytesApi.from(b"\xff"));
         }
         catch errors {
             rinzu.stdio.writeLine(rinzu.list.length(errors));
         }
     }
     catch errors {
-        panic("unexpected");
+        rinzu.core.panic("unexpected");
     }
 }

@@ -1,4 +1,5 @@
 import rinzu.stdio;
+import rinzu.core;
 
 async fn produce(value: Int) -> String {
     return f"payload-{value}";
@@ -11,21 +12,21 @@ async fn ordinary(value: Int) -> Int {
         pending = produce(value);
         let body = await pending;
         if body != f"payload-{value}" {
-            panic("invalidBody");
+            rinzu.core.panic("invalidBody");
         }
     }
     finally {
         let alias = pending;
         let cleanup = await alias;
         if cleanup != f"payload-{value}" {
-            panic("invalidCleanup");
+            rinzu.core.panic("invalidCleanup");
         }
         cleaned = 1;
     }
     let laterAlias = pending;
     let after = await laterAlias;
     if after != f"payload-{value}" {
-        panic("invalidAfter");
+        rinzu.core.panic("invalidAfter");
     }
     return cleaned;
 }
@@ -37,21 +38,21 @@ async fn collecting(value: Int) -> Int {
         pending = produce(value);
         let body = await pending;
         if body != f"payload-{value}" {
-            panic("invalidBody");
+            rinzu.core.panic("invalidBody");
         }
     }
     finally {
         let alias = pending;
         let cleanup = await alias;
         if cleanup != f"payload-{value}" {
-            panic("invalidCleanup");
+            rinzu.core.panic("invalidCleanup");
         }
         cleaned = 1;
     }
     let laterAlias = pending;
     let after = await laterAlias;
     if after != f"payload-{value}" {
-        panic("invalidAfter");
+        rinzu.core.panic("invalidAfter");
     }
     return cleaned;
 }
@@ -68,6 +69,6 @@ async fn main() {
         rinzu.stdio.writeLine(f"scope-alias:{count}");
     }
     catch errors {
-        panic("unexpectedOutputError");
+        rinzu.core.panic("unexpectedOutputError");
     }
 }

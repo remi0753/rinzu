@@ -1,5 +1,7 @@
 import records;
 import rinzu.stdio;
+import rinzu.core;
+import rinzu.future as future;
 
 async fn invoke(point: records.Packet) -> Int {
     return await records.run(
@@ -18,9 +20,9 @@ async fn invoke(point: records.Packet) -> Int {
 fn queue(point: records.Packet, early: Bool) -> Future<Int> {
     let pending = invoke(point);
     if early {
-        let accepted = cancelFuture(pending);
+        let accepted = future.cancel(pending);
         if !accepted {
-            panic("queued cancellation was lost");
+            rinzu.core.panic("queued cancellation was lost");
         }
     }
     else {
@@ -28,7 +30,7 @@ fn queue(point: records.Packet, early: Bool) -> Future<Int> {
             let status = records.change(point, 20);
         }
         catch errors {
-            panic("record became Busy before native entry");
+            rinzu.core.panic("record became Busy before native entry");
         }
     }
     return pending;
@@ -48,11 +50,11 @@ async fn main() {
                 rinzu.stdio.writeLine(records.runEntries());
             }
             catch errors {
-                panic("record remained Busy during cleanup");
+                rinzu.core.panic("record remained Busy during cleanup");
             }
         }
     }
     catch errors {
-        panic("unexpected supplant record Error");
+        rinzu.core.panic("unexpected supplant record Error");
     }
 }

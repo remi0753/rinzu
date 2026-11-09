@@ -5,6 +5,11 @@ import rinzu.option;
 import rinzu.process;
 import rinzu.stdio;
 import rinzu.testing;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
+import rinzu.future as future;
+import rinzu.string as textApi;
 
 class Model {
     const pending: Future<Int>,
@@ -33,7 +38,7 @@ async fn drive(session: rinzu.macos.Session) {
         let result = await session.runEvents();
     }
     catch errors {
-        panic("OS event stream failed");
+        rinzu.core.panic("OS event stream failed");
     }
 }
 
@@ -112,7 +117,7 @@ async fn scopeBody(app: rinzu.macos.UiApplication) {
     let button = scope.button("Action", frame, 100);
     let check = scope.checkbox("Enabled", frame, 101);
     let field = scope.textField("Search", frame, 102);
-    let original = utf8Decode(byteArray(b"A\x00\xf0\x9f\x98\x80\xe6\x97\xa5\xe6\x9c\xac"));
+    let original = textApi.decodeUtf8(bytesApi.from(b"A\x00\xf0\x9f\x98\x80\xe6\x97\xa5\xe6\x9c\xac"));
     let editor = scope.textView(original, rinzu.macos.Rect(x: 12.0, y: 52.0, width: 240.0, height: 100.0));
     let scroll = scope.scrollView(rinzu.macos.Rect(x: 12.0, y: 52.0, width: 260.0, height: 120.0));
     let content = scope.window.contentView();
@@ -203,7 +208,7 @@ async fn failureBody(app: rinzu.macos.UiApplication) {
     let started = scope.start(
         async fn (owner: rinzu.macos.UiJob) {
             await rinzu.timer.sleep(3);
-            throw error(-7901, "job failed");
+            throw err.create(-7901, "job failed");
         }
     );
     while !scope.isStopping() {
@@ -243,13 +248,13 @@ async fn cancelBody(app: rinzu.macos.UiApplication) {
         let pending = scope.session.nextEvent();
         try {
             await rinzu.timer.sleep(2);
-            if futureReady(pending) {
+            if future.isReady(pending) {
                 let queued = await pending;
             }
             else {
-                let cancelled = cancelFuture(pending);
+                let cancelled = future.cancel(pending);
                 let result = await pending;
-                panic("event-reader cancellation was lost");
+                rinzu.core.panic("event-reader cancellation was lost");
             }
         }
         finally {
@@ -258,7 +263,7 @@ async fn cancelBody(app: rinzu.macos.UiApplication) {
         }
         attempts = attempts + 1;
     }
-    panic("could not acquire an empty event reader");
+    rinzu.core.panic("could not acquire an empty event reader");
 }
 
 fn settled() {
@@ -319,7 +324,7 @@ async fn main() {
                         switch rinzu.list.get(errors, 0) {
                             case Option.Some(problem): {
                                 rinzu.testing.assertEqual<String>(
-                                    errorMessage(problem),
+                                    err.message(problem),
                                     "job failed",
                                     "scope reports child failure"
                                 );
@@ -340,7 +345,7 @@ async fn main() {
                         let status = rinzu.option.andThen(
                             first,
                             fn (problem: Error) -> Option<Int> {
-                                return errorNativeStatus(problem);
+                                return err.nativeStatus(problem);
                             }
                         );
                         overflowObserved = status == Option<Int>.Some(value: -7808);
@@ -365,6 +370,6 @@ async fn main() {
             rinzu.stdio.writeLine(f"GUI failure: {errors}");
         }
         catch outputErrors {}
-        panic("macOS GUI test failed");
+        rinzu.core.panic("macOS GUI test failed");
     }
 }

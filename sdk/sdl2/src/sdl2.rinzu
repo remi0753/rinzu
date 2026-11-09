@@ -1,4 +1,5 @@
 import rinzu.timer;
+import rinzu.core;
 
 native {
     opaque WindowHandle;
@@ -55,7 +56,7 @@ async fn run(
                         if event.shouldQuit {
                             let stopped = stop(window);
                             if stopped != 0 {
-                                panic("failedQuit");
+                                rinzu.core.panic("failedQuit");
                             }
                         }
                     }
@@ -69,7 +70,7 @@ async fn run(
                 onFrame(window, frame);
                 let rendered = render(window);
                 if rendered != 0 {
-                    panic("failedRender");
+                    rinzu.core.panic("failedRender");
                 }
                 if isRunning(window) {
                     await rinzu.timer.sleep(milliseconds);
@@ -80,7 +81,7 @@ async fn run(
     finally {
         let destroyed = destroyWindow(window);
         if destroyed != 0 {
-            panic("failedDestroy");
+            rinzu.core.panic("failedDestroy");
         }
     }
     return frame;

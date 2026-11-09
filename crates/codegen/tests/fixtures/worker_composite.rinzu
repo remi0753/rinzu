@@ -1,4 +1,6 @@
 import rinzu.core;
+import rinzu.bytes as bytesApi;
+import rinzu.string as textApi;
 
 class Packet {
     const text: String,
@@ -47,19 +49,23 @@ fn wide(
     let expected_map: Map<Key, List<Packet>> = {
         Key.number(value: 18446744073709551615): expected, Key.label(value: "key\u{0}"): expected
     };
-    if list != expected || map != expected_map || byteLength(zero) != 0 {
-        panic("bad_graph");
+    if list != expected || map != expected_map || bytesApi.byteLength(zero) != 0 {
+        rinzu.core.panic("bad_graph");
     }
-    if signed != -128 || floating != -0.0 || !flag || marker != 9223372036854775809 || utf8ByteLength(tail) != 14 {
-        panic("bad_preparation");
+    if signed != -128
+        || floating != -0.0
+        || !flag
+        || marker != 9223372036854775809
+        || textApi.utf8ByteLength(tail) != 14 {
+        rinzu.core.panic("bad_preparation");
     }
     switch value {
         case Payload.empty: {
-            panic("bad_case");
+            rinzu.core.panic("bad_case");
         }
         case Payload.packet(packet): {
             if packet.high != 18446744073709551615 || packet.bytes != b"A\xff\x00\x00" {
-                panic("bad_packet");
+                rinzu.core.panic("bad_packet");
             }
         }
     }
@@ -96,7 +102,7 @@ fn text(value: Packet) -> String {
 fn nan(value: Packet) -> Packet {
     churn();
     if value == value {
-        panic("lost_nan");
+        rinzu.core.panic("lost_nan");
     }
     return value;
 }
@@ -113,7 +119,7 @@ fn failedUnchecked(value: Packet) -> Packet {
     }
     finally {
         if value.bytes != b"A\xff\x00\x00" {
-            panic("lost_cleanup_root");
+            rinzu.core.panic("lost_cleanup_root");
         }
         let cleanup = CInt8(300);
     }
@@ -155,7 +161,7 @@ async fn main() {
     churn();
     let nan_copy = await received_nan;
     if nan_copy == nan_copy {
-        panic("bad_nan");
+        rinzu.core.panic("bad_nan");
     }
     let byte_copy = await received_bytes;
     let text_copy = await received_text;
@@ -169,28 +175,28 @@ async fn main() {
     };
     let expected_list: List<Packet> = [original, original];
     if map_copy != expected_map || list_copy != expected_list || record_copy != original {
-        panic("bad_copies");
+        rinzu.core.panic("bad_copies");
     }
-    if byte_copy != original.bytes || text_copy != original.text || utf8ByteLength(text_copy) != 14 {
-        panic("bad_leaves");
+    if byte_copy != original.bytes || text_copy != original.text || textApi.utf8ByteLength(text_copy) != 14 {
+        rinzu.core.panic("bad_leaves");
     }
     switch payload_copy {
         case Payload.empty: {
-            panic("bad_result_case");
+            rinzu.core.panic("bad_result_case");
         }
         case Payload.packet(packet): {
             if packet != original {
-                panic("bad_result");
+                rinzu.core.panic("bad_result");
             }
         }
     }
     let again = await first;
     if again != payload_copy {
-        panic("bad_reawait");
+        rinzu.core.panic("bad_reawait");
     }
     let empty_copy = await spawn empty(Payload.empty());
     if empty_copy != Payload.empty() {
-        panic("bad_empty");
+        rinzu.core.panic("bad_empty");
     }
     let failure = spawn failed(original);
     let alias = failure;
@@ -198,6 +204,6 @@ async fn main() {
     churn();
     let second_result = await alias;
     if first_result != original || second_result != first_result {
-        panic("bad_report");
+        rinzu.core.panic("bad_report");
     }
 }

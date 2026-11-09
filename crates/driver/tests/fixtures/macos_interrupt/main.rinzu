@@ -1,10 +1,11 @@
 import rinzu.macos;
+import rinzu.core;
 
 fn onEvent(context: rinzu.macos.RunContext, event: rinzu.macos.Event) fallback () {
     let session = context.session;
     if event.kind == rinzu.macos.eventStarted {
         if !session.isRunning() {
-            panic("invalidEvent");
+            rinzu.core.panic("invalidEvent");
         }
         rinzu.macos.interruptMark(1);
         rinzu.macos.interruptMark(10);
@@ -26,6 +27,6 @@ async fn main() {
         }
     }
     catch unexpectedErrors {
-        panic("failure");
+        rinzu.core.panic("failure");
     }
 }

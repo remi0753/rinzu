@@ -1,25 +1,26 @@
 import cart;
 import catalog;
 import rinzu.stdio;
+import rinzu.core;
 
 fn main() {
     try {
         let notebook = catalog.notebook();
         let notebookTotal = cart.total(notebook);
         if notebookTotal != 2640 {
-            panic("unexpectedNotebookTotal");
+            rinzu.core.panic("unexpectedNotebookTotal");
         }
         rinzu.stdio.writeLine(notebook);
         rinzu.stdio.writeLine(f"Total: {notebookTotal}");
         let pens = catalog.Item(name: "Pen", unitPrice: 200, quantity: 3);
         let penTotal = cart.total(pens);
         if penTotal != 660 {
-            panic("unexpectedPenTotal");
+            rinzu.core.panic("unexpectedPenTotal");
         }
         rinzu.stdio.writeLine(pens);
         rinzu.stdio.writeLine(f"Total: {penTotal}");
     }
     catch errors {
-        panic("failed");
+        rinzu.core.panic("failed");
     }
 }

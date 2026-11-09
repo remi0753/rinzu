@@ -2,22 +2,25 @@ import rinzu.timer;
 import rinzu.socket;
 import rinzu.stdio;
 import rinzu.testing;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
 
 fn expect<T>(value: T) -> T {
     return value;
 }
 
 fn payload(size: Int) -> ByteArray {
-    var data = byteArray(b"\x00\xff\x80A\x00B\xfeC");
-    while bytesLength(data) < size {
-        data = bytesConcat(data, data);
+    var data = bytesApi.from(b"\x00\xff\x80A\x00B\xfeC");
+    while bytesApi.length(data) < size {
+        data = bytesApi.concat(data, data);
     }
-    switch bytesSlice(data, 0, size) {
+    switch bytesApi.slice(data, 0, size) {
         case Option.Some(value): {
             return value;
         }
         case Option.None: {
-            return byteArray(b"");
+            return bytesApi.from(b"");
         }
     }
 }
@@ -39,7 +42,7 @@ async fn closeResult(result: Future<Int>) {
     }
     catch [problem: Error, ...rest] {
         assertEqual<Option<Int>>(
-            errorNativeStatus(problem),
+            err.nativeStatus(problem),
             Option<Int>.Some(value: -7502),
             "cleanup may see an already closed handle"
         );
@@ -47,7 +50,7 @@ async fn closeResult(result: Future<Int>) {
             rinzu.stdio.writeLine("CLOSE:ALREADY:CLOSED");
         }
         catch errors {
-            panic("unexpectedOutputFailure");
+            rinzu.core.panic("unexpectedOutputFailure");
         }
     }
 }
@@ -63,7 +66,7 @@ fn assertTrue(condition: Bool, message: String) {
         rinzu.testing.assertTrue(condition, message);
     }
     catch errors {
-        panic("assertionFailed");
+        rinzu.core.panic("assertionFailed");
     }
 }
 
@@ -72,7 +75,7 @@ fn assertEqual<T: Equality>(actual: T, expected: T, message: String) {
         rinzu.testing.assertEqual<T>(actual, expected, message);
     }
     catch errors {
-        panic("assertionFailed");
+        rinzu.core.panic("assertionFailed");
     }
 }
 
@@ -81,7 +84,7 @@ async fn delay(milliseconds: Int) {
         await rinzu.timer.sleep(milliseconds);
     }
     catch errors {
-        panic("unexpectedTimerFailure");
+        rinzu.core.panic("unexpectedTimerFailure");
     }
 }
 

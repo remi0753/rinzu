@@ -1,3 +1,5 @@
+import rinzu.core;
+
 class Editor {
     value: Int
 }
@@ -52,7 +54,7 @@ fn exercise() -> Int {
     };
     let result = invoke(context, read);
     if result != 25 || editor.value != 11 || point.x != 7 {
-        panic("lost context fields");
+        rinzu.core.panic("lost context fields");
     }
     return result;
 }

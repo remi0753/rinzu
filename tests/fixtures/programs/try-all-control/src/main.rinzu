@@ -1,5 +1,17 @@
 import rinzu.list;
 import rinzu.stdio;
+import rinzu.error as err;
+
+fn displayErrorCode(problem: Error) nothrow -> String {
+    switch err.code(problem) {
+        case Option.Some(value): {
+            return f"{value}";
+        }
+        case Option.None: {
+            return "unavailable";
+        }
+    }
+}
 
 fn work() -> Int {
     var n = 0;
@@ -111,7 +123,7 @@ async fn main() {
             rinzu.stdio.writeLine("return-unreachable");
         }
         catch [error: Error, ...errorRest] {
-            rinzu.stdio.writeLine(f"unhandled={errorCode(error)}");
+            rinzu.stdio.writeLine(f"unhandled={displayErrorCode(error)}");
         }
         let saved = await held();
         await b();

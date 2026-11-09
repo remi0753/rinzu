@@ -4,6 +4,9 @@ import rinzu.macos;
 import rinzu.process;
 import rinzu.stdio;
 import rinzu.testing;
+import rinzu.core;
+import rinzu.future as future;
+import rinzu.string as textApi;
 
 fn require(value: Bool, message: String) {
     rinzu.testing.assertTrue(value, message);
@@ -25,12 +28,12 @@ async fn observePanel(pending: Future<Option<String>>) {
         switch await pending {
             case Option.None: {}
             case Option.Some(path): {
-                panic("stopped sheet selected a path");
+                rinzu.core.panic("stopped sheet selected a path");
             }
         }
     }
     catch errors {
-        panic(f"panel failed: {errors}");
+        rinzu.core.panic(f"panel failed: {errors}");
     }
 }
 
@@ -57,7 +60,7 @@ async fn pendingSheet(app: rinzu.macos.UiApplication) {
         await shown(scope.window);
         if mode == "cancel" {
             rinzu.stdio.writeLine("SHEETS:cancelling");
-            let cancelled = cancelFuture(pending);
+            let cancelled = future.cancel(pending);
             require(cancelled, "panel wait cancellation admitted");
             rinzu.stdio.writeLine("SHEETS:cancel-requested");
         }
@@ -88,7 +91,7 @@ async fn results(app: rinzu.macos.UiApplication) {
     switch await window.openFile("Open cancel", "") {
         case Option.None: {}
         case Option.Some(unexpected): {
-            panic("cancel returned path");
+            rinzu.core.panic("cancel returned path");
         }
     }
     let chosen = rinzu.macos.testSheetReply(window, 1, path);
@@ -105,7 +108,7 @@ async fn results(app: rinzu.macos.UiApplication) {
     let savePath = f"{path}.saved";
     let destination = rinzu.macos.testSheetReply(window, 1, savePath);
     let directory = rinzu.process.setting("RINZU_SHEET_DIRECTORY", "");
-    let parts = stringSplit(savePath, "/");
+    let parts = textApi.split(savePath, "/");
     var name = "document.txt";
     switch rinzu.list.get(parts, rinzu.list.length(parts) - 1) {
         case Option.Some(last): {
@@ -118,7 +121,7 @@ async fn results(app: rinzu.macos.UiApplication) {
             require(saved == savePath, f"save destination: {saved} != {savePath}");
         }
         case Option.None: {
-            panic("save selection cancelled");
+            rinzu.core.panic("save selection cancelled");
         }
     }
     let stats = rinzu.macos.statistics();
@@ -127,7 +130,7 @@ async fn results(app: rinzu.macos.UiApplication) {
 
 async fn acquisition(app: rinzu.macos.UiApplication) {
     let path = await app.primary.window.openFile("Cancel before Source receives admission", "");
-    panic("return cancellation did not fire");
+    rinzu.core.panic("return cancellation did not fire");
 }
 
 async fn main() {
@@ -170,6 +173,6 @@ async fn main() {
         }
     }
     catch errors {
-        panic(f"sheet test failed: {errors}");
+        rinzu.core.panic(f"sheet test failed: {errors}");
     }
 }

@@ -1,4 +1,5 @@
 import pump;
+import rinzu.core;
 
 fn blockedWorker(text: String, bytes: Bytes(4)) -> CInt {
     let workerRetained = ["actual Worker root", "physical return before release"];
@@ -17,7 +18,7 @@ fn blockedWorker(text: String, bytes: Bytes(4)) -> CInt {
             finishIndex = finishIndex + 1;
         }
         if workerRetained != ["actual Worker root", "physical return before release"] {
-            panic("lostWorker");
+            rinzu.core.panic("lostWorker");
         }
         pump.workerFinally(text, bytes);
     }
@@ -34,7 +35,7 @@ async fn stopLater() {
     try {
         let elapsed = await delayed;
         if elapsed != 13 {
-            panic("lostDelay");
+            rinzu.core.panic("lostDelay");
         }
     }
     finally {
@@ -44,7 +45,7 @@ async fn stopLater() {
             cleanupIndex = cleanupIndex + 1;
         }
         if cleanupRetained != ["Main cleanup root", "pump while native blocked"] {
-            panic("lostCleanup");
+            rinzu.core.panic("lostCleanup");
         }
         pump.stop();
     }
@@ -63,11 +64,11 @@ async fn main() {
             originIndex = originIndex + 1;
         }
         let unexpected = await blocked;
-        panic("lostShutdown");
+        rinzu.core.panic("lostShutdown");
     }
     finally {
         if originRetained != ["Origin pending child", "wait for native physical return"] {
-            panic("lostOrigin");
+            rinzu.core.panic("lostOrigin");
         }
         pump.originFinally();
     }

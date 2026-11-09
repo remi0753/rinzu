@@ -1615,7 +1615,12 @@ impl Parser<'_> {
         let (first, start) = self.identifier()?;
         let mut path = vec![first.clone()];
         while self.consume(&TokenKind::Dot).is_some() {
-            path.push(self.identifier()?.0);
+            // The standard module uses the declaration keyword as a path segment.
+            if path.as_slice() == ["rinzu"] && self.consume(&TokenKind::Native).is_some() {
+                path.push("native".into());
+            } else {
+                path.push(self.identifier()?.0);
+            }
         }
         Ok((first, path, start))
     }

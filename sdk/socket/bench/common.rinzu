@@ -4,6 +4,9 @@ import rinzu.io;
 import rinzu.process;
 import rinzu.stdio;
 import rinzu.testing;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
 
 native {
     fn nanos() -> Int symbol "rinzu_bench_nanoseconds";
@@ -20,7 +23,7 @@ fn integer(name: String, defaultValue: Int, minimum: Int, maximum: Int) -> Int {
         return rinzu.process.integer(name, defaultValue, minimum, maximum);
     }
     catch errors {
-        panic("failed");
+        rinzu.core.panic("failed");
         return defaultValue;
     }
 }
@@ -30,21 +33,21 @@ fn setting(name: String) -> String {
         return rinzu.process.setting(name, "");
     }
     catch errors {
-        panic("failed");
+        rinzu.core.panic("failed");
         return "";
     }
 }
 
 fn payload(size: Int) -> ByteArray {
-    var value = byteArray(b"\x00\xff\x80A\x00B\xfeC");
-    while bytesLength(value) < size {
-        value = bytesConcat(value, value);
+    var value = bytesApi.from(b"\x00\xff\x80A\x00B\xfeC");
+    while bytesApi.length(value) < size {
+        value = bytesApi.concat(value, value);
     }
     return expectBytes(value, size);
 }
 
 fn expectBytes(value: ByteArray, size: Int) -> ByteArray {
-    switch bytesSlice(value, 0, size) {
+    switch bytesApi.slice(value, 0, size) {
         case Option.Some(data): {
             return data;
         }
@@ -58,11 +61,11 @@ fn expectBytes(value: ByteArray, size: Int) -> ByteArray {
 async fn put(stream: rinzu.socket.TcpStream, data: ByteArray) {
     try {
         let resultValue1 = await rinzu.socket.writeAllWithTimeout(stream, data, 30000);
-        rinzu.testing.assertEqual<Int>(resultValue1, bytesLength(data), "send length");
+        rinzu.testing.assertEqual<Int>(resultValue1, bytesApi.length(data), "send length");
     }
     catch [resultError1: Error, ...resultRest1] {
         if resultError1 is rinzu.socket.WriteFailure {
-            rinzu.testing.assertTrue(false, errorMessage(resultError1.payload.cause));
+            rinzu.testing.assertTrue(false, err.message(resultError1.payload.cause));
         }
         else {
             throw resultError1;
@@ -78,14 +81,14 @@ async fn receive(stream: rinzu.socket.TcpStream, count: Int, slow: Int) {
                 await rinzu.timer.sleep(slow);
             }
             let chunk = expect<rinzu.socket.ReadChunk>(await rinzu.socket.readWithTimeout(stream, 65536, 30000));
-            rinzu.testing.assertTrue(!chunk.eof && bytesLength(chunk.data) > 0, "unexpected EOF");
-            rinzu.testing.assertTrue(verify(chunk.data, byteLength(chunk.data), total), "byte verification");
-            total = total + bytesLength(chunk.data);
+            rinzu.testing.assertTrue(!chunk.eof && bytesApi.length(chunk.data) > 0, "unexpected EOF");
+            rinzu.testing.assertTrue(verify(chunk.data, bytesApi.byteLength(chunk.data), total), "byte verification");
+            total = total + bytesApi.length(chunk.data);
             rinzu.testing.assertTrue(total <= count, "unexpected extra bytes");
         }
     }
     catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
-        panic("unexpectedBenchmarkFailure");
+        rinzu.core.panic("unexpectedBenchmarkFailure");
     }
 }
 

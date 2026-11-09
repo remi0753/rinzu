@@ -2,6 +2,7 @@ import rinzu.macos;
 import rinzu.timer;
 import rinzu.process;
 import rinzu.stdio;
+import rinzu.core;
 
 class Browser {
     const records: rinzu.macos.DataView,
@@ -108,28 +109,28 @@ class Browser {
             || initial.selectedId != 10000
             || initial.selectedRow != 0
             || initial.cellViews >= 1000 {
-            panic("browser initial data or virtualization mismatch");
+            rinzu.core.panic("browser initial data or virtualization mismatch");
         }
         self.group = 2;
         await self.reload(job);
         let even = self.records.state();
         let details = self.details.state();
         if even.rows != 5000 || even.selectedId != 10000 || details.rows != 3 {
-            panic("browser group mismatch");
+            rinzu.core.panic("browser group mismatch");
         }
         self.group = 4;
         await self.reload(job);
         let filtered = self.records.state();
         let cleared = self.details.state();
         if filtered.selectedId != 0 || cleared.rows != 0 {
-            panic("browser stale details remained");
+            rinzu.core.panic("browser stale details remained");
         }
         let themed = job.window.setTheme(rinzu.macos.themeDark);
         let resized = job.window.setContentSize(1000.0, 680.0);
         await rinzu.timer.sleep(30);
         let frame = self.records.view.frame();
         if frame.width != 764.0 || frame.height != 424.0 {
-            panic("browser resize mismatch");
+            rinzu.core.panic("browser resize mismatch");
         }
         rinzu.stdio.writeLine("BROWSER:10000:virtual:group:sort:theme:details:resize");
         job.requestStop();
@@ -309,11 +310,11 @@ async fn main() {
         }
         let stats = rinzu.macos.statistics();
         if stats.retainedControls + stats.dataRows + stats.dataBytes + stats.dataUpdates != 0 {
-            panic("browser leaked resources");
+            rinzu.core.panic("browser leaked resources");
         }
         rinzu.stdio.writeLine("BROWSER:closed");
     }
     catch errors {
-        panic(f"browser failed: {errors}");
+        rinzu.core.panic(f"browser failed: {errors}");
     }
 }

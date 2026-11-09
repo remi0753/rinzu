@@ -1,5 +1,7 @@
 import handlers;
 import rinzu.stdio;
+import rinzu.core;
+import rinzu.string as textApi;
 
 class Box {
     value: Int
@@ -25,7 +27,7 @@ fn cleanup(value: Int) -> Int fallback -19 {
 }
 
 fn text(value: String) -> Int fallback -23 {
-    return Int(utf8ByteLength(value));
+    return Int(textApi.utf8ByteLength(value));
 }
 
 async fn main() {
@@ -46,7 +48,7 @@ async fn main() {
             2
         );
         if value != box.value {
-            panic("mismatch");
+            rinzu.core.panic("mismatch");
         }
         index = index + 1;
     }

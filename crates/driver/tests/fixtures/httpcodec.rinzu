@@ -1,37 +1,39 @@
 import rinzu.httpcodec;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
 
 fn valid(data: ByteArray, method: String, target: String) {
     let line = rinzu.httpcodec.requestLine(data);
     if line.method != method || line.target != target {
-        panic("invalidLine");
+        rinzu.core.panic("invalidLine");
     }
 }
 
 fn invalid(data: ByteArray, expected: Int) {
     try {
         let accepted = rinzu.httpcodec.requestLine(data);
-        panic("invalidAccept");
+        rinzu.core.panic("invalidAccept");
     }
     catch [problem: rinzu.httpcodec.InvalidRequestLine, ...rest] {
         if problem.payload != expected {
-            panic("invalidStatus");
+            rinzu.core.panic("invalidStatus");
         }
     }
 }
 
 fn main() {
     try {
-        valid(byteArray(b"GET /plaintext HTTP/1.1"), "GET", "/plaintext");
-        valid(byteArray(b"!#$ /x?y=%2f+z HTTP/1.1"), "!#$", "/x?y=%2f+z");
-        invalid(byteArray(b"GET  HTTP/1.1"), 400);
-        invalid(byteArray(b"GET /#fragment HTTP/1.1"), 400);
-        invalid(byteArray(b"GET /\x80 HTTP/1.1"), 400);
-        invalid(byteArray(b"G\x00T / HTTP/1.1"), 400);
-        invalid(byteArray(b"GET / HTTP/1.0"), 400);
-        invalid(byteArray(b"GET / HTTP/1.1 "), 400);
-        invalid(byteArray(b""), 400);
+        valid(bytesApi.from(b"GET /plaintext HTTP/1.1"), "GET", "/plaintext");
+        valid(bytesApi.from(b"!#$ /x?y=%2f+z HTTP/1.1"), "!#$", "/x?y=%2f+z");
+        invalid(bytesApi.from(b"GET  HTTP/1.1"), 400);
+        invalid(bytesApi.from(b"GET /#fragment HTTP/1.1"), 400);
+        invalid(bytesApi.from(b"GET /\x80 HTTP/1.1"), 400);
+        invalid(bytesApi.from(b"G\x00T / HTTP/1.1"), 400);
+        invalid(bytesApi.from(b"GET / HTTP/1.0"), 400);
+        invalid(bytesApi.from(b"GET / HTTP/1.1 "), 400);
+        invalid(bytesApi.from(b""), 400);
     }
     catch errors {
-        panic("unexpectedError");
+        rinzu.core.panic("unexpectedError");
     }
 }

@@ -1,5 +1,7 @@
 import rinzu.io;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
 
 fn file(result: rinzu.io.File) -> rinzu.io.File {
     return result;
@@ -19,16 +21,16 @@ fn chunk(result: rinzu.io.ReadChunk) -> rinzu.io.ReadChunk {
 
 async fn main() {
     try {
-        let data = byteArray(b"\x00\xff\x01\x7fabc");
+        let data = bytesApi.from(b"\x00\xff\x01\x7fabc");
         let empty: List<CUInt8> = [];
         let start = rinzu.io.monotonicMillis();
         let output = file(await rinzu.io.openWrite("output.bin"));
         try all {
-            if count(await rinzu.io.write(output, byteArray(empty))) != 0 {
-                panic("failure5");
+            if count(await rinzu.io.write(output, bytesApi.from(empty))) != 0 {
+                rinzu.core.panic("failure5");
             }
             if count(await rinzu.io.writeAll(output, data)) != 7 {
-                panic("failure6");
+                rinzu.core.panic("failure6");
             }
             okay(await rinzu.io.flush(output));
         }
@@ -36,12 +38,12 @@ async fn main() {
             okay(await rinzu.io.close(output));
         }
         let input = file(await rinzu.io.openRead("output.bin"));
-        var total = byteArray(empty);
+        var total = bytesApi.from(empty);
         try all {
             var eof = false;
             while !eof {
                 let next = chunk(await rinzu.io.read(input, 2));
-                total = bytesConcat(total, next.data);
+                total = bytesApi.concat(total, next.data);
                 eof = next.eof;
             }
         }
@@ -49,25 +51,25 @@ async fn main() {
             okay(await rinzu.io.close(input));
         }
         if total != data || rinzu.io.liveFiles() != 0 || rinzu.io.liveBuffers() != 0 {
-            panic("failure7");
+            rinzu.core.panic("failure7");
         }
         if rinzu.io.monotonicMillis() < start || rinzu.io.unixMillis() <= 0 {
-            panic("failure8");
+            rinzu.core.panic("failure8");
         }
         okay(await rinzu.io.rename("output.bin", "renamed.bin"));
         okay(await rinzu.io.remove("renamed.bin"));
         try {
             let resultValue1 = await rinzu.io.openRead("missing-rinzu-file");
             okay(await rinzu.io.close(resultValue1));
-            panic("failure9");
+            rinzu.core.panic("failure9");
         }
         catch [resultError1: Error, ...resultRest1] {}
         if rinzu.io.liveFiles() != 0 || rinzu.io.liveBuffers() != 0 {
-            panic("failure10");
+            rinzu.core.panic("failure10");
         }
         rinzu.stdio.writeLine("io-dynamic-ok");
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

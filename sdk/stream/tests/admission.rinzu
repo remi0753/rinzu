@@ -1,5 +1,6 @@
 import rinzu.timer;
 import rinzu.stdio;
+import rinzu.core;
 
 class Count {
     value: Int
@@ -11,7 +12,7 @@ async fn child(count: Count) {
         await rinzu.timer.sleep(100);
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
     }
 }
 
@@ -36,6 +37,6 @@ async fn main() {
         }
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
     }
 }

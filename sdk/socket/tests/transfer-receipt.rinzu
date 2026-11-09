@@ -1,13 +1,16 @@
 import rinzu.socket;
 import rinzu.stdio;
 import rinzu.testing;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.future as future;
 
 fn check(condition: Bool) {
     try {
         rinzu.testing.assertTrue(condition, "fixed transfer receipt");
     }
     catch errors {
-        panic("failedAssertion");
+        rinzu.core.panic("failedAssertion");
     }
 }
 
@@ -23,32 +26,35 @@ async fn main() {
             let server = await accepting;
             let closedListener = await rinzu.socket.closeListener(listener);
             try {
-                check(await rinzu.socket.write(client, byteArray(b"")) == 0);
-                check(await rinzu.socket.writeAll(client, byteArray(b"\x00")) == 1);
+                check(await rinzu.socket.write(client, bytesApi.from(b"")) == 0);
+                check(await rinzu.socket.writeAll(client, bytesApi.from(b"\x00")) == 1);
                 let first = await rinzu.socket.read(server, 1);
                 check(
                     !first.eof
-                        && bytesLength(first.data) == 1
-                        && bytesGet(first.data, 0) == bytesGet(byteArray(b"\x00"), 0)
+                        && bytesApi.length(first.data) == 1
+                        && bytesApi.get(first.data, 0) == bytesApi.get(bytesApi.from(b"\x00"), 0)
                 );
-                check(await rinzu.socket.writeAll(server, byteArray(b"\xff")) == 1);
+                check(await rinzu.socket.writeAll(server, bytesApi.from(b"\xff")) == 1);
                 let reply = await rinzu.socket.read(client, 1);
                 check(
                     !reply.eof
-                        && bytesLength(reply.data) == 1
-                        && bytesGet(reply.data, 0) == bytesGet(byteArray(b"\xff"), 0)
+                        && bytesApi.length(reply.data) == 1
+                        && bytesApi.get(reply.data, 0) == bytesApi.get(bytesApi.from(b"\xff"), 0)
                 );
                 let half = await rinzu.socket.shutdownWrite(client);
                 let end = await rinzu.socket.read(server, 1);
-                check(end.eof && bytesLength(end.data) == 0);
-                check(bytesLength(first.data) == 1 && bytesGet(first.data, 0) == bytesGet(byteArray(b"\x00"), 0));
+                check(end.eof && bytesApi.length(end.data) == 0);
+                check(
+                    bytesApi.length(first.data) == 1
+                        && bytesApi.get(first.data, 0) == bytesApi.get(bytesApi.from(b"\x00"), 0)
+                );
             }
             finally {
                 let cleaned = await rinzu.socket.closeOwnerSockets();
             }
         }
         finally {
-            let stopped = cancelFuture(accepting);
+            let stopped = future.cancel(accepting);
             let settled = await accepting;
         }
         let stats = rinzu.socket.statistics();
@@ -56,6 +62,6 @@ async fn main() {
         rinzu.stdio.writeLine("N03:public-SDK:fixed-transfer:OK");
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

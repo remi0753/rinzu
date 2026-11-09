@@ -1,6 +1,7 @@
 import rinzu.macos;
 import rinzu.process;
 import rinzu.stdio;
+import rinzu.core;
 
 async fn body(app: rinzu.macos.UiApplication) {
     let scope = app.primary;
@@ -26,7 +27,7 @@ async fn body(app: rinzu.macos.UiApplication) {
             let never = await clock.next();
         }
     }
-    panic("canvas acquisition cancellation did not fire");
+    rinzu.core.panic("canvas acquisition cancellation did not fire");
 }
 
 async fn main() {
@@ -47,7 +48,7 @@ async fn main() {
                     let text = font.layout("日本語 😀", 0.0, rinzu.macos.textLeft);
                     let texture = device.rasterText(text, 2.0);
                 }
-                panic("font acquisition cancellation did not fire");
+                rinzu.core.panic("font acquisition cancellation did not fire");
             }
         }
         finally {
@@ -58,12 +59,12 @@ async fn main() {
                 || stats.textureBytes != 0
                 || stats.frameWaiters != 0
                 || stats.frameTimers != 0 {
-                panic("unreceived canvas resource survived");
+                rinzu.core.panic("unreceived canvas resource survived");
             }
             rinzu.stdio.writeLine("CANVAS:acquisition:closed");
         }
     }
     catch errors {
-        panic(f"canvas acquisition failed: {errors}");
+        rinzu.core.panic(f"canvas acquisition failed: {errors}");
     }
 }

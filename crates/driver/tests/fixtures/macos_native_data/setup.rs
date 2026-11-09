@@ -7,7 +7,15 @@ pub fn create_math(root: &std::path::Path) {
         &text,
     ))
     .unwrap();
-    let mut source = String::from("native {\n");
+    let mut source = String::new();
+    for import in &module.imports {
+        if import.path == ["rinzu", "native"] || import.path == ["rinzu", "string"] {
+            let range = import.range;
+            source.push_str(&text[range.start_byte as usize..range.end_byte as usize]);
+            source.push('\n');
+        }
+    }
+    source.push_str("\nnative {\n");
     for member in module.native_blocks.iter().flat_map(|block| &block.members) {
         let range = match member {
             rinzu_compiler::ast::NativeMember::Record(record) if record.name == "Transform2D" => {

@@ -1,5 +1,6 @@
 import rinzu.process;
 import rinzu.stdio;
+import rinzu.core;
 
 fn showArguments() {
     let args = rinzu.process.arguments();
@@ -7,7 +8,7 @@ fn showArguments() {
         rinzu.stdio.writeLine(f"<{value}>");
     }
     if args != rinzu.process.arguments() {
-        panic("argument snapshot changed");
+        rinzu.core.panic("argument snapshot changed");
     }
 }
 
@@ -20,10 +21,10 @@ fn main() {
             rinzu.stdio.writeLine(f"invalid {problem.payload.index}/{problem.payload.byteOffset}");
         }
         catch output {
-            panic("stdout failed");
+            rinzu.core.panic("stdout failed");
         }
     }
     catch other {
-        panic("stdout failed");
+        rinzu.core.panic("stdout failed");
     }
 }

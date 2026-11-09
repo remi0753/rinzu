@@ -43,7 +43,9 @@ void {prefix}_calculate(int64_t value,struct ValueResult *output) RINZU_SHIM_NOE
     manifest=f'[package]\nname="{name}"\nlanguage="0.5"\nkind="sdk"\nentry="src/api.rinzu"\n[native]\nsources=["native/src/api.{extension}"]\nheaders=["native/include/api.h"]\ninclude-dirs=["native/include"]\n'
     if language!='c':manifest+='libraries=["c++"]\n'
     if language=='objcxx':manifest+='frameworks=["Foundation"]\n'
-    rinzu=f'''native {{
+    rinzu=f'''import rinzu.native;
+
+native {{
     record ValueResult {{
         status: CInt,
         value: Int
@@ -55,7 +57,7 @@ void {prefix}_calculate(int64_t value,struct ValueResult *output) RINZU_SHIM_NOE
 fn calculate(value: Int) -> Int {{
     let output = ValueResult(status: CInt(0), value: 0);
     rawCalculate(value, output);
-    let status = nativeStatus(Int(output.status), "{name}.calculate");
+    let status = rinzu.native.checkStatus(Int(output.status), "{name}.calculate");
     return output.value;
 }}
 

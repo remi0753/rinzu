@@ -1,11 +1,12 @@
 import termination;
+import rinzu.core;
 
 async fn main() {
     let mode = termination.mode();
     try {
         let result = termination.exercise(mode);
         if (mode == 6 && result != 17) || ((mode == 3 || mode == 4 || mode == 7) && result != 31) {
-            panic("wrongFallback");
+            rinzu.core.panic("wrongFallback");
         }
         termination.mark(5);
     }

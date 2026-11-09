@@ -1,4 +1,5 @@
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
 
 fn copy<T: Transferable>(value: T) -> T {
     return value;
@@ -11,19 +12,19 @@ fn length(value: ByteArray, measure: fn (ByteArray) -> CSize) -> CSize {
 async fn main() {
     try {
         let values: List<CUInt8> = [0, 255, 65];
-        let data = byteArray(values);
+        let data = bytesApi.from(values);
         let padded: Bytes(8) = b"A";
-        let fixed = byteArray(padded);
-        rinzu.stdio.writeLine(bytesLength(data));
-        rinzu.stdio.writeLine(length(data, byteLength));
-        rinzu.stdio.writeLine(bytesLength(fixed));
-        rinzu.stdio.writeLine(bytesGet(data, 0));
-        rinzu.stdio.writeLine(bytesGet(data, 3));
-        rinzu.stdio.writeLine(bytesSlice(data, 0, 2));
-        rinzu.stdio.writeLine(bytesSlice(data, 3, 3));
-        rinzu.stdio.writeLine(bytesSlice(data, -1, 2));
+        let fixed = bytesApi.from(padded);
+        rinzu.stdio.writeLine(bytesApi.length(data));
+        rinzu.stdio.writeLine(length(data, bytesApi.byteLength));
+        rinzu.stdio.writeLine(bytesApi.length(fixed));
+        rinzu.stdio.writeLine(bytesApi.get(data, 0));
+        rinzu.stdio.writeLine(bytesApi.get(data, 3));
+        rinzu.stdio.writeLine(bytesApi.slice(data, 0, 2));
+        rinzu.stdio.writeLine(bytesApi.slice(data, 3, 3));
+        rinzu.stdio.writeLine(bytesApi.slice(data, -1, 2));
         let empty: List<CUInt8> = [];
-        let combined = bytesConcat(byteArray(empty), bytesCopy(data));
+        let combined = bytesApi.concat(bytesApi.from(empty), bytesApi.copy(data));
         rinzu.stdio.writeLine(combined == data);
         let pending = spawn copy<List<ByteArray>>([combined, fixed]);
         rinzu.stdio.writeLine(await pending);

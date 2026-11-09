@@ -1,5 +1,6 @@
 import rinzu.list;
 import rinzu.option;
+import rinzu.core;
 
 class Visits {
     order: Int
@@ -11,7 +12,7 @@ error Rejected {
 
 fn require(condition: Bool, message: String) nothrow {
     if !condition {
-        panic(message);
+        rinzu.core.panic(message);
     }
 }
 
@@ -79,7 +80,7 @@ fn checkErrors() nothrow {
     try {
         require(rinzu.list.any([1, 2], validate), "skip failing predicate");
         let unexpected = rinzu.list.find([2, 1], validate);
-        panic("expected predicate Error");
+        rinzu.core.panic("expected predicate Error");
     }
     catch [problem: Rejected, ...rest] {
         require(problem.payload == 2 && rinzu.list.length(rest) == 0, "predicate Error payload");
@@ -90,7 +91,7 @@ fn checkErrors() nothrow {
     try {
         require(rinzu.option.getOrElse(Option<Int>.Some(value: 2), onNone) == 2, "skip failing default");
         let unexpectedDefault = rinzu.option.getOrElse(Option<Int>.None(), onNone);
-        panic("expected default Error");
+        rinzu.core.panic("expected default Error");
     }
     catch [problem: Rejected, ...rest] {
         require(problem.payload == 7 && rinzu.list.length(rest) == 0, "default Error payload");

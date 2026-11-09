@@ -1,4 +1,6 @@
 import loops;
+import rinzu.core;
+import rinzu.future as future;
 
 fn callback(seed: CInt) -> CInt fallback -19 {
     return 41;
@@ -14,7 +16,7 @@ async fn wrapper() -> String {
         }
     }
     catch errors {
-        panic("failed");
+        rinzu.core.panic("failed");
         return "";
     }
 }
@@ -30,9 +32,9 @@ async fn cancelQueued(pending: Future<String>) {
         }
     }
     finally {
-        let cancelled = cancelFuture(pending);
+        let cancelled = future.cancel(pending);
         if !cancelled {
-            panic("lostCancellationRequest");
+            rinzu.core.panic("lostCancellationRequest");
         }
     }
 }
@@ -44,9 +46,9 @@ async fn main() {
         let cancellation = cancelQueued(pending);
         await cancellation;
         let result = await pending;
-        panic("lostCancellation");
+        rinzu.core.panic("lostCancellation");
     }
     catch errors {
-        panic("failed");
+        rinzu.core.panic("failed");
     }
 }

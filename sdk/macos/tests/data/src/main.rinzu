@@ -3,6 +3,9 @@ import rinzu.timer;
 import rinzu.process;
 import rinzu.stdio;
 import rinzu.testing;
+import rinzu.core;
+import rinzu.error as err;
+import rinzu.future as future;
 
 fn rowCount(data: rinzu.macos.DataView) -> Int {
     let state = data.state();
@@ -33,7 +36,7 @@ async fn filling(data: rinzu.macos.DataView) {
         await data.generateRows(100000, row);
     }
     catch errors {
-        panic(f"unexpected loading error: {errors}");
+        rinzu.core.panic(f"unexpected loading error: {errors}");
     }
 }
 
@@ -80,7 +83,7 @@ async fn body(app: rinzu.macos.UiApplication) {
             10,
             fn (index: Int) -> rinzu.macos.DataRow {
                 if index == 5 {
-                    throw error(-7840, "row failure");
+                    throw err.create(-7840, "row failure");
                 }
                 return row(index);
             }
@@ -99,9 +102,9 @@ async fn body(app: rinzu.macos.UiApplication) {
             while pendingCount(data) == 0 {
                 await rinzu.timer.sleep(1);
             }
-            let cancelled = cancelFuture(cancelledLoad);
+            let cancelled = future.cancel(cancelledLoad);
             await cancelledLoad;
-            panic("data cancellation was swallowed");
+            rinzu.core.panic("data cancellation was swallowed");
         }
         finally {
             await cancelledLoad;
@@ -178,6 +181,6 @@ async fn main() {
         }
     }
     catch errors {
-        panic(f"data test failed: {errors}");
+        rinzu.core.panic(f"data test failed: {errors}");
     }
 }

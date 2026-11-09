@@ -141,7 +141,7 @@ async fn testNotepad(notepad: Notepad, scope: rinzu.macos.UiScope) {
         );
     }
     else {
-        panic("unknown notepad test");
+        rinzu.core.panic("unknown notepad test");
     }
     expect(notepad.failures == 0 || mode == "save-failure", "no unexpected operation failure");
     rinzu.stdio.writeLine(f"NOTEPAD:TEST:{mode}:ok");

@@ -1,4 +1,5 @@
 import prepared;
+import rinzu.core;
 
 async fn main() {
     try {
@@ -21,10 +22,10 @@ async fn main() {
             || await two != 42
             || await one != 42
             || await one != 42 {
-            panic("wrong");
+            rinzu.core.panic("wrong");
         }
     }
     catch unexpected {
-        panic("failed");
+        rinzu.core.panic("failed");
     }
 }

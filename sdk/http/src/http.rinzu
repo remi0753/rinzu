@@ -1,3 +1,8 @@
+import rinzu.bytes as bytesApi;
+import rinzu.error as err;
+import rinzu.native as bridge;
+import rinzu.string as textApi;
+
 native {
     opaque Client;
 
@@ -59,8 +64,8 @@ class HttpFailureData {
 
 fn problem(status: Int) -> Error {
     try {
-        let resultValue2 = nativeStatus(status, "http.request");
-        return error(-7304, "http.request");
+        let resultValue2 = bridge.checkStatus(status, "http.request");
+        return err.create(-7304, "http.request");
     }
     catch [resultError2: Error, ...resultRest2] {
         return resultError2;
@@ -68,11 +73,11 @@ fn problem(status: Int) -> Error {
 }
 
 fn failed(status: Int) -> Response {
-    throw requestFailure(problem(status), 0, byteArray(b""), 0);
+    throw requestFailure(problem(status), 0, bytesApi.from(b""), 0);
 }
 
 async fn wait(client: Client) {
-    await nativeCompleted(rawCompletion(client));
+    await bridge.completed(rawCompletion(client));
 }
 
 async fn settle(client: Client) {
@@ -82,7 +87,7 @@ async fn settle(client: Client) {
 }
 
 async fn request(client: Client, url: String, body: ByteArray, post: Bool, timeoutMillis: Int) -> Response {
-    switch stringFind(url, "\u{0}", 0) {
+    switch textApi.find(url, "\u{0}", 0) {
         case Option.Some(index): {
             return failed(-7304);
         }
@@ -93,13 +98,13 @@ async fn request(client: Client, url: String, body: ByteArray, post: Bool, timeo
         return failed(ready);
     }
     try {
-        let started = Int(rawRequest(client, url, body, byteLength(body), post, timeoutMillis));
+        let started = Int(rawRequest(client, url, body, bytesApi.byteLength(body), post, timeoutMillis));
         if started != 0 {
             return failed(started);
         }
         await wait(client);
-        let all = byteArray(rawBytes(client));
-        switch bytesSlice(all, 0, rawLength(client)) {
+        let all = bytesApi.from(rawBytes(client));
+        switch bytesApi.slice(all, 0, rawLength(client)) {
             case Option.None: {
                 return failed(-7304);
             }
@@ -132,7 +137,7 @@ async fn close(client: Client) -> Int {
             throw problem(started);
         }
         await wait(client);
-        return nativeStatus(Int(rawStatus(client)), "http.close");
+        return bridge.checkStatus(Int(rawStatus(client)), "http.close");
     }
     finally {
         if rawBusy(client) {

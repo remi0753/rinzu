@@ -7,6 +7,33 @@ import rinzu.http;
 import rinzu.shutdown;
 import rinzu.stdio;
 import rinzu.testing;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
+import rinzu.future as future;
+import rinzu.string as textApi;
+
+fn displayErrorCode(problem: Error) nothrow -> String {
+    switch err.code(problem) {
+        case Option.Some(value): {
+            return f"{value}";
+        }
+        case Option.None: {
+            return "unavailable";
+        }
+    }
+}
+
+fn errorContextText(problem: Error) nothrow -> String {
+    switch err.context(problem) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            return "";
+        }
+    }
+}
 
 class Configuration {
     const path: String,
@@ -28,15 +55,15 @@ class Analysis {
 fn analyze(snapshot: rinzu.macos.DocumentSnapshot) -> Analysis {
     return Analysis(
         version: snapshot.version,
-        scalars: stringLength(snapshot.text),
-        lines: rinzu.list.length(stringSplit(snapshot.text, "\n")),
-        keywords: rinzu.list.length(stringSplit(snapshot.text, "TODO")) - 1
+        scalars: textApi.length(snapshot.text),
+        lines: rinzu.list.length(textApi.split(snapshot.text, "\n")),
+        keywords: rinzu.list.length(textApi.split(snapshot.text, "TODO")) - 1
     );
 }
 
 fn require(condition: Bool) {
     if !condition {
-        panic("editor invariant");
+        rinzu.core.panic("editor invariant");
     }
 }
 
@@ -192,8 +219,8 @@ class Editor {
             let isolated = input.setEnabled(false);
         }
         var prefix = Option<String>.None();
-        if utf8ByteLength(config.initial) > 524288 {
-            prefix = stringSlice(config.initial, 0, stringLength(config.initial) - 1);
+        if textApi.utf8ByteLength(config.initial) > 524288 {
+            prefix = textApi.slice(config.initial, 0, textApi.length(config.initial) - 1);
         }
         return Editor(
             binding: binding,
@@ -282,7 +309,7 @@ class Editor {
             let pending = self.background(snapshot, delay);
             try {
                 await rinzu.timer.sleep(2);
-                let requested = cancelFuture(pending);
+                let requested = future.cancel(pending);
                 rinzu.stdio.writeLine(f"CANCEL:BACKGROUND:{requested}");
             }
             finally {
@@ -305,8 +332,8 @@ class Editor {
             catch errors {
                 switch rinzu.list.get(errors, 0) {
                     case Option.Some(problem): {
-                        self.message(f"Save failed: {errorMessage(problem)}; retry Save");
-                        rinzu.stdio.writeLine(f"SAVE:FAILED:{errorCode(problem)}:{errorContext(problem)}");
+                        self.message(f"Save failed: {err.message(problem)}; retry Save");
+                        rinzu.stdio.writeLine(f"SAVE:FAILED:{displayErrorCode(problem)}:{errorContextText(problem)}");
                     }
                     case Option.None: {}
                 }
@@ -319,8 +346,8 @@ class Editor {
 
     async fn send(self: Editor, snapshot: rinzu.macos.DocumentSnapshot) {
         try {
-            let payload = utf8Encode(
-                f"version={snapshot.version};scalars={stringLength(snapshot.text)};selection={snapshot.start}:{snapshot.end}"
+            let payload = textApi.encodeUtf8(
+                f"version={snapshot.version};scalars={textApi.length(snapshot.text)};selection={snapshot.start}:{snapshot.end}"
             );
             try {
                 let response = await rinzu.http.request(
@@ -330,15 +357,15 @@ class Editor {
                     true,
                     self.config.timeout
                 );
-                self.message(f"Peer status {response.status}, {bytesLength(response.body)} bytes");
+                self.message(f"Peer status {response.status}, {bytesApi.length(response.body)} bytes");
                 rinzu.stdio.writeLine(f"HTTP:OK:{response.status}");
             }
             catch errors {
                 switch rinzu.list.get(errors, 0) {
                     case Option.Some(problem): {
                         if problem is rinzu.http.HttpFailure {
-                            self.message(f"Send failed: {errorMessage(problem.payload.cause)}; retry Send");
-                            rinzu.stdio.writeLine(f"HTTP:FAILED:{errorNativeStatus(problem.payload.cause)}");
+                            self.message(f"Send failed: {err.message(problem.payload.cause)}; retry Send");
+                            rinzu.stdio.writeLine(f"HTTP:FAILED:{err.nativeStatus(problem.payload.cause)}");
                         }
                         else {
                             throw problem;
@@ -359,7 +386,7 @@ class Editor {
             let pending = self.send(snapshot);
             try {
                 await rinzu.timer.sleep(2);
-                let requested = cancelFuture(pending);
+                let requested = future.cancel(pending);
                 rinzu.stdio.writeLine(f"CANCEL:HTTP:{requested}");
             }
             finally {
@@ -595,7 +622,7 @@ class Editor {
                 started = startup.kind == rinzu.macos.eventStarted;
             }
             self.message("Ready");
-            rinzu.stdio.writeLine(f"EDITOR:READY:{utf8ByteLength(self.binding.document.text)}");
+            rinzu.stdio.writeLine(f"EDITOR:READY:{textApi.utf8ByteLength(self.binding.document.text)}");
             if self.config.mode == "stale" {
                 let old = self.binding.document.snapshot();
                 let replaced = self.binding.replace("Newer document 日本 😀", 0, 2);
@@ -699,24 +726,26 @@ async fn launch() {
     catch errors {
         switch rinzu.list.get(errors, 0) {
             case Option.Some(problem): {
-                switch errorNativeStatus(problem) {
+                switch err.nativeStatus(problem) {
                     case Option.Some(status): {
                         if status == 2 {
                             saved = false;
                         }
                         else {
-                            rinzu.stdio.writeLine(f"OPEN:FAILED:{errorCode(problem)}:{errorContext(problem)}");
+                            rinzu.stdio.writeLine(
+                                f"OPEN:FAILED:{displayErrorCode(problem)}:{errorContextText(problem)}"
+                            );
                             return;
                         }
                     }
                     case Option.None: {
-                        rinzu.stdio.writeLine(f"OPEN:FAILED:{errorCode(problem)}:{errorMessage(problem)}");
+                        rinzu.stdio.writeLine(f"OPEN:FAILED:{displayErrorCode(problem)}:{err.message(problem)}");
                         return;
                     }
                 }
             }
             case Option.None: {
-                throw error(-7820, "empty open failure");
+                throw err.create(-7820, "empty open failure");
             }
         }
     }
@@ -765,6 +794,6 @@ async fn main() {
         }
     }
     catch errors {
-        panic(f"editor failed: {errors}");
+        rinzu.core.panic(f"editor failed: {errors}");
     }
 }

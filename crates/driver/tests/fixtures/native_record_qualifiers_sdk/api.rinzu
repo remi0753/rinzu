@@ -1,3 +1,5 @@
+import rinzu.core;
+
 native {
     record Point {
         x: Int
@@ -27,14 +29,14 @@ fn exercise() -> Int {
                 caught = caught + 1;
             }
             if caught != 1 {
-                panic("callback alias lost Busy");
+                rinzu.core.panic("callback alias lost Busy");
             }
             return first.x;
         }
     );
     let status = change(returned, 3);
     if point.x != 16 || returned.x != 16 {
-        panic("lost shared reference");
+        rinzu.core.panic("lost shared reference");
     }
     return point.x;
 }

@@ -1,5 +1,6 @@
 import rinzu.stdio;
 import rinzu.timer;
+import rinzu.core;
 
 error A {}
 
@@ -40,11 +41,11 @@ async fn main() {
             rinzu.stdio.writeLine(b.message);
         }
         catch errors {
-            panic("unexpectedErrors");
+            rinzu.core.panic("unexpectedErrors");
         }
         rinzu.stdio.writeLine(await value());
     }
     catch errors {
-        panic("unexpected");
+        rinzu.core.panic("unexpected");
     }
 }

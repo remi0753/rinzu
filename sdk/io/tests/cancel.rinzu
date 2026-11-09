@@ -1,5 +1,7 @@
 import rinzu.io;
 import rinzu.stdio;
+import rinzu.core;
+import rinzu.future as future;
 
 fn file(result: rinzu.io.File) -> rinzu.io.File {
     return result;
@@ -22,18 +24,18 @@ async fn main() {
         let input = file(await rinzu.io.openRead("data/input.txt"));
         try all {
             let reading = rinzu.io.read(input, 1);
-            let cancelled = cancelFuture(reading);
+            let cancelled = future.cancel(reading);
             let result = await reading;
         }
         finally {
             okay(await rinzu.io.close(input));
             if rinzu.io.liveFiles() != 0 || rinzu.io.liveBuffers() != 0 {
-                panic("failure11");
+                rinzu.core.panic("failure11");
             }
             rinzu.stdio.writeLine("io-cancel-settled");
         }
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

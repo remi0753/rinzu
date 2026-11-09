@@ -1,3 +1,5 @@
+import rinzu.core;
+
 class Item {
     const label: String,
     const bits: CSize,
@@ -39,10 +41,10 @@ fn read(choice: Choice) -> Int {
         case Choice.payload(item): {
             let temporary = make(1.0);
             if item.bits != 18446744073709551615 {
-                panic("bad_bits");
+                rinzu.core.panic("bad_bits");
             }
             if item.label != "日本語\u{0}tail" {
-                panic("bad_payload");
+                rinzu.core.panic("bad_payload");
             }
             return 7;
         }
@@ -57,20 +59,20 @@ fn verify() -> Int {
         let left = make(0.0);
         let right = make(-0.0);
         if left != right {
-            panic("bad_zero");
+            rinzu.core.panic("bad_zero");
         }
         let nan = make(0.0 / 0.0);
         if nan == nan {
-            panic("bad_nan_self");
+            rinzu.core.panic("bad_nan_self");
         }
         let items: List<Item> = [left, right];
         let copies: List<Item> = [right, left];
         if items != copies {
-            panic("bad_list");
+            rinzu.core.panic("bad_list");
         }
         let nans: List<Item> = [nan];
         if nans == nans {
-            panic("bad_list_nan");
+            rinzu.core.panic("bad_list_nan");
         }
         let table: Map<Key, Item> = {
             Key.label(text: "a"): left, Key.empty(): right
@@ -79,28 +81,28 @@ fn verify() -> Int {
             Key.empty(): left, Key.label(text: "a"): right
         };
         if table != reversed {
-            panic("bad_map");
+            rinzu.core.panic("bad_map");
         }
         let payload = Choice.payload(item: left);
         if payload != Choice.payload(item: right) {
-            panic("bad_enum_equality");
+            rinzu.core.panic("bad_enum_equality");
         }
         if payload == Choice.empty() {
-            panic("bad_variant");
+            rinzu.core.panic("bad_variant");
         }
         if read(payload) + read(Choice.number(value: 11)) + read(Choice.empty()) != 21 {
-            panic("bad_switch");
+            rinzu.core.panic("bad_switch");
         }
         iteration = iteration + 1;
     }
     if kept != "日本語\u{0}tail" {
-        panic("bad_child_lifetime");
+        rinzu.core.panic("bad_child_lifetime");
     }
     return 42;
 }
 
 fn main() {
     if verify() != 42 {
-        panic("bad_result");
+        rinzu.core.panic("bad_result");
     }
 }

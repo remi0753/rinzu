@@ -3,6 +3,20 @@ import rinzu.timer;
 import rinzu.macos;
 import rinzu.process;
 import rinzu.stdio;
+import rinzu.core;
+import rinzu.error as err;
+import rinzu.string as textApi;
+
+fn errorContextText(problem: Error) nothrow -> String {
+    switch err.context(problem) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            return "";
+        }
+    }
+}
 
 class Screen {
     const text: rinzu.macos.TextView,
@@ -16,7 +30,7 @@ class Screen {
             scope.requestStop();
         }
         else if event.kind == rinzu.macos.eventTextChanged && event.viewId == self.text.identity() {
-            let changed = self.status.setText(f"{stringLength(event.text)} characters");
+            let changed = self.status.setText(f"{textApi.length(event.text)} characters");
         }
         else if event.kind == rinzu.macos.eventAction {
             if event.action == 10 {
@@ -27,7 +41,7 @@ class Screen {
                         if !owner.isStopping() {
                             self.analyses = self.analyses + 1;
                             let updated = self.status.setText(
-                                f"Analysis {self.analyses}: {stringLength(snapshot)} characters, {rinzu.list.length(stringSplit(snapshot, "\n"))} lines"
+                                f"Analysis {self.analyses}: {textApi.length(snapshot)} characters, {rinzu.list.length(textApi.split(snapshot, "\n"))} lines"
                             );
                         }
                     }
@@ -86,12 +100,12 @@ async fn screen(app: rinzu.macos.UiApplication) {
                 await rinzu.timer.sleep(30);
                 let expandedToolbar = toolbar.frame();
                 if expandedToolbar.width != 696.0 {
-                    panic("toolbar did not resize");
+                    rinzu.core.panic("toolbar did not resize");
                 }
                 let restored = owner.window.setContentSize(640.0, 454.0);
                 await rinzu.timer.sleep(30);
                 let replaced = text.setText("Automated GUI: 日本語 🙂\n");
-                let count = status.setText(f"{stringLength(text.text())} characters");
+                let count = status.setText(f"{textApi.length(text.text())} characters");
                 owner.requestStop();
             }
         );
@@ -115,12 +129,12 @@ async fn main() {
         try {
             switch rinzu.list.get(errors, 0) {
                 case Option.Some(problem): {
-                    rinzu.stdio.writeLine(f"Widgets failed: {errorMessage(problem)} {errorContext(problem)}");
+                    rinzu.stdio.writeLine(f"Widgets failed: {err.message(problem)} {errorContextText(problem)}");
                 }
                 case Option.None: {}
             }
         }
         catch outputErrors {}
-        panic("widgets application failed");
+        rinzu.core.panic("widgets application failed");
     }
 }

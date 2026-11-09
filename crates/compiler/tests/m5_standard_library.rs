@@ -153,7 +153,7 @@ fn standard_names_reject_overrides_but_other_rinzu_names_remain_available() {
             "{errors:?}"
         );
     }
-    let entry = scratch.source("unknown.rinzu", "import rinzu.future; fn main() {}");
+    let entry = scratch.source("unknown.rinzu", "import rinzu.unregistered; fn main() {}");
     let errors = check_input(
         &entry,
         &CompilationOptions {
@@ -166,7 +166,8 @@ fn standard_names_reject_overrides_but_other_rinzu_names_remain_available() {
     assert!(
         errors
             .iter()
-            .any(|e| e.message.contains("rinzu.future") && e.primary.file_id != FileId::MANIFEST)
+            .any(|e| e.message.contains("rinzu.unregistered")
+                && e.primary.file_id != FileId::MANIFEST)
     );
 }
 

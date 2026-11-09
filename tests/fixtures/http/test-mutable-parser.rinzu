@@ -1,3 +1,5 @@
+import rinzu.bytes as bytesApi;
+import rinzu.core;
 // A mutable data object in an async caller must not require immutable
 // checkpoints merely to keep the compiler's Future analysis tractable.
 import "../http-wire/wire.rinzu" as wire;
@@ -10,17 +12,17 @@ async fn main() {
     try {
         let parser = wire.fresh(true);
         let pending = ready();
-        let complete = wire.feed(parser, byteArray(b"GET /plaintext HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+        let complete = wire.feed(parser, bytesApi.from(b"GET /plaintext HTTP/1.1\r\nHost: localhost\r\n\r\n"));
         let value = await pending;
         if !complete || value != 1 {
-            panic("incomplete");
+            rinzu.core.panic("incomplete");
         }
         let request = wire.request(parser);
-        if request.target != "/plaintext" || bytesLength(parser.residual) != 0 {
-            panic("invalidRequest");
+        if request.target != "/plaintext" || bytesApi.length(parser.residual) != 0 {
+            rinzu.core.panic("invalidRequest");
         }
     }
     catch errors {
-        panic("unexpectedError");
+        rinzu.core.panic("unexpectedError");
     }
 }

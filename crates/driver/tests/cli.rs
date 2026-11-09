@@ -1491,6 +1491,101 @@ fn main() {
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
+fn error_message_module_matches_fields_in_all_execution_modes() {
+    let root = std::env::temp_dir().join(format!("rinzu-error-message-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("rinzu.toml"),
+        "[package]\nname = \"error_message\"\nlanguage = \"0.5\"\n",
+    )
+    .unwrap();
+    let program = r#"
+import rinzu.error as err;
+import rinzu.list;
+
+error WriteFailed<T> { payload: T }
+error CloseFailed {}
+
+fn compare(problem: Error, expected: String) nothrow {
+    if err.message(problem) != expected || problem.message != expected {
+        panic("error_message_mismatch");
+    }
+}
+
+fn argument() -> Error {
+    throw CloseFailed(message: "close");
+}
+
+fn check() nothrow {
+    let value = WriteFailed<Int>(message: "日本語🙂\n", payload: 42, cause: err.create(77, "disk"));
+    compare(value, value.message);
+    let generic = err.create(1, "");
+    compare(generic, "");
+    switch err.code(generic) {
+        case Option.Some(code): { if code != 1 { panic("wrong_code"); } }
+        case Option.None: { panic("missing_code"); }
+    }
+    switch err.code(value) {
+        case Option.Some(code): { panic("named_code"); }
+        case Option.None: {}
+    }
+    switch err.context(generic) {
+        case Option.Some(context): { if context != "" { panic("wrong_context"); } }
+        case Option.None: { panic("missing_context"); }
+    }
+    switch err.withContext(value, "context") {
+        case Option.Some(updated): { panic("named_update"); }
+        case Option.None: {}
+    }
+    switch err.cause(value) {
+        case Option.Some(cause): { compare(cause, "disk"); }
+        case Option.None: { panic("missing_cause"); }
+    }
+    if rinzu.list.length(err.cleanup(value)) != 0 { panic("unexpected_cleanup"); }
+    try {
+        try { throw value; }
+        finally { let invalid = CInt8(200); }
+    }
+    catch [first: Error, second: Error] {
+        compare(first, "日本語🙂\n");
+        switch err.sourceStartByte(first) {
+            case Option.Some(position): { if position <= 0 { panic("wrong_source"); } }
+            case Option.None: { panic("missing_source"); }
+        }
+        compare(second, "numeric conversion is out of range or loses required integer precision");
+    }
+    catch errors { panic("wrong_error_list"); }
+    try {
+        let text = err.message(argument());
+        panic("argument_returned");
+    }
+    catch [problem: CloseFailed] { compare(problem, "close"); }
+    catch errors { panic("argument_error_changed"); }
+}
+"#;
+    for main in [
+        "fn main() { check(); }",
+        "async fn main() { check(); let value = err.create(3, \"async\"); compare(value, \"async\"); if err.message(value) != \"async\" { panic(\"async_message\"); } }",
+    ] {
+        std::fs::write(root.join("src/main.rinzu"), format!("{program}\n{main}\n")).unwrap();
+        let output = Command::new(frozen_cli::path())
+            .arg("verify-aot")
+            .arg(&root)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("outcome=success"));
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
 fn source_async_jit_aot_compare_every_scalar_await_and_transport_width() {
     use std::fmt::Write;
     let root =

@@ -1,5 +1,7 @@
 import rinzu.process;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
 
 class Held {
     const text: String,
@@ -28,13 +30,13 @@ async fn ready() -> Int {
 
 async fn copy(value: Held) -> Held {
     try {
-        return Held(text: value.text, bytes: bytesCopy(value.bytes));
+        return Held(text: value.text, bytes: bytesApi.copy(value.bytes));
     }
     finally {
-        let cleanup = bytesConcat(byteArray(b"left"), byteArray(b"right"));
+        let cleanup = bytesApi.concat(bytesApi.from(b"left"), bytesApi.from(b"right"));
         let cleanupFuture = ready();
         if await cleanupFuture != 7 {
-            panic("wrongCleanup");
+            rinzu.core.panic("wrongCleanup");
         }
     }
 }
@@ -43,14 +45,14 @@ async fn main() {
     try {
         let process = rinzu.process.identifier();
         if process <= 0 {
-            panic("invalidProcess");
+            rinzu.core.panic("invalidProcess");
         }
         var index = 0;
         while index < 1100 {
             let future = ready();
             let alias = keep(future);
             if await future != 7 || await alias != 7 {
-                panic("wrongFuture");
+                rinzu.core.panic("wrongFuture");
             }
             index = index + 1;
         }
@@ -58,29 +60,29 @@ async fn main() {
         let badAlias = badFuture;
         try {
             let missingFailure = await badFuture;
-            panic("missingChild");
+            rinzu.core.panic("missingChild");
         }
         catch [childProblem: Child] {
             if childProblem.payload != 41 {
-                panic("wrongChild");
+                rinzu.core.panic("wrongChild");
             }
         }
         try {
             let missingAgain = await badAlias;
-            panic("missingAlias");
+            rinzu.core.panic("missingAlias");
         }
         catch [aliasProblem: Child] {
             if aliasProblem.payload != 41 {
-                panic("wrongChildAlias");
+                rinzu.core.panic("wrongChildAlias");
             }
         }
-        let held = Held(text: "retained", bytes: byteArray(b"\x00\xffA\x00"));
+        let held = Held(text: "retained", bytes: bytesApi.from(b"\x00\xffA\x00"));
         let copiedFuture = copy(held);
         let copiedAlias = copiedFuture;
         let first = await copiedFuture;
         let again = await copiedAlias;
         if first.text != held.text || again.bytes != held.bytes {
-            panic("wrongAlias");
+            rinzu.core.panic("wrongAlias");
         }
         try {
             throw Wrapped(message: "wrapped", payload: again);
@@ -88,25 +90,25 @@ async fn main() {
         catch [problem: Wrapped] {
             let common: Error = problem;
             if common.name != "Wrapped" || common.message != "wrapped" {
-                panic("wrongMetadata");
+                rinzu.core.panic("wrongMetadata");
             }
             switch common.source {
                 case Option.Some(source): {
                     if source.line <= 0 {
-                        panic("wrongSource");
+                        rinzu.core.panic("wrongSource");
                     }
                 }
                 case Option.None: {
-                    panic("missingSource");
+                    rinzu.core.panic("missingSource");
                 }
             }
             if problem.payload.bytes != held.bytes {
-                panic("wrongPayload");
+                rinzu.core.panic("wrongPayload");
             }
         }
         rinzu.stdio.writeLine("C39:origin:future-alias:typed-Error:cleanup:OK");
     }
     catch unexpected {
-        panic("failed");
+        rinzu.core.panic("failed");
     }
 }

@@ -1,4 +1,8 @@
 import rinzu.list;
+import rinzu.bytes as bytesApi;
+import rinzu.error as err;
+import rinzu.native as bridge;
+import rinzu.string as textApi;
 
 class Connection {
     const handle: ConnectionHandle
@@ -171,7 +175,7 @@ native {
 
 fn open(path: String) -> Connection {
     let handle = rawOpen(path);
-    let resultValue13 = nativeStatus(Int(connectionStatus(handle)), "sqlite.open");
+    let resultValue13 = bridge.checkStatus(Int(connectionStatus(handle)), "sqlite.open");
     return Connection(handle: handle);
 }
 
@@ -181,18 +185,18 @@ fn openMemory() -> Connection {
 
 fn prepare(connection: Connection, sql: String) -> Statement {
     let handle = rawPrepare(connection.handle, sql);
-    let resultValue12 = nativeStatus(Int(statementStatus(handle)), "sqlite.prepare");
+    let resultValue12 = bridge.checkStatus(Int(statementStatus(handle)), "sqlite.prepare");
     return Statement(handle: handle);
 }
 
 fn execute(connection: Connection, sql: String) -> Int {
-    return nativeStatus(Int(rawExecute(connection.handle, sql)), "sqlite.execute");
+    return bridge.checkStatus(Int(rawExecute(connection.handle, sql)), "sqlite.execute");
 }
 
 fn queryInt(connection: Connection, sql: String) -> Int {
     let result = ValueResult(status: CInt(0), value: 0);
     rawQuery(connection.handle, sql, result);
-    let resultValue11 = nativeStatus(Int(result.status), "sqlite.queryInt");
+    let resultValue11 = bridge.checkStatus(Int(result.status), "sqlite.queryInt");
     return (result.value);
 }
 
@@ -204,27 +208,27 @@ fn step(statement: Statement) -> Bool {
     if status == 101 {
         return (false);
     }
-    let resultValue10 = nativeStatus(status, "sqlite.step");
+    let resultValue10 = bridge.checkStatus(status, "sqlite.step");
     return (false);
 }
 
 fn columnInt(statement: Statement, index: Int) -> Int {
     let result = ValueResult(status: CInt(0), value: 0);
     rawColumn(statement.handle, index, result);
-    let resultValue9 = nativeStatus(Int(result.status), "sqlite.columnInt");
+    let resultValue9 = bridge.checkStatus(Int(result.status), "sqlite.columnInt");
     return (result.value);
 }
 
 fn finalize(statement: Statement) -> Int {
-    return nativeStatus(Int(rawFinalize(statement.handle)), "sqlite.finalize");
+    return bridge.checkStatus(Int(rawFinalize(statement.handle)), "sqlite.finalize");
 }
 
 fn close(connection: Connection) -> Int {
-    return nativeStatus(Int(rawClose(connection.handle)), "sqlite.close");
+    return bridge.checkStatus(Int(rawClose(connection.handle)), "sqlite.close");
 }
 
 fn closeOwnerConnections() -> Int {
-    return nativeStatus(Int(rawCloseOwnerConnections()), "sqlite.closeOwnerConnections");
+    return bridge.checkStatus(Int(rawCloseOwnerConnections()), "sqlite.closeOwnerConnections");
 }
 
 export closeOwnerConnections;
@@ -237,7 +241,7 @@ fn isOpen(connection: Connection) -> Bool {
     if state == 1 {
         return (false);
     }
-    let resultValue8 = nativeStatus(state, "sqlite.isOpen");
+    let resultValue8 = bridge.checkStatus(state, "sqlite.isOpen");
     return (false);
 }
 
@@ -249,12 +253,12 @@ fn isStatementOpen(statement: Statement) -> Bool {
     if state == 1 {
         return (false);
     }
-    let resultValue7 = nativeStatus(state, "sqlite.isStatementOpen");
+    let resultValue7 = bridge.checkStatus(state, "sqlite.isStatementOpen");
     return (false);
 }
 
 fn executeWithObserver(connection: Connection, sql: String, handler: fn (ObserverContext) -> CInt) -> Int {
-    return nativeStatus(
+    return bridge.checkStatus(
         Int(rawObserve(connection.handle, sql, { connection = connection }, handler)),
         "sqlite.executeWithObserver"
     );
@@ -277,30 +281,30 @@ export executeWithObserver;
 export retainedControlBytes;
 
 fn ownedCopy(connection: Connection, sql: String, text: Bool) -> ByteArray {
-    switch stringFind(sql, "\u{0}", 0) {
+    switch textApi.find(sql, "\u{0}", 0) {
         case Option.Some(index): {
-            throw error(-7010, "sqlite.query.input");
+            throw err.create(-7010, "sqlite.query.input");
         }
         case Option.None: {}
     }
-    let resultValue6 = nativeStatus(Int(rawOwnedReady(connection.handle)), "sqlite.query.owner");
+    let resultValue6 = bridge.checkStatus(Int(rawOwnedReady(connection.handle)), "sqlite.query.owner");
     // Protect acquisition itself: cancellation may arrive at the native return boundary.
     try {
-        let resultValue5 = nativeStatus(Int(rawOwnedBegin(connection.handle, sql, text)), "sqlite.query.data");
-        let all = byteArray(rawOwnedBytes(connection.handle));
-        switch bytesSlice(all, 0, rawOwnedLength(connection.handle)) {
+        let resultValue5 = bridge.checkStatus(Int(rawOwnedBegin(connection.handle, sql, text)), "sqlite.query.data");
+        let all = bytesApi.from(rawOwnedBytes(connection.handle));
+        switch bytesApi.slice(all, 0, rawOwnedLength(connection.handle)) {
             case Option.Some(data): {
                 return (data);
             }
             case Option.None: {
-                throw error(-7010, "sqlite.query.length");
+                throw err.create(-7010, "sqlite.query.length");
             }
         }
     }
     finally {
         let released = rawOwnedRelease(connection.handle);
     }
-    throw error(-7010, "sqlite.query.unreachable");
+    throw err.create(-7010, "sqlite.query.unreachable");
 }
 
 fn queryBytes(connection: Connection, sql: String) -> ByteArray {
@@ -309,8 +313,8 @@ fn queryBytes(connection: Connection, sql: String) -> ByteArray {
 
 fn queryText(connection: Connection, sql: String) -> String {
     let resultValue4 = ownedCopy(connection, sql, true);
-    return utf8Decode(resultValue4);
-    throw error(-7010, "sqlite.queryText.unreachable");
+    return textApi.decodeUtf8(resultValue4);
+    throw err.create(-7010, "sqlite.queryText.unreachable");
 }
 
 export queryBytes;
@@ -320,7 +324,7 @@ export ownedReleases;
 export ownedLive;
 
 fn setDeadline(connection: Connection, milliseconds: Int) -> Int {
-    return nativeStatus(Int(rawDeadline(connection.handle, milliseconds)), "sqlite.deadline");
+    return bridge.checkStatus(Int(rawDeadline(connection.handle, milliseconds)), "sqlite.deadline");
 }
 
 fn inTransaction(connection: Connection) -> Bool {
@@ -331,36 +335,36 @@ fn inTransaction(connection: Connection) -> Bool {
     if state == 1 {
         return (true);
     }
-    let resultValue3 = nativeStatus(state, "sqlite.inTransaction");
+    let resultValue3 = bridge.checkStatus(state, "sqlite.inTransaction");
     return (false);
 }
 
 fn queryByteRows(connection: Connection, sql: String, maximumRows: Int) -> List<ByteArray> {
     if maximumRows < 1 || maximumRows > 256 {
-        throw error(-7010, "sqlite.query.rows");
+        throw err.create(-7010, "sqlite.query.rows");
     }
-    switch stringFind(sql, "\u{0}", 0) {
+    switch textApi.find(sql, "\u{0}", 0) {
         case Option.Some(index): {
-            throw error(-7010, "sqlite.query.input");
+            throw err.create(-7010, "sqlite.query.input");
         }
         case Option.None: {}
     }
-    let resultValue2 = nativeStatus(Int(rawOwnedReady(connection.handle)), "sqlite.query.owner");
+    let resultValue2 = bridge.checkStatus(Int(rawOwnedReady(connection.handle)), "sqlite.query.owner");
     try {
-        let resultValue1 = nativeStatus(
+        let resultValue1 = bridge.checkStatus(
             Int(rawOwnedRowsBegin(connection.handle, sql, maximumRows)),
             "sqlite.query.rows"
         );
-        let data = byteArray(rawOwnedBytes(connection.handle));
+        let data = bytesApi.from(rawOwnedBytes(connection.handle));
         let count = rawOwnedRows(connection.handle);
         var rows: List<ByteArray> = [];
         var row = 0;
         var offset = 0;
         while row < count {
             let length = rawOwnedRowLength(connection.handle, row);
-            switch bytesSlice(data, offset, offset + length) {
+            switch bytesApi.slice(data, offset, offset + length) {
                 case Option.None: {
-                    throw error(-7010, "sqlite.query.rowLength");
+                    throw err.create(-7010, "sqlite.query.rowLength");
                 }
                 case Option.Some(value): {
                     rows = rinzu.list.append(rows, value);
@@ -374,7 +378,7 @@ fn queryByteRows(connection: Connection, sql: String, maximumRows: Int) -> List<
     finally {
         let released = rawOwnedRelease(connection.handle);
     }
-    throw error(-7010, "sqlite.query.unreachable");
+    throw err.create(-7010, "sqlite.query.unreachable");
 }
 
 export setDeadline;
@@ -390,7 +394,7 @@ export headerVersion;
 export sourceId;
 
 fn enableAllocatorStatsBeforeOpen() -> Int {
-    return nativeStatus(Int(rawEnableAllocatorStats()), "sqlite.allocatorStats.startup");
+    return bridge.checkStatus(Int(rawEnableAllocatorStats()), "sqlite.allocatorStats.startup");
 }
 
 export enableAllocatorStatsBeforeOpen;

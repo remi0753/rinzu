@@ -1,4 +1,6 @@
 import rinzu.core;
+import rinzu.bytes as bytesApi;
+import rinzu.string as textApi;
 
 let width = 2 + 2;
 
@@ -13,7 +15,7 @@ fn four(value: Bytes(width)) -> CSize {
         iteration = iteration + 1;
     }
     if value != b"A\xff\x00\x00" {
-        panic("bad_argument");
+        rinzu.core.panic("bad_argument");
     }
     return 40;
 }
@@ -24,36 +26,36 @@ fn apply(measure: fn (Bytes(4)) -> CSize, value: Bytes(4)) -> CSize {
 
 fn invalid(value: Bytes(4)) -> CSize {
     let converted = CInt8(200);
-    return byteLength(value);
+    return bytesApi.byteLength(value);
 }
 
 fn verify() -> Int {
     let original = raw();
-    let measure: fn (Bytes(width)) -> CUInt64 = rinzu.core.byteLength;
+    let measure: fn (Bytes(width)) -> CUInt64 = bytesApi.byteLength;
     let alias = measure;
     if alias(original) != 4 || apply(alias, original) != 4 || apply(four, original) != 40 {
-        panic("bad_reference");
+        rinzu.core.panic("bad_reference");
     }
     if original != b"A\xff" {
-        panic("changed_argument");
+        rinzu.core.panic("changed_argument");
     }
-    var selection: fn (Bytes(4)) -> CSize = byteLength;
+    var selection: fn (Bytes(4)) -> CSize = bytesApi.byteLength;
     if selection(original) != 4 {
-        panic("bad_initial_target");
+        rinzu.core.panic("bad_initial_target");
     }
     selection = four;
     if selection(original) != 40 {
-        panic("bad_selected_target");
+        rinzu.core.panic("bad_selected_target");
     }
-    let zero: fn (Bytes(0)) -> CSize = byteLength;
+    let zero: fn (Bytes(0)) -> CSize = bytesApi.byteLength;
     if zero(b"") != 0 {
-        panic("bad_zero");
+        rinzu.core.panic("bad_zero");
     }
-    let text = utf8ByteLength;
-    let imported = rinzu.core.utf8ByteLength;
+    let text = textApi.utf8ByteLength;
+    let imported = textApi.utf8ByteLength;
     try {
         if text("日本語\u{0}🙂") != 14 || imported("a\u{0}b") != 3 {
-            panic("bad_text");
+            rinzu.core.panic("bad_text");
         }
     }
     catch errors {
@@ -69,7 +71,7 @@ fn verify() -> Int {
         let message = error.message;
     }
     if caught != 1 {
-        panic("missing_error");
+        rinzu.core.panic("missing_error");
     }
     // The failing argument runs once, before the indirect target is entered.
     var argument_caught = 0;
@@ -80,7 +82,7 @@ fn verify() -> Int {
         argument_caught = 1;
     }
     if argument_caught != 1 {
-        panic("bad_evaluation");
+        rinzu.core.panic("bad_evaluation");
     }
     return 42;
 }
@@ -92,6 +94,6 @@ fn raw_failure() -> Bytes(2) {
 
 fn main() {
     if verify() != 42 {
-        panic("bad_result");
+        rinzu.core.panic("bad_result");
     }
 }

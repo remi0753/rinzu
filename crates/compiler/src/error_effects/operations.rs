@@ -112,23 +112,72 @@ fn data_errors(checked: &CheckedModule, operation: crate::DataOperation) -> Lang
     // contract here. Invalid collection indices return Option; overflow in ordinary
     // arithmetic remains a trap.
     match operation {
-        ErrorWithCause | NativeStatus | ParseInt | Utf8Decode | ShiftLeft | ShiftRight
-        | CheckedAdd | CheckedSub | CheckedMul => language::one(Tag::Any),
+        ErrorWithCause | ErrorWithCauseOption | NativeStatus | ParseInt | Utf8Decode
+        | ShiftLeft | ShiftRight | CheckedAdd | CheckedSub | CheckedMul => language::one(Tag::Any),
         ListAppend | ListConcatAll | MapInsert => {
             language::one(Tag::Named(operation.length_overflow().unwrap().into()))
         }
-        ListLength | ListGet | ListSet | ListRemove | MapLength | MapGet | MapRemove | MapKeys
-        | MapEntries | ListBufferReserve | ListBufferAppend | MapBufferIndex | MapBufferInsert
-        | CollectionFinish | ByteArray | BytesLength | BytesGet | BytesSlice | BytesConcat
-        | BytesConcatAll | BytesCopy | BytesXor | BytesFindAny | BytesFindNotAny
-        | BytesLowerAscii | BytesContainsAny | BytesAllIn | BytesTrim | ErrorCreate | ErrorCode
-        | ErrorMessage | ErrorContext | ErrorWithContext | ErrorCause | ErrorCleanup
-        | ErrorSourceFile | ErrorSourceStart | ErrorSourceEnd | ErrorNativeStatus
-        | StringLength | StringGet | StringSlice | StringFind | StringSplit | FormatInt
-        | Utf8Encode | BitAnd | BitOr | BitXor | BitNot | WrappingAdd | WrappingSub
-        | WrappingMul | MathAbs | MathSqrt | FloatIsNan | Panic | ProcessArguments => {
-            Language::new()
-        }
+        ListLength
+        | ListGet
+        | ListSet
+        | ListRemove
+        | MapLength
+        | MapGet
+        | MapRemove
+        | MapKeys
+        | MapEntries
+        | ListBufferReserve
+        | ListBufferAppend
+        | MapBufferIndex
+        | MapBufferInsert
+        | CollectionFinish
+        | ByteArray
+        | BytesLength
+        | BytesGet
+        | BytesSlice
+        | BytesConcat
+        | BytesConcatAll
+        | BytesCopy
+        | BytesXor
+        | BytesFindAny
+        | BytesFindNotAny
+        | BytesLowerAscii
+        | BytesContainsAny
+        | BytesAllIn
+        | BytesTrim
+        | ErrorCreate
+        | ErrorCode
+        | ErrorMessage
+        | ErrorContext
+        | ErrorWithContext
+        | ErrorCause
+        | ErrorCleanup
+        | ErrorCodeOption
+        | ErrorContextOption
+        | ErrorWithContextOption
+        | ErrorSourceFile
+        | ErrorSourceStart
+        | ErrorSourceEnd
+        | ErrorNativeStatus
+        | StringLength
+        | StringGet
+        | StringSlice
+        | StringFind
+        | StringSplit
+        | FormatInt
+        | Utf8Encode
+        | BitAnd
+        | BitOr
+        | BitXor
+        | BitNot
+        | WrappingAdd
+        | WrappingSub
+        | WrappingMul
+        | MathAbs
+        | MathSqrt
+        | FloatIsNan
+        | Panic
+        | ProcessArguments => Language::new(),
         JsonParse | JsonParseWithLimits | JsonDecode | JsonDecodeWithLimits | JsonKind
         | JsonField | JsonAt | JsonArrayLength | JsonObjectLength | JsonEntryAt | JsonBool
         | JsonString | JsonNumberText | JsonInt | JsonFloat | JsonIntField | JsonFloatField

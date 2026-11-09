@@ -1,4 +1,5 @@
 import loops;
+import rinzu.core;
 
 fn callback(seed: CInt) -> CInt fallback -19 {
     try {
@@ -24,11 +25,11 @@ async fn main() {
         }
         let result = await loops.checkRun(callback, "queued argument 日本語", b"\x00\xAA\x00\x7F", 3);
         if caught != 1 || result != "fresh result after settlement 日本語" {
-            panic("failed");
+            rinzu.core.panic("failed");
         }
         loops.checkOuter(2);
     }
     catch errors {
-        panic("unexpectedMainError");
+        rinzu.core.panic("unexpectedMainError");
     }
 }

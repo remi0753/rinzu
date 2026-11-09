@@ -1,25 +1,28 @@
 import rinzu.io;
 import rinzu.stream;
+import rinzu.bytes as bytesApi;
+import rinzu.error as err;
+import rinzu.string as textApi;
 
 /// Read plain UTF8 with a 1 MiB bound; the enclosing Owner recovers unreceived opens.
 async fn readDocument(path: String) -> String {
     let input = await rinzu.stream.openFile(path);
     try {
-        var data = byteArray(b"");
+        var data = bytesApi.from(b"");
         while true {
             switch await rinzu.stream.next(input) {
                 case Option.None: {
-                    return utf8Decode(data);
+                    return textApi.decodeUtf8(data);
                 }
                 case Option.Some(bytes): {
-                    if bytesLength(data) + bytesLength(bytes) > 1048576 {
-                        throw error(-7820, "document.textLimit");
+                    if bytesApi.length(data) + bytesApi.length(bytes) > 1048576 {
+                        throw err.create(-7820, "document.textLimit");
                     }
-                    data = bytesConcat(data, bytes);
+                    data = bytesApi.concat(data, bytes);
                 }
             }
         }
-        throw error(-7820, "document.unreachable");
+        throw err.create(-7820, "document.unreachable");
     }
     finally {
         let closed = await rinzu.stream.close(input);
@@ -29,21 +32,21 @@ async fn readDocument(path: String) -> String {
 /// Unique sibling temporary file -> bounded writes -> fsync -> atomic rename -> close.
 /// Cancellation before installation removes the temporary during close/Owner recovery.
 async fn saveDocument(path: String, text: String) -> Int {
-    if utf8ByteLength(text) > 1048576 {
-        throw error(-7820, "document.textLimit");
+    if textApi.utf8ByteLength(text) > 1048576 {
+        throw err.create(-7820, "document.textLimit");
     }
     let output = await rinzu.io.openTemporary(f"{path}.rinzu-XXXXXX");
     try {
-        let data = utf8Encode(text);
+        let data = textApi.encodeUtf8(text);
         var index = 0;
-        while index < bytesLength(data) {
+        while index < bytesApi.length(data) {
             var end = index + 65536;
-            if end > bytesLength(data) {
-                end = bytesLength(data);
+            if end > bytesApi.length(data) {
+                end = bytesApi.length(data);
             }
-            switch bytesSlice(data, index, end) {
+            switch bytesApi.slice(data, index, end) {
                 case Option.None: {
-                    throw error(-7820, "document.saveSlice");
+                    throw err.create(-7820, "document.saveSlice");
                 }
                 case Option.Some(chunk): {
                     index = index + await rinzu.io.writeAll(output, chunk);

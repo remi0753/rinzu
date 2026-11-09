@@ -1,19 +1,20 @@
 import loops;
+import rinzu.core;
 
 fn worker(round: CInt) -> Int {
     try {
         let root = ["Worker child of supplant callback", "moving heap"];
         if root != ["Worker child of supplant callback", "moving heap"] {
-            panic("lost");
+            rinzu.core.panic("lost");
         }
         let barrier = loops.workerBarrier(round);
         if barrier != round || root != ["Worker child of supplant callback", "moving heap"] {
-            panic("lostAfterBarrier");
+            rinzu.core.panic("lostAfterBarrier");
         }
         return Int(round);
     }
     catch unexpectedErrors {
-        panic("failed");
+        rinzu.core.panic("failed");
         return 0;
     }
 }
@@ -24,13 +25,13 @@ async fn child(round: CInt) -> Int {
         await loops.completed(loops.completion(round, 0));
         let bytes = await loops.readSize("data/proof.bin");
         if bytes != 8193 || root != ["async child of original supplant scope", "root after capsule closes"] {
-            panic("lost");
+            rinzu.core.panic("lost");
         }
         loops.mark(round, 4);
         return bytes;
     }
     catch unexpectedErrors {
-        panic("failed");
+        rinzu.core.panic("failed");
         return 0;
     }
 }
@@ -40,7 +41,7 @@ async fn readObserved(path: String) -> Int {
         return await loops.readSize(path);
     }
     catch errors {
-        panic("failed");
+        rinzu.core.panic("failed");
         return 0;
     }
 }
@@ -52,7 +53,7 @@ fn callback(round: CInt) -> CInt fallback -19 {
     let direct = readObserved("data/proof.bin");
     loops.mark(round, 1);
     if root != ["callback input/activation", "child admission"] {
-        panic("lost");
+        rinzu.core.panic("lost");
     }
     return 41;
 }
@@ -63,13 +64,13 @@ async fn wrapper(round: CInt) -> String {
         let result = await loops.run(callback, round);
         loops.mark(round, 3);
         if root != ["wrapper", "pin across queued GC and child join"] {
-            panic("lost");
+            rinzu.core.panic("lost");
         }
         return result;
     }
     catch [error: Error, ...errorRest] {
         if error.message != "another supplant call is still active" {
-            panic("wrongBusy");
+            rinzu.core.panic("wrongBusy");
         }
         loops.busy();
         return "busy";
@@ -95,17 +96,17 @@ async fn main() {
         while index < 32 {
             let temporary = ["Queued GC", "callback and argument roots"];
             if temporary != ["Queued GC", "callback and argument roots"] {
-                panic("lost");
+                rinzu.core.panic("lost");
             }
             index = index + 1;
         }
         if busy != "busy" || seven != 7 {
-            panic("wrongReady");
+            rinzu.core.panic("wrongReady");
         }
         let firstResult = await first;
         let independent = await loops.readSize("data/proof.bin");
         if independent != 8193 {
-            panic("wrongFile");
+            rinzu.core.panic("wrongFile");
         }
         loops.prefix(3);
         let second = wrapper(2);
@@ -115,22 +116,22 @@ async fn main() {
         loops.mark(2, 5);
         loops.prefix(5);
         if secondResult != "second native result 🧭" {
-            panic("wrongSecond");
+            rinzu.core.panic("wrongSecond");
         }
         await loops.completed(loops.completion(1, 1));
         let repeatedFirst = await first;
         if repeatedFirst != firstResult {
-            panic("wrongAlias");
+            rinzu.core.panic("wrongAlias");
         }
         loops.mark(1, 5);
         if firstResult != "first native result 日本語" || root != ["Main prefix", "Main stays on its caller thread"] {
-            panic("wrongFirst");
+            rinzu.core.panic("wrongFirst");
         }
         if loops.finish() != 2 {
-            panic("unfinished");
+            rinzu.core.panic("unfinished");
         }
     }
     catch errors {
-        panic("failed");
+        rinzu.core.panic("failed");
     }
 }

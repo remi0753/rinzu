@@ -1,4 +1,5 @@
 import perf;
+import rinzu.core;
 
 fn echo(value: Int) -> Int {
     return value + 1;
@@ -7,7 +8,7 @@ fn echo(value: Int) -> Int {
 fn allocated(value: Int) -> Int {
     let root = ["callback allocation", "moving GC"];
     if root != ["callback allocation", "moving GC"] {
-        panic("lost");
+        rinzu.core.panic("lost");
     }
     return value + 1;
 }
@@ -24,7 +25,7 @@ async fn wakeProbe() {
         perf.stop();
     }
     catch unexpectedErrors {
-        panic("failed");
+        rinzu.core.panic("failed");
     }
 }
 
@@ -43,7 +44,7 @@ async fn main() {
         var index = 0;
         while index < 1024 {
             if perf.ping(index) != index + 1 {
-                panic("wrong");
+                rinzu.core.panic("wrong");
             }
             index = index + 1;
         }
@@ -53,10 +54,10 @@ async fn main() {
         perf.same(allocated, 1024, 3);
         let result = await perf.run(foreignBody, afterForeign);
         if result != 512 {
-            panic("wrongResult");
+            rinzu.core.panic("wrongResult");
         }
     }
     catch unexpectedErrors {
-        panic("failed");
+        rinzu.core.panic("failed");
     }
 }

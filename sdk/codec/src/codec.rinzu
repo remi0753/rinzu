@@ -1,3 +1,7 @@
+import rinzu.bytes as bytesApi;
+import rinzu.error as err;
+import rinzu.string as textApi;
+
 /// An immutable binary representation. Encoding may reject invalid field values.
 interface Encodable {
     fn encode(self: Self) throws(Error) -> ByteArray;
@@ -11,15 +15,18 @@ class Document interface Encodable {
     const selection: Int
 
     fn encode(self: Document) throws(Error) -> ByteArray {
-        if utf8ByteLength(self.text) > 1048576 {
+        if textApi.utf8ByteLength(self.text) > 1048576 {
             return failure<ByteArray>(502, "codec.document.limit");
         }
-        if self.selection < 0 || self.selection > stringLength(self.text) {
+        if self.selection < 0 || self.selection > textApi.length(self.text) {
             return failure<ByteArray>(503, "codec.document.selection");
         }
-        let text = utf8Encode(self.text);
-        let header = bytesConcat(bytesConcat(prefix(1), uint32Bytes(bytesLength(text))), uint32Bytes(self.selection));
-        return (bytesConcat(header, text));
+        let text = textApi.encodeUtf8(self.text);
+        let header = bytesApi.concat(
+            bytesApi.concat(prefix(1), uint32Bytes(bytesApi.length(text))),
+            uint32Bytes(self.selection)
+        );
+        return (bytesApi.concat(header, text));
     }
 }
 
@@ -37,7 +44,7 @@ class Settings interface Encodable {
             wrap = 1;
         }
         let fields: List<CUInt8> = [CUInt8(self.fontSize), CUInt8(self.tabWidth), wrap];
-        return (bytesConcat(prefix(2), byteArray(fields)));
+        return (bytesApi.concat(prefix(2), bytesApi.from(fields)));
     }
 }
 
@@ -50,32 +57,32 @@ class Message interface Encodable {
         if self.sequence < 0 || self.sequence > 4294967295 {
             return failure<ByteArray>(503, "codec.message.sequence");
         }
-        if stringLength(self.operation) == 0 {
+        if textApi.length(self.operation) == 0 {
             return failure<ByteArray>(503, "codec.message.operation");
         }
-        if utf8ByteLength(self.operation) > 32 || bytesLength(self.payload) > 65521 {
+        if textApi.utf8ByteLength(self.operation) > 32 || bytesApi.length(self.payload) > 65521 {
             return failure<ByteArray>(502, "codec.message.limit");
         }
-        let operation = utf8Encode(self.operation);
-        let nameLength = bytesLength(operation);
-        if 15 + nameLength + bytesLength(self.payload) > 65536 {
+        let operation = textApi.encodeUtf8(self.operation);
+        let nameLength = bytesApi.length(operation);
+        if 15 + nameLength + bytesApi.length(self.payload) > 65536 {
             return failure<ByteArray>(502, "codec.message.limit");
         }
         let nameField: List<CUInt8> = [CUInt8(nameLength)];
-        let header = bytesConcat(
-            bytesConcat(bytesConcat(prefix(3), uint32Bytes(self.sequence)), byteArray(nameField)),
-            uint32Bytes(bytesLength(self.payload))
+        let header = bytesApi.concat(
+            bytesApi.concat(bytesApi.concat(prefix(3), uint32Bytes(self.sequence)), bytesApi.from(nameField)),
+            uint32Bytes(bytesApi.length(self.payload))
         );
-        return (bytesConcat(bytesConcat(header, operation), self.payload));
+        return (bytesApi.concat(bytesApi.concat(header, operation), self.payload));
     }
 }
 
 fn failure<T>(code: Int, context: String) throws(Error) -> T {
-    throw error(code, context);
+    throw err.create(code, context);
 }
 
 fn byteAt(data: ByteArray, index: Int) throws(Error) -> Int {
-    switch bytesGet(data, index) {
+    switch bytesApi.get(data, index) {
         case Option.Some(value): {
             return Int(value);
         }
@@ -99,19 +106,19 @@ fn uint32Bytes(value: Int) -> ByteArray {
         CUInt8((value / 65536) % 256),
         CUInt8((value / 16777216) % 256)
     ];
-    return byteArray(data);
+    return bytesApi.from(data);
 }
 
 fn prefix(kind: Int) -> ByteArray {
     let data: List<CUInt8> = [82, 90, 67, 68, 1, CUInt8(kind)];
-    return byteArray(data);
+    return bytesApi.from(data);
 }
 
 fn frame(data: ByteArray, kind: Int, minimum: Int, maximum: Int) -> Int {
-    if bytesLength(data) > maximum {
+    if bytesApi.length(data) > maximum {
         return failure<Int>(502, "codec.frame.limit");
     }
-    if bytesLength(data) < minimum {
+    if bytesApi.length(data) < minimum {
         return failure<Int>(500, "codec.frame.truncated");
     }
     if byteAt(data, 0) != 82 || byteAt(data, 1) != 90 || byteAt(data, 2) != 67 || byteAt(data, 3) != 68 {
@@ -127,7 +134,7 @@ fn frame(data: ByteArray, kind: Int, minimum: Int, maximum: Int) -> Int {
 }
 
 fn slice(data: ByteArray, start: Int, end: Int) -> ByteArray {
-    switch bytesSlice(data, start, end) {
+    switch bytesApi.slice(data, start, end) {
         case Option.Some(value): {
             return (value);
         }
@@ -169,19 +176,26 @@ fn decodeDocument(data: ByteArray) throws(Error) -> Document {
     if length > 1048576 {
         return failure<Document>(502, "codec.document.limit");
     }
-    if bytesLength(data) != 14 + length {
+    if bytesApi.length(data) != 14 + length {
         return failure<Document>(500, "codec.document.length");
     }
     let resultValue7 = slice(data, 14, 14 + length);
     try {
-        let resultValue6 = utf8Decode(resultValue7);
-        if selection > stringLength(resultValue6) {
+        let resultValue6 = textApi.decodeUtf8(resultValue7);
+        if selection > textApi.length(resultValue6) {
             return failure<Document>(503, "codec.document.selection");
         }
         return (Document(text: resultValue6, selection: selection));
     }
     catch [resultError6: Error, ...resultRest6] {
-        throw errorWithContext(resultError6, "codec.document.text");
+        switch err.withContext(resultError6, "codec.document.text") {
+            case Option.Some(updated): {
+                throw updated;
+            }
+            case Option.None: {
+                throw resultError6;
+            }
+        }
     }
 }
 
@@ -215,17 +229,24 @@ fn decodeMessage(data: ByteArray) throws(Error) -> Message {
     if nameLength > 32 || length > 65521 {
         return failure<Message>(502, "codec.message.limit");
     }
-    if bytesLength(data) != 15 + nameLength + length {
+    if bytesApi.length(data) != 15 + nameLength + length {
         return failure<Message>(500, "codec.message.length");
     }
     let resultValue3 = slice(data, 15, 15 + nameLength);
     try {
-        let resultValue2 = utf8Decode(resultValue3);
+        let resultValue2 = textApi.decodeUtf8(resultValue3);
         let resultValue1 = slice(data, 15 + nameLength, 15 + nameLength + length);
         return (Message(sequence: sequence, operation: resultValue2, payload: resultValue1));
     }
     catch [resultError2: Error, ...resultRest2] {
-        throw errorWithContext(resultError2, "codec.message.operation");
+        switch err.withContext(resultError2, "codec.message.operation") {
+            case Option.Some(updated): {
+                throw updated;
+            }
+            case Option.None: {
+                throw resultError2;
+            }
+        }
     }
 }
 

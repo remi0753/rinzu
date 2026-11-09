@@ -1,19 +1,67 @@
 import rinzu.list;
 import rinzu.stdio;
+import rinzu.core;
+import rinzu.error as err;
+import rinzu.native as bridge;
+
+fn addErrorCause(problem: Error, cause: Error) -> Error {
+    switch err.withCause(problem, cause) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            return problem;
+        }
+    }
+}
+
+fn addErrorContext(problem: Error, context: String) nothrow -> Error {
+    switch err.withContext(problem, context) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            return problem;
+        }
+    }
+}
+
+fn errorContextText(problem: Error) nothrow -> String {
+    switch err.context(problem) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            return "";
+        }
+    }
+}
+
+fn requiredErrorCode(problem: Error) nothrow -> Int {
+    switch err.code(problem) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            rinzu.core.panic("expected a numeric error code");
+            return 0;
+        }
+    }
+}
 
 fn parseFixture(text: String) -> Int {
     if text == "7" {
         return 7;
     }
-    throw error(1201, "invalid digit");
+    throw err.create(1201, "invalid digit");
 }
 
 fn saveFixture(status: Int) -> Int {
-    return nativeStatus(status, "save fixture");
+    return bridge.checkStatus(status, "save fixture");
 }
 
 fn propagate(value: Error) -> Error {
-    return errorWithCause(error(1202, "save failed"), value);
+    return addErrorCause(err.create(1202, "save failed"), value);
 }
 
 async fn main() {
@@ -24,35 +72,35 @@ async fn main() {
                 rinzu.stdio.writeLine(parsed);
             }
             catch [problem: Error, ...rest] {
-                rinzu.stdio.writeLine(errorCode(problem));
-                let wrapped = errorWithContext(propagate(problem), "app");
-                rinzu.stdio.writeLine(errorCode(wrapped));
-                rinzu.stdio.writeLine(errorContext(wrapped));
+                rinzu.stdio.writeLine(requiredErrorCode(problem));
+                let wrapped = addErrorContext(propagate(problem), "app");
+                rinzu.stdio.writeLine(requiredErrorCode(wrapped));
+                rinzu.stdio.writeLine(errorContextText(wrapped));
                 rinzu.stdio.writeLine(wrapped.message);
-                switch errorCause(wrapped) {
+                switch err.cause(wrapped) {
                     case Option.Some(cause): {
-                        rinzu.stdio.writeLine(errorCode(cause));
+                        rinzu.stdio.writeLine(requiredErrorCode(cause));
                     }
                     case Option.None: {}
                 }
-                rinzu.stdio.writeLine(errorSourceStart(wrapped));
+                rinzu.stdio.writeLine(err.sourceStartByte(wrapped));
             }
             try {
                 let saved = saveFixture(-5);
                 rinzu.stdio.writeLine(saved);
             }
             catch [saveError: Error, ...saveRest] {
-                rinzu.stdio.writeLine(errorCode(saveError));
-                rinzu.stdio.writeLine(errorNativeStatus(saveError));
-                rinzu.stdio.writeLine(errorContext(saveError));
+                rinzu.stdio.writeLine(requiredErrorCode(saveError));
+                rinzu.stdio.writeLine(err.nativeStatus(saveError));
+                rinzu.stdio.writeLine(errorContextText(saveError));
             }
-            rinzu.stdio.writeLine(nativeStatus(0, "success"));
+            rinzu.stdio.writeLine(bridge.checkStatus(0, "success"));
             try {
                 let outOfRange = CInt8(128);
             }
             catch [caught: Error, ...caughtRest] {
-                rinzu.stdio.writeLine(errorCode(caught));
-                switch errorSourceStart(caught) {
+                rinzu.stdio.writeLine(requiredErrorCode(caught));
+                switch err.sourceStartByte(caught) {
                     case Option.Some(offset): {
                         rinzu.stdio.writeLine(offset >= 0);
                     }
@@ -62,14 +110,14 @@ async fn main() {
                 }
                 rinzu.stdio.writeLine(rinzu.list.length(caughtRest));
                 let retained = caught;
-                rinzu.stdio.writeLine(errorCode(retained));
+                rinzu.stdio.writeLine(requiredErrorCode(retained));
             }
         }
         catch errors {
-            panic("unexpected");
+            rinzu.core.panic("unexpected");
         }
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

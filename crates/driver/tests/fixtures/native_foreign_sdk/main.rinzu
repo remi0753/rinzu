@@ -1,17 +1,18 @@
 import foreign;
 import rinzu.core;
+import rinzu.bytes as bytesApi;
 
 async fn child() -> Int {
     try {
         let root = ["foreign Origin child", "after capsule close"];
         let bytes = await foreign.readSize("data/proof.bin");
         if bytes != 8193 || root != ["foreign Origin child", "after capsule close"] {
-            panic("lostChild");
+            rinzu.core.panic("lostChild");
         }
         return bytes;
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
         return 0;
     }
 }
@@ -37,7 +38,7 @@ fn scalar(
         while index < 16 {
             let temporary = ["GC", label];
             if temporary != ["GC", label] {
-                panic("lostScalar");
+                rinzu.core.panic("lostScalar");
             }
             index = index + 1;
         }
@@ -55,14 +56,14 @@ fn scalar(
             || label != "foreign 日本語"
             || data != b"\x00\xaa\x00\x7f"
             || root != [label, "foreign mixed ABI"] {
-            panic("wrongScalar");
+            rinzu.core.panic("wrongScalar");
         }
         return j;
     }
     finally {
         let cleanup = [label, "finally stays masked"];
         if cleanup != ["foreign 日本語", "finally stays masked"] {
-            panic("lostCleanup");
+            rinzu.core.panic("lostCleanup");
         }
     }
 }
@@ -72,7 +73,7 @@ fn unit(label: String, data: Bytes(0)) -> Unit fallback () {
         foreign.nested();
     }
     if label != "unit 日本語" || data != b"" {
-        panic("wrongUnit");
+        rinzu.core.panic("wrongUnit");
     }
     let pending = child();
 }
@@ -90,19 +91,19 @@ fn text(label: String) -> String fallback "fallback 日本語" {
     while index < 16 {
         let temporary = ["text GC", label];
         if temporary != ["text GC", label] {
-            panic("lostText");
+            rinzu.core.panic("lostText");
         }
         index = index + 1;
     }
     if root != [label, "keep input across moving GC"] || (label != "foreign 日本語" && label != "settled 日本語") {
-        panic("wrongText");
+        rinzu.core.panic("wrongText");
     }
     return "foreign result 🧭";
 }
 
 fn bytes(value: Bytes(4)) -> Bytes(4) fallback b"" {
     if value != b"\x00\xaa\x00\x7f" {
-        panic("wrongBytes");
+        rinzu.core.panic("wrongBytes");
     }
     return value;
 }
@@ -144,7 +145,7 @@ async fn main() {
                 failed,
                 failedText,
                 failedBytes,
-                byteLength,
+                bytesApi.byteLength,
                 unsupported,
                 0
             );
@@ -152,21 +153,21 @@ async fn main() {
             while index < 32 {
                 let root = ["after native return", "all accepted calls settled"];
                 if root != ["after native return", "all accepted calls settled"] {
-                    panic("lostMain");
+                    rinzu.core.panic("lostMain");
                 }
                 index = index + 1;
             }
             if result != 23 {
-                panic("wrongResult");
+                rinzu.core.panic("wrongResult");
             }
         }
         finally {
             if foreign.finish() != 1 {
-                panic("wrongFinish");
+                rinzu.core.panic("wrongFinish");
             }
         }
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
     }
 }

@@ -1,5 +1,8 @@
 import rinzu.stdio;
 import rinzu.process;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.string as textApi;
 
 class Garbage {
     value: Int,
@@ -8,35 +11,35 @@ class Garbage {
 
 fn check(value: Bool) {
     if !value {
-        panic("optionFailure");
+        rinzu.core.panic("optionFailure");
     }
 }
 
 fn leaf(data: ByteArray, start: Int, end: Int) -> ByteArray {
-    switch bytesSlice(data, start, end) {
+    switch bytesApi.slice(data, start, end) {
         case Option.Some(piece): {
             return piece;
         }
         case Option.None: {
-            return byteArray(b"invalid");
+            return bytesApi.from(b"invalid");
         }
     }
 }
 
 fn aliased(data: ByteArray, start: Int, end: Int) -> ByteArray {
-    let candidate = bytesSlice(data, start, end);
+    let candidate = bytesApi.slice(data, start, end);
     switch candidate {
         case Option.Some(aliasPiece): {
             return aliasPiece;
         }
         case Option.None: {
-            return byteArray(b"invalid");
+            return bytesApi.from(b"invalid");
         }
     }
 }
 
 fn escaping(data: ByteArray, start: Int, end: Int) -> Option<ByteArray> {
-    return bytesSlice(data, start, end);
+    return bytesApi.slice(data, start, end);
 }
 
 fn pressure() {
@@ -48,7 +51,7 @@ fn pressure() {
 }
 
 fn worker() -> ByteArray {
-    return leaf(byteArray(b"\x00\x80\xffabc"), 1, 3);
+    return leaf(bytesApi.from(b"\x00\x80\xffabc"), 1, 3);
 }
 
 async fn main() {
@@ -57,11 +60,11 @@ async fn main() {
         let environment = rinzu.process.environment("PATH");
         switch environment {
             case Option.Some(environmentText): {
-                check(stringLength(environmentText) >= 0);
+                check(textApi.length(environmentText) >= 0);
             }
             case Option.None: {}
         }
-        let input = byteArray(b"\x00\x80\xffabc");
+        let input = bytesApi.from(b"\x00\x80\xffabc");
         var start = -2;
         while start <= 8 {
             var end = -2;
@@ -74,22 +77,22 @@ async fn main() {
                         check(escapedPiece == actual);
                     }
                     case Option.None: {
-                        check(actual == byteArray(b"invalid"));
+                        check(actual == bytesApi.from(b"invalid"));
                     }
                 }
                 end = end + 1;
             }
             start = start + 1;
         }
-        let empty = byteArray(b"");
+        let empty = bytesApi.from(b"");
         check(leaf(empty, 0, 0) == empty);
-        check(leaf(input, 0, bytesLength(input)) == input);
-        check(bytesLength(leaf(input, 2, 2)) == 0);
-        check(leaf(input, 0 - 9223372036854775807 - 1, 0) == byteArray(b"invalid"));
-        check(leaf(input, 0, 9223372036854775807) == byteArray(b"invalid"));
+        check(leaf(input, 0, bytesApi.length(input)) == input);
+        check(bytesApi.length(leaf(input, 2, 2)) == 0);
+        check(leaf(input, 0 - 9223372036854775807 - 1, 0) == bytesApi.from(b"invalid"));
+        check(leaf(input, 0, 9223372036854775807) == bytesApi.from(b"invalid"));
         let kept = leaf(input, 1, 3);
         pressure();
-        check(kept == byteArray(b"\x80\xff"));
+        check(kept == bytesApi.from(b"\x80\xff"));
         let pending = spawn worker();
         try {
             let workerFirst = await pending;
@@ -103,6 +106,6 @@ async fn main() {
         rinzu.stdio.writeLine("C06:bytes-option:bounds:escape:gc:worker:alias:OK");
     }
     catch errors {
-        panic("unexpectedOptionFailure");
+        rinzu.core.panic("unexpectedOptionFailure");
     }
 }

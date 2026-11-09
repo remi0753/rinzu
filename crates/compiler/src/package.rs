@@ -85,9 +85,8 @@ pub(crate) fn check_with_sources(
     check_namespaced(start, "", sources)
 }
 
-fn builtin_symbols() -> HashMap<String, HashMap<String, String>> {
-    [
-        ("rinzu.core", crate::core::FUNCTIONS.as_slice()),
+pub(crate) fn builtin_symbols() -> HashMap<String, HashMap<String, String>> {
+    let mut modules: HashMap<_, _> = [
         ("rinzu.list", crate::collections::LIST_SYMBOLS),
         ("rinzu.map", crate::collections::MAP_SYMBOLS),
         ("rinzu.stdio", crate::stdio::FUNCTIONS.as_slice()),
@@ -106,22 +105,33 @@ fn builtin_symbols() -> HashMap<String, HashMap<String, String>> {
                 .collect(),
         )
     })
-    .collect()
+    .collect();
+    for (module, members) in crate::core::PUBLIC_MODULES {
+        modules.insert(
+            (*module).to_owned(),
+            members
+                .iter()
+                .map(|(public, id)| (public.to_string(), format!("rinzu.core::{id}")))
+                .collect(),
+        );
+    }
+    modules
 }
 
 /// The in-memory checker can resolve builtin imports without a source graph.
-pub(crate) fn link_builtin_aliases(module: &mut Module) -> Result<(), Vec<Diagnostic>> {
-    if !module.imports.iter().any(|import| import.alias.is_some()) {
+pub(crate) fn link_builtin_imports(module: &mut Module) -> Result<(), Vec<Diagnostic>> {
+    if module.imports.is_empty() {
         return Ok(());
     }
     validate_import_aliases(module)?;
+    let builtins = builtin_symbols();
     let mut imports = BTreeMap::new();
     for (index, import) in module.imports.iter().enumerate() {
-        if import.alias.is_some() {
-            bind_import(&mut imports, module, index, import.path.join("."))?;
+        let name = import.path.join(".");
+        if import.file.is_none() && builtins.contains_key(&name) {
+            bind_import(&mut imports, module, index, name)?;
         }
     }
-    imports.retain(|_, target| crate::standard_library::builtin(target));
     if imports.is_empty() {
         return Ok(());
     }
@@ -132,7 +142,7 @@ pub(crate) fn link_builtin_aliases(module: &mut Module) -> Result<(), Vec<Diagno
             .collect(),
     )]);
     let mut aliases = HashMap::new();
-    for (target, symbols) in builtin_symbols() {
+    for (target, symbols) in builtins {
         names.insert(target.clone(), symbols.keys().cloned().collect());
         aliases.extend(
             symbols
@@ -175,7 +185,7 @@ pub(crate) fn check_file_with_sources(
     );
     loader.load("entry", path.to_owned(), None)?;
     let sdk_packages = resolve_standard_imports(&loader.modules, "0.5", None, loader.sources)?;
-    extend_standard_symbols(&mut external, &sdk_packages);
+    extend_standard_symbols(&mut external, &sdk_packages)?;
     let source_inputs = loader.source_inputs;
     let (mut syntax, mut module_graph) =
         link_modules("entry", loader.modules, "", &external, None)?;
@@ -607,7 +617,7 @@ fn check_request(
         original_sdk.as_ref().map(|_| manifest.name.as_str()),
         loader.sources,
     )?;
-    extend_standard_symbols(&mut external_symbols, &standard_packages);
+    extend_standard_symbols(&mut external_symbols, &standard_packages)?;
     merge_packages(&mut sdk_packages, standard_packages)?;
     let source_inputs = loader.source_inputs;
     let intrinsic_package = crate::standard_library::intrinsic_source(&manifest.name)
@@ -1576,14 +1586,28 @@ fn merge_packages(
 fn extend_standard_symbols(
     symbols: &mut HashMap<String, HashMap<String, String>>,
     packages: &[ResolvedSdkPackage],
-) {
+) -> Result<(), Vec<Diagnostic>> {
     for package in packages {
         if crate::standard_library::SOURCE_PACKAGES.contains(&package.manifest.name.as_str())
             && let Some(source) = &package.source
         {
-            symbols.extend(source.modules.clone());
+            for (module, members) in &source.modules {
+                let public = symbols.entry(module.clone()).or_default();
+                for (name, id) in members {
+                    if public
+                        .insert(name.clone(), id.clone())
+                        .is_some_and(|previous| previous != *id)
+                    {
+                        return Err(vec![package_diagnostic(
+                            format!("duplicate public member `{module}.{name}`"),
+                            "use distinct names for source exports and compiler-provided members",
+                        ).with_path(package.manifest.root.join("rinzu.toml"))]);
+                    }
+                }
+            }
         }
     }
+    Ok(())
 }
 
 fn resolve_standard_imports(
@@ -2629,6 +2653,12 @@ impl RewriteContext<'_> {
             {
                 return Some((self.symbol_identity(module, &qualified), path.len()));
             }
+            if module == "rinzu.core"
+                && symbol_index + 1 == path.len()
+                && let Some(id) = crate::core::legacy_core_member(&qualified)
+            {
+                return Some((id, path.len()));
+            }
             let symbol = &path[symbol_index];
             if self
                 .names
@@ -2658,8 +2688,12 @@ impl RewriteContext<'_> {
             let mut rewritten = vec![internal];
             rewritten.extend(path.drain(consumed..));
             *path = rewritten;
-        } else if path.len() == 1 && crate::core::FUNCTIONS.contains(&path[0].as_str()) {
-            path[0] = format!("rinzu.core::{}", path[0]);
+        } else if self.package == Some("rinzu.io") && path.as_slice() == ["readResourceSize"] {
+            path[0] = "$io::readResourceSize".into();
+        } else if self.package == Some("rinzu.process")
+            && path.as_slice() == ["setProcessExitStatus"]
+        {
+            path[0] = "$process::setExitStatus".into();
         } else if self.package == Some("rinzu.process") && path.as_slice() == ["argumentSnapshot"] {
             path[0] = crate::DataOperation::ProcessArguments.name().into();
         } else if self.package == Some("rinzu.json")

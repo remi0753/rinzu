@@ -72,6 +72,6 @@ async fn main() {
         }
     }
     catch errors {
-        panic(f"IME close failed: {errors}");
+        rinzu.core.panic(f"IME close failed: {errors}");
     }
 }

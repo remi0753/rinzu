@@ -1,4 +1,6 @@
 import rinzu.core;
+import rinzu.bytes as bytesApi;
+import rinzu.string as textApi;
 
 type State = {
     id: Int,
@@ -86,9 +88,9 @@ fn innerBody(data: State, text: String) -> CSize fallback 0 {
         numbers = [7, 8]
     };
     if text != "inner" || data.id != 42 || data.text != "second" {
-        panic("wrongNestedData");
+        rinzu.core.panic("wrongNestedData");
     }
-    return CSize(data.id) + utf8ByteLength(text);
+    return CSize(data.id) + textApi.utf8ByteLength(text);
 }
 
 fn unitBody() -> Unit {
@@ -120,10 +122,13 @@ fn receive(
     if first.id != 42 || first.text != "second" || same != original() || second != same || event != {
         value = EventValue.state(value: same)
     } || other.id != 7 {
-        panic("positionalToken");
+        rinzu.core.panic("positionalToken");
     }
-    if bytes != b"\x00\xff\x07\x00" || text != "日本語😀" || byteLength(bytes) != 4 || utf8ByteLength(text) != 13 {
-        panic("wrongCopy");
+    if bytes != b"\x00\xff\x07\x00"
+        || text != "日本語😀"
+        || bytesApi.byteLength(bytes) != 4
+        || textApi.utf8ByteLength(text) != 13 {
+        rinzu.core.panic("wrongCopy");
     }
     if packet.narrow != CInt8(-128)
         || packet.wide != wide
@@ -133,7 +138,7 @@ fn receive(
         || small != CFloat(-0.0)
         || large != 42.5
         || !okay {
-        panic("wrongPhysicalValue");
+        rinzu.core.panic("wrongPhysicalValue");
     }
     try {
         if narrow == CInt8(99) {
@@ -142,7 +147,7 @@ fn receive(
             }
             catch [conversion: Error, ...conversionRest] {
                 if conversion.message == "" {
-                    panic("wrongCatch");
+                    rinzu.core.panic("wrongCatch");
                 }
                 return 888;
             }
@@ -155,14 +160,14 @@ fn receive(
         }
         let nested = inner(first, innerBody);
         if nested != 47 || first.numbers != [4, 5] || same.numbers != [1, 2, 3] {
-            panic("lostNestedRoots");
+            rinzu.core.panic("lostNestedRoots");
         }
         return 777;
     }
     finally {
         let cleaned = touch(handle, 55);
         if cleaned != 55 {
-            panic("wrongCleanup");
+            rinzu.core.panic("wrongCleanup");
         }
     }
     return 0;
@@ -217,7 +222,7 @@ fn exercise() -> State {
     while repeat < 3 {
         let normal = invoke(first, second, selected, 0);
         if normal != 777 {
-            panic("wrongResult");
+            rinzu.core.panic("wrongResult");
         }
         repeat = repeat + 1;
     }
@@ -225,15 +230,15 @@ fn exercise() -> State {
     while mode <= 10 {
         let recovered = invoke(first, second, alias, mode);
         if (mode == 6 && recovered != 888) || (mode != 6 && recovered != 901) {
-            panic("wrongFallback");
+            rinzu.core.panic("wrongFallback");
         }
         mode = mode + 1;
     }
     if unit(unitBody) != 17 || runRaw(raw) != 23 || noData(noDataBody) != 31 {
-        panic("wrongZeroOrRaw");
+        rinzu.core.panic("wrongZeroOrRaw");
     }
     if first != original() || second.id != 42 {
-        panic("lostCallerRoot");
+        rinzu.core.panic("lostCallerRoot");
     }
     return first;
 }

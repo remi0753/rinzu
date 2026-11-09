@@ -1,7 +1,102 @@
 use crate::{AbiScalar, FunctionReferenceType, Type, ast::Module};
 use std::collections::HashSet;
 
-pub(crate) const FUNCTIONS: [&str; 11] = [
+/// Public module members resolve to the same intrinsic identities as the
+/// compatibility spellings. Only these names are offered by completion.
+pub(crate) const PUBLIC_MODULES: &[(&str, &[(&str, &str)])] = &[
+    ("rinzu.core", &[("panic", "panic")]),
+    (
+        "rinzu.error",
+        &[
+            ("create", "error"),
+            ("message", "errorMessage"),
+            ("code", "$error::code"),
+            ("context", "$error::context"),
+            ("withContext", "$error::withContext"),
+            ("withCause", "$error::withCause"),
+            ("cause", "errorCause"),
+            ("cleanup", "errorCleanup"),
+            ("sourceFileId", "errorSourceFile"),
+            ("sourceStartByte", "errorSourceStart"),
+            ("sourceEndByte", "errorSourceEnd"),
+            ("nativeStatus", "errorNativeStatus"),
+        ],
+    ),
+    (
+        "rinzu.string",
+        &[
+            ("length", "stringLength"),
+            ("get", "stringGet"),
+            ("slice", "stringSlice"),
+            ("find", "stringFind"),
+            ("split", "stringSplit"),
+            ("utf8ByteLength", "utf8ByteLength"),
+            ("encodeUtf8", "utf8Encode"),
+            ("decodeUtf8", "utf8Decode"),
+        ],
+    ),
+    (
+        "rinzu.bytes",
+        &[
+            ("from", "byteArray"),
+            ("byteLength", "byteLength"),
+            ("length", "bytesLength"),
+            ("get", "bytesGet"),
+            ("slice", "bytesSlice"),
+            ("concat", "bytesConcat"),
+            ("concatAll", "bytesConcatAll"),
+            ("copy", "bytesCopy"),
+            ("xor", "bytesXor"),
+            ("findAny", "bytesFindAny"),
+            ("findNotAny", "bytesFindNotAny"),
+            ("containsAny", "bytesContainsAny"),
+            ("allIn", "bytesAllIn"),
+            ("trim", "bytesTrim"),
+            ("lowerAscii", "bytesLowerAscii"),
+        ],
+    ),
+    (
+        "rinzu.number",
+        &[
+            ("parseInt", "parseInt"),
+            ("formatInt", "formatInt"),
+            ("bitAnd", "bitAnd"),
+            ("bitOr", "bitOr"),
+            ("bitXor", "bitXor"),
+            ("bitNot", "bitNot"),
+            ("shiftLeft", "shiftLeft"),
+            ("shiftRight", "shiftRight"),
+            ("wrappingAdd", "wrappingAdd"),
+            ("wrappingSub", "wrappingSub"),
+            ("wrappingMul", "wrappingMul"),
+            ("checkedAdd", "checkedAdd"),
+            ("checkedSub", "checkedSub"),
+            ("checkedMul", "checkedMul"),
+            ("abs", "mathAbs"),
+            ("sqrt", "mathSqrt"),
+            ("isNaN", "floatIsNan"),
+        ],
+    ),
+    (
+        "rinzu.future",
+        &[
+            ("isReady", "futureReady"),
+            ("cancel", "cancelFuture"),
+            ("timeout", "timeoutFuture"),
+        ],
+    ),
+    (
+        "rinzu.native",
+        &[
+            ("completed", "nativeCompleted"),
+            ("transferred", "nativeTransferred"),
+            ("checkStatus", "nativeStatus"),
+        ],
+    ),
+    ("rinzu.shutdown", &[("request", "requestShutdown")]),
+];
+
+const SPECIAL_FUNCTIONS: &[&str] = &[
     "utf8ByteLength",
     "byteLength",
     "readResourceSize",
@@ -12,26 +107,25 @@ pub(crate) const FUNCTIONS: [&str; 11] = [
     "timeoutFuture",
     "requestShutdown",
     "setProcessExitStatus",
-    "panic",
 ];
 
+pub(crate) fn legacy_core_member(name: &str) -> Option<String> {
+    (SPECIAL_FUNCTIONS.contains(&name)
+        || crate::DataOperation::ALL
+            .into_iter()
+            .any(|op| op.name() == name && !name.starts_with('$')))
+    .then(|| format!("rinzu.core::{name}"))
+}
+
 pub(crate) fn function_name(path: &[String]) -> Option<&str> {
-    let name = if path.len() == 1 {
-        path[0].strip_prefix("rinzu.core::").unwrap_or(&path[0])
-    } else if path.len() == 3 && path[0] == "rinzu" && path[1] == "core" {
-        &path[2]
-    } else {
-        return None;
-    };
-    (FUNCTIONS.contains(&name) || data_operation(path).is_some()).then_some(name)
+    let [name] = path else { return None };
+    let name = name.strip_prefix("rinzu.core::").unwrap_or(name);
+    (SPECIAL_FUNCTIONS.contains(&name) || name == "$process::setExitStatus").then_some(name)
 }
 
 pub(crate) fn data_operation(path: &[String]) -> Option<crate::DataOperation> {
-    let name = match path {
-        [name] => name.strip_prefix("rinzu.core::").unwrap_or(name),
-        [root, module, name] if root == "rinzu" && module == "core" => name,
-        _ => return None,
-    };
+    let [name] = path else { return None };
+    let name = name.strip_prefix("rinzu.core::").unwrap_or(name);
     crate::DataOperation::ALL
         .into_iter()
         .find(|op| op.name() == name)
@@ -122,6 +216,14 @@ pub(crate) fn data_signature(op: crate::DataOperation, input: &Type) -> Option<(
         (ErrorMessage | ErrorContext, Type::Error) => (vec![Type::Error], Type::String),
         (ErrorWithContext, Type::Error) => (vec![Type::Error, Type::String], Type::Error),
         (ErrorWithCause, Type::Error) => (vec![Type::Error, Type::Error], Type::Error),
+        (ErrorCodeOption, Type::Error) => (vec![Type::Error], option(&Type::Int)),
+        (ErrorContextOption, Type::Error) => (vec![Type::Error], option(&Type::String)),
+        (ErrorWithContextOption, Type::Error) => {
+            (vec![Type::Error, Type::String], option(&Type::Error))
+        }
+        (ErrorWithCauseOption, Type::Error) => {
+            (vec![Type::Error, Type::Error], option(&Type::Error))
+        }
         (ErrorCause, Type::Error) => (vec![Type::Error], option(&Type::Error)),
         (ErrorCleanup, Type::Error) => (vec![Type::Error], Type::List(Box::new(Type::Error))),
         (ErrorSourceFile, Type::Error) => {
@@ -250,8 +352,50 @@ impl TaskControlKind {
             "cancelFuture" => Self::Cancel,
             "timeoutFuture" => Self::Timeout,
             "requestShutdown" => Self::Shutdown,
-            "setProcessExitStatus" => Self::ExitStatus,
+            "setProcessExitStatus" | "$process::setExitStatus" => Self::ExitStatus,
             _ => return None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::DataOperation;
+
+    #[test]
+    fn each_public_core_operation_has_one_export() {
+        let modules = crate::package::builtin_symbols();
+        let mut ids = HashSet::new();
+        for members in modules.values() {
+            for id in members.values() {
+                assert!(ids.insert(id.as_str()), "duplicate public intrinsic {id}");
+            }
+        }
+        for operation in DataOperation::ALL {
+            let name = operation.name();
+            let id = if name.starts_with("rinzu.") {
+                name.to_owned()
+            } else {
+                format!("rinzu.core::{name}")
+            };
+            let public = (!name.starts_with('$') || name.starts_with("$error::"))
+                && !matches!(
+                    operation,
+                    DataOperation::ErrorCode
+                        | DataOperation::ErrorContext
+                        | DataOperation::ErrorWithContext
+                        | DataOperation::ErrorWithCause
+                );
+            assert_eq!(ids.contains(id.as_str()), public, "{operation:?}");
+        }
+        for name in SPECIAL_FUNCTIONS {
+            let sdk_wrapper = matches!(*name, "readResourceSize" | "setProcessExitStatus");
+            assert_eq!(
+                ids.contains(format!("rinzu.core::{name}").as_str()),
+                !sdk_wrapper,
+                "{name}"
+            );
+        }
     }
 }

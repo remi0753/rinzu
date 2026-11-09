@@ -1,5 +1,8 @@
 import rinzu.stdio;
 import rinzu.testing;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.string as textApi;
 
 class State {
     calls: Int,
@@ -16,13 +19,13 @@ fn choose(state: State, value: Bool) -> Bool {
 }
 
 fn allocate(value: Bool) -> Bool {
-    var bytes = byteArray(b"abc\x00\xff");
-    while bytesLength(bytes) < 65536 {
-        bytes = bytesConcat(bytes, bytes);
+    var bytes = bytesApi.from(b"abc\x00\xff");
+    while bytesApi.length(bytes) < 65536 {
+        bytes = bytesApi.concat(bytes, bytes);
     }
     var count = 0;
     while count < 64 {
-        let temporary = bytesCopy(bytes);
+        let temporary = bytesApi.copy(bytes);
         count = count + 1;
     }
     return value;
@@ -43,10 +46,10 @@ fn main() {
         rinzu.testing.assertEqual<Int>(state.calls, 2, "RHS evaluated once");
         state.flag = false || choose(state, true);
         let apply = keep;
-        let data = apply(utf8Encode("日本語\u{0}tail"), true && allocate(true));
+        let data = apply(textApi.encodeUtf8("日本語\u{0}tail"), true && allocate(true));
         rinzu.testing.assertEqual<ByteArray>(
             data,
-            utf8Encode("日本語\u{0}tail"),
+            textApi.encodeUtf8("日本語\u{0}tail"),
             "managed argument across expression edges/GC"
         );
         let nested = (false || choose(state, true)) && (true || unsafeDigit(-5));
@@ -57,6 +60,6 @@ fn main() {
         rinzu.stdio.writeLine("SHORT-CIRCUIT:sync:skip:selected:roots:OK");
     }
     catch errors {
-        panic("failed");
+        rinzu.core.panic("failed");
     }
 }

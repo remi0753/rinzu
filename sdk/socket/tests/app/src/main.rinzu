@@ -2,6 +2,10 @@ import rinzu.timer;
 import rinzu.socket;
 import rinzu.stdio;
 import rinzu.testing;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
+import rinzu.future as future;
 
 class Progress {
     ticks: Int,
@@ -15,21 +19,21 @@ fn unwrap<T>(value: T) -> T {
 async fn invalid<T>(operation: fn () -> Future<T>, code: Int) {
     try {
         let unexpected = await operation();
-        panic("unexpectedlySucceeded");
+        rinzu.core.panic("unexpectedlySucceeded");
     }
     catch [problem: Error, ...rest] {
-        assertEqual<Option<Int>>(errorNativeStatus(problem), Option<Int>.Some(value: -code), "native status");
+        assertEqual<Option<Int>>(err.nativeStatus(problem), Option<Int>.Some(value: -code), "native status");
     }
 }
 
 fn pattern() -> ByteArray {
-    return byteArray(b"\x00\xff\x80A\x00B\xfeC");
+    return bytesApi.from(b"\x00\xff\x80A\x00B\xfeC");
 }
 
 fn payload() -> ByteArray {
     var data = pattern();
-    while bytesLength(data) < 65536 {
-        data = bytesConcat(data, data);
+    while bytesApi.length(data) < 65536 {
+        data = bytesApi.concat(data, data);
     }
     return data;
 }
@@ -37,9 +41,9 @@ fn payload() -> ByteArray {
 fn verify(data: ByteArray, offset: Int) {
     let expected = pattern();
     var i = 0;
-    while i < bytesLength(data) {
+    while i < bytesApi.length(data) {
         let at = offset + i;
-        assertTrue(bytesGet(data, i) == bytesGet(expected, at - (at / 8) * 8), "binary bytes");
+        assertTrue(bytesApi.get(data, i) == bytesApi.get(expected, at - (at / 8) * 8), "binary bytes");
         i = i + 1;
     }
 }
@@ -71,8 +75,8 @@ async fn echo(stream: rinzu.socket.TcpStream) {
             if total == 0 {
                 held = chunk.data;
             }
-            sent(await rinzu.socket.writeAllWithTimeout(stream, chunk.data, 10000), bytesLength(chunk.data));
-            total = total + bytesLength(chunk.data);
+            sent(await rinzu.socket.writeAllWithTimeout(stream, chunk.data, 10000), bytesApi.length(chunk.data));
+            total = total + bytesApi.length(chunk.data);
         }
         assertEqual<Int>(total, 131072, "echo input");
         let half = unwrap<Int>(await rinzu.socket.shutdownWrite(stream));
@@ -80,7 +84,7 @@ async fn echo(stream: rinzu.socket.TcpStream) {
         rinzu.stdio.writeLine(f"ECHO:{total}");
     }
     catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
-        assertTrue(false, errorMessage(unexpectedWorkerError));
+        assertTrue(false, err.message(unexpectedWorkerError));
     }
 }
 
@@ -94,13 +98,13 @@ async fn receive(stream: rinzu.socket.TcpStream) {
                 break;
             }
             verify(chunk.data, total);
-            total = total + bytesLength(chunk.data);
+            total = total + bytesApi.length(chunk.data);
         }
         assertEqual<Int>(total, 131072, "echo output");
         rinzu.stdio.writeLine(f"BINARY:{total}");
     }
     catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
-        assertTrue(false, errorMessage(unexpectedWorkerError));
+        assertTrue(false, err.message(unexpectedWorkerError));
     }
 }
 
@@ -164,7 +168,7 @@ async fn main() {
                 },
                 7504
             );
-            sent(await rinzu.socket.write(client, byteArray(b"")), 0);
+            sent(await rinzu.socket.write(client, bytesApi.from(b"")), 0);
             let progress = Progress(ticks: 0, done: false);
             let ticker = heartbeat(progress);
             let echoing = echo(server);
@@ -198,12 +202,12 @@ async fn main() {
             rinzu.stdio.writeLine(f"CLEANUP:0:0:0:0:TICKS:{progress.ticks}:CONTROL:{statistics.controlBytes}");
         }
         finally {
-            let stoppedAccept = cancelFuture(accepting);
+            let stoppedAccept = future.cancel(accepting);
             let settledAccept = await accepting;
         }
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }
 
@@ -213,7 +217,7 @@ fn assertTrue(condition: Bool, message: String) {
         rinzu.testing.assertTrue(condition, message);
     }
     catch errors {
-        panic("failedAssertion");
+        rinzu.core.panic("failedAssertion");
     }
 }
 
@@ -222,7 +226,7 @@ fn assertEqual<T: Equality>(actual: T, expected: T, message: String) {
         rinzu.testing.assertEqual<T>(actual, expected, message);
     }
     catch errors {
-        panic("failedAssertion");
+        rinzu.core.panic("failedAssertion");
     }
 }
 
@@ -231,6 +235,6 @@ async fn delay(milliseconds: Int) {
         await rinzu.timer.sleep(milliseconds);
     }
     catch errors {
-        panic("unexpectedTimerFailure");
+        rinzu.core.panic("unexpectedTimerFailure");
     }
 }

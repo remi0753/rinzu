@@ -4,6 +4,11 @@ import rinzu.io;
 import rinzu.process;
 import rinzu.stdio;
 import rinzu.testing;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
+import rinzu.future as future;
+import rinzu.number as num;
 
 class Progress {
     ticks: Int,
@@ -18,13 +23,13 @@ async fn heartbeat(progress: Progress) {
 }
 
 fn pattern() -> ByteArray {
-    return byteArray(b"\x00\xff\x80A\x00B\xfeC");
+    return bytesApi.from(b"\x00\xff\x80A\x00B\xfeC");
 }
 
 fn payload() -> ByteArray {
     var data = pattern();
-    while bytesLength(data) < 65536 {
-        data = bytesConcat(data, data);
+    while bytesApi.length(data) < 65536 {
+        data = bytesApi.concat(data, data);
     }
     return data;
 }
@@ -32,9 +37,12 @@ fn payload() -> ByteArray {
 fn verify(data: ByteArray, offset: Int) {
     let expected = pattern();
     var index = 0;
-    while index < bytesLength(data) {
+    while index < bytesApi.length(data) {
         let position = offset + index;
-        assertTrue(bytesGet(data, index) == bytesGet(expected, position - (position / 8) * 8), "binary content");
+        assertTrue(
+            bytesApi.get(data, index) == bytesApi.get(expected, position - (position / 8) * 8),
+            "binary content"
+        );
         index = index + 1;
     }
 }
@@ -45,18 +53,18 @@ fn configuration(name: String, defaultValue: String) -> String {
         return resultValue13;
     }
     catch [resultError13: Error, ...resultRest13] {
-        assertTrue(false, errorMessage(resultError13));
+        assertTrue(false, err.message(resultError13));
     }
     return defaultValue;
 }
 
 fn integer(name: String) -> Int {
     try {
-        let resultValue12 = parseInt(configuration(name, "0"));
+        let resultValue12 = num.parseInt(configuration(name, "0"));
         return resultValue12;
     }
     catch [resultError12: Error, ...resultRest12] {
-        assertTrue(false, errorMessage(resultError12));
+        assertTrue(false, err.message(resultError12));
     }
     return 0;
 }
@@ -74,11 +82,11 @@ async fn put(stream: rinzu.socket.TcpStream, data: ByteArray) {
     try {
         try {
             let resultValue11 = await rinzu.socket.writeAll(stream, data);
-            assertEqual<Int>(resultValue11, bytesLength(data), "writeAll length");
+            assertEqual<Int>(resultValue11, bytesApi.length(data), "writeAll length");
         }
         catch [resultError11: Error, ...resultRest11] {
             if resultError11 is rinzu.socket.WriteFailure {
-                assertTrue(false, errorMessage(resultError11.payload.cause));
+                assertTrue(false, err.message(resultError11.payload.cause));
             }
             else {
                 throw resultError11;
@@ -86,7 +94,7 @@ async fn put(stream: rinzu.socket.TcpStream, data: ByteArray) {
         }
     }
     catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
-        assertTrue(false, errorMessage(unexpectedWorkerError));
+        assertTrue(false, err.message(unexpectedWorkerError));
     }
 }
 
@@ -96,11 +104,11 @@ async fn half(stream: rinzu.socket.TcpStream) {
             let resultValue10 = await rinzu.socket.shutdownWrite(stream);
         }
         catch [resultError10: Error, ...resultRest10] {
-            assertTrue(false, errorMessage(resultError10));
+            assertTrue(false, err.message(resultError10));
         }
     }
     catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
-        assertTrue(false, errorMessage(unexpectedWorkerError));
+        assertTrue(false, err.message(unexpectedWorkerError));
     }
 }
 
@@ -129,7 +137,7 @@ async fn waitGate(path: String) {
                     }
                 }
                 catch [resultError8: Error, ...resultRest8] {
-                    assertTrue(false, errorMessage(resultError8));
+                    assertTrue(false, err.message(resultError8));
                     return;
                 }
                 await delay(10);
@@ -142,7 +150,7 @@ async fn waitGate(path: String) {
         }
     }
     catch [resultError9: Error, ...resultRest9] {
-        assertTrue(false, errorMessage(resultError9));
+        assertTrue(false, err.message(resultError9));
     }
 }
 
@@ -164,11 +172,11 @@ async fn echo(stream: rinzu.socket.TcpStream) {
     await delay(100);
     try {
         let resultValue7 = await rinzu.socket.read(stream, maximum);
-        assertTrue(bytesLength(resultValue7.data) > 64, "two small writes coalesced");
+        assertTrue(bytesApi.length(resultValue7.data) > 64, "two small writes coalesced");
         verify(resultValue7.data, 0);
         await greeting;
         await put(stream, resultValue7.data);
-        var total = bytesLength(resultValue7.data);
+        var total = bytesApi.length(resultValue7.data);
         var chunks = 1;
         while true {
             try {
@@ -177,12 +185,12 @@ async fn echo(stream: rinzu.socket.TcpStream) {
                     break;
                 }
                 verify(resultValue6.data, total);
-                total = total + bytesLength(resultValue6.data);
+                total = total + bytesApi.length(resultValue6.data);
                 chunks = chunks + 1;
                 await put(stream, resultValue6.data);
             }
             catch [resultError6: Error, ...resultRest6] {
-                assertTrue(false, errorMessage(resultError6));
+                assertTrue(false, err.message(resultError6));
                 return;
             }
         }
@@ -192,7 +200,7 @@ async fn echo(stream: rinzu.socket.TcpStream) {
         rinzu.stdio.writeLine(f"ECHO:{total}:CHUNKS:{chunks}");
     }
     catch [resultError7: Error, ...resultRest7] {
-        assertTrue(false, errorMessage(resultError7));
+        assertTrue(false, err.message(resultError7));
     }
 }
 
@@ -209,7 +217,7 @@ async fn main() {
                     rinzu.stdio.writeLine(f"READY:{resultValue4}");
                 }
                 catch [resultError4: Error, ...resultRest4] {
-                    assertTrue(false, errorMessage(resultError4));
+                    assertTrue(false, err.message(resultError4));
                 }
                 if mode == "connect-cancel" {
                     let gate = configuration("SOCKET_GATE", "");
@@ -223,7 +231,7 @@ async fn main() {
                     }
                     catch [resultError3: Error, ...resultRest3] {
                         assertEqual<Option<Int>>(
-                            errorNativeStatus(resultError3),
+                            err.nativeStatus(resultError3),
                             Option<Int>.Some(value: -7509),
                             "socket deadline distinct from cancel"
                         );
@@ -235,14 +243,14 @@ async fn main() {
                 try {
                     if mode == "accept-cancel" || mode == "control-timeout" {
                         await delay(80);
-                        assertTrue(!futureReady(pending), "accept is pending");
+                        assertTrue(!future.isReady(pending), "accept is pending");
                         if mode == "control-timeout" {
-                            let stopped1 = timeoutFuture(pending);
+                            let stopped1 = future.timeout(pending);
                             assertTrue(stopped1, "timeout control won");
                             rinzu.stdio.writeLine("CONTROL:TIMEOUT:WON");
                         }
                         else {
-                            let stopped2 = cancelFuture(pending);
+                            let stopped2 = future.cancel(pending);
                         }
                         let result = await pending;
                         assertTrue(false, "cancel did not terminate accept");
@@ -260,17 +268,17 @@ async fn main() {
                                 await delay(5);
                                 attempts = attempts + 1;
                             }
-                            assertTrue(!futureReady(writing), "write waits for slow reader");
+                            assertTrue(!future.isReady(writing), "write waits for slow reader");
                             assertTrue(pendingOperations() == 1, "native write waits for readiness");
                             rinzu.stdio.writeLine("WRITE:BLOCKED:1");
-                            let stopped3 = cancelFuture(writing);
+                            let stopped3 = future.cancel(writing);
                             await writing;
                         }
                         else {
                             let reading = rinzu.socket.read(resultValue2, 64);
                             try {
                                 await delay(80);
-                                assertTrue(!futureReady(reading), "read is pending");
+                                assertTrue(!future.isReady(reading), "read is pending");
                                 if mode == "read-close" {
                                     try all {
                                         let closed = await rinzu.socket.close(resultValue2);
@@ -287,12 +295,12 @@ async fn main() {
                                     }
                                 }
                                 else {
-                                    let stopped4 = cancelFuture(reading);
+                                    let stopped4 = future.cancel(reading);
                                     let ignored = await reading;
                                 }
                             }
                             finally {
-                                let stoppedReading = cancelFuture(reading);
+                                let stoppedReading = future.cancel(reading);
                                 try {
                                     let settledReading = await reading;
                                 }
@@ -301,16 +309,16 @@ async fn main() {
                         }
                     }
                     catch [resultError2: Error, ...resultRest2] {
-                        assertTrue(false, errorMessage(resultError2));
+                        assertTrue(false, err.message(resultError2));
                     }
                 }
                 finally {
-                    let stopAccept = cancelFuture(pending);
+                    let stopAccept = future.cancel(pending);
                     let settledAccept = await pending;
                 }
             }
             catch [resultError5: Error, ...resultRest5] {
-                assertTrue(false, errorMessage(resultError5));
+                assertTrue(false, err.message(resultError5));
             }
         }
         finally {
@@ -321,7 +329,7 @@ async fn main() {
         }
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }
 
@@ -331,7 +339,7 @@ fn assertTrue(condition: Bool, message: String) {
         rinzu.testing.assertTrue(condition, message);
     }
     catch errors {
-        panic("failedAssertion");
+        rinzu.core.panic("failedAssertion");
     }
 }
 
@@ -340,7 +348,7 @@ fn assertEqual<T: Equality>(actual: T, expected: T, message: String) {
         rinzu.testing.assertEqual<T>(actual, expected, message);
     }
     catch errors {
-        panic("failedAssertion");
+        rinzu.core.panic("failedAssertion");
     }
 }
 
@@ -349,6 +357,6 @@ async fn delay(milliseconds: Int) {
         await rinzu.timer.sleep(milliseconds);
     }
     catch errors {
-        panic("unexpectedTimerFailure");
+        rinzu.core.panic("unexpectedTimerFailure");
     }
 }

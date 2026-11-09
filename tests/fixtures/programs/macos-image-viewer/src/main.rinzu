@@ -2,6 +2,9 @@ import rinzu.timer;
 import rinzu.macos;
 import rinzu.process;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
 
 class Viewer {
     const device: rinzu.macos.Device,
@@ -20,7 +23,7 @@ class Viewer {
                 return canvas;
             }
             case Option.None: {
-                throw error(-7803, "viewer canvas is not ready");
+                throw err.create(-7803, "viewer canvas is not ready");
             }
         }
     }
@@ -208,7 +211,7 @@ class Viewer {
         var ticks = 0;
         while (self.loading || canvas.frames < 1) && !job.isStopping() {
             if ticks > 1000 {
-                panic("viewer did not draw its initial image");
+                rinzu.core.panic("viewer did not draw its initial image");
             }
             await rinzu.timer.sleep(10);
             ticks = ticks + 1;
@@ -221,14 +224,14 @@ class Viewer {
         let fitted = self.fitScale(zoomSize, imageInfo);
         self.zoomBy(1.25);
         if self.fit || self.zoom <= fitted {
-            panic("zoom-in from Fit must increase the displayed scale");
+            rinzu.core.panic("zoom-in from Fit must increase the displayed scale");
         }
         while canvas.frames <= frames && !job.isStopping() {
             await rinzu.timer.sleep(10);
         }
         let size = canvas.view.frame();
         if size.width != 816.0 || size.height != 502.0 {
-            panic("viewer surface did not resize");
+            rinzu.core.panic("viewer surface did not resize");
         }
         rinzu.stdio.writeLine("VIEWER:resize:zoom:nearest");
         job.requestStop();
@@ -266,7 +269,7 @@ async fn screen(app: rinzu.macos.UiApplication) {
     let uploaded = image.write(
         rinzu.macos.Scissor(x: 0, y: 0, width: 2, height: 2),
         8,
-        byteArray(b"\x22\xb8\xe6\xff\xed\x75\x40\xff\x52\x41\x9b\xff\x4a\xa3\x6d\xff")
+        bytesApi.from(b"\x22\xb8\xe6\xff\xed\x75\x40\xff\x52\x41\x9b\xff\x4a\xa3\x6d\xff")
     );
     let viewer = Viewer(
         device: device,
@@ -340,7 +343,7 @@ async fn main() {
         let result = await rinzu.macos.applicationWithSignals("Rinzu Image Viewer", 760.0, 568.0, screen);
         let stats = rinzu.macos.statistics();
         if stats.retainedControls != 0 || stats.textureBytes != 0 || stats.bufferBytes != 0 {
-            panic("viewer resources remained");
+            rinzu.core.panic("viewer resources remained");
         }
         rinzu.stdio.writeLine("VIEWER:closed");
     }
@@ -349,6 +352,6 @@ async fn main() {
             rinzu.stdio.writeLine(f"Image viewer failed: {errors}");
         }
         catch outputErrors {}
-        panic("image viewer failed");
+        rinzu.core.panic("image viewer failed");
     }
 }

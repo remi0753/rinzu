@@ -1,21 +1,23 @@
 import rinzu.list;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
 
 fn chunks(data: ByteArray) -> List<ByteArray> {
     var output: List<ByteArray> = [];
     var start = 0;
-    while start < bytesLength(data) {
+    while start < bytesApi.length(data) {
         var end = start + 3;
-        if end > bytesLength(data) {
-            end = bytesLength(data);
+        if end > bytesApi.length(data) {
+            end = bytesApi.length(data);
         }
-        switch bytesSlice(data, start, end) {
+        switch bytesApi.slice(data, start, end) {
             case Option.Some(part): {
                 try {
                     output = rinzu.list.append(output, part);
                 }
                 catch [overflow: rinzu.list.LengthOverflow] {
-                    panic(overflow.message);
+                    rinzu.core.panic(overflow.message);
                 }
             }
             case Option.None: {}
@@ -26,18 +28,18 @@ fn chunks(data: ByteArray) -> List<ByteArray> {
 }
 
 fn validRange(data: ByteArray, start: Int, end: Int) -> Bool {
-    let expected = start >= 0 && start <= end && end <= bytesLength(data);
-    switch bytesSlice(data, start, end) {
+    let expected = start >= 0 && start <= end && end <= bytesApi.length(data);
+    switch bytesApi.slice(data, start, end) {
         case Option.None: {
             return !expected;
         }
         case Option.Some(part): {
-            if !expected || bytesLength(part) != end - start {
+            if !expected || bytesApi.length(part) != end - start {
                 return false;
             }
             var index = 0;
-            while index < bytesLength(part) {
-                if bytesGet(part, index) != bytesGet(data, start + index) {
+            while index < bytesApi.length(part) {
+                if bytesApi.get(part, index) != bytesApi.get(data, start + index) {
                     return false;
                 }
                 index = index + 1;
@@ -50,7 +52,7 @@ fn validRange(data: ByteArray, start: Int, end: Int) -> Bool {
 async fn main() {
     try {
         let binary: List<CUInt8> = [0, 255, 128, 65, 195, 169, 0];
-        let data = byteArray(binary);
+        let data = bytesApi.from(binary);
         var all = true;
         var start = -1;
         while start <= 8 {
@@ -62,15 +64,15 @@ async fn main() {
             start = start + 1;
         }
         rinzu.stdio.writeLine(all);
-        rinzu.stdio.writeLine(bytesGet(data, 9223372036854775807));
-        rinzu.stdio.writeLine(bytesSlice(data, 0, 9223372036854775807));
-        let empty = byteArray(b"");
-        rinzu.stdio.writeLine(bytesConcat(empty, empty) == empty);
-        rinzu.stdio.writeLine(bytesCopy(data) == data);
+        rinzu.stdio.writeLine(bytesApi.get(data, 9223372036854775807));
+        rinzu.stdio.writeLine(bytesApi.slice(data, 0, 9223372036854775807));
+        let empty = bytesApi.from(b"");
+        rinzu.stdio.writeLine(bytesApi.concat(empty, empty) == empty);
+        rinzu.stdio.writeLine(bytesApi.copy(data) == data);
         let fixed: Bytes(8) = b"A";
         let short: List<CUInt8> = [65];
-        rinzu.stdio.writeLine(bytesLength(byteArray(fixed)));
-        rinzu.stdio.writeLine(bytesLength(byteArray(short)));
+        rinzu.stdio.writeLine(bytesApi.length(bytesApi.from(fixed)));
+        rinzu.stdio.writeLine(bytesApi.length(bytesApi.from(short)));
         let pending = spawn chunks(data);
         let parts = await pending;
         rinzu.stdio.writeLine(parts);
@@ -79,7 +81,7 @@ async fn main() {
         while i < rinzu.list.length(parts) {
             switch rinzu.list.get(parts, i) {
                 case Option.Some(part): {
-                    joined = bytesConcat(joined, part);
+                    joined = bytesApi.concat(joined, part);
                 }
                 case Option.None: {}
             }

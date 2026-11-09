@@ -1068,7 +1068,7 @@ fn seeded_composite_workers_repeat_on_real_jit_aot_heaps_and_under_sanitizers() 
     ];
     let fixture = include_str!("../../../codegen/tests/fixtures/worker_composite.rinzu");
     let original_awaits = format!(
-        "{}\n    if nan_copy == nan_copy {{\n        panic(\"bad_nan\");\n    }}\n    {}",
+        "{}\n    if nan_copy == nan_copy {{\n        rinzu.core.panic(\"bad_nan\");\n    }}\n    {}",
         AWAITS[0],
         AWAITS[1..].join("\n    ")
     );
@@ -1090,7 +1090,7 @@ fn seeded_composite_workers_repeat_on_real_jit_aot_heaps_and_under_sanitizers() 
         let shuffled = fixture.replace(
             &original_awaits,
             &format!(
-                "{}\n    if nan_copy == nan_copy {{ panic(\"bad_nan\"); }}",
+                "{}\n    if nan_copy == nan_copy {{ rinzu.core.panic(\"bad_nan\"); }}",
                 awaits.join("\n    ")
             ),
         );

@@ -1,4 +1,19 @@
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
+
+fn requiredErrorCode(problem: Error) nothrow -> Int {
+    switch err.code(problem) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            rinzu.core.panic("expected a numeric error code");
+            return 0;
+        }
+    }
+}
 
 class Item {
     const count: Int,
@@ -36,7 +51,7 @@ fn copy(value: Item) -> Item {
 
 async fn main() {
     try {
-        let original = Item(count: 1, label: "old", bytes: byteArray(b"A"));
+        let original = Item(count: 1, label: "old", bytes: bytesApi.from(b"A"));
         let alias = original;
         let source = base(original);
         let updated = Item(label: label(), count: count(), bytes: source.bytes);
@@ -59,7 +74,7 @@ async fn main() {
             rinzu.stdio.writeLine(failed.count);
         }
         catch [problem: Error, ...problemRest] {
-            rinzu.stdio.writeLine(errorCode(problem));
+            rinzu.stdio.writeLine(requiredErrorCode(problem));
         }
         finally {
             rinzu.stdio.writeLine("cleanup");

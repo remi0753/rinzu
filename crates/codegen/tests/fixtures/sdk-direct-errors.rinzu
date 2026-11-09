@@ -3,14 +3,29 @@ import rinzu.process;
 import rinzu.http;
 import rinzu.socket;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
 
-fn status(problem: Error) -> Int {
-    switch errorNativeStatus(problem) {
+fn requiredErrorCode(problem: Error) nothrow -> Int {
+    switch err.code(problem) {
         case Option.Some(value): {
             return value;
         }
         case Option.None: {
-            panic("missing");
+            rinzu.core.panic("expected a numeric error code");
+            return 0;
+        }
+    }
+}
+
+fn status(problem: Error) -> Int {
+    switch err.nativeStatus(problem) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            rinzu.core.panic("missing");
         }
     }
     return 0;
@@ -22,7 +37,7 @@ async fn main() {
             let invalidName = rinzu.process.environment("");
         }
         catch [environmentError: Error, ...environmentRest] {
-            rinzu.stdio.writeLine(errorCode(environmentError));
+            rinzu.stdio.writeLine(requiredErrorCode(environmentError));
         }
         try {
             let invalidFile = await rinzu.io.openRead("");
@@ -38,17 +53,17 @@ async fn main() {
         }
         let client = rinzu.http.newClient();
         try {
-            let response = await rinzu.http.request(client, "\u{0}", byteArray(b""), false, 100);
-            panic("unexpectedlySucceeded");
+            let response = await rinzu.http.request(client, "\u{0}", bytesApi.from(b""), false, 100);
+            rinzu.core.panic("unexpectedlySucceeded");
         }
         catch [requestError: rinzu.http.HttpFailure, ...requestRest] {
             rinzu.stdio.writeLine(status(requestError.payload.cause));
             rinzu.stdio.writeLine(requestError.payload.status);
-            rinzu.stdio.writeLine(bytesLength(requestError.payload.partial));
+            rinzu.stdio.writeLine(bytesApi.length(requestError.payload.partial));
             rinzu.stdio.writeLine(requestError.payload.sent);
         }
         catch errors {
-            panic("unexpectedType");
+            rinzu.core.panic("unexpectedType");
         }
         finally {
             let closed = await rinzu.http.close(client);
@@ -58,6 +73,6 @@ async fn main() {
         rinzu.stdio.writeLine(rinzu.io.liveFiles());
     }
     catch errors {
-        panic("unexpected");
+        rinzu.core.panic("unexpected");
     }
 }

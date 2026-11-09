@@ -1,9 +1,12 @@
 import rinzu.stream;
 import rinzu.io;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
 
 async fn value() -> ByteArray {
-    return byteArray(b"abc");
+    return bytesApi.from(b"abc");
 }
 
 fn wrapped() -> Future<ByteArray> {
@@ -13,12 +16,12 @@ fn wrapped() -> Future<ByteArray> {
 async fn main() {
     try {
         let kept = value();
-        if bytesLength(await kept) != 3 || bytesLength(await kept) != 3 {
-            panic("bad1");
+        if bytesApi.length(await kept) != 3 || bytesApi.length(await kept) != 3 {
+            rinzu.core.panic("bad1");
         }
         let nested = wrapped();
-        if bytesLength(await nested) != 3 || bytesLength(await nested) != 3 {
-            panic("badNested");
+        if bytesApi.length(await nested) != 3 || bytesApi.length(await nested) != 3 {
+            rinzu.core.panic("badNested");
         }
         try {
             let resultValue6 = await rinzu.stream.openFileWithLimit("input.bin", 1024);
@@ -30,7 +33,7 @@ async fn main() {
                         let resultValue5 = await rinzu.stream.next(resultValue6);
                         switch resultValue5 {
                             case Option.Some(data): {
-                                total = total + bytesLength(data);
+                                total = total + bytesApi.length(data);
                             }
                             case Option.None: {
                                 eof = true;
@@ -38,23 +41,23 @@ async fn main() {
                         }
                     }
                     catch [resultError5: Error, ...resultRest5] {
-                        panic("bad3");
+                        rinzu.core.panic("bad3");
                     }
                 }
                 if total != 8192 {
-                    panic("bad4");
+                    rinzu.core.panic("bad4");
                 }
                 try {
                     let resultValue4 = await rinzu.stream.next(resultValue6);
                     switch resultValue4 {
                         case Option.Some(data): {
-                            panic("bad6");
+                            rinzu.core.panic("bad6");
                         }
                         case Option.None: {}
                     }
                 }
                 catch [resultError4: Error, ...resultRest4] {
-                    panic("bad5");
+                    rinzu.core.panic("bad5");
                 }
             }
             finally {
@@ -62,37 +65,37 @@ async fn main() {
                     let resultValue3 = await rinzu.stream.close(resultValue6);
                 }
                 catch [resultError3: Error, ...resultRest3] {
-                    panic("bad7");
+                    rinzu.core.panic("bad7");
                 }
             }
             try {
                 let resultValue2 = await rinzu.stream.close(resultValue6);
-                panic("bad8");
+                rinzu.core.panic("bad8");
             }
             catch [resultError2: Error, ...resultRest2] {
-                if errorCode(resultError2) != -7202 {
-                    panic("bad9");
+                if err.code(resultError2) != Option<Int>.Some(value: -7202) {
+                    rinzu.core.panic("bad9");
                 }
             }
             try {
                 let resultValue1 = await rinzu.stream.next(resultValue6);
-                panic("bad10");
+                rinzu.core.panic("bad10");
             }
             catch [resultError1: Error, ...resultRest1] {
-                if errorCode(resultError1) != -7202 {
-                    panic("bad11");
+                if err.code(resultError1) != Option<Int>.Some(value: -7202) {
+                    rinzu.core.panic("bad11");
                 }
             }
         }
         catch [resultError6: Error, ...resultRest6] {
-            panic("bad2");
+            rinzu.core.panic("bad2");
         }
         if rinzu.io.liveFiles() != 0 || rinzu.io.liveBuffers() != 0 {
-            panic("bad12");
+            rinzu.core.panic("bad12");
         }
         rinzu.stdio.writeLine("stream-basic-ok");
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

@@ -1,5 +1,6 @@
 import sample.platform;
 import rinzu.io;
+import rinzu.core;
 
 fn onEvent(app: sample.platform.Handle, event: sample.platform.Event) fallback () {
     let retained = ["typed event", "callback allocation"];
@@ -10,7 +11,7 @@ fn onEvent(app: sample.platform.Handle, event: sample.platform.Event) fallback (
         index = index + 1;
     }
     if event.kind != 1 || event.sequence != 1 || retained != ["typed event", "callback allocation"] {
-        panic("invalidEvent");
+        rinzu.core.panic("invalidEvent");
     }
 }
 
@@ -30,18 +31,18 @@ async fn finishPreview(app: sample.platform.Handle) {
             let size = await rinzu.io.readSize("data/input.txt");
             let preview = await spawn calculate(size);
             if preview != size * 2 || !sample.platform.isRunning(app) {
-                panic("invalidPreview");
+                rinzu.core.panic("invalidPreview");
             }
         }
         finally {
             let stopped = sample.platform.stop(app);
             if stopped != 0 {
-                panic("failedStop");
+                rinzu.core.panic("failedStop");
             }
         }
     }
     catch unexpectedErrors {
-        panic("failed");
+        rinzu.core.panic("failed");
     }
 }
 
@@ -50,10 +51,10 @@ async fn main() {
         let app = sample.platform.create(true);
         let result = await sample.platform.run(app, onEvent);
         if result != 0 || sample.platform.isRunning(app) {
-            panic("failedRun");
+            rinzu.core.panic("failedRun");
         }
     }
     catch unexpectedErrors {
-        panic("failed");
+        rinzu.core.panic("failed");
     }
 }

@@ -95,10 +95,14 @@ pub enum DataOperation {
     JsonEncode = 90,
     JsonEncodeWithLimits = 91,
     JsonFloatValue = 92,
+    ErrorCodeOption = 93,
+    ErrorContextOption = 94,
+    ErrorWithContextOption = 95,
+    ErrorWithCauseOption = 96,
 }
 
 impl DataOperation {
-    pub const ALL: [Self; 93] = [
+    pub const ALL: [Self; 97] = [
         Self::ListLength,
         Self::ListGet,
         Self::ListAppend,
@@ -192,10 +196,37 @@ impl DataOperation {
         Self::JsonEncode,
         Self::JsonEncodeWithLimits,
         Self::JsonFloatValue,
+        Self::ErrorCodeOption,
+        Self::ErrorContextOption,
+        Self::ErrorWithContextOption,
+        Self::ErrorWithCauseOption,
     ];
 
     pub const fn is_json(self) -> bool {
         self as u32 >= Self::JsonParse as u32 && self as u32 <= Self::JsonFloatValue as u32
+    }
+
+    pub const fn is_optional_error_metadata(self) -> bool {
+        matches!(
+            self,
+            Self::ErrorCodeOption
+                | Self::ErrorContextOption
+                | Self::ErrorWithContextOption
+                | Self::ErrorWithCauseOption
+        )
+    }
+
+    pub const fn has_error_receiver(self) -> bool {
+        matches!(
+            self,
+            Self::ErrorMessage
+                | Self::ErrorCause
+                | Self::ErrorCleanup
+                | Self::ErrorSourceFile
+                | Self::ErrorSourceStart
+                | Self::ErrorSourceEnd
+                | Self::ErrorNativeStatus
+        ) || self.is_optional_error_metadata()
     }
 
     pub fn from_code(code: u32) -> Option<Self> {
@@ -261,10 +292,14 @@ impl DataOperation {
             Self::BytesTrim => "bytesTrim",
             Self::ErrorCreate => "error",
             Self::ErrorCode => "errorCode",
+            Self::ErrorCodeOption => "$error::code",
             Self::ErrorMessage => "errorMessage",
             Self::ErrorContext => "errorContext",
+            Self::ErrorContextOption => "$error::context",
             Self::ErrorWithContext => "errorWithContext",
+            Self::ErrorWithContextOption => "$error::withContext",
             Self::ErrorWithCause => "errorWithCause",
+            Self::ErrorWithCauseOption => "$error::withCause",
             Self::ErrorCause => "errorCause",
             Self::ErrorCleanup => "errorCleanup",
             Self::ErrorSourceFile => "errorSourceFile",
@@ -355,10 +390,14 @@ impl DataOperation {
             Self::BytesContainsAny | Self::BytesAllIn | Self::BytesTrim => 2,
             Self::ErrorCreate => 2,
             Self::ErrorCode => 1,
+            Self::ErrorCodeOption => 1,
             Self::ErrorMessage => 1,
             Self::ErrorContext => 1,
+            Self::ErrorContextOption => 1,
             Self::ErrorWithContext => 2,
+            Self::ErrorWithContextOption => 2,
             Self::ErrorWithCause => 2,
+            Self::ErrorWithCauseOption => 2,
             Self::ErrorCause => 1,
             Self::ErrorCleanup => 1,
             Self::ErrorSourceFile => 1,
@@ -456,10 +495,14 @@ impl DataOperation {
             Self::BytesTrim => "RINZU_DATA_BYTES_TRIM",
             Self::ErrorCreate => "RINZU_DATA_ERROR_CREATE",
             Self::ErrorCode => "RINZU_DATA_ERROR_CODE",
+            Self::ErrorCodeOption => "RINZU_DATA_ERROR_CODE_OPTION",
             Self::ErrorMessage => "RINZU_DATA_ERROR_MESSAGE",
             Self::ErrorContext => "RINZU_DATA_ERROR_CONTEXT",
+            Self::ErrorContextOption => "RINZU_DATA_ERROR_CONTEXT_OPTION",
             Self::ErrorWithContext => "RINZU_DATA_ERROR_WITH_CONTEXT",
+            Self::ErrorWithContextOption => "RINZU_DATA_ERROR_WITH_CONTEXT_OPTION",
             Self::ErrorWithCause => "RINZU_DATA_ERROR_WITH_CAUSE",
+            Self::ErrorWithCauseOption => "RINZU_DATA_ERROR_WITH_CAUSE_OPTION",
             Self::ErrorCause => "RINZU_DATA_ERROR_CAUSE",
             Self::ErrorCleanup => "RINZU_DATA_ERROR_CLEANUP",
             Self::ErrorSourceFile => "RINZU_DATA_ERROR_SOURCE_FILE",

@@ -1,3 +1,4 @@
+#include "rinzu/managed_errors.h"
 #include "rinzu/byte_scan.h"
 
 static void rinzu_aot_throw_error(RinzuContext *, uint64_t);
@@ -304,11 +305,25 @@ static uint64_t rinzu_error_prefix(rinzu_managed_data_t *data, const unsigned ch
   free(copy.bytes);
   return result;
 }
+static uint64_t rinzu_error_option(RinzuContext *context, rinzu_managed_data_t *data, size_t result,
+                                   int present, rinzu_managed_slot_t child) {
+  uint64_t output = 0;
+  if (rinzu_managed_composite(data, result, present, &child, (size_t)present, &output))
+    rinzu_failure_fatal();
+  context->allocations++;
+  return output;
+}
+
 static int64_t rinzu_error_operation(RinzuContext *context, int64_t operation, size_t result,
                                      const uint64_t *bits) {
   rinzu_managed_data_t *data = rinzu_context_data(context);
   uint64_t output = 0;
   rinzu_error_buffer_t blob = {0};
+  if (operation == RINZU_DATA_ERROR_MESSAGE) {
+    if (rinzu_managed_find(data, bits[0])->kind == RINZU_MANAGED_RICH_ERROR)
+      context->allocations++;
+    return (int64_t)rinzu_managed_message(data, bits[0]);
+  }
   if (operation == RINZU_DATA_ERROR_CREATE || operation == RINZU_DATA_NATIVE_STATUS) {
     rinzu_managed_value_t *text = rinzu_managed_string_value(data, bits[1]);
     int64_t code = (int64_t)bits[0];
@@ -340,6 +355,30 @@ static int64_t rinzu_error_operation(RinzuContext *context, int64_t operation, s
     }
   } else {
     rinzu_managed_value_t *error = rinzu_managed_find(data, bits[0]);
+    if (operation == RINZU_DATA_ERROR_CAUSE) {
+      size_t before = data->objects;
+      uint64_t cause = rinzu_managed_error_metadata(data, result, bits[0], 3);
+      context->allocations += data->objects - before;
+      return (int64_t)cause;
+    }
+    if (operation >= RINZU_DATA_ERROR_SOURCE_FILE && operation <= RINZU_DATA_ERROR_SOURCE_END) {
+      rinzu_source_position_t source = rinzu_managed_error_source(data, bits[0]);
+      uint64_t field = operation == RINZU_DATA_ERROR_SOURCE_FILE    ? source.file
+                       : operation == RINZU_DATA_ERROR_SOURCE_START ? source.start_byte
+                                                                    : source.end_byte;
+      return (int64_t)rinzu_error_option(context, data, result, (int)source.present,
+                                         (rinzu_managed_slot_t){field, 0});
+    }
+    if (error->kind == RINZU_MANAGED_COMPOSITE) {
+      if (operation == RINZU_DATA_ERROR_CLEANUP) {
+        if (rinzu_managed_composite(data, result, -1, NULL, 0, &output))
+          rinzu_failure_fatal();
+        context->allocations++;
+        return (int64_t)output;
+      }
+      if (operation == RINZU_DATA_ERROR_NATIVE_STATUS)
+        return (int64_t)rinzu_error_option(context, data, result, 0, (rinzu_managed_slot_t){0});
+    }
     blob = rinzu_managed_error_blob(data, error);
     uint32_t count = (uint32_t)rinzu_error_integer(blob.bytes, 4);
     rinzu_error_node_t root = rinzu_error_node(blob.bytes, blob.length, count - 1);
@@ -347,10 +386,8 @@ static int64_t rinzu_error_operation(RinzuContext *context, int64_t operation, s
       free(blob.bytes);
       return root.code;
     }
-    if (operation == RINZU_DATA_ERROR_MESSAGE || operation == RINZU_DATA_ERROR_CONTEXT) {
-      output = rinzu_managed_string(
-          data, operation == RINZU_DATA_ERROR_MESSAGE ? root.message : root.context,
-          operation == RINZU_DATA_ERROR_MESSAGE ? root.message_length : root.context_length);
+    if (operation == RINZU_DATA_ERROR_CONTEXT) {
+      output = rinzu_managed_string(data, root.context, root.context_length);
     } else if (operation == RINZU_DATA_ERROR_WITH_CONTEXT) {
       rinzu_managed_value_t *text = rinzu_managed_string_value(data, bits[1]);
       root.context = text->bytes;
@@ -409,36 +446,38 @@ static int64_t rinzu_error_operation(RinzuContext *context, int64_t operation, s
         rinzu_failure_fatal();
       free(slots);
     } else {
-      rinzu_managed_slot_t child = {0};
-      int present = 0;
-      if (operation == RINZU_DATA_ERROR_CAUSE) {
-        present = root.cause != UINT32_MAX;
-        if (present) {
-          child = (rinzu_managed_slot_t){
-              rinzu_error_prefix(data, blob.bytes, blob.length, root.cause), 1};
-          context->allocations++;
-        }
-      } else if (operation == RINZU_DATA_ERROR_NATIVE_STATUS) {
-        present = (int)root.native_present;
-        child.bits = (uint64_t)root.native_status;
-      } else if (operation == RINZU_DATA_ERROR_SOURCE_FILE) {
-        present = (int)root.source.present;
-        child.bits = root.source.file;
-      } else if (operation == RINZU_DATA_ERROR_SOURCE_START) {
-        present = (int)root.source.present;
-        child.bits = root.source.start_byte;
-      } else if (operation == RINZU_DATA_ERROR_SOURCE_END) {
-        present = (int)root.source.present;
-        child.bits = root.source.end_byte;
-      } else
+      if (operation != RINZU_DATA_ERROR_NATIVE_STATUS)
         rinzu_failure_fatal();
-      if (rinzu_managed_composite(data, result, present, &child, (size_t)present, &output))
-        rinzu_failure_fatal();
+      free(blob.bytes);
+      return (int64_t)rinzu_error_option(context, data, result, (int)root.native_present,
+                                         (rinzu_managed_slot_t){(uint64_t)root.native_status, 0});
     }
   }
   free(blob.bytes);
   context->allocations++;
   return (int64_t)output;
+}
+
+static int64_t rinzu_optional_error_operation(RinzuContext *context, rinzu_managed_data_t *data,
+                                              int64_t operation, size_t result,
+                                              const uint64_t *bits,
+                                              const rinzu_managed_value_t *error) {
+  int cause = operation == RINZU_DATA_ERROR_WITH_CAUSE_OPTION;
+  if (error->kind == RINZU_MANAGED_COMPOSITE ||
+      (cause && rinzu_managed_find(data, bits[1])->kind == RINZU_MANAGED_COMPOSITE))
+    return (int64_t)rinzu_error_option(context, data, result, 0, (rinzu_managed_slot_t){0});
+
+  int64_t raw = operation == RINZU_DATA_ERROR_CODE_OPTION      ? RINZU_DATA_ERROR_CODE
+                : operation == RINZU_DATA_ERROR_CONTEXT_OPTION ? RINZU_DATA_ERROR_CONTEXT
+                : cause                                        ? RINZU_DATA_ERROR_WITH_CAUSE
+                                                               : RINZU_DATA_ERROR_WITH_CONTEXT;
+  uint64_t value = (uint64_t)rinzu_error_operation(context, raw, result, bits);
+  if (context->pending.current.primary)
+    return 0;
+  if (raw == RINZU_DATA_ERROR_WITH_CAUSE || raw == RINZU_DATA_ERROR_WITH_CONTEXT)
+    (void)rinzu_managed_first_error_trace(data, value, rinzu_managed_error_trace(data, bits[0]));
+  return (int64_t)rinzu_error_option(context, data, result, 1,
+                                     (rinzu_managed_slot_t){value, raw != RINZU_DATA_ERROR_CODE});
 }
 
 /* The operation entry has checked the Owner and every typed argument. Keep
@@ -746,6 +785,8 @@ static inline __attribute__((always_inline)) int64_t rinzu_aot_data_operation_ow
   if (operation >= RINZU_DATA_LIST_CONCAT_ALL && operation <= RINZU_DATA_COLLECTION_FINISH)
     return rinzu_aot_collection_construction(context, data, operation, result, types, bits,
                                              (size_t)count, resolved[0]);
+  if (operation >= RINZU_DATA_ERROR_CODE_OPTION && operation <= RINZU_DATA_ERROR_WITH_CAUSE_OPTION)
+    return rinzu_optional_error_operation(context, data, operation, result, bits, resolved[0]);
   if (operation >= RINZU_DATA_BIT_AND)
     return rinzu_numeric_operation(context, operation, types, bits);
   if (operation >= RINZU_DATA_STRING_LENGTH)

@@ -1,4 +1,5 @@
 import rinzu.list;
+import rinzu.core;
 
 class Trace {
     values: List<Int>
@@ -18,7 +19,7 @@ async fn observe(shared: Future<Int>, trace: Trace, index: Int) -> Int {
         trace.values = rinzu.list.append(trace.values, index);
     }
     catch [overflow: rinzu.list.LengthOverflow] {
-        panic(overflow.message);
+        rinzu.core.panic(overflow.message);
     }
     return result;
 }
@@ -33,7 +34,7 @@ async fn main() {
         index = index + 1;
     }
     if rinzu.list.length(trace.values) != 0 {
-        panic("ranBeforeTurn");
+        rinzu.core.panic("ranBeforeTurn");
     }
     index = 0;
     while index < 96 {
@@ -41,21 +42,21 @@ async fn main() {
             case Option.Some(future): {
                 let result = await future;
                 if result != 42 {
-                    panic("wrongResult");
+                    rinzu.core.panic("wrongResult");
                 }
             }
             case Option.None: {
-                panic("missingFuture");
+                rinzu.core.panic("missingFuture");
             }
         }
         switch rinzu.list.get(trace.values, index) {
             case Option.Some(value): {
                 if value != index {
-                    panic("changedOrder");
+                    rinzu.core.panic("changedOrder");
                 }
             }
             case Option.None: {
-                panic("missingTrace");
+                rinzu.core.panic("missingTrace");
             }
         }
         index = index + 1;

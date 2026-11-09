@@ -405,7 +405,7 @@ pub fn check_module_with_options(
 ) -> Result<CheckedModule, Vec<Diagnostic>> {
     let _timing = crate::timing::span("frontend.check");
     let mut module = module.clone();
-    crate::package::link_builtin_aliases(&mut module)?;
+    crate::package::link_builtin_imports(&mut module)?;
     let module = crate::collections::prepare(module);
     let module = crate::methods::expand_exports(&module)?;
     crate::package::validate_public_signatures(
@@ -1497,12 +1497,6 @@ impl<'a> Checker<'a> {
                 if crate::core::function_name(path) == Some("byteLength")
                     && !context.locals.contains_key(&path[0])
                     && !self.declarations.contains_key(&path.join("."))
-                    && (path.len() == 1
-                        || self
-                            .module
-                            .imports
-                            .iter()
-                            .any(|import| import.path == ["rinzu", "core"]))
                     && let Some(Type::FunctionReference(signature)) = expected
                     && let [parameter @ (Type::FixedBytes(_) | Type::Bytes)] =
                         signature.parameters.as_slice()
@@ -2033,17 +2027,6 @@ impl<'a> Checker<'a> {
             return Some(ty);
         }
         let mut name = path.join(".");
-        if path.len() > 1
-            && crate::core::function_name(path).is_some()
-            && !self
-                .module
-                .imports
-                .iter()
-                .any(|import| import.path == ["rinzu", "core"])
-        {
-            self.unknown_name(&name, range);
-            return None;
-        }
         if !self.declarations.contains_key(&name)
             && crate::core::function_name(path) == Some("utf8ByteLength")
         {

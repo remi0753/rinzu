@@ -17,6 +17,8 @@
 
 Older language numbers in manifests remain accepted where supported by the loader, but the frontend uses current grammar. They do not select a preserved historical language edition. New packages should use `language = "0.5"`.
 
+The [standard API migration](../libraries/core.md#compatibility-names) retains the legacy source spellings and reserves their ABI operation numbers. Compiled SDK descriptors and caches still follow the toolchain's compatibility fingerprints.
+
 Linux, Windows, and macOS x86_64 are portability compile targets. JIT execution, native SDK linking, GUI integration, and AOT distribution are supported on the execution target above. Cross-compilation and arbitrary cross-OS-image deployment are unavailable.
 
 ## Language boundaries

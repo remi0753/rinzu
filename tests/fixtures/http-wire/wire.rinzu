@@ -2,6 +2,10 @@
 import rinzu.list;
 import rinzu.socket;
 import rinzu.httpcodec;
+import rinzu.bytes as bytesApi;
+import rinzu.error as err;
+import rinzu.number as num;
+import rinzu.string as textApi;
 
 class Header {
     const name: String,
@@ -65,7 +69,7 @@ class Parser {
 }
 
 fn at(data: ByteArray, index: Int) -> Int {
-    switch bytesGet(data, index) {
+    switch bytesApi.get(data, index) {
         case Option.Some(value): {
             return Int(value);
         }
@@ -76,19 +80,19 @@ fn at(data: ByteArray, index: Int) -> Int {
 }
 
 fn slice(data: ByteArray, start: Int, end: Int) -> ByteArray {
-    switch bytesSlice(data, start, end) {
+    switch bytesApi.slice(data, start, end) {
         case Option.Some(value): {
             return value;
         }
         case Option.None: {
-            return byteArray(b"");
+            return bytesApi.from(b"");
         }
     }
 }
 
 fn text(data: ByteArray) -> String {
     try {
-        let resultValue7 = utf8Decode(data);
+        let resultValue7 = textApi.decodeUtf8(data);
         return resultValue7;
     }
     catch [resultError7: Error, ...resultRest7] {
@@ -112,7 +116,7 @@ fn failure(cause: Error, stage: String, status: Int, body: ByteArray, wire: Int,
 }
 
 fn fresh(request: Bool) -> Parser {
-    let empty = byteArray(b"");
+    let empty = bytesApi.from(b"");
     return Parser(
         request: request,
         phase: 0,
@@ -138,14 +142,14 @@ fn bad(parser: Parser, code: Int, status: Int, stage: String) -> Bool {
     if !parser.request {
         known = parser.status;
     }
-    let value = failure(error(code, stage), stage, known, parser.body, 0, 0);
+    let value = failure(err.create(code, stage), stage, known, parser.body, 0, 0);
     parser.phase = 3;
     parser.failure = Option<Failure>.Some(value: value);
     throw value;
 }
 
 fn findAny(data: ByteArray, members: ByteArray, start: Int) -> Int {
-    switch bytesFindAny(data, members, start) {
+    switch bytesApi.findAny(data, members, start) {
         case Option.Some(index): {
             return index;
         }
@@ -156,14 +160,14 @@ fn findAny(data: ByteArray, members: ByteArray, start: Int) -> Int {
 }
 
 fn hasOutside(data: ByteArray, members: ByteArray) -> Bool {
-    return !bytesAllIn(data, members);
+    return !bytesApi.allIn(data, members);
 }
 
 fn validToken(data: ByteArray) -> Bool {
-    return bytesLength(data) != 0
+    return bytesApi.length(data) != 0
         && !hasOutside(
             data,
-            byteArray(b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+            bytesApi.from(b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
         );
 }
 
@@ -171,28 +175,28 @@ fn name(data: ByteArray) -> String {
     if !validToken(data) {
         return "";
     }
-    return text(bytesLowerAscii(data));
+    return text(bytesApi.lowerAscii(data));
 }
 
 fn fieldValue(data: ByteArray) -> Bool {
-    return !bytesContainsAny(
+    return !bytesApi.containsAny(
         data,
-        byteArray(
+        bytesApi.from(
             b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f"
         )
     );
 }
 
 fn trim(data: ByteArray) -> ByteArray {
-    return bytesTrim(data, byteArray(b" \t"));
+    return bytesApi.trim(data, bytesApi.from(b" \t"));
 }
 
 fn decimal(data: ByteArray) -> Int {
-    if bytesLength(data) == 0 || hasOutside(data, byteArray(b"0123456789")) {
+    if bytesApi.length(data) == 0 || hasOutside(data, bytesApi.from(b"0123456789")) {
         return -1;
     }
     try {
-        return parseInt(utf8Decode(data));
+        return num.parseInt(textApi.decodeUtf8(data));
     }
     catch errors {
         return -1;
@@ -200,19 +204,21 @@ fn decimal(data: ByteArray) -> Int {
 }
 
 fn validTarget(data: ByteArray) -> Bool {
-    if bytesLength(data) == 0 || bytesLength(data) > 4096 || at(data, 0) != 47 {
+    if bytesApi.length(data) == 0 || bytesApi.length(data) > 4096 || at(data, 0) != 47 {
         return false;
     }
     return !hasOutside(
         data,
-        byteArray(b"!\"$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~")
+        bytesApi.from(
+            b"!\"$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+        )
     );
 }
 
 fn authority(value: String) -> rinzu.socket.Address {
-    let parts = stringSplit(value, ":");
+    let parts = textApi.split(value, ":");
     if rinzu.list.length(parts) < 1 || rinzu.list.length(parts) > 2 {
-        throw error(7801, "http.authority");
+        throw err.create(7801, "http.authority");
     }
     var host = "";
     switch rinzu.list.get(parts, 0) {
@@ -225,7 +231,7 @@ fn authority(value: String) -> rinzu.socket.Address {
     if rinzu.list.length(parts) == 2 {
         switch rinzu.list.get(parts, 1) {
             case Option.Some(part): {
-                port = decimal(utf8Encode(part));
+                port = decimal(textApi.encodeUtf8(part));
             }
             case Option.None: {
                 port = -1;
@@ -233,7 +239,7 @@ fn authority(value: String) -> rinzu.socket.Address {
         }
     }
     if port < 1 || port > 65535 {
-        throw error(7801, "http.authority");
+        throw err.create(7801, "http.authority");
     }
     return rinzu.socket.address(host, port);
 }
@@ -243,46 +249,46 @@ fn authority(value: String) -> rinzu.socket.Address {
 // This bounded prototype accepts ASCII reg-name/IPv4 and an optional port;
 // bracketed IPv6/IPvFuture authorities are outside its current scope.
 fn validHost(data: ByteArray) -> Bool {
-    if bytesLength(data) == 0 || bytesLength(data) > 4096 {
+    if bytesApi.length(data) == 0 || bytesApi.length(data) > 4096 {
         return false;
     }
-    var index = findAny(data, byteArray(b":"), 0);
+    var index = findAny(data, bytesApi.from(b":"), 0);
     if index < 0 {
-        index = bytesLength(data);
+        index = bytesApi.length(data);
     }
     if index == 0
         || hasOutside(
             slice(data, 0, index),
-            byteArray(b"!$&'()*+,-.0123456789;=ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz~")
+            bytesApi.from(b"!$&'()*+,-.0123456789;=ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz~")
         ) {
         return false;
     }
-    if index == bytesLength(data) {
+    if index == bytesApi.length(data) {
         return true;
     }
-    let port = decimal(slice(data, index + 1, bytesLength(data)));
+    let port = decimal(slice(data, index + 1, bytesApi.length(data)));
     return port > 0 && port <= 65535;
 }
 
 fn endpoint(url: String) -> Endpoint {
-    let data = utf8Encode(url);
-    if slice(data, 0, 7) != byteArray(b"http://") {
-        throw error(7801, "http.url");
+    let data = textApi.encodeUtf8(url);
+    if slice(data, 0, 7) != bytesApi.from(b"http://") {
+        throw err.create(7801, "http.url");
     }
     var end = 7;
-    while end < bytesLength(data) && at(data, end) != 47 && at(data, end) != 63 {
+    while end < bytesApi.length(data) && at(data, end) != 47 && at(data, end) != 63 {
         end = end + 1;
     }
     let host = text(slice(data, 7, end));
-    var target = slice(data, end, bytesLength(data));
-    if bytesLength(target) == 0 {
-        target = byteArray(b"/");
+    var target = slice(data, end, bytesApi.length(data));
+    if bytesApi.length(target) == 0 {
+        target = bytesApi.from(b"/");
     }
     if at(target, 0) == 63 {
-        target = bytesConcat(byteArray(b"/"), target);
+        target = bytesApi.concat(bytesApi.from(b"/"), target);
     }
     if !validTarget(target) {
-        throw error(7801, "http.target");
+        throw err.create(7801, "http.target");
     }
     {
         let resultValue6 = authority(host);
@@ -305,11 +311,11 @@ fn startLine(parser: Parser, data: ByteArray) -> Bool {
         }
     }
     else {
-        if bytesLength(data) < 13 || slice(data, 0, 9) != byteArray(b"HTTP/1.1 ") || at(data, 12) != 32 {
+        if bytesApi.length(data) < 13 || slice(data, 0, 9) != bytesApi.from(b"HTTP/1.1 ") || at(data, 12) != 32 {
             return bad(parser, 7801, 0, "head");
         }
         let status = decimal(slice(data, 9, 12));
-        if status < 100 || status > 599 || !fieldValue(slice(data, 13, bytesLength(data))) {
+        if status < 100 || status > 599 || !fieldValue(slice(data, 13, bytesApi.length(data))) {
             return bad(parser, 7801, 0, "head");
         }
         parser.status = status;
@@ -325,13 +331,13 @@ fn headerLine(parser: Parser, data: ByteArray) -> Bool {
     if rinzu.list.length(parser.headers) >= 64 {
         return bad(parser, 7802, 431, "head");
     }
-    let colon = findAny(data, byteArray(b":"), 0);
+    let colon = findAny(data, bytesApi.from(b":"), 0);
     if colon < 0 {
         return bad(parser, 7801, 400, "head");
     }
     let key = name(slice(data, 0, colon));
-    let value = slice(data, colon + 1, bytesLength(data));
-    if key == "" || colon >= bytesLength(data) || !fieldValue(value) {
+    let value = slice(data, colon + 1, bytesApi.length(data));
+    if key == "" || colon >= bytesApi.length(data) || !fieldValue(value) {
         return bad(parser, 7801, 400, "head");
     }
     parser.headers = rinzu.list.append(parser.headers, Header(name: key, value: trim(value)));
@@ -404,15 +410,15 @@ fn takeBodyAt(parser: Parser, data: ByteArray, start: Int) -> Bool {
 }
 
 fn keepResidual(parser: Parser, data: ByteArray, end: Int) {
-    let dataLength = bytesLength(data);
+    let dataLength = bytesApi.length(data);
     if end < dataLength {
         parser.residual = slice(data, end, dataLength);
     }
 }
 
 fn takeBodyRange(parser: Parser, data: ByteArray, start: Int) -> Int {
-    let dataLength = bytesLength(data);
-    let bodyLength = bytesLength(parser.body);
+    let dataLength = bytesApi.length(data);
+    let bodyLength = bytesApi.length(parser.body);
     if start < 0 || start > dataLength {
         return invalidOffset(parser, 7802, 413, "body");
     }
@@ -433,7 +439,7 @@ fn takeBodyRange(parser: Parser, data: ByteArray, start: Int) -> Int {
             parser.body = part;
         }
         else {
-            parser.body = bytesConcat(parser.body, part);
+            parser.body = bytesApi.concat(parser.body, part);
         }
     }
     if bodyLength + count == parser.expected {
@@ -459,7 +465,7 @@ fn invalidOffset(parser: Parser, code: Int, status: Int, stage: String) -> Int {
 fn pendingHead(parser: Parser, start: Int) -> Int {
     // A partial head must own only its active bytes before the next input.
     if start > 0 {
-        parser.raw = slice(parser.raw, start, bytesLength(parser.raw));
+        parser.raw = slice(parser.raw, start, bytesApi.length(parser.raw));
         parser.cursor = parser.cursor - start;
         parser.lineStart = parser.lineStart - start;
     }
@@ -477,7 +483,7 @@ fn feedAt(parser: Parser, input: ByteArray, inputStart: Int) -> Int {
         }
         case Option.None: {}
     }
-    let inputLength = bytesLength(input);
+    let inputLength = bytesApi.length(input);
     if inputLength > 65536 {
         return invalidOffset(parser, 7802, 431, "input");
     }
@@ -485,12 +491,12 @@ fn feedAt(parser: Parser, input: ByteArray, inputStart: Int) -> Int {
         return invalidOffset(parser, 7801, 400, "input");
     }
     if parser.phase == 2 {
-        if bytesLength(parser.body) == parser.expected {
+        if bytesApi.length(parser.body) == parser.expected {
             return invalidOffset(parser, 7801, 400, "complete");
         }
         return takeBodyRange(parser, input, inputStart);
     }
-    let previousLength = bytesLength(parser.raw);
+    let previousLength = bytesApi.length(parser.raw);
     let activeLength = inputLength - inputStart;
     // Maximum pending head (8192 + CRLF + 32768) plus one transport buffer.
     if previousLength + activeLength > 106498 {
@@ -510,13 +516,13 @@ fn feedAt(parser: Parser, input: ByteArray, inputStart: Int) -> Int {
         if inputStart > 0 {
             part = slice(input, inputStart, inputLength);
         }
-        parser.raw = bytesConcat(parser.raw, part);
+        parser.raw = bytesApi.concat(parser.raw, part);
     }
     let rawLength = previousLength + activeLength + rawStart;
     if rawLength - rawStart > parser.peakRaw {
         parser.peakRaw = rawLength - rawStart;
     }
-    let lineMarkers = byteArray(b"\r\n");
+    let lineMarkers = bytesApi.from(b"\r\n");
     while parser.cursor < rawLength {
         if parser.cursor > parser.lineStart
             && at(parser.raw, parser.cursor - 1) == 13
@@ -585,7 +591,7 @@ fn feedAt(parser: Parser, input: ByteArray, inputStart: Int) -> Int {
                 result = startLine(parser, line);
             }
             else {
-                if bytesLength(line) == 0 {
+                if bytesApi.length(line) == 0 {
                     result = finishHead(parser);
                 }
                 else {
@@ -600,7 +606,7 @@ fn feedAt(parser: Parser, input: ByteArray, inputStart: Int) -> Int {
             if parser.phase == 2 {
                 let body = parser.raw;
                 let bodyStart = parser.cursor;
-                parser.raw = byteArray(b"");
+                parser.raw = bytesApi.from(b"");
                 parser.cursor = 0;
                 parser.lineStart = 0;
                 let end = takeBodyRange(parser, body, bodyStart);
@@ -630,7 +636,7 @@ fn end(parser: Parser) -> Bool {
         }
         case Option.None: {}
     }
-    if parser.phase == 2 && bytesLength(parser.body) == parser.expected {
+    if parser.phase == 2 && bytesApi.length(parser.body) == parser.expected {
         return (true);
     }
     return bad(parser, 7804, parser.status, "eof");
@@ -646,73 +652,76 @@ fn response(parser: Parser) -> Response {
 
 fn appendHeaders(head: ByteArray, headers: List<Header>, generated: Int) -> ByteArray {
     if rinzu.list.length(headers) + generated > 64 {
-        throw error(7802, "http.encode.headers");
+        throw err.create(7802, "http.encode.headers");
     }
     var result = head;
     var index = 0;
     while index < rinzu.list.length(headers) {
         switch rinzu.list.get(headers, index) {
             case Option.Some(header): {
-                let key = name(utf8Encode(header.name));
+                let key = name(textApi.encodeUtf8(header.name));
                 if key == ""
                     || key == "host"
                     || key == "content-length"
                     || key == "transfer-encoding"
                     || key == "connection"
                     || !fieldValue(header.value) {
-                    throw error(7801, "http.encode.header");
+                    throw err.create(7801, "http.encode.header");
                 }
-                let prefix = utf8Encode(f"{key}: ");
-                let length = bytesLength(prefix) + bytesLength(header.value);
-                if length > 8192 || bytesLength(result) + length + 4 > 32768 {
-                    throw error(7802, "http.encode.headers");
+                let prefix = textApi.encodeUtf8(f"{key}: ");
+                let length = bytesApi.length(prefix) + bytesApi.length(header.value);
+                if length > 8192 || bytesApi.length(result) + length + 4 > 32768 {
+                    throw err.create(7802, "http.encode.headers");
                 }
-                result = bytesConcat(bytesConcat(bytesConcat(result, prefix), header.value), byteArray(b"\r\n"));
+                result = bytesApi.concat(
+                    bytesApi.concat(bytesApi.concat(result, prefix), header.value),
+                    bytesApi.from(b"\r\n")
+                );
             }
             case Option.None: {}
         }
         index = index + 1;
     }
-    return (bytesConcat(result, byteArray(b"\r\n")));
+    return (bytesApi.concat(result, bytesApi.from(b"\r\n")));
 }
 
 fn encodeRequest(method: String, endpoint: Endpoint, headers: List<Header>, body: ByteArray) -> Encoded {
     if (method != "GET" && method != "POST")
-        || (method == "GET" && bytesLength(body) != 0)
-        || bytesLength(body) > 65536
-        || !validTarget(utf8Encode(endpoint.target)) {
-        throw error(7801, "http.encode.request");
+        || (method == "GET" && bytesApi.length(body) != 0)
+        || bytesApi.length(body) > 65536
+        || !validTarget(textApi.encodeUtf8(endpoint.target)) {
+        throw err.create(7801, "http.encode.request");
     }
     {
         let resultValue3 = authority(endpoint.authority);
     }
-    let start = utf8Encode(f"{method} {endpoint.target} HTTP/1.1\r\n");
-    let base = utf8Encode(
-        f"Host: {endpoint.authority}\r\nContent-Length: {bytesLength(body)}\r\nConnection: close\r\n"
+    let start = textApi.encodeUtf8(f"{method} {endpoint.target} HTTP/1.1\r\n");
+    let base = textApi.encodeUtf8(
+        f"Host: {endpoint.authority}\r\nContent-Length: {bytesApi.length(body)}\r\nConnection: close\r\n"
     );
     {
         let resultValue2 = appendHeaders(base, headers, 3);
-        return (Encoded(head: bytesConcat(start, resultValue2), body: body));
+        return (Encoded(head: bytesApi.concat(start, resultValue2), body: body));
     }
 }
 
 fn encodeResponse(value: Response) -> Encoded {
     if value.status < 200
         || value.status > 599
-        || bytesLength(value.body) > 65536
-        || ((value.status == 204 || value.status == 304) && bytesLength(value.body) > 0) {
-        throw error(7801, "http.encode.response");
+        || bytesApi.length(value.body) > 65536
+        || ((value.status == 204 || value.status == 304) && bytesApi.length(value.body) > 0) {
+        throw err.create(7801, "http.encode.response");
     }
-    let start = utf8Encode(f"HTTP/1.1 {value.status} Rinzu\r\n");
-    var base = utf8Encode(f"Content-Length: {bytesLength(value.body)}\r\nConnection: close\r\n");
+    let start = textApi.encodeUtf8(f"HTTP/1.1 {value.status} Rinzu\r\n");
+    var base = textApi.encodeUtf8(f"Content-Length: {bytesApi.length(value.body)}\r\nConnection: close\r\n");
     var generated = 2;
     if value.status == 204 || value.status == 304 {
-        base = byteArray(b"Connection: close\r\n");
+        base = bytesApi.from(b"Connection: close\r\n");
         generated = 1;
     }
     {
         let resultValue1 = appendHeaders(base, value.headers, generated);
-        return (Encoded(head: bytesConcat(start, resultValue1), body: value.body));
+        return (Encoded(head: bytesApi.concat(start, resultValue1), body: value.body));
     }
 }
 

@@ -1,4 +1,6 @@
 import rinzu.list;
+import rinzu.error as err;
+import rinzu.string as textApi;
 
 /// Immutable, transferable input for saving and background analysis.
 class DocumentSnapshot {
@@ -16,7 +18,7 @@ class DocumentHistory {
 
     fn create(maximumEntries: Int, maximumBytes: Int) -> DocumentHistory {
         if maximumEntries < 0 || maximumEntries > 10000 || maximumBytes < 0 || maximumBytes > 268435456 {
-            throw error(-7820, "document.invalidHistoryLimit");
+            throw err.create(-7820, "document.invalidHistoryLimit");
         }
         return DocumentHistory(maximumEntries: maximumEntries, maximumBytes: maximumBytes, entries: [], bytes: 0);
     }
@@ -64,10 +66,10 @@ class DocumentHistory {
                         self.entries = next;
                     }
                     case Option.None: {
-                        throw error(-7820, "document.historyInvariant");
+                        throw err.create(-7820, "document.historyInvariant");
                     }
                 }
-                self.bytes = self.bytes - Int(utf8ByteLength(snapshot.text));
+                self.bytes = self.bytes - Int(textApi.utf8ByteLength(snapshot.text));
                 return Option<DocumentSnapshot>.Some(value: snapshot);
             }
         }
@@ -81,7 +83,7 @@ class DocumentHistory {
     }
 
     private fn pushNow(self: DocumentHistory, snapshot: DocumentSnapshot) {
-        let size = Int(utf8ByteLength(snapshot.text));
+        let size = Int(textApi.utf8ByteLength(snapshot.text));
         if self.maximumEntries == 0 || size > self.maximumBytes {
             // An omitted intermediate state must not connect unrelated undo steps.
             self.clear();
@@ -90,18 +92,18 @@ class DocumentHistory {
         while rinzu.list.length(self.entries) >= self.maximumEntries || self.bytes + size > self.maximumBytes {
             switch rinzu.list.get(self.entries, 0) {
                 case Option.Some(oldest): {
-                    self.bytes = self.bytes - Int(utf8ByteLength(oldest.text));
+                    self.bytes = self.bytes - Int(textApi.utf8ByteLength(oldest.text));
                     switch rinzu.list.remove(self.entries, 0) {
                         case Option.Some(shorter): {
                             self.entries = shorter;
                         }
                         case Option.None: {
-                            throw error(-7820, "document.historyInvariant");
+                            throw err.create(-7820, "document.historyInvariant");
                         }
                     }
                 }
                 case Option.None: {
-                    throw error(-7820, "document.historyInvariant");
+                    throw err.create(-7820, "document.historyInvariant");
                 }
             }
         }
@@ -278,7 +280,7 @@ class Document {
 
     fn markSaved(self: Document, snapshot: DocumentSnapshot) {
         if snapshot.version < 0 || snapshot.version > self.version {
-            throw error(-7820, "document.invalidSaveReceipt");
+            throw err.create(-7820, "document.invalidSaveReceipt");
         }
         self.savedVersion = snapshot.version;
     }
@@ -289,11 +291,11 @@ class Document {
 }
 
 fn validateDocument(text: String, start: Int, end: Int) {
-    if utf8ByteLength(text) > 1048576 {
-        throw error(-7820, "document.textLimit");
+    if textApi.utf8ByteLength(text) > 1048576 {
+        throw err.create(-7820, "document.textLimit");
     }
-    if start < 0 || end < start || end > stringLength(text) {
-        throw error(-7820, "document.invalidScalarSelection");
+    if start < 0 || end < start || end > textApi.length(text) {
+        throw err.create(-7820, "document.invalidScalarSelection");
     }
 }
 

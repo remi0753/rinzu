@@ -34,7 +34,7 @@ fn resultExercise() -> Int {
     selectedFirst.editor.value = 41;
     let changed = change(selectedSecond.point, 7);
     if firstEditor.value != 41 || secondEditor.value != 31 || second.point.x != 12 {
-        panic("wrong returned context");
+        rinzu.core.panic("wrong returned context");
     }
     var caught = 0;
     try {
@@ -50,7 +50,7 @@ fn resultExercise() -> Int {
         caught = caught + 1;
     }
     if caught != 2 {
-        panic("NULL context did not raise Error");
+        rinzu.core.panic("NULL context did not raise Error");
     }
     let moved = churn();
     return firstEditor.value + secondEditor.value + selectedSecond.point.x + caught + check(selectedSecond.handle)

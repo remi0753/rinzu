@@ -1,9 +1,10 @@
 import rinzu.list;
 import rinzu.stdio;
+import rinzu.core;
 
 fn check(value: Bool) {
     if !value {
-        panic("nestedFutureFailure");
+        rinzu.core.panic("nestedFutureFailure");
     }
 }
 
@@ -42,6 +43,6 @@ async fn main() {
         rinzu.stdio.writeLine("returned-future-ok");
     }
     catch errors {
-        panic("unexpectedNestedError");
+        rinzu.core.panic("unexpectedNestedError");
     }
 }

@@ -2,6 +2,8 @@ import rinzu.list;
 import rinzu.macos;
 import rinzu.stdio;
 import rinzu.testing;
+import rinzu.core;
+import rinzu.string as textApi;
 
 fn historyInvariant(history: rinzu.macos.DocumentHistory) {
     var bytes = 0;
@@ -9,16 +11,16 @@ fn historyInvariant(history: rinzu.macos.DocumentHistory) {
     while index < history.length() {
         switch rinzu.list.get(history.entries, index) {
             case Option.Some(snapshot): {
-                bytes = bytes + Int(utf8ByteLength(snapshot.text));
+                bytes = bytes + Int(textApi.utf8ByteLength(snapshot.text));
                 rinzu.testing.assertTrue(
                     snapshot.start >= 0
                         && snapshot.end >= snapshot.start
-                        && snapshot.end <= stringLength(snapshot.text),
+                        && snapshot.end <= textApi.length(snapshot.text),
                     "history scalar bounds"
                 );
             }
             case Option.None: {
-                panic("missing history entry");
+                rinzu.core.panic("missing history entry");
             }
         }
         index = index + 1;
@@ -54,13 +56,16 @@ fn main() {
             historyInvariant(doc.undo);
             historyInvariant(doc.redo);
             rinzu.testing.assertTrue(
-                doc.start >= 0 && doc.end >= doc.start && doc.end <= stringLength(doc.text) && doc.version >= doc.edits,
+                doc.start >= 0
+                    && doc.end >= doc.start
+                    && doc.end <= textApi.length(doc.text)
+                    && doc.version >= doc.edits,
                 "document invariants after cancellation"
             );
             rinzu.stdio.writeLine("DOCUMENT:invariants-ok");
         }
     }
     catch errors {
-        panic(f"document cancellation invariant: {errors}");
+        rinzu.core.panic(f"document cancellation invariant: {errors}");
     }
 }

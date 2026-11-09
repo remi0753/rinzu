@@ -160,6 +160,7 @@ pub fn build_editor_index(
     linked: &[&Module],
 ) -> EditorIndex {
     let names = Names::new(sources);
+    let builtins = crate::package::builtin_symbols();
     let mut index = EditorIndex::default();
     for (source, module) in modules {
         let file_scope = SourceRange::new(
@@ -168,13 +169,14 @@ pub fn build_editor_index(
             source.original_offset(source.text().len()),
         );
         for import in &module.imports {
-            let symbols = match import.path.join(".").as_str() {
-                "rinzu.list" => crate::collections::LIST_SYMBOLS,
-                "rinzu.map" => crate::collections::MAP_SYMBOLS,
-                _ => continue,
+            let Some(symbols) = builtins
+                .get(&import.path.join("."))
+                .filter(|_| import.file.is_none())
+            else {
+                continue;
             };
             let qualifier = import.qualifier().join(".");
-            for symbol in symbols {
+            for symbol in symbols.keys() {
                 index.symbols.push(EditorSymbol {
                     name: format!("{qualifier}.{symbol}"),
                     kind: "import",

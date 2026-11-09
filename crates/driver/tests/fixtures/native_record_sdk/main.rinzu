@@ -1,4 +1,5 @@
 import records;
+import rinzu.core;
 
 async fn main() {
     try {
@@ -30,21 +31,21 @@ async fn main() {
             || r7.original != r8.original
             || again.original != r1.original
             || first.caught != 2 {
-            panic("wrongWorker");
+            rinzu.core.panic("wrongWorker");
         }
         let failedNull = spawn records.failWorker(0);
         if await failedNull != 1 {
-            panic("missing");
+            rinzu.core.panic("missing");
         }
         let failedBool = spawn records.failWorker(2);
         if await failedBool != 1 {
-            panic("invalid");
+            rinzu.core.panic("invalid");
         }
         if await failedNull != 1 {
-            panic("missingAgain");
+            rinzu.core.panic("missingAgain");
         }
         if await failedBool != 1 {
-            panic("invalidAgain");
+            rinzu.core.panic("invalidAgain");
         }
         try {
             let skipped = records.failure(CInt(2147483648));
@@ -66,7 +67,7 @@ async fn main() {
             order = order * 10 + 3;
         }
         if order != 123 {
-            panic("wrongFinally");
+            rinzu.core.panic("wrongFinally");
         }
         if false {
             let bad = records.fatal();
@@ -74,6 +75,6 @@ async fn main() {
         }
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
     }
 }

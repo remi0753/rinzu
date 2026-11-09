@@ -37,7 +37,7 @@ Imports do not inject members into the current scope. Use the qualified module n
 
 ## Import with an alias
 
-Use `import math.totals as totals;` to refer to the module as `totals` in that file. The same syntax works for SDK modules, including `import rinzu.json as json;`. Declare SDK dependencies by their canonical package names. If you also need the full qualifier in the same file, add an import without `as`.
+Use `import math.totals as totals;` to refer to the module as `totals` in that file. The same syntax works for SDK modules, including `import rinzu.json as json;`. Declare SDK dependencies by their canonical package names. Compiler-provided modules such as `rinzu.error` can be imported without adding a dependency. If you also need the full qualifier in the same file, add an import without `as`.
 
 An alias is one identifier. The name `rinzu` is reserved. An alias may not conflict with a top-level declaration, the first segment of an import without an alias, or an alias that points to a different module.
 

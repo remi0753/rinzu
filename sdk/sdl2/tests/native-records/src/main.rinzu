@@ -1,5 +1,6 @@
 import rinzu.sdl2;
 import rinzu.stdio;
+import rinzu.core;
 
 class Retained {
     first: Option<rinzu.sdl2.Event>,
@@ -17,16 +18,16 @@ fn verify(retained: Retained) {
                     if first.sequence != retained.firstSequence
                         || last.sequence != retained.lastSequence
                         || last.sequence <= first.sequence {
-                        panic("retained event was overwritten by a later poll");
+                        rinzu.core.panic("retained event was overwritten by a later poll");
                     }
                 }
                 case Option.None: {
-                    panic("last event missing");
+                    rinzu.core.panic("last event missing");
                 }
             }
         }
         case Option.None: {
-            panic("first event missing");
+            rinzu.core.panic("first event missing");
         }
     }
 }
@@ -56,11 +57,11 @@ async fn main() {
                     if retained.count >= 2 {
                         let stopped = rinzu.sdl2.stop(window);
                         if stopped != 0 {
-                            panic("stop failed");
+                            rinzu.core.panic("stop failed");
                         }
                     }
                     if frame > 100 {
-                        panic("multiple window events were not delivered");
+                        rinzu.core.panic("multiple window events were not delivered");
                     }
                 },
                 1
@@ -71,11 +72,11 @@ async fn main() {
         finally {
             let closed = rinzu.sdl2.destroyOwnerWindows();
             if closed != 0 || rinzu.sdl2.liveWindows() != 0 {
-                panic("window survived cleanup");
+                rinzu.core.panic("window survived cleanup");
             }
         }
     }
     catch errors {
-        panic(f"SDL native record test failed: {errors}");
+        rinzu.core.panic(f"SDL native record test failed: {errors}");
     }
 }

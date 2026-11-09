@@ -1,4 +1,6 @@
 import rinzu.stdio;
+import rinzu.core;
+import rinzu.future as future;
 
 class State {
     value: Int,
@@ -29,8 +31,8 @@ async fn main() {
     try {
         let state = State(value: 0, text: "界\u{0}🙂");
         let pending = launch(state);
-        if state.value != 0 || futureReady(pending) {
-            panic("inlineBody");
+        if state.value != 0 || future.isReady(pending) {
+            rinzu.core.panic("inlineBody");
         }
         var i = 0;
         while i < 80 {
@@ -40,16 +42,16 @@ async fn main() {
         let result = await pending;
         let repeated = await pending;
         if result != state.text || repeated != result || state.value != 1 {
-            panic("wrongBody");
+            rinzu.core.panic("wrongBody");
         }
         rinzu.stdio.writeLine(state.value);
         rinzu.stdio.writeLine(result);
         let untouched = State(value: 0, text: "queued cancellation");
         let cancelled = cancelledChild(untouched);
-        let won = cancelFuture(cancelled);
+        let won = future.cancel(cancelled);
         await turn();
         if !won || untouched.value != 0 {
-            panic("enteredCancelledBody");
+            rinzu.core.panic("enteredCancelledBody");
         }
         rinzu.stdio.writeLine(untouched.value);
     }

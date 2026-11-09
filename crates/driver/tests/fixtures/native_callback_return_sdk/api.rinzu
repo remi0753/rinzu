@@ -19,7 +19,7 @@ native {
 fn label(mode: CInt, text: String) -> String fallback "代替\u{0}tail" {
     let moving = [text, "nested moving collection"];
     if text != "input" || moving != ["input", "nested moving collection"] {
-        panic("lost");
+        rinzu.core.panic("lost");
     }
     try {
         if mode == 1 {
@@ -34,7 +34,7 @@ fn label(mode: CInt, text: String) -> String fallback "代替\u{0}tail" {
             }
             catch [conversion: Error, ...conversionRest] {
                 if conversion.message == "" {
-                    panic("wrongCatch");
+                    rinzu.core.panic("wrongCatch");
                 }
             }
         }
@@ -49,7 +49,7 @@ fn label(mode: CInt, text: String) -> String fallback "代替\u{0}tail" {
 fn data(mode: CInt, text: String) -> Bytes(4) fallback b"\xfe" {
     let moving = [text, "nested bytes result"];
     if text != "input" || moving != ["input", "nested bytes result"] {
-        panic("lost");
+        rinzu.core.panic("lost");
     }
     try {
         if mode == 1 {
@@ -64,7 +64,7 @@ fn data(mode: CInt, text: String) -> Bytes(4) fallback b"\xfe" {
             }
             catch [conversion: Error, ...conversionRest] {
                 if conversion.message == "" {
-                    panic("wrongCatch");
+                    rinzu.core.panic("wrongCatch");
                 }
             }
         }
@@ -124,12 +124,12 @@ fn exercise() -> Int {
         let stringValue = invoke(alias, mode);
         let byteValue = bytes(data, mode);
         if stringValue != 4 || byteValue != 4 {
-            panic("wrong");
+            rinzu.core.panic("wrong");
         }
         mode = mode + 1;
     }
     if zero(zeroBody) != 8 || empty(emptyBody) != 8 || unit(unitBody) != 8 || held() != 1 {
-        panic("wrongEmpty");
+        rinzu.core.panic("wrongEmpty");
     }
     return 56;
 }

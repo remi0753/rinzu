@@ -1,5 +1,6 @@
 import rinzu.list;
 import rinzu.stdio;
+import rinzu.string as textApi;
 
 class Editor {
     text: String,
@@ -14,7 +15,7 @@ fn edit(editor: Editor) {
 }
 
 fn select(editor: Editor) {
-    editor.selection = stringLength(editor.text);
+    editor.selection = textApi.length(editor.text);
 }
 
 fn snapshot(text: String) -> String {

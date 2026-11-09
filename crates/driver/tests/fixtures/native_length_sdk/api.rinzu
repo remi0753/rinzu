@@ -1,4 +1,6 @@
 import rinzu.core;
+import rinzu.bytes as bytesApi;
+import rinzu.string as textApi;
 
 let width: CSize = 4;
 
@@ -23,7 +25,7 @@ native {
 }
 
 fn textLength(text: String) -> CSize fallback 0 {
-    return utf8ByteLength(text);
+    return textApi.utf8ByteLength(text);
 }
 
 fn apply(callback: fn (Bytes(width)) -> CSize, data: Bytes(width)) -> CSize {
@@ -32,25 +34,25 @@ fn apply(callback: fn (Bytes(width)) -> CSize, data: Bytes(width)) -> CSize {
 
 fn measure(data: Bytes(width), text: String) -> Int {
     try {
-        let constant: fn (Bytes(width)) -> CSize = byteLength;
+        let constant: fn (Bytes(width)) -> CSize = bytesApi.byteLength;
         var selected: fn (Bytes(width)) -> CSize = constant;
-        selected = byteLength;
+        selected = bytesApi.byteLength;
         let bytes = apply(selected, data);
-        let zero: fn (Bytes(0)) -> CSize = byteLength;
+        let zero: fn (Bytes(0)) -> CSize = bytesApi.byteLength;
         let empty = invokeZero(zero, b"");
         let utf8: fn (String) -> CSize = textLength;
         let textSize = invokeText(utf8, text);
         touch();
         if bytes != 4 || empty != 0 || textSize != 9 || signed8(-128) != -128 {
-            panic("bad_native_result");
+            rinzu.core.panic("bad_native_result");
         }
         if data != b"A\xff\x00\x00" || text != "日本語\u{0}🙂" {
-            panic("lost_caller_root");
+            rinzu.core.panic("lost_caller_root");
         }
         return Int(bytes + textSize);
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
         return 0;
     }
 }
@@ -61,7 +63,7 @@ fn late() -> Int {
         return Int(fireLate());
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
         return 0;
     }
 }
@@ -71,7 +73,7 @@ fn calls() -> Int {
         return Int(count());
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
         return 0;
     }
 }
@@ -79,14 +81,14 @@ fn calls() -> Int {
 fn fatal(kind: CInt) -> Int {
     try {
         if kind < 3 {
-            let bytes: fn (Bytes(width)) -> CSize = byteLength;
+            let bytes: fn (Bytes(width)) -> CSize = bytesApi.byteLength;
             return Int(badBytes(bytes, kind));
         }
         let text: fn (String) -> CSize = textLength;
         return Int(badText(text, kind));
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
         return 0;
     }
 }

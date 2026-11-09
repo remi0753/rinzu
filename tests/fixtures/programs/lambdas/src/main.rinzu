@@ -1,4 +1,5 @@
 import rinzu.stdio;
+import rinzu.core;
 
 type Commands = {
     edit: fn (Int) -> Int,
@@ -50,7 +51,7 @@ async fn main() {
         let editor = make();
         switch editor.commands {
             case Option.None: {
-                panic("bad");
+                rinzu.core.panic("bad");
             }
             case Option.Some(commands): {
                 var i: Int = 0;

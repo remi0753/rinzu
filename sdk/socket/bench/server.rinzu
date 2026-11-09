@@ -2,6 +2,8 @@ import "common.rinzu" as bench;
 import rinzu.socket;
 import rinzu.io;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
 
 async fn echo(stream: rinzu.socket.TcpStream) {
     try {
@@ -11,16 +13,16 @@ async fn echo(stream: rinzu.socket.TcpStream) {
             if chunk.eof {
                 break;
             }
-            if !bench.verify(chunk.data, byteLength(chunk.data), total) {
+            if !bench.verify(chunk.data, bytesApi.byteLength(chunk.data), total) {
                 let bad = CInt8(300);
             }
-            total = total + bytesLength(chunk.data);
+            total = total + bytesApi.length(chunk.data);
             await bench.put(stream, chunk.data);
         }
         let half = bench.expect<Int>(await rinzu.socket.shutdownWrite(stream));
     }
     catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
-        panic("unexpectedBenchmarkFailure");
+        rinzu.core.panic("unexpectedBenchmarkFailure");
     }
 }
 
@@ -59,6 +61,6 @@ async fn main() {
         bench.report("server-cleanup");
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

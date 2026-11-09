@@ -1,3 +1,6 @@
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+
 native {
     fn take(kind: CInt) -> ByteArray symbol "span_result";
 
@@ -14,18 +17,18 @@ fn exercise() -> Int {
         let emptyValue = empty();
         let unreadableEmpty = take(3);
         let large = take(4);
-        let measure: fn (Bytes(4)) -> CSize = byteLength;
+        let measure: fn (Bytes(4)) -> CSize = bytesApi.byteLength;
         let callbackValue = withCallback(measure);
         mutate();
-        if small != byteArray(b"\x00\xff\x80\x00")
-            || bytesLength(emptyValue) != 0
+        if small != bytesApi.from(b"\x00\xff\x80\x00")
+            || bytesApi.length(emptyValue) != 0
             || callbackValue != small
-            || bytesLength(unreadableEmpty) != 0
-            || bytesLength(large) != 65536
-            || bytesGet(large, 0) != Option<CUInt8>.Some(value: CUInt8(0))
-            || bytesGet(large, 32768) != Option<CUInt8>.Some(value: CUInt8(0))
-            || bytesGet(large, 65535) != Option<CUInt8>.Some(value: CUInt8(117)) {
-            panic("wrongSnapshot");
+            || bytesApi.length(unreadableEmpty) != 0
+            || bytesApi.length(large) != 65536
+            || bytesApi.get(large, 0) != Option<CUInt8>.Some(value: CUInt8(0))
+            || bytesApi.get(large, 32768) != Option<CUInt8>.Some(value: CUInt8(0))
+            || bytesApi.get(large, 65535) != Option<CUInt8>.Some(value: CUInt8(117)) {
+            rinzu.core.panic("wrongSnapshot");
         }
         var caught = 0;
         try {
@@ -33,17 +36,17 @@ fn exercise() -> Int {
         }
         catch [problem: Error, ...rest] {
             if problem.message != "native value is NULL" {
-                panic("wrongNull");
+                rinzu.core.panic("wrongNull");
             }
             caught = caught + 1;
         }
         if caught != 1 {
-            panic("missingError");
+            rinzu.core.panic("missingError");
         }
-        return bytesLength(large) + bytesLength(small);
+        return bytesApi.length(large) + bytesApi.length(small);
     }
     catch errors {
-        panic("unexpected");
+        rinzu.core.panic("unexpected");
         return 0;
     }
 }

@@ -1,5 +1,7 @@
 import rinzu.map;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
 
 enum Tag {
     Empty,
@@ -23,7 +25,7 @@ class Empty {}
 
 fn require(condition: Bool) {
     if !condition {
-        panic("failed");
+        rinzu.core.panic("failed");
     }
 }
 
@@ -53,14 +55,14 @@ async fn main() {
         require(rinzu.map.length(fixed) == 2 && rinzu.map.keys(fixed) == [first, second]);
         require(rinzu.map.get(fixed, first) == Option<Int>.Some(value: 3));
         let invalid: List<CUInt8> = [0, 255, 128];
-        let data = byteArray(invalid);
-        let empty = byteArray(b"");
+        let data = bytesApi.from(invalid);
+        let empty = bytesApi.from(b"");
         let binary: Map<ByteArray, Int> = {
-            empty: 0, data: 1, bytesCopy(data): 2
+            empty: 0, data: 1, bytesApi.copy(data): 2
         };
         require(rinzu.map.keys(binary) == [empty, data] && rinzu.map.length(binary) == 2);
-        require(rinzu.map.get(binary, bytesCopy(data)) == Option<Int>.Some(value: 2));
-        require(rinzu.map.get(binary, byteArray(b"missing")) == Option<Int>.None());
+        require(rinzu.map.get(binary, bytesApi.copy(data)) == Option<Int>.Some(value: 2));
+        require(rinzu.map.get(binary, bytesApi.from(b"missing")) == Option<Int>.None());
         let original = Key<Int>(
             inner: Inner(flag: true, bytes: data),
             fixed: first,
@@ -68,9 +70,9 @@ async fn main() {
             value: 1
         );
         let copy = Key<Int>(
-            inner: Inner(flag: true, bytes: bytesCopy(data)),
+            inner: Inner(flag: true, bytes: bytesApi.copy(data)),
             fixed: b"A",
-            tag: Tag.Packet(value: bytesCopy(data)),
+            tag: Tag.Packet(value: bytesApi.copy(data)),
             value: 1
         );
         let changed = Key<Int>(inner: original.inner, fixed: original.fixed, tag: original.tag, value: 2);
@@ -81,7 +83,7 @@ async fn main() {
             value: original.value
         );
         require(same<Key<Int>>(original, copy));
-        require(same<Bool>(true, true) && same<ByteArray>(data, bytesCopy(data)));
+        require(same<Bool>(true, true) && same<ByteArray>(data, bytesApi.copy(data)));
         let records: Map<Key<Int>, String> = {
             original: "old", changed: "changed", copy: "last", changedChild: "child"
         };
@@ -110,13 +112,13 @@ async fn main() {
         var index = 0;
         while index < 64 {
             let one: List<CUInt8> = [CUInt8(index)];
-            many = rinzu.map.insert(many, byteArray(one), index);
+            many = rinzu.map.insert(many, bytesApi.from(one), index);
             index = index + 1;
         }
         index = 0;
         while index < 64 {
             let query: List<CUInt8> = [CUInt8(index)];
-            require(rinzu.map.get(many, byteArray(query)) == Option<Int>.Some(value: index));
+            require(rinzu.map.get(many, bytesApi.from(query)) == Option<Int>.Some(value: index));
             index = index + 1;
         }
         let flagFuture = spawn echo<Map<Bool, String>>(changedFlags);

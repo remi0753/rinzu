@@ -45,10 +45,16 @@ pub fn check(root: &Path, path: &Path, text: &str, temporary: &Path) -> Option<R
                 "native_record_qualifiers_sdk" => record_qualifiers::create(&work),
                 "native_record_writeback_sdk" => {
                     if path.ends_with("busy.rinzu") {
-                        record_writeback::create_sdk_callbacks(&work);
-                    } else {
-                        record_writeback::create(&work);
+                        let sdk_context = work.join("sdk-context");
+                        record_writeback::create_sdk_callbacks(&sdk_context);
+                        check_input(
+                            &sdk_context.join("app"),
+                            &options(),
+                            &NativeCliInputs::default(),
+                        )
+                        .map_err(|errors| diagnostics(path, errors))?;
                     }
+                    record_writeback::create(&work);
                     if path.file_name().is_some_and(|n| n != "api.rinzu") {
                         std::fs::write(
                             work.join("app/src/main.rinzu"),

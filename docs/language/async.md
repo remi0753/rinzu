@@ -3,6 +3,7 @@
 Calling an async function queues its body and returns `Future<T>`. The task starts when selected by the runtime. Await is available inside async functions and observes a Future's result or ordinary failure.
 
 ```rinzu-test
+import rinzu.core;
 import rinzu.timer;
 
 async fn later(value: Int) -> Int {
@@ -20,11 +21,11 @@ async fn main() {
         let value = await pending;
         let result = await spawn score(value);
         if result != 42 {
-            panic("wrong async result");
+            rinzu.core.panic("wrong async result");
         }
     }
     catch problems {
-        panic("async work failed");
+        rinzu.core.panic("async work failed");
     }
 }
 ```
@@ -49,9 +50,9 @@ Workers do not expose shared mutable memory, executor selection, or a public wor
 
 ## Cancellation and shutdown
 
-`futureReady(future)` checks readiness. `cancelFuture(future)` and `timeoutFuture(future)` request the corresponding completion behavior for supported Main Futures. Completed results are not overwritten. Cancellation still waits for native and child work to physically settle before releasing their environments.
+`rinzu.future.isReady(future)` checks readiness. `rinzu.future.cancel(future)` and `rinzu.future.timeout(future)` request the corresponding completion behavior for supported Main Futures. Completed results are not overwritten. Cancellation still waits for native and child work to physically settle before releasing their environments.
 
-`requestShutdown()` requests cooperative Root shutdown. Set a process status first with `setProcessExitStatus(0..255)` when needed; setting a status does not itself stop execution. Cleanup failure or runtime failure still produces a failure status.
+`rinzu.shutdown.request()` requests cooperative Root shutdown. To set an exit status, call `rinzu.process.setExitStatus(0..255)` before requesting shutdown. Cleanup failure or runtime failure still produces a failure status.
 
 For signal-driven applications, use `rinzu.shutdown.enableSignals`, poll `signalRequested`, request shutdown, and disable signals in finally. Stop accepting new work, await outstanding users, then close their resources. A cancellation request is not evidence that a native call has returned.
 

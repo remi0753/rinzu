@@ -1,5 +1,6 @@
 import rinzu.stdio;
 import rinzu.timer;
+import rinzu.core;
 
 error A {}
 
@@ -33,7 +34,7 @@ async fn main() {
         let first = parent(state);
         rinzu.stdio.writeLine(await first);
         if state.value != 0 {
-            panic("implicitJoin");
+            rinzu.core.panic("implicitJoin");
         }
         let second = failingParent(state);
         try {
@@ -43,7 +44,7 @@ async fn main() {
             rinzu.stdio.writeLine(problem.message);
         }
         if state.value != 0 {
-            panic("cancelledOrJoined");
+            rinzu.core.panic("cancelledOrJoined");
         }
         rinzu.stdio.writeLine("main complete");
     }

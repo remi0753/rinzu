@@ -2,6 +2,8 @@ import rinzu.timer;
 import rinzu.io;
 import rinzu.stream;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
 
 async fn consume(path: String, pause: Int) -> Int {
     try {
@@ -14,7 +16,7 @@ async fn consume(path: String, pause: Int) -> Int {
                     let resultValue2 = await rinzu.stream.next(resultValue3);
                     switch resultValue2 {
                         case Option.Some(data): {
-                            total = total + bytesLength(data);
+                            total = total + bytesApi.length(data);
                         }
                         case Option.None: {
                             eof = true;
@@ -32,7 +34,7 @@ async fn consume(path: String, pause: Int) -> Int {
                 let resultValue1 = await rinzu.stream.close(resultValue3);
             }
             catch [resultError1: Error, ...resultRest1] {
-                panic("badClose");
+                rinzu.core.panic("badClose");
             }
         }
         return total;
@@ -52,28 +54,28 @@ async fn main() {
             let fourth = consume("input.bin", 0);
             let missing = consume("missing.bin", 0);
             if await first != 8192 {
-                panic("failure1");
+                rinzu.core.panic("failure1");
             }
             if await second != 8192 {
-                panic("failure2");
+                rinzu.core.panic("failure2");
             }
             if await third != 8192 {
-                panic("failure3");
+                rinzu.core.panic("failure3");
             }
             if await fourth != 8192 {
-                panic("failure4");
+                rinzu.core.panic("failure4");
             }
             if await missing != -1 {
-                panic("failure5");
+                rinzu.core.panic("failure5");
             }
         }
         finally {}
         if rinzu.io.liveFiles() != 0 || rinzu.io.liveBuffers() != 0 {
-            panic("failure6");
+            rinzu.core.panic("failure6");
         }
         rinzu.stdio.writeLine("stream-parallel-ok");
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

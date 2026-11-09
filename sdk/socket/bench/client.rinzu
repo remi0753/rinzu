@@ -2,6 +2,7 @@ import rinzu.timer;
 import "common.rinzu" as bench;
 import rinzu.socket;
 import rinzu.stdio;
+import rinzu.core;
 
 class Progress {
     ready: Int,
@@ -29,7 +30,7 @@ async fn heartbeat(progress: Progress) {
         }
     }
     catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
-        panic("unexpectedBenchmarkFailure");
+        rinzu.core.panic("unexpectedBenchmarkFailure");
     }
 }
 
@@ -85,7 +86,7 @@ async fn session(index: Int, progress: Progress) {
         }
     }
     catch [unexpectedWorkerError: Error, ...unexpectedWorkerRest] {
-        panic("unexpectedBenchmarkFailure");
+        rinzu.core.panic("unexpectedBenchmarkFailure");
     }
 }
 
@@ -146,6 +147,6 @@ async fn main() {
         bench.report("client-cleanup");
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

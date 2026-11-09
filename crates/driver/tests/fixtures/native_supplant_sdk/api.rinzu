@@ -1,5 +1,7 @@
+import rinzu.native as bridge;
+
 async fn completed(completion: Completion) -> Unit {
-    await nativeCompleted(completion);
+    await bridge.completed(completion);
 }
 
 async fn readSize(path: String) -> Int {

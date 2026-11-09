@@ -1,6 +1,7 @@
 import rinzu.macos;
 import rinzu.process;
 import rinzu.stdio;
+import rinzu.core;
 
 async fn body(app: rinzu.macos.UiApplication) {
     let scope = app.primary;
@@ -9,7 +10,7 @@ async fn body(app: rinzu.macos.UiApplication) {
     let attached = root.addSubview(list.view);
     await list.setRows([rinzu.macos.DataRow(id: 1, parent: 0, cells: ["日本語 😀"])]);
     let text = list.cell(1, 0);
-    panic("data acquisition cancellation did not fire");
+    rinzu.core.panic("data acquisition cancellation did not fire");
 }
 
 async fn main() {
@@ -31,12 +32,12 @@ async fn main() {
                 + stats
                 .snapshotBytes
                 != 0 {
-                panic("unreceived data resource remained");
+                rinzu.core.panic("unreceived data resource remained");
             }
             rinzu.stdio.writeLine("DATA:acquisition:closed");
         }
     }
     catch errors {
-        panic(f"data acquisition failed: {errors}");
+        rinzu.core.panic(f"data acquisition failed: {errors}");
     }
 }

@@ -8,7 +8,7 @@ async fn cancellable(value: Packet) -> Packet {
     }
     finally {
         if value.text != "日本語\u{0}retained" || value.bytes != b"A\xff\x00\x00" {
-            panic("bad_cleanup_root");
+            rinzu.core.panic("bad_cleanup_root");
         }
         let cleanup_error = CInt8(200);
     }
@@ -23,7 +23,7 @@ async fn main() {
     }
     finally {
         if kept.high != 18446744073709551615 || kept.bytes != b"A\xff\x00\x00" {
-            panic("bad_parent_root");
+            rinzu.core.panic("bad_parent_root");
         }
         let parent_cleanup_error = CInt8(201);
     }

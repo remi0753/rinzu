@@ -3,6 +3,22 @@ import "wire.rinzu" as wire;
 import "support.rinzu" as support;
 import rinzu.testing;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
+import rinzu.string as textApi;
+
+fn requiredErrorCode(problem: Error) nothrow -> Int {
+    switch err.code(problem) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            rinzu.core.panic("expected a numeric error code");
+            return 0;
+        }
+    }
+}
 
 fn ok(value: Bool) -> Bool {
     return value;
@@ -23,7 +39,7 @@ fn reject(data: ByteArray, isRequest: Bool, code: Int, status: Int) {
     }
     catch [resultError4: Error, ...resultRest4] {
         if resultError4 is wire.Failure {
-            support.assertEqual<Int>(errorCode(resultError4.payload.cause), code, "failure cause");
+            support.assertEqual<Int>(requiredErrorCode(resultError4.payload.cause), code, "failure cause");
             support.assertEqual<Int>(resultError4.payload.status, status, "failure status");
         }
         else {
@@ -47,7 +63,7 @@ fn main() {
         rinzu.stdio.writeLine(f"HTTP-PARSER:split={splitCount}:single-byte:coalesced:bounded:EOF:OK");
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }
 
@@ -59,7 +75,7 @@ fn checkHostFields() {
             case Option.Some(host): {
                 let parser = wire.fresh(true);
                 support.assertTrue(
-                    wire.feed(parser, utf8Encode(f"GET / HTTP/1.1\r\nHost: {host}\r\n\r\n")),
+                    wire.feed(parser, textApi.encodeUtf8(f"GET / HTTP/1.1\r\nHost: {host}\r\n\r\n")),
                     "virtual host syntax"
                 );
             }
@@ -67,84 +83,87 @@ fn checkHostFields() {
         }
         index = index + 1;
     }
-    reject(byteArray(b"GET / HTTP/1.1\r\nHost: user@example.test\r\n\r\n"), true, 7801, 400);
-    reject(byteArray(b"GET / HTTP/1.1\r\nHost: bad host\r\n\r\n"), true, 7801, 400);
-    reject(byteArray(b"GET / HTTP/1.1\r\nHost: host:0\r\n\r\n"), true, 7801, 400);
-    reject(byteArray(b"GET / HTTP/1.1\r\nHost: host:no\r\n\r\n"), true, 7801, 400);
-    reject(byteArray(b"GET / HTTP/1.1\r\nHost: host:80:81\r\n\r\n"), true, 7801, 400);
+    reject(bytesApi.from(b"GET / HTTP/1.1\r\nHost: user@example.test\r\n\r\n"), true, 7801, 400);
+    reject(bytesApi.from(b"GET / HTTP/1.1\r\nHost: bad host\r\n\r\n"), true, 7801, 400);
+    reject(bytesApi.from(b"GET / HTTP/1.1\r\nHost: host:0\r\n\r\n"), true, 7801, 400);
+    reject(bytesApi.from(b"GET / HTTP/1.1\r\nHost: host:no\r\n\r\n"), true, 7801, 400);
+    reject(bytesApi.from(b"GET / HTTP/1.1\r\nHost: host:80:81\r\n\r\n"), true, 7801, 400);
 }
 
 fn checkRequests() -> Int {
-    let body = byteArray(b"\x00\xff\x80A\x00B\xfeC");
-    let head = byteArray(
+    let body = bytesApi.from(b"\x00\xff\x80A\x00B\xfeC");
+    let head = bytesApi.from(
         b"POST /echo?raw=%2F HTTP/1.1\r\nHost: 127.0.0.1:80\r\nContent-Length: 8\r\nX-Test: \xff\x80 \t\r\nX-Test: again\r\n\r\n"
     );
-    let data = bytesConcat(head, body);
+    let data = bytesApi.concat(head, body);
     var split = 1;
-    while split < bytesLength(data) {
+    while split < bytesApi.length(data) {
         let parser = wire.fresh(true);
         let first = ok(wire.feed(parser, wire.slice(data, 0, split)));
         support.assertTrue(!first, "incomplete prefix");
         support.assertTrue(
-            ok(wire.feed(parser, wire.slice(data, split, bytesLength(data)))),
+            ok(wire.feed(parser, wire.slice(data, split, bytesApi.length(data)))),
             "all two-chunk boundaries"
         );
-        decoded(parser, body, bytesLength(head));
+        decoded(parser, body, bytesApi.length(head));
         split = split + 1;
     }
     let single = wire.fresh(true);
     var index = 0;
-    while index < bytesLength(data) {
+    while index < bytesApi.length(data) {
         let completeAtByte = ok(wire.feed(single, wire.slice(data, index, index + 1)));
-        support.assertEqual<Bool>(completeAtByte, index == bytesLength(data) - 1, "one-byte boundary");
+        support.assertEqual<Bool>(completeAtByte, index == bytesApi.length(data) - 1, "one-byte boundary");
         index = index + 1;
     }
-    decoded(single, body, bytesLength(head));
+    decoded(single, body, bytesApi.length(head));
     support.assertEqual<String>(single.target, "/echo?raw=%2F", "raw query preserved");
     support.assertEqual<Int>(rinzu.list.length(single.headers), 4, "field ordering/duplicates");
     switch rinzu.list.get(single.headers, 2) {
         case Option.Some(header): {
             support.assertEqual<String>(header.name, "x-test", "lowercase name");
-            support.assertEqual<ByteArray>(header.value, byteArray(b"\xff\x80"), "binary OWS trimmed");
+            support.assertEqual<ByteArray>(header.value, bytesApi.from(b"\xff\x80"), "binary OWS trimmed");
         }
         case Option.None: {
             support.assertTrue(false, "missing header");
         }
     }
     let coalesced = wire.fresh(true);
-    support.assertTrue(ok(wire.feed(coalesced, bytesConcat(data, byteArray(b"GET /next")))), "coalesced body end");
-    decoded(coalesced, body, bytesLength(head));
-    support.assertEqual<ByteArray>(coalesced.residual, byteArray(b"GET /next"), "next message retained");
+    support.assertTrue(
+        ok(wire.feed(coalesced, bytesApi.concat(data, bytesApi.from(b"GET /next")))),
+        "coalesced body end"
+    );
+    decoded(coalesced, body, bytesApi.length(head));
+    support.assertEqual<ByteArray>(coalesced.residual, bytesApi.from(b"GET /next"), "next message retained");
     return split - 1;
 }
 
 fn checkResponses() {
-    let body = byteArray(b"\x00\xff\x80A\x00B\xfeC");
+    let body = bytesApi.from(b"\x00\xff\x80A\x00B\xfeC");
     let reply = wire.fresh(false);
     support.assertTrue(
-        ok(wire.feed(reply, bytesConcat(byteArray(b"HTTP/1.1 500 Error\r\nContent-Length: 8\r\n\r\n"), body))),
+        ok(wire.feed(reply, bytesApi.concat(bytesApi.from(b"HTTP/1.1 500 Error\r\nContent-Length: 8\r\n\r\n"), body))),
         "error status is response"
     );
     let parsedReply = wire.response(reply);
     support.assertEqual<Int>(parsedReply.status, 500, "HTTP status separate from transport failure");
     let metadata = wire.fresh(false);
     support.assertTrue(
-        ok(wire.feed(metadata, byteArray(b"HTTP/1.1 304 Cached\r\nContent-Length: 999999\r\n\r\n"))),
+        ok(wire.feed(metadata, bytesApi.from(b"HTTP/1.1 304 Cached\r\nContent-Length: 999999\r\n\r\n"))),
         "304 length metadata"
     );
-    support.assertEqual<Int>(bytesLength(metadata.body), 0, "304 suppressed body");
+    support.assertEqual<Int>(bytesApi.length(metadata.body), 0, "304 suppressed body");
     let partial = wire.fresh(false);
-    let incomplete = ok(wire.feed(partial, byteArray(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\n\x00\xff")));
+    let incomplete = ok(wire.feed(partial, bytesApi.from(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\n\x00\xff")));
     try {
         let resultValue2 = wire.end(partial);
         support.assertTrue(false, "premature EOF accepted");
     }
     catch [resultError2: Error, ...resultRest2] {
         if resultError2 is wire.Failure {
-            support.assertEqual<Int>(errorCode(resultError2.payload.cause), 7804, "EOF cause");
+            support.assertEqual<Int>(requiredErrorCode(resultError2.payload.cause), 7804, "EOF cause");
             support.assertEqual<ByteArray>(
                 resultError2.payload.partialBody,
-                byteArray(b"\x00\xff"),
+                bytesApi.from(b"\x00\xff"),
                 "bounded partial body"
             );
         }
@@ -155,19 +174,19 @@ fn checkResponses() {
 }
 
 fn checkRejections() {
-    reject(byteArray(b"GET / HTTP/1.1\nHost: 127.0.0.1\r\n\r\n"), true, 7801, 400);
-    reject(byteArray(b"GET / HTTP/1.1\rX\nHost: localhost\r\n\r\n"), true, 7801, 400);
-    reject(byteArray(b"GET / HTTP/1.1\r\nHost: local\rXhost\r\n\r\n"), true, 7801, 400);
-    reject(byteArray(b"GET / HTTP/1.1\r\nHost: localhost\r\nContent-Length: +0\r\n\r\n"), true, 7801, 400);
+    reject(bytesApi.from(b"GET / HTTP/1.1\nHost: 127.0.0.1\r\n\r\n"), true, 7801, 400);
+    reject(bytesApi.from(b"GET / HTTP/1.1\rX\nHost: localhost\r\n\r\n"), true, 7801, 400);
+    reject(bytesApi.from(b"GET / HTTP/1.1\r\nHost: local\rXhost\r\n\r\n"), true, 7801, 400);
+    reject(bytesApi.from(b"GET / HTTP/1.1\r\nHost: localhost\r\nContent-Length: +0\r\n\r\n"), true, 7801, 400);
     reject(
-        byteArray(b"POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 8\r\nContent-Length: 8\r\n\r\n"),
+        bytesApi.from(b"POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 8\r\nContent-Length: 8\r\n\r\n"),
         true,
         7801,
         400
     );
-    reject(byteArray(b"POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 65537\r\n\r\n"), true, 7802, 413);
-    reject(byteArray(b"HTTP/1.1 204 Empty\r\nContent-Length: 0\r\n\r\n"), false, 7801, 204);
-    reject(byteArray(b"HTTP/1.1 200 OK\r\n\r\n"), false, 7803, 200);
+    reject(bytesApi.from(b"POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 65537\r\n\r\n"), true, 7802, 413);
+    reject(bytesApi.from(b"HTTP/1.1 204 Empty\r\nContent-Length: 0\r\n\r\n"), false, 7801, 204);
+    reject(bytesApi.from(b"HTTP/1.1 200 OK\r\n\r\n"), false, 7803, 200);
 }
 
 fn checkEncoding() {
@@ -177,8 +196,8 @@ fn checkEncoding() {
         let resultValue1 = wire.encodeRequest(
             "GET",
             ep,
-            [wire.Header(name: "Content-Length", value: byteArray(b"99"))],
-            byteArray(b"")
+            [wire.Header(name: "Content-Length", value: bytesApi.from(b"99"))],
+            bytesApi.from(b"")
         );
         support.assertTrue(false, "reserved custom field");
     }
@@ -186,6 +205,6 @@ fn checkEncoding() {
     let encoded = support.expect<wire.Encoded>(
         wire.encodeResponse(wire.Response(status: 200, headers: [], body: support.payload(65536)))
     );
-    support.assertEqual<Int>(bytesLength(encoded.body), 65536, "body separate from head");
-    support.assertTrue(bytesLength(encoded.head) < 65536, "head within socket write cap");
+    support.assertEqual<Int>(bytesApi.length(encoded.body), 65536, "body separate from head");
+    support.assertTrue(bytesApi.length(encoded.head) < 65536, "head within socket write cap");
 }

@@ -1,4 +1,5 @@
 import rinzu.stdio;
+import rinzu.core;
 
 class Editor {
     text: String,
@@ -43,7 +44,7 @@ fn main() {
         }
         switch editor.command {
             case Option.None: {
-                panic("bad");
+                rinzu.core.panic("bad");
             }
             case Option.Some(function): {
                 let result = invoke(function, "after");
@@ -53,6 +54,6 @@ fn main() {
         rinzu.stdio.writeLine(editor.text);
     }
     catch errors {
-        panic(f"unexpected Error in Main: {errors}");
+        rinzu.core.panic(f"unexpected Error in Main: {errors}");
     }
 }

@@ -3,6 +3,9 @@ import rinzu.json;
 import rinzu.list;
 import rinzu.process;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.number as num;
 
 error InputTooLarge {}
 
@@ -19,7 +22,7 @@ async fn readFile(path: String) -> ByteArray {
         var eof = false;
         while !eof {
             let part = await rinzu.io.read(file, 65536);
-            let count = bytesLength(part.data);
+            let count = bytesApi.length(part.data);
             if count > limits.maxInputBytes - length {
                 throw InputTooLarge(message: "JSON input exceeds the byte limit");
             }
@@ -27,7 +30,7 @@ async fn readFile(path: String) -> ByteArray {
             chunks = rinzu.list.append(chunks, part.data);
             eof = part.eof;
         }
-        return bytesConcatAll(chunks);
+        return bytesApi.concatAll(chunks);
     }
     finally {
         let closed = await rinzu.io.close(file);
@@ -43,7 +46,7 @@ fn sumAmounts(root: rinzu.json.Value) -> { count: Int, total: Int } {
             case Option.Some(transaction): {
                 switch rinzu.json.intField(transaction, "amount") {
                     case Option.Some(amount): {
-                        total = checkedAdd(total, amount);
+                        total = num.checkedAdd(total, amount);
                     }
                     case Option.None: {
                         throw MissingAmount(message: "missing amount", payload: { row = row });
@@ -51,7 +54,7 @@ fn sumAmounts(root: rinzu.json.Value) -> { count: Int, total: Int } {
                 }
             }
             case Option.None: {
-                panic("array length changed");
+                rinzu.core.panic("array length changed");
             }
         }
         row = row + 1;
@@ -65,7 +68,7 @@ fn diagnostic(message: String, status: Int) nothrow {
         let written = rinzu.process.writeErrorLine(message);
     }
     catch problems {
-        panic("cannot write diagnostic");
+        rinzu.core.panic("cannot write diagnostic");
     }
 }
 
@@ -84,7 +87,7 @@ async fn main() {
                 rinzu.stdio.writeLine(f"件数={result.count} 合計={result.total}");
             }
             case Option.None: {
-                panic("argument length changed");
+                rinzu.core.panic("argument length changed");
             }
         }
     }
@@ -114,7 +117,7 @@ async fn main() {
     }
     finally {
         if rinzu.io.liveFiles() != liveFiles {
-            panic("file was not closed");
+            rinzu.core.panic("file was not closed");
         }
     }
 }

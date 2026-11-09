@@ -1,5 +1,6 @@
 import rinzu.stdio;
 import rinzu.timer;
+import rinzu.core;
 
 async fn main() {
     try {
@@ -15,11 +16,11 @@ async fn main() {
             caught = true;
         }
         if !caught {
-            panic("negative timer accepted");
+            rinzu.core.panic("negative timer accepted");
         }
         rinzu.stdio.writeLine("timer library ok");
     }
     catch errors {
-        panic("timer failed");
+        rinzu.core.panic("timer failed");
     }
 }

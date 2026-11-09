@@ -3,6 +3,8 @@ import rinzu.macos;
 import rinzu.process;
 import rinzu.shutdown;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
 
 class Scene {
     const session: rinzu.macos.Session,
@@ -74,14 +76,14 @@ fragment float4 color() { return float4(0.2, 0.7, 0.9, 1); }
         let library = device.library(shader);
         let compute = library.computePipeline("increment");
         let command = device.command();
-        let bytes = device.buffer(byteArray(b"\x00\xff\x40\x7f"));
+        let bytes = device.buffer(bytesApi.from(b"\x00\xff\x40\x7f"));
         let begun = command.beginCompute(compute);
         let bound = command.setComputeBuffer(0, bytes, 0);
         let dispatched = command.dispatch(4, 1, 1, 4, 1, 1);
         let committed = command.commit();
         let completed = await command.wait();
-        if bytes.read(0, 4) != byteArray(b"\x01\x00\x41\x80") {
-            panic("GPU result mismatch");
+        if bytes.read(0, 4) != bytesApi.from(b"\x01\x00\x41\x80") {
+            rinzu.core.panic("GPU result mismatch");
         }
         let destroyed = bytes.destroy();
         rinzu.stdio.writeLine("MACOS:compute-ok");
@@ -125,7 +127,7 @@ fragment float4 color() { return float4(0.2, 0.7, 0.9, 1); }
     }
     let stats = rinzu.macos.statistics();
     if stats.sessions != 0 || stats.windows != 0 || stats.views != 0 || stats.commands != 0 || stats.bufferBytes != 0 {
-        panic("macOS resources remained live");
+        rinzu.core.panic("macOS resources remained live");
     }
     rinzu.stdio.writeLine("MACOS:closed");
 }
@@ -139,6 +141,6 @@ async fn main() {
             rinzu.stdio.writeLine(f"macOS sample: {errors}");
         }
         catch outputErrors {}
-        panic("macOS sample failed; check GPU availability and SDK diagnostic");
+        rinzu.core.panic("macOS sample failed; check GPU availability and SDK diagnostic");
     }
 }

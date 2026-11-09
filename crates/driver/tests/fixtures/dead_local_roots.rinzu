@@ -1,5 +1,8 @@
 import rinzu.stdio;
 import rinzu.process;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.string as textApi;
 
 class Held {
     text: String,
@@ -8,13 +11,13 @@ class Held {
 
 fn check(value: Bool) {
     if !value {
-        panic("badRoot");
+        rinzu.core.panic("badRoot");
     }
 }
 
 fn pair(value: String) -> ByteArray {
     // The first operand must survive allocation of the second operand.
-    return bytesConcat(utf8Encode(value), utf8Encode(":tail"));
+    return bytesApi.concat(textApi.encodeUtf8(value), textApi.encodeUtf8(":tail"));
 }
 
 fn churn() {
@@ -35,12 +38,12 @@ fn returning(value: String) -> ByteArray {
 }
 
 fn sliced(value: ByteArray) -> ByteArray {
-    switch bytesSlice(value, 1, bytesLength(value) - 1) {
+    switch bytesApi.slice(value, 1, bytesApi.length(value) - 1) {
         case Option.Some(piece): {
             return piece;
         }
         case Option.None: {
-            return byteArray(b"invalid");
+            return bytesApi.from(b"invalid");
         }
     }
 }
@@ -74,7 +77,7 @@ fn failLocal(flag: Bool) {
 }
 
 fn caughtLocal(seed: ByteArray, flag: Bool) -> ByteArray {
-    var original = bytesConcat(seed, byteArray(b":internal"));
+    var original = bytesApi.concat(seed, bytesApi.from(b":internal"));
     let discarded = pair("dead");
     try {
         failLocal(flag);
@@ -93,7 +96,7 @@ fn carriedLocal(seed: ByteArray, flag: Bool) -> ByteArray {
     while round < 24 {
         let disposable = pair("unused");
         if flag {
-            kept = bytesConcat(kept, byteArray(b"x"));
+            kept = bytesApi.concat(kept, bytesApi.from(b"x"));
         }
         else {
             churn();
@@ -105,27 +108,27 @@ fn carriedLocal(seed: ByteArray, flag: Bool) -> ByteArray {
 
 async fn main() {
     try {
-        let seedLocal = byteArray(b"kept\x00\xff");
-        check(caughtLocal(seedLocal, true) == byteArray(b"kept\x00\xff:internal"));
-        check(caughtLocal(seedLocal, false) == byteArray(b"new:tail"));
+        let seedLocal = bytesApi.from(b"kept\x00\xff");
+        check(caughtLocal(seedLocal, true) == bytesApi.from(b"kept\x00\xff:internal"));
+        check(caughtLocal(seedLocal, false) == bytesApi.from(b"new:tail"));
         check(carriedLocal(seedLocal, false) == seedLocal);
-        check(bytesLength(carriedLocal(seedLocal, true)) == 30);
+        check(bytesApi.length(carriedLocal(seedLocal, true)) == 30);
         let environment = rinzu.process.environment("PATH");
-        let held = Held(text: "日本語\u{0}held", bytes: byteArray(b"initial"));
+        let held = Held(text: "日本語\u{0}held", bytes: bytesApi.from(b"initial"));
         let alias = held;
-        let expected = utf8Encode("日本語\u{0}held:tail");
+        let expected = textApi.encodeUtf8("日本語\u{0}held:tail");
         check(looped(held) == expected);
         check(alias.bytes == expected);
-        let left = sliced(byteArray(b"\x00\x80\xffabc"));
+        let left = sliced(bytesApi.from(b"\x00\x80\xffabc"));
         churn();
-        check(left == byteArray(b"\x80\xffab"));
-        check(returning("final") == byteArray(b"final:tail"));
+        check(left == bytesApi.from(b"\x80\xffab"));
+        check(returning("final") == bytesApi.from(b"final:tail"));
         let pending = spawn worker();
         try {
             let first = await pending;
             churn();
             let again = await pending;
-            check(first == byteArray(b"worker:tail") && again == first);
+            check(first == bytesApi.from(b"worker:tail") && again == first);
         }
         finally {
             let settled = await pending;
@@ -133,6 +136,6 @@ async fn main() {
         rinzu.stdio.writeLine("C06-local:cfg:overwrite:error:loop:finally:alias:gc:worker:OK");
     }
     catch unexpected {
-        panic("failedRoot");
+        rinzu.core.panic("failedRoot");
     }
 }

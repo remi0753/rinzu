@@ -1,4 +1,5 @@
 import measure;
+import rinzu.core;
 
 fn badArgument() -> Bytes(2) {
     let failedConversion = CInt8(999);
@@ -9,7 +10,7 @@ async fn main() {
     let original = b"A\xff";
     let text = "日本語\u{0}🙂";
     if measure.measure(original, text) != 13 {
-        panic("mainFailure");
+        rinzu.core.panic("mainFailure");
     }
     let first = spawn measure.measure(original, text);
     let second = spawn measure.measure(original, text);
@@ -27,10 +28,10 @@ async fn main() {
         || await sixth != 13
         || await seventh != 13
         || await eighth != 13 {
-        panic("workerFailure");
+        rinzu.core.panic("workerFailure");
     }
     if original != b"A\xff" || text != "日本語\u{0}🙂" {
-        panic("callerFailure");
+        rinzu.core.panic("callerFailure");
     }
     var caught = 0;
     try {
@@ -41,6 +42,6 @@ async fn main() {
         let message = error.message;
     }
     if caught != 1 || measure.calls() != 9 {
-        panic("preparationFailure");
+        rinzu.core.panic("preparationFailure");
     }
 }

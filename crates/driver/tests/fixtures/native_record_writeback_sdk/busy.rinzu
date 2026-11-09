@@ -1,5 +1,19 @@
 import records;
 import rinzu.stdio;
+import rinzu.core;
+import rinzu.error as err;
+
+fn requiredErrorCode(problem: Error) nothrow -> Int {
+    switch err.code(problem) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            rinzu.core.panic("expected a numeric error code");
+            return 0;
+        }
+    }
+}
 
 fn execute() -> Int {
     let point = records.Packet(x: 1, valid: false);
@@ -36,7 +50,7 @@ fn execute() -> Int {
                 return reference.x;
             }
             catch [error: Error, ...rest] {
-                return errorCode(error);
+                return requiredErrorCode(error);
             }
         }
     );
@@ -55,7 +69,7 @@ fn execute() -> Int {
                 return records.change(point, 100);
             }
             catch [error: Error, ...rest] {
-                return errorCode(error);
+                return requiredErrorCode(error);
             }
         }
     );
@@ -84,7 +98,7 @@ fn execute() -> Int {
                     );
                 }
                 catch [error: Error, ...rest] {
-                    caught = caught + errorCode(error);
+                    caught = caught + requiredErrorCode(error);
                 }
                 index = index + 1;
             }
@@ -103,6 +117,6 @@ fn main() {
         let result = execute();
     }
     catch errors {
-        panic("unexpected Busy failure");
+        rinzu.core.panic("unexpected Busy failure");
     }
 }

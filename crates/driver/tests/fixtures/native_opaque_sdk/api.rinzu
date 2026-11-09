@@ -1,4 +1,5 @@
 import rinzu.core;
+import rinzu.bytes as bytesApi;
 
 native {
     opaque Object;
@@ -38,14 +39,14 @@ fn measure(seed: Int) -> Int {
         let alias = identity(object);
         let holder = Holder(value: alias);
         let projected = holder.value;
-        let length: fn (Bytes(4)) -> CSize = byteLength;
+        let length: fn (Bytes(4)) -> CSize = bytesApi.byteLength;
         let found = lookup(projected, length);
         retain(found);
         var round = 0;
         while round < 16 {
             let temporary = "opaque moving GC";
             if read(alias) != seed || read(found) != seed {
-                panic("lostWrapper");
+                rinzu.core.panic("lostWrapper");
             }
             round = round + 1;
         }
@@ -53,12 +54,12 @@ fn measure(seed: Int) -> Int {
         // The fixture keeps released native storage until test teardown, so probing
         // the address without dereferencing it safely observes an unchanged alias.
         if aliasObserved(alias) != 1 || aliasObserved(found) != 1 {
-            panic("invalidatedAlias");
+            rinzu.core.panic("invalidatedAlias");
         }
         return seed;
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
         return 0;
     }
 }
@@ -70,7 +71,7 @@ fn failure() -> Object {
 fn nullableLookup(seed: Int) -> Int {
     try {
         let object = create(seed);
-        let length: fn (Bytes(4)) -> CSize = byteLength;
+        let length: fn (Bytes(4)) -> CSize = bytesApi.byteLength;
         var caught = 0;
         try {
             let missing = lookupMissing(object, length);
@@ -79,13 +80,13 @@ fn nullableLookup(seed: Int) -> Int {
             caught = 1;
         }
         if caught != 1 || read(object) != seed {
-            panic("lostInputRoot");
+            rinzu.core.panic("lostInputRoot");
         }
         release(object);
         return caught;
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
         return 0;
     }
 }
@@ -106,14 +107,14 @@ fn leaks(seed: Int) -> Int {
         var round = 0;
         while round < 100 {
             if read(object) != seed {
-                panic("wrong");
+                rinzu.core.panic("wrong");
             }
             round = round + 1;
         }
         return round;
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
         return 0;
     }
 }

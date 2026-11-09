@@ -1,5 +1,7 @@
 import rinzu.io;
 import rinzu.stdio;
+import rinzu.core;
+import rinzu.error as err;
 
 async fn transfer(input: rinzu.io.File, output: rinzu.io.File) -> Int {
     var total = 0;
@@ -51,17 +53,17 @@ async fn main() {
                 rinzu.stdio.writeLine(await saveCopy("input.bin", "output.bin", "output.bin.tmp"));
             }
             catch [problem: Error, ...rest] {
-                rinzu.stdio.writeLine(errorMessage(problem));
+                rinzu.stdio.writeLine(err.message(problem));
             }
             if rinzu.io.liveFiles() != 0 || rinzu.io.liveBuffers() != 0 {
-                panic("invariant");
+                rinzu.core.panic("invariant");
             }
         }
         catch errors {
-            panic("unexpected");
+            rinzu.core.panic("unexpected");
         }
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

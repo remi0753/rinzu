@@ -1,5 +1,7 @@
 import rinzu.list;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
 
 class Kept {
     value: Int,
@@ -8,7 +10,7 @@ class Kept {
 
 fn check(condition: Bool) {
     if !condition {
-        panic("bad");
+        rinzu.core.panic("bad");
     }
 }
 
@@ -43,7 +45,7 @@ async fn mixed(
     churn();
     check(a == 17 && kept.value == 18 && high == 18446744073709551615);
     check(text == "日本語\u{0}kept" && flag && received == "zero" && apply(a) == 18);
-    check(bytesLength(data) == 3 && bytesGet(data, 2) == bytesGet(byteArray(b"\xff"), 0));
+    check(bytesApi.length(data) == 3 && bytesApi.get(data, 2) == bytesApi.get(bytesApi.from(b"\xff"), 0));
     switch rinzu.list.get(list, 0) {
         case Option.Some(item): {
             check(item.value == 18 && item.label == text);
@@ -78,7 +80,7 @@ async fn main() {
                 18446744073709551615,
                 kept.label,
                 true,
-                byteArray(b"\x00\x80\xff"),
+                bytesApi.from(b"\x00\x80\xff"),
                 [kept],
                 plus,
                 ready
@@ -117,6 +119,6 @@ async fn main() {
         rinzu.stdio.writeLine("A01:queued-args:zero-nine:held-result:alias:cleanup:OK");
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
     }
 }

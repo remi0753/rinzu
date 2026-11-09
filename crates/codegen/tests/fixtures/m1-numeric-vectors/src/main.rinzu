@@ -1,9 +1,12 @@
 import rinzu.list;
 import rinzu.stdio;
+import rinzu.core;
+import rinzu.error as err;
+import rinzu.number as num;
 
 fn require(condition: Bool) {
     if !condition {
-        panic("failed");
+        rinzu.core.panic("failed");
     }
 }
 
@@ -17,121 +20,121 @@ fn width0() {
     let zero: CInt8 = 0;
     let one: CInt8 = 1;
     let two: CInt8 = 2;
-    require(wrappingAdd(high, one) == low);
-    require(wrappingSub(low, one) == high);
-    require(wrappingMul(high, two) == CInt8(-2));
-    require(bitNot(zero) == wrappingSub(zero, one));
-    require(bitXor(high, high) == zero);
-    require(bitAnd(high, zero) == zero);
-    require(bitOr(high, zero) == high);
-    ok<CInt8>(checkedAdd(low, zero), low);
-    ok<CInt8>(checkedMul(low, zero), zero);
+    require(num.wrappingAdd(high, one) == low);
+    require(num.wrappingSub(low, one) == high);
+    require(num.wrappingMul(high, two) == CInt8(-2));
+    require(num.bitNot(zero) == num.wrappingSub(zero, one));
+    require(num.bitXor(high, high) == zero);
+    require(num.bitAnd(high, zero) == zero);
+    require(num.bitOr(high, zero) == high);
+    ok<CInt8>(num.checkedAdd(low, zero), low);
+    ok<CInt8>(num.checkedMul(low, zero), zero);
     try {
-        let unexpected1 = checkedAdd(high, one);
+        let unexpected1 = num.checkedAdd(high, one);
         require(false);
     }
     catch [problem1: Error, ...rest1] {
-        require(errorCode(problem1) == 300);
+        require(err.code(problem1) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest1) == 0);
     }
     try {
-        let unexpected2 = checkedSub(low, one);
+        let unexpected2 = num.checkedSub(low, one);
         require(false);
     }
     catch [problem2: Error, ...rest2] {
-        require(errorCode(problem2) == 300);
+        require(err.code(problem2) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest2) == 0);
     }
     try {
-        let unexpected3 = checkedMul(high, two);
+        let unexpected3 = num.checkedMul(high, two);
         require(false);
     }
     catch [problem3: Error, ...rest3] {
-        require(errorCode(problem3) == 300);
+        require(err.code(problem3) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest3) == 0);
     }
-    ok<CInt8>(shiftLeft(one, 0), one);
-    ok<CInt8>(shiftRight(high, 0), high);
-    ok<CInt8>(shiftLeft(one, 7), CInt8(-128));
-    ok<CInt8>(shiftRight(low, 7), CInt8(-1));
+    ok<CInt8>(num.shiftLeft(one, 0), one);
+    ok<CInt8>(num.shiftRight(high, 0), high);
+    ok<CInt8>(num.shiftLeft(one, 7), CInt8(-128));
+    ok<CInt8>(num.shiftRight(low, 7), CInt8(-1));
     try {
-        let unexpected4 = shiftLeft(one, -1);
+        let unexpected4 = num.shiftLeft(one, -1);
         require(false);
     }
     catch [problem4: Error, ...rest4] {
-        require(errorCode(problem4) == 301);
+        require(err.code(problem4) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest4) == 0);
     }
     try {
-        let unexpected5 = shiftRight(one, -1);
+        let unexpected5 = num.shiftRight(one, -1);
         require(false);
     }
     catch [problem5: Error, ...rest5] {
-        require(errorCode(problem5) == 301);
+        require(err.code(problem5) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest5) == 0);
     }
     try {
-        let unexpected6 = shiftLeft(one, 8);
+        let unexpected6 = num.shiftLeft(one, 8);
         require(false);
     }
     catch [problem6: Error, ...rest6] {
-        require(errorCode(problem6) == 301);
+        require(err.code(problem6) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest6) == 0);
     }
     try {
-        let unexpected7 = shiftRight(one, 8);
+        let unexpected7 = num.shiftRight(one, 8);
         require(false);
     }
     catch [problem7: Error, ...rest7] {
-        require(errorCode(problem7) == 301);
+        require(err.code(problem7) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest7) == 0);
     }
     try {
-        let unexpected8 = shiftLeft(one, 9);
+        let unexpected8 = num.shiftLeft(one, 9);
         require(false);
     }
     catch [problem8: Error, ...rest8] {
-        require(errorCode(problem8) == 301);
+        require(err.code(problem8) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest8) == 0);
     }
     try {
-        let unexpected9 = shiftRight(one, 9);
+        let unexpected9 = num.shiftRight(one, 9);
         require(false);
     }
     catch [problem9: Error, ...rest9] {
-        require(errorCode(problem9) == 301);
+        require(err.code(problem9) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest9) == 0);
     }
     try {
-        let unexpected10 = shiftLeft(one, 9223372036854775807);
+        let unexpected10 = num.shiftLeft(one, 9223372036854775807);
         require(false);
     }
     catch [problem10: Error, ...rest10] {
-        require(errorCode(problem10) == 301);
+        require(err.code(problem10) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest10) == 0);
     }
     try {
-        let unexpected11 = shiftRight(one, 9223372036854775807);
+        let unexpected11 = num.shiftRight(one, 9223372036854775807);
         require(false);
     }
     catch [problem11: Error, ...rest11] {
-        require(errorCode(problem11) == 301);
+        require(err.code(problem11) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest11) == 0);
     }
     try {
-        let unexpected12 = shiftLeft(one, -9223372036854775808);
+        let unexpected12 = num.shiftLeft(one, -9223372036854775808);
         require(false);
     }
     catch [problem12: Error, ...rest12] {
-        require(errorCode(problem12) == 301);
+        require(err.code(problem12) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest12) == 0);
     }
     try {
-        let unexpected13 = shiftRight(one, -9223372036854775808);
+        let unexpected13 = num.shiftRight(one, -9223372036854775808);
         require(false);
     }
     catch [problem13: Error, ...rest13] {
-        require(errorCode(problem13) == 301);
+        require(err.code(problem13) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest13) == 0);
     }
     let bits: CInt8 = 0x7F;
@@ -144,121 +147,121 @@ fn width1() {
     let zero: CInt16 = 0;
     let one: CInt16 = 1;
     let two: CInt16 = 2;
-    require(wrappingAdd(high, one) == low);
-    require(wrappingSub(low, one) == high);
-    require(wrappingMul(high, two) == CInt16(-2));
-    require(bitNot(zero) == wrappingSub(zero, one));
-    require(bitXor(high, high) == zero);
-    require(bitAnd(high, zero) == zero);
-    require(bitOr(high, zero) == high);
-    ok<CInt16>(checkedAdd(low, zero), low);
-    ok<CInt16>(checkedMul(low, zero), zero);
+    require(num.wrappingAdd(high, one) == low);
+    require(num.wrappingSub(low, one) == high);
+    require(num.wrappingMul(high, two) == CInt16(-2));
+    require(num.bitNot(zero) == num.wrappingSub(zero, one));
+    require(num.bitXor(high, high) == zero);
+    require(num.bitAnd(high, zero) == zero);
+    require(num.bitOr(high, zero) == high);
+    ok<CInt16>(num.checkedAdd(low, zero), low);
+    ok<CInt16>(num.checkedMul(low, zero), zero);
     try {
-        let unexpected14 = checkedAdd(high, one);
+        let unexpected14 = num.checkedAdd(high, one);
         require(false);
     }
     catch [problem14: Error, ...rest14] {
-        require(errorCode(problem14) == 300);
+        require(err.code(problem14) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest14) == 0);
     }
     try {
-        let unexpected15 = checkedSub(low, one);
+        let unexpected15 = num.checkedSub(low, one);
         require(false);
     }
     catch [problem15: Error, ...rest15] {
-        require(errorCode(problem15) == 300);
+        require(err.code(problem15) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest15) == 0);
     }
     try {
-        let unexpected16 = checkedMul(high, two);
+        let unexpected16 = num.checkedMul(high, two);
         require(false);
     }
     catch [problem16: Error, ...rest16] {
-        require(errorCode(problem16) == 300);
+        require(err.code(problem16) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest16) == 0);
     }
-    ok<CInt16>(shiftLeft(one, 0), one);
-    ok<CInt16>(shiftRight(high, 0), high);
-    ok<CInt16>(shiftLeft(one, 15), CInt16(-32768));
-    ok<CInt16>(shiftRight(low, 15), CInt16(-1));
+    ok<CInt16>(num.shiftLeft(one, 0), one);
+    ok<CInt16>(num.shiftRight(high, 0), high);
+    ok<CInt16>(num.shiftLeft(one, 15), CInt16(-32768));
+    ok<CInt16>(num.shiftRight(low, 15), CInt16(-1));
     try {
-        let unexpected17 = shiftLeft(one, -1);
+        let unexpected17 = num.shiftLeft(one, -1);
         require(false);
     }
     catch [problem17: Error, ...rest17] {
-        require(errorCode(problem17) == 301);
+        require(err.code(problem17) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest17) == 0);
     }
     try {
-        let unexpected18 = shiftRight(one, -1);
+        let unexpected18 = num.shiftRight(one, -1);
         require(false);
     }
     catch [problem18: Error, ...rest18] {
-        require(errorCode(problem18) == 301);
+        require(err.code(problem18) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest18) == 0);
     }
     try {
-        let unexpected19 = shiftLeft(one, 16);
+        let unexpected19 = num.shiftLeft(one, 16);
         require(false);
     }
     catch [problem19: Error, ...rest19] {
-        require(errorCode(problem19) == 301);
+        require(err.code(problem19) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest19) == 0);
     }
     try {
-        let unexpected20 = shiftRight(one, 16);
+        let unexpected20 = num.shiftRight(one, 16);
         require(false);
     }
     catch [problem20: Error, ...rest20] {
-        require(errorCode(problem20) == 301);
+        require(err.code(problem20) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest20) == 0);
     }
     try {
-        let unexpected21 = shiftLeft(one, 17);
+        let unexpected21 = num.shiftLeft(one, 17);
         require(false);
     }
     catch [problem21: Error, ...rest21] {
-        require(errorCode(problem21) == 301);
+        require(err.code(problem21) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest21) == 0);
     }
     try {
-        let unexpected22 = shiftRight(one, 17);
+        let unexpected22 = num.shiftRight(one, 17);
         require(false);
     }
     catch [problem22: Error, ...rest22] {
-        require(errorCode(problem22) == 301);
+        require(err.code(problem22) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest22) == 0);
     }
     try {
-        let unexpected23 = shiftLeft(one, 9223372036854775807);
+        let unexpected23 = num.shiftLeft(one, 9223372036854775807);
         require(false);
     }
     catch [problem23: Error, ...rest23] {
-        require(errorCode(problem23) == 301);
+        require(err.code(problem23) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest23) == 0);
     }
     try {
-        let unexpected24 = shiftRight(one, 9223372036854775807);
+        let unexpected24 = num.shiftRight(one, 9223372036854775807);
         require(false);
     }
     catch [problem24: Error, ...rest24] {
-        require(errorCode(problem24) == 301);
+        require(err.code(problem24) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest24) == 0);
     }
     try {
-        let unexpected25 = shiftLeft(one, -9223372036854775808);
+        let unexpected25 = num.shiftLeft(one, -9223372036854775808);
         require(false);
     }
     catch [problem25: Error, ...rest25] {
-        require(errorCode(problem25) == 301);
+        require(err.code(problem25) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest25) == 0);
     }
     try {
-        let unexpected26 = shiftRight(one, -9223372036854775808);
+        let unexpected26 = num.shiftRight(one, -9223372036854775808);
         require(false);
     }
     catch [problem26: Error, ...rest26] {
-        require(errorCode(problem26) == 301);
+        require(err.code(problem26) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest26) == 0);
     }
     let bits: CInt16 = 0b0111_1111;
@@ -271,121 +274,121 @@ fn width2() {
     let zero: CInt32 = 0;
     let one: CInt32 = 1;
     let two: CInt32 = 2;
-    require(wrappingAdd(high, one) == low);
-    require(wrappingSub(low, one) == high);
-    require(wrappingMul(high, two) == CInt32(-2));
-    require(bitNot(zero) == wrappingSub(zero, one));
-    require(bitXor(high, high) == zero);
-    require(bitAnd(high, zero) == zero);
-    require(bitOr(high, zero) == high);
-    ok<CInt32>(checkedAdd(low, zero), low);
-    ok<CInt32>(checkedMul(low, zero), zero);
+    require(num.wrappingAdd(high, one) == low);
+    require(num.wrappingSub(low, one) == high);
+    require(num.wrappingMul(high, two) == CInt32(-2));
+    require(num.bitNot(zero) == num.wrappingSub(zero, one));
+    require(num.bitXor(high, high) == zero);
+    require(num.bitAnd(high, zero) == zero);
+    require(num.bitOr(high, zero) == high);
+    ok<CInt32>(num.checkedAdd(low, zero), low);
+    ok<CInt32>(num.checkedMul(low, zero), zero);
     try {
-        let unexpected27 = checkedAdd(high, one);
+        let unexpected27 = num.checkedAdd(high, one);
         require(false);
     }
     catch [problem27: Error, ...rest27] {
-        require(errorCode(problem27) == 300);
+        require(err.code(problem27) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest27) == 0);
     }
     try {
-        let unexpected28 = checkedSub(low, one);
+        let unexpected28 = num.checkedSub(low, one);
         require(false);
     }
     catch [problem28: Error, ...rest28] {
-        require(errorCode(problem28) == 300);
+        require(err.code(problem28) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest28) == 0);
     }
     try {
-        let unexpected29 = checkedMul(high, two);
+        let unexpected29 = num.checkedMul(high, two);
         require(false);
     }
     catch [problem29: Error, ...rest29] {
-        require(errorCode(problem29) == 300);
+        require(err.code(problem29) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest29) == 0);
     }
-    ok<CInt32>(shiftLeft(one, 0), one);
-    ok<CInt32>(shiftRight(high, 0), high);
-    ok<CInt32>(shiftLeft(one, 31), CInt32(-2147483648));
-    ok<CInt32>(shiftRight(low, 31), CInt32(-1));
+    ok<CInt32>(num.shiftLeft(one, 0), one);
+    ok<CInt32>(num.shiftRight(high, 0), high);
+    ok<CInt32>(num.shiftLeft(one, 31), CInt32(-2147483648));
+    ok<CInt32>(num.shiftRight(low, 31), CInt32(-1));
     try {
-        let unexpected30 = shiftLeft(one, -1);
+        let unexpected30 = num.shiftLeft(one, -1);
         require(false);
     }
     catch [problem30: Error, ...rest30] {
-        require(errorCode(problem30) == 301);
+        require(err.code(problem30) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest30) == 0);
     }
     try {
-        let unexpected31 = shiftRight(one, -1);
+        let unexpected31 = num.shiftRight(one, -1);
         require(false);
     }
     catch [problem31: Error, ...rest31] {
-        require(errorCode(problem31) == 301);
+        require(err.code(problem31) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest31) == 0);
     }
     try {
-        let unexpected32 = shiftLeft(one, 32);
+        let unexpected32 = num.shiftLeft(one, 32);
         require(false);
     }
     catch [problem32: Error, ...rest32] {
-        require(errorCode(problem32) == 301);
+        require(err.code(problem32) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest32) == 0);
     }
     try {
-        let unexpected33 = shiftRight(one, 32);
+        let unexpected33 = num.shiftRight(one, 32);
         require(false);
     }
     catch [problem33: Error, ...rest33] {
-        require(errorCode(problem33) == 301);
+        require(err.code(problem33) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest33) == 0);
     }
     try {
-        let unexpected34 = shiftLeft(one, 33);
+        let unexpected34 = num.shiftLeft(one, 33);
         require(false);
     }
     catch [problem34: Error, ...rest34] {
-        require(errorCode(problem34) == 301);
+        require(err.code(problem34) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest34) == 0);
     }
     try {
-        let unexpected35 = shiftRight(one, 33);
+        let unexpected35 = num.shiftRight(one, 33);
         require(false);
     }
     catch [problem35: Error, ...rest35] {
-        require(errorCode(problem35) == 301);
+        require(err.code(problem35) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest35) == 0);
     }
     try {
-        let unexpected36 = shiftLeft(one, 9223372036854775807);
+        let unexpected36 = num.shiftLeft(one, 9223372036854775807);
         require(false);
     }
     catch [problem36: Error, ...rest36] {
-        require(errorCode(problem36) == 301);
+        require(err.code(problem36) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest36) == 0);
     }
     try {
-        let unexpected37 = shiftRight(one, 9223372036854775807);
+        let unexpected37 = num.shiftRight(one, 9223372036854775807);
         require(false);
     }
     catch [problem37: Error, ...rest37] {
-        require(errorCode(problem37) == 301);
+        require(err.code(problem37) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest37) == 0);
     }
     try {
-        let unexpected38 = shiftLeft(one, -9223372036854775808);
+        let unexpected38 = num.shiftLeft(one, -9223372036854775808);
         require(false);
     }
     catch [problem38: Error, ...rest38] {
-        require(errorCode(problem38) == 301);
+        require(err.code(problem38) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest38) == 0);
     }
     try {
-        let unexpected39 = shiftRight(one, -9223372036854775808);
+        let unexpected39 = num.shiftRight(one, -9223372036854775808);
         require(false);
     }
     catch [problem39: Error, ...rest39] {
-        require(errorCode(problem39) == 301);
+        require(err.code(problem39) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest39) == 0);
     }
     let bits: CInt32 = 0b0111_1111;
@@ -398,121 +401,121 @@ fn width3() {
     let zero: CInt64 = 0;
     let one: CInt64 = 1;
     let two: CInt64 = 2;
-    require(wrappingAdd(high, one) == low);
-    require(wrappingSub(low, one) == high);
-    require(wrappingMul(high, two) == CInt64(-2));
-    require(bitNot(zero) == wrappingSub(zero, one));
-    require(bitXor(high, high) == zero);
-    require(bitAnd(high, zero) == zero);
-    require(bitOr(high, zero) == high);
-    ok<CInt64>(checkedAdd(low, zero), low);
-    ok<CInt64>(checkedMul(low, zero), zero);
+    require(num.wrappingAdd(high, one) == low);
+    require(num.wrappingSub(low, one) == high);
+    require(num.wrappingMul(high, two) == CInt64(-2));
+    require(num.bitNot(zero) == num.wrappingSub(zero, one));
+    require(num.bitXor(high, high) == zero);
+    require(num.bitAnd(high, zero) == zero);
+    require(num.bitOr(high, zero) == high);
+    ok<CInt64>(num.checkedAdd(low, zero), low);
+    ok<CInt64>(num.checkedMul(low, zero), zero);
     try {
-        let unexpected40 = checkedAdd(high, one);
+        let unexpected40 = num.checkedAdd(high, one);
         require(false);
     }
     catch [problem40: Error, ...rest40] {
-        require(errorCode(problem40) == 300);
+        require(err.code(problem40) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest40) == 0);
     }
     try {
-        let unexpected41 = checkedSub(low, one);
+        let unexpected41 = num.checkedSub(low, one);
         require(false);
     }
     catch [problem41: Error, ...rest41] {
-        require(errorCode(problem41) == 300);
+        require(err.code(problem41) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest41) == 0);
     }
     try {
-        let unexpected42 = checkedMul(high, two);
+        let unexpected42 = num.checkedMul(high, two);
         require(false);
     }
     catch [problem42: Error, ...rest42] {
-        require(errorCode(problem42) == 300);
+        require(err.code(problem42) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest42) == 0);
     }
-    ok<CInt64>(shiftLeft(one, 0), one);
-    ok<CInt64>(shiftRight(high, 0), high);
-    ok<CInt64>(shiftLeft(one, 63), CInt64(-9223372036854775808));
-    ok<CInt64>(shiftRight(low, 63), CInt64(-1));
+    ok<CInt64>(num.shiftLeft(one, 0), one);
+    ok<CInt64>(num.shiftRight(high, 0), high);
+    ok<CInt64>(num.shiftLeft(one, 63), CInt64(-9223372036854775808));
+    ok<CInt64>(num.shiftRight(low, 63), CInt64(-1));
     try {
-        let unexpected43 = shiftLeft(one, -1);
+        let unexpected43 = num.shiftLeft(one, -1);
         require(false);
     }
     catch [problem43: Error, ...rest43] {
-        require(errorCode(problem43) == 301);
+        require(err.code(problem43) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest43) == 0);
     }
     try {
-        let unexpected44 = shiftRight(one, -1);
+        let unexpected44 = num.shiftRight(one, -1);
         require(false);
     }
     catch [problem44: Error, ...rest44] {
-        require(errorCode(problem44) == 301);
+        require(err.code(problem44) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest44) == 0);
     }
     try {
-        let unexpected45 = shiftLeft(one, 64);
+        let unexpected45 = num.shiftLeft(one, 64);
         require(false);
     }
     catch [problem45: Error, ...rest45] {
-        require(errorCode(problem45) == 301);
+        require(err.code(problem45) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest45) == 0);
     }
     try {
-        let unexpected46 = shiftRight(one, 64);
+        let unexpected46 = num.shiftRight(one, 64);
         require(false);
     }
     catch [problem46: Error, ...rest46] {
-        require(errorCode(problem46) == 301);
+        require(err.code(problem46) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest46) == 0);
     }
     try {
-        let unexpected47 = shiftLeft(one, 65);
+        let unexpected47 = num.shiftLeft(one, 65);
         require(false);
     }
     catch [problem47: Error, ...rest47] {
-        require(errorCode(problem47) == 301);
+        require(err.code(problem47) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest47) == 0);
     }
     try {
-        let unexpected48 = shiftRight(one, 65);
+        let unexpected48 = num.shiftRight(one, 65);
         require(false);
     }
     catch [problem48: Error, ...rest48] {
-        require(errorCode(problem48) == 301);
+        require(err.code(problem48) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest48) == 0);
     }
     try {
-        let unexpected49 = shiftLeft(one, 9223372036854775807);
+        let unexpected49 = num.shiftLeft(one, 9223372036854775807);
         require(false);
     }
     catch [problem49: Error, ...rest49] {
-        require(errorCode(problem49) == 301);
+        require(err.code(problem49) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest49) == 0);
     }
     try {
-        let unexpected50 = shiftRight(one, 9223372036854775807);
+        let unexpected50 = num.shiftRight(one, 9223372036854775807);
         require(false);
     }
     catch [problem50: Error, ...rest50] {
-        require(errorCode(problem50) == 301);
+        require(err.code(problem50) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest50) == 0);
     }
     try {
-        let unexpected51 = shiftLeft(one, -9223372036854775808);
+        let unexpected51 = num.shiftLeft(one, -9223372036854775808);
         require(false);
     }
     catch [problem51: Error, ...rest51] {
-        require(errorCode(problem51) == 301);
+        require(err.code(problem51) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest51) == 0);
     }
     try {
-        let unexpected52 = shiftRight(one, -9223372036854775808);
+        let unexpected52 = num.shiftRight(one, -9223372036854775808);
         require(false);
     }
     catch [problem52: Error, ...rest52] {
-        require(errorCode(problem52) == 301);
+        require(err.code(problem52) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest52) == 0);
     }
     let bits: CInt64 = 0b0111_1111;
@@ -525,121 +528,121 @@ fn width4() {
     let zero: CUInt8 = 0;
     let one: CUInt8 = 1;
     let two: CUInt8 = 2;
-    require(wrappingAdd(high, one) == low);
-    require(wrappingSub(low, one) == high);
-    require(wrappingMul(high, two) == CUInt8(254));
-    require(bitNot(zero) == wrappingSub(zero, one));
-    require(bitXor(high, high) == zero);
-    require(bitAnd(high, zero) == zero);
-    require(bitOr(high, zero) == high);
-    ok<CUInt8>(checkedAdd(low, zero), low);
-    ok<CUInt8>(checkedMul(low, zero), zero);
+    require(num.wrappingAdd(high, one) == low);
+    require(num.wrappingSub(low, one) == high);
+    require(num.wrappingMul(high, two) == CUInt8(254));
+    require(num.bitNot(zero) == num.wrappingSub(zero, one));
+    require(num.bitXor(high, high) == zero);
+    require(num.bitAnd(high, zero) == zero);
+    require(num.bitOr(high, zero) == high);
+    ok<CUInt8>(num.checkedAdd(low, zero), low);
+    ok<CUInt8>(num.checkedMul(low, zero), zero);
     try {
-        let unexpected53 = checkedAdd(high, one);
+        let unexpected53 = num.checkedAdd(high, one);
         require(false);
     }
     catch [problem53: Error, ...rest53] {
-        require(errorCode(problem53) == 300);
+        require(err.code(problem53) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest53) == 0);
     }
     try {
-        let unexpected54 = checkedSub(low, one);
+        let unexpected54 = num.checkedSub(low, one);
         require(false);
     }
     catch [problem54: Error, ...rest54] {
-        require(errorCode(problem54) == 300);
+        require(err.code(problem54) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest54) == 0);
     }
     try {
-        let unexpected55 = checkedMul(high, two);
+        let unexpected55 = num.checkedMul(high, two);
         require(false);
     }
     catch [problem55: Error, ...rest55] {
-        require(errorCode(problem55) == 300);
+        require(err.code(problem55) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest55) == 0);
     }
-    ok<CUInt8>(shiftLeft(one, 0), one);
-    ok<CUInt8>(shiftRight(high, 0), high);
-    ok<CUInt8>(shiftLeft(one, 7), CUInt8(128));
-    ok<CUInt8>(shiftRight(high, 7), CUInt8(1));
+    ok<CUInt8>(num.shiftLeft(one, 0), one);
+    ok<CUInt8>(num.shiftRight(high, 0), high);
+    ok<CUInt8>(num.shiftLeft(one, 7), CUInt8(128));
+    ok<CUInt8>(num.shiftRight(high, 7), CUInt8(1));
     try {
-        let unexpected56 = shiftLeft(one, -1);
+        let unexpected56 = num.shiftLeft(one, -1);
         require(false);
     }
     catch [problem56: Error, ...rest56] {
-        require(errorCode(problem56) == 301);
+        require(err.code(problem56) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest56) == 0);
     }
     try {
-        let unexpected57 = shiftRight(one, -1);
+        let unexpected57 = num.shiftRight(one, -1);
         require(false);
     }
     catch [problem57: Error, ...rest57] {
-        require(errorCode(problem57) == 301);
+        require(err.code(problem57) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest57) == 0);
     }
     try {
-        let unexpected58 = shiftLeft(one, 8);
+        let unexpected58 = num.shiftLeft(one, 8);
         require(false);
     }
     catch [problem58: Error, ...rest58] {
-        require(errorCode(problem58) == 301);
+        require(err.code(problem58) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest58) == 0);
     }
     try {
-        let unexpected59 = shiftRight(one, 8);
+        let unexpected59 = num.shiftRight(one, 8);
         require(false);
     }
     catch [problem59: Error, ...rest59] {
-        require(errorCode(problem59) == 301);
+        require(err.code(problem59) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest59) == 0);
     }
     try {
-        let unexpected60 = shiftLeft(one, 9);
+        let unexpected60 = num.shiftLeft(one, 9);
         require(false);
     }
     catch [problem60: Error, ...rest60] {
-        require(errorCode(problem60) == 301);
+        require(err.code(problem60) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest60) == 0);
     }
     try {
-        let unexpected61 = shiftRight(one, 9);
+        let unexpected61 = num.shiftRight(one, 9);
         require(false);
     }
     catch [problem61: Error, ...rest61] {
-        require(errorCode(problem61) == 301);
+        require(err.code(problem61) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest61) == 0);
     }
     try {
-        let unexpected62 = shiftLeft(one, 9223372036854775807);
+        let unexpected62 = num.shiftLeft(one, 9223372036854775807);
         require(false);
     }
     catch [problem62: Error, ...rest62] {
-        require(errorCode(problem62) == 301);
+        require(err.code(problem62) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest62) == 0);
     }
     try {
-        let unexpected63 = shiftRight(one, 9223372036854775807);
+        let unexpected63 = num.shiftRight(one, 9223372036854775807);
         require(false);
     }
     catch [problem63: Error, ...rest63] {
-        require(errorCode(problem63) == 301);
+        require(err.code(problem63) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest63) == 0);
     }
     try {
-        let unexpected64 = shiftLeft(one, -9223372036854775808);
+        let unexpected64 = num.shiftLeft(one, -9223372036854775808);
         require(false);
     }
     catch [problem64: Error, ...rest64] {
-        require(errorCode(problem64) == 301);
+        require(err.code(problem64) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest64) == 0);
     }
     try {
-        let unexpected65 = shiftRight(one, -9223372036854775808);
+        let unexpected65 = num.shiftRight(one, -9223372036854775808);
         require(false);
     }
     catch [problem65: Error, ...rest65] {
-        require(errorCode(problem65) == 301);
+        require(err.code(problem65) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest65) == 0);
     }
     let bits: CUInt8 = 0b0111_1111;
@@ -652,121 +655,121 @@ fn width5() {
     let zero: CUInt16 = 0;
     let one: CUInt16 = 1;
     let two: CUInt16 = 2;
-    require(wrappingAdd(high, one) == low);
-    require(wrappingSub(low, one) == high);
-    require(wrappingMul(high, two) == CUInt16(65534));
-    require(bitNot(zero) == wrappingSub(zero, one));
-    require(bitXor(high, high) == zero);
-    require(bitAnd(high, zero) == zero);
-    require(bitOr(high, zero) == high);
-    ok<CUInt16>(checkedAdd(low, zero), low);
-    ok<CUInt16>(checkedMul(low, zero), zero);
+    require(num.wrappingAdd(high, one) == low);
+    require(num.wrappingSub(low, one) == high);
+    require(num.wrappingMul(high, two) == CUInt16(65534));
+    require(num.bitNot(zero) == num.wrappingSub(zero, one));
+    require(num.bitXor(high, high) == zero);
+    require(num.bitAnd(high, zero) == zero);
+    require(num.bitOr(high, zero) == high);
+    ok<CUInt16>(num.checkedAdd(low, zero), low);
+    ok<CUInt16>(num.checkedMul(low, zero), zero);
     try {
-        let unexpected66 = checkedAdd(high, one);
+        let unexpected66 = num.checkedAdd(high, one);
         require(false);
     }
     catch [problem66: Error, ...rest66] {
-        require(errorCode(problem66) == 300);
+        require(err.code(problem66) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest66) == 0);
     }
     try {
-        let unexpected67 = checkedSub(low, one);
+        let unexpected67 = num.checkedSub(low, one);
         require(false);
     }
     catch [problem67: Error, ...rest67] {
-        require(errorCode(problem67) == 300);
+        require(err.code(problem67) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest67) == 0);
     }
     try {
-        let unexpected68 = checkedMul(high, two);
+        let unexpected68 = num.checkedMul(high, two);
         require(false);
     }
     catch [problem68: Error, ...rest68] {
-        require(errorCode(problem68) == 300);
+        require(err.code(problem68) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest68) == 0);
     }
-    ok<CUInt16>(shiftLeft(one, 0), one);
-    ok<CUInt16>(shiftRight(high, 0), high);
-    ok<CUInt16>(shiftLeft(one, 15), CUInt16(32768));
-    ok<CUInt16>(shiftRight(high, 15), CUInt16(1));
+    ok<CUInt16>(num.shiftLeft(one, 0), one);
+    ok<CUInt16>(num.shiftRight(high, 0), high);
+    ok<CUInt16>(num.shiftLeft(one, 15), CUInt16(32768));
+    ok<CUInt16>(num.shiftRight(high, 15), CUInt16(1));
     try {
-        let unexpected69 = shiftLeft(one, -1);
+        let unexpected69 = num.shiftLeft(one, -1);
         require(false);
     }
     catch [problem69: Error, ...rest69] {
-        require(errorCode(problem69) == 301);
+        require(err.code(problem69) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest69) == 0);
     }
     try {
-        let unexpected70 = shiftRight(one, -1);
+        let unexpected70 = num.shiftRight(one, -1);
         require(false);
     }
     catch [problem70: Error, ...rest70] {
-        require(errorCode(problem70) == 301);
+        require(err.code(problem70) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest70) == 0);
     }
     try {
-        let unexpected71 = shiftLeft(one, 16);
+        let unexpected71 = num.shiftLeft(one, 16);
         require(false);
     }
     catch [problem71: Error, ...rest71] {
-        require(errorCode(problem71) == 301);
+        require(err.code(problem71) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest71) == 0);
     }
     try {
-        let unexpected72 = shiftRight(one, 16);
+        let unexpected72 = num.shiftRight(one, 16);
         require(false);
     }
     catch [problem72: Error, ...rest72] {
-        require(errorCode(problem72) == 301);
+        require(err.code(problem72) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest72) == 0);
     }
     try {
-        let unexpected73 = shiftLeft(one, 17);
+        let unexpected73 = num.shiftLeft(one, 17);
         require(false);
     }
     catch [problem73: Error, ...rest73] {
-        require(errorCode(problem73) == 301);
+        require(err.code(problem73) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest73) == 0);
     }
     try {
-        let unexpected74 = shiftRight(one, 17);
+        let unexpected74 = num.shiftRight(one, 17);
         require(false);
     }
     catch [problem74: Error, ...rest74] {
-        require(errorCode(problem74) == 301);
+        require(err.code(problem74) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest74) == 0);
     }
     try {
-        let unexpected75 = shiftLeft(one, 9223372036854775807);
+        let unexpected75 = num.shiftLeft(one, 9223372036854775807);
         require(false);
     }
     catch [problem75: Error, ...rest75] {
-        require(errorCode(problem75) == 301);
+        require(err.code(problem75) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest75) == 0);
     }
     try {
-        let unexpected76 = shiftRight(one, 9223372036854775807);
+        let unexpected76 = num.shiftRight(one, 9223372036854775807);
         require(false);
     }
     catch [problem76: Error, ...rest76] {
-        require(errorCode(problem76) == 301);
+        require(err.code(problem76) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest76) == 0);
     }
     try {
-        let unexpected77 = shiftLeft(one, -9223372036854775808);
+        let unexpected77 = num.shiftLeft(one, -9223372036854775808);
         require(false);
     }
     catch [problem77: Error, ...rest77] {
-        require(errorCode(problem77) == 301);
+        require(err.code(problem77) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest77) == 0);
     }
     try {
-        let unexpected78 = shiftRight(one, -9223372036854775808);
+        let unexpected78 = num.shiftRight(one, -9223372036854775808);
         require(false);
     }
     catch [problem78: Error, ...rest78] {
-        require(errorCode(problem78) == 301);
+        require(err.code(problem78) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest78) == 0);
     }
     let bits: CUInt16 = 0b0111_1111;
@@ -779,121 +782,121 @@ fn width6() {
     let zero: CUInt32 = 0;
     let one: CUInt32 = 1;
     let two: CUInt32 = 2;
-    require(wrappingAdd(high, one) == low);
-    require(wrappingSub(low, one) == high);
-    require(wrappingMul(high, two) == CUInt32(4294967294));
-    require(bitNot(zero) == wrappingSub(zero, one));
-    require(bitXor(high, high) == zero);
-    require(bitAnd(high, zero) == zero);
-    require(bitOr(high, zero) == high);
-    ok<CUInt32>(checkedAdd(low, zero), low);
-    ok<CUInt32>(checkedMul(low, zero), zero);
+    require(num.wrappingAdd(high, one) == low);
+    require(num.wrappingSub(low, one) == high);
+    require(num.wrappingMul(high, two) == CUInt32(4294967294));
+    require(num.bitNot(zero) == num.wrappingSub(zero, one));
+    require(num.bitXor(high, high) == zero);
+    require(num.bitAnd(high, zero) == zero);
+    require(num.bitOr(high, zero) == high);
+    ok<CUInt32>(num.checkedAdd(low, zero), low);
+    ok<CUInt32>(num.checkedMul(low, zero), zero);
     try {
-        let unexpected79 = checkedAdd(high, one);
+        let unexpected79 = num.checkedAdd(high, one);
         require(false);
     }
     catch [problem79: Error, ...rest79] {
-        require(errorCode(problem79) == 300);
+        require(err.code(problem79) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest79) == 0);
     }
     try {
-        let unexpected80 = checkedSub(low, one);
+        let unexpected80 = num.checkedSub(low, one);
         require(false);
     }
     catch [problem80: Error, ...rest80] {
-        require(errorCode(problem80) == 300);
+        require(err.code(problem80) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest80) == 0);
     }
     try {
-        let unexpected81 = checkedMul(high, two);
+        let unexpected81 = num.checkedMul(high, two);
         require(false);
     }
     catch [problem81: Error, ...rest81] {
-        require(errorCode(problem81) == 300);
+        require(err.code(problem81) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest81) == 0);
     }
-    ok<CUInt32>(shiftLeft(one, 0), one);
-    ok<CUInt32>(shiftRight(high, 0), high);
-    ok<CUInt32>(shiftLeft(one, 31), CUInt32(2147483648));
-    ok<CUInt32>(shiftRight(high, 31), CUInt32(1));
+    ok<CUInt32>(num.shiftLeft(one, 0), one);
+    ok<CUInt32>(num.shiftRight(high, 0), high);
+    ok<CUInt32>(num.shiftLeft(one, 31), CUInt32(2147483648));
+    ok<CUInt32>(num.shiftRight(high, 31), CUInt32(1));
     try {
-        let unexpected82 = shiftLeft(one, -1);
+        let unexpected82 = num.shiftLeft(one, -1);
         require(false);
     }
     catch [problem82: Error, ...rest82] {
-        require(errorCode(problem82) == 301);
+        require(err.code(problem82) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest82) == 0);
     }
     try {
-        let unexpected83 = shiftRight(one, -1);
+        let unexpected83 = num.shiftRight(one, -1);
         require(false);
     }
     catch [problem83: Error, ...rest83] {
-        require(errorCode(problem83) == 301);
+        require(err.code(problem83) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest83) == 0);
     }
     try {
-        let unexpected84 = shiftLeft(one, 32);
+        let unexpected84 = num.shiftLeft(one, 32);
         require(false);
     }
     catch [problem84: Error, ...rest84] {
-        require(errorCode(problem84) == 301);
+        require(err.code(problem84) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest84) == 0);
     }
     try {
-        let unexpected85 = shiftRight(one, 32);
+        let unexpected85 = num.shiftRight(one, 32);
         require(false);
     }
     catch [problem85: Error, ...rest85] {
-        require(errorCode(problem85) == 301);
+        require(err.code(problem85) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest85) == 0);
     }
     try {
-        let unexpected86 = shiftLeft(one, 33);
+        let unexpected86 = num.shiftLeft(one, 33);
         require(false);
     }
     catch [problem86: Error, ...rest86] {
-        require(errorCode(problem86) == 301);
+        require(err.code(problem86) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest86) == 0);
     }
     try {
-        let unexpected87 = shiftRight(one, 33);
+        let unexpected87 = num.shiftRight(one, 33);
         require(false);
     }
     catch [problem87: Error, ...rest87] {
-        require(errorCode(problem87) == 301);
+        require(err.code(problem87) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest87) == 0);
     }
     try {
-        let unexpected88 = shiftLeft(one, 9223372036854775807);
+        let unexpected88 = num.shiftLeft(one, 9223372036854775807);
         require(false);
     }
     catch [problem88: Error, ...rest88] {
-        require(errorCode(problem88) == 301);
+        require(err.code(problem88) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest88) == 0);
     }
     try {
-        let unexpected89 = shiftRight(one, 9223372036854775807);
+        let unexpected89 = num.shiftRight(one, 9223372036854775807);
         require(false);
     }
     catch [problem89: Error, ...rest89] {
-        require(errorCode(problem89) == 301);
+        require(err.code(problem89) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest89) == 0);
     }
     try {
-        let unexpected90 = shiftLeft(one, -9223372036854775808);
+        let unexpected90 = num.shiftLeft(one, -9223372036854775808);
         require(false);
     }
     catch [problem90: Error, ...rest90] {
-        require(errorCode(problem90) == 301);
+        require(err.code(problem90) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest90) == 0);
     }
     try {
-        let unexpected91 = shiftRight(one, -9223372036854775808);
+        let unexpected91 = num.shiftRight(one, -9223372036854775808);
         require(false);
     }
     catch [problem91: Error, ...rest91] {
-        require(errorCode(problem91) == 301);
+        require(err.code(problem91) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest91) == 0);
     }
     let bits: CUInt32 = 0b0111_1111;
@@ -906,121 +909,121 @@ fn width7() {
     let zero: CUInt64 = 0;
     let one: CUInt64 = 1;
     let two: CUInt64 = 2;
-    require(wrappingAdd(high, one) == low);
-    require(wrappingSub(low, one) == high);
-    require(wrappingMul(high, two) == 18446744073709551614);
-    require(bitNot(zero) == wrappingSub(zero, one));
-    require(bitXor(high, high) == zero);
-    require(bitAnd(high, zero) == zero);
-    require(bitOr(high, zero) == high);
-    ok<CUInt64>(checkedAdd(low, zero), low);
-    ok<CUInt64>(checkedMul(low, zero), zero);
+    require(num.wrappingAdd(high, one) == low);
+    require(num.wrappingSub(low, one) == high);
+    require(num.wrappingMul(high, two) == 18446744073709551614);
+    require(num.bitNot(zero) == num.wrappingSub(zero, one));
+    require(num.bitXor(high, high) == zero);
+    require(num.bitAnd(high, zero) == zero);
+    require(num.bitOr(high, zero) == high);
+    ok<CUInt64>(num.checkedAdd(low, zero), low);
+    ok<CUInt64>(num.checkedMul(low, zero), zero);
     try {
-        let unexpected92 = checkedAdd(high, one);
+        let unexpected92 = num.checkedAdd(high, one);
         require(false);
     }
     catch [problem92: Error, ...rest92] {
-        require(errorCode(problem92) == 300);
+        require(err.code(problem92) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest92) == 0);
     }
     try {
-        let unexpected93 = checkedSub(low, one);
+        let unexpected93 = num.checkedSub(low, one);
         require(false);
     }
     catch [problem93: Error, ...rest93] {
-        require(errorCode(problem93) == 300);
+        require(err.code(problem93) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest93) == 0);
     }
     try {
-        let unexpected94 = checkedMul(high, two);
+        let unexpected94 = num.checkedMul(high, two);
         require(false);
     }
     catch [problem94: Error, ...rest94] {
-        require(errorCode(problem94) == 300);
+        require(err.code(problem94) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest94) == 0);
     }
-    ok<CUInt64>(shiftLeft(one, 0), one);
-    ok<CUInt64>(shiftRight(high, 0), high);
-    ok<CUInt64>(shiftLeft(one, 63), 9223372036854775808);
-    ok<CUInt64>(shiftRight(high, 63), CUInt64(1));
+    ok<CUInt64>(num.shiftLeft(one, 0), one);
+    ok<CUInt64>(num.shiftRight(high, 0), high);
+    ok<CUInt64>(num.shiftLeft(one, 63), 9223372036854775808);
+    ok<CUInt64>(num.shiftRight(high, 63), CUInt64(1));
     try {
-        let unexpected95 = shiftLeft(one, -1);
+        let unexpected95 = num.shiftLeft(one, -1);
         require(false);
     }
     catch [problem95: Error, ...rest95] {
-        require(errorCode(problem95) == 301);
+        require(err.code(problem95) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest95) == 0);
     }
     try {
-        let unexpected96 = shiftRight(one, -1);
+        let unexpected96 = num.shiftRight(one, -1);
         require(false);
     }
     catch [problem96: Error, ...rest96] {
-        require(errorCode(problem96) == 301);
+        require(err.code(problem96) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest96) == 0);
     }
     try {
-        let unexpected97 = shiftLeft(one, 64);
+        let unexpected97 = num.shiftLeft(one, 64);
         require(false);
     }
     catch [problem97: Error, ...rest97] {
-        require(errorCode(problem97) == 301);
+        require(err.code(problem97) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest97) == 0);
     }
     try {
-        let unexpected98 = shiftRight(one, 64);
+        let unexpected98 = num.shiftRight(one, 64);
         require(false);
     }
     catch [problem98: Error, ...rest98] {
-        require(errorCode(problem98) == 301);
+        require(err.code(problem98) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest98) == 0);
     }
     try {
-        let unexpected99 = shiftLeft(one, 65);
+        let unexpected99 = num.shiftLeft(one, 65);
         require(false);
     }
     catch [problem99: Error, ...rest99] {
-        require(errorCode(problem99) == 301);
+        require(err.code(problem99) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest99) == 0);
     }
     try {
-        let unexpected100 = shiftRight(one, 65);
+        let unexpected100 = num.shiftRight(one, 65);
         require(false);
     }
     catch [problem100: Error, ...rest100] {
-        require(errorCode(problem100) == 301);
+        require(err.code(problem100) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest100) == 0);
     }
     try {
-        let unexpected101 = shiftLeft(one, 9223372036854775807);
+        let unexpected101 = num.shiftLeft(one, 9223372036854775807);
         require(false);
     }
     catch [problem101: Error, ...rest101] {
-        require(errorCode(problem101) == 301);
+        require(err.code(problem101) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest101) == 0);
     }
     try {
-        let unexpected102 = shiftRight(one, 9223372036854775807);
+        let unexpected102 = num.shiftRight(one, 9223372036854775807);
         require(false);
     }
     catch [problem102: Error, ...rest102] {
-        require(errorCode(problem102) == 301);
+        require(err.code(problem102) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest102) == 0);
     }
     try {
-        let unexpected103 = shiftLeft(one, -9223372036854775808);
+        let unexpected103 = num.shiftLeft(one, -9223372036854775808);
         require(false);
     }
     catch [problem103: Error, ...rest103] {
-        require(errorCode(problem103) == 301);
+        require(err.code(problem103) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest103) == 0);
     }
     try {
-        let unexpected104 = shiftRight(one, -9223372036854775808);
+        let unexpected104 = num.shiftRight(one, -9223372036854775808);
         require(false);
     }
     catch [problem104: Error, ...rest104] {
-        require(errorCode(problem104) == 301);
+        require(err.code(problem104) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest104) == 0);
     }
     let bits: CUInt64 = 0b0111_1111;
@@ -1033,121 +1036,121 @@ fn width8() {
     let zero: Int = 0;
     let one: Int = 1;
     let two: Int = 2;
-    require(wrappingAdd(high, one) == low);
-    require(wrappingSub(low, one) == high);
-    require(wrappingMul(high, two) == Int(-2));
-    require(bitNot(zero) == wrappingSub(zero, one));
-    require(bitXor(high, high) == zero);
-    require(bitAnd(high, zero) == zero);
-    require(bitOr(high, zero) == high);
-    ok<Int>(checkedAdd(low, zero), low);
-    ok<Int>(checkedMul(low, zero), zero);
+    require(num.wrappingAdd(high, one) == low);
+    require(num.wrappingSub(low, one) == high);
+    require(num.wrappingMul(high, two) == Int(-2));
+    require(num.bitNot(zero) == num.wrappingSub(zero, one));
+    require(num.bitXor(high, high) == zero);
+    require(num.bitAnd(high, zero) == zero);
+    require(num.bitOr(high, zero) == high);
+    ok<Int>(num.checkedAdd(low, zero), low);
+    ok<Int>(num.checkedMul(low, zero), zero);
     try {
-        let unexpected105 = checkedAdd(high, one);
+        let unexpected105 = num.checkedAdd(high, one);
         require(false);
     }
     catch [problem105: Error, ...rest105] {
-        require(errorCode(problem105) == 300);
+        require(err.code(problem105) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest105) == 0);
     }
     try {
-        let unexpected106 = checkedSub(low, one);
+        let unexpected106 = num.checkedSub(low, one);
         require(false);
     }
     catch [problem106: Error, ...rest106] {
-        require(errorCode(problem106) == 300);
+        require(err.code(problem106) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest106) == 0);
     }
     try {
-        let unexpected107 = checkedMul(high, two);
+        let unexpected107 = num.checkedMul(high, two);
         require(false);
     }
     catch [problem107: Error, ...rest107] {
-        require(errorCode(problem107) == 300);
+        require(err.code(problem107) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest107) == 0);
     }
-    ok<Int>(shiftLeft(one, 0), one);
-    ok<Int>(shiftRight(high, 0), high);
-    ok<Int>(shiftLeft(one, 63), Int(-9223372036854775808));
-    ok<Int>(shiftRight(low, 63), Int(-1));
+    ok<Int>(num.shiftLeft(one, 0), one);
+    ok<Int>(num.shiftRight(high, 0), high);
+    ok<Int>(num.shiftLeft(one, 63), Int(-9223372036854775808));
+    ok<Int>(num.shiftRight(low, 63), Int(-1));
     try {
-        let unexpected108 = shiftLeft(one, -1);
+        let unexpected108 = num.shiftLeft(one, -1);
         require(false);
     }
     catch [problem108: Error, ...rest108] {
-        require(errorCode(problem108) == 301);
+        require(err.code(problem108) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest108) == 0);
     }
     try {
-        let unexpected109 = shiftRight(one, -1);
+        let unexpected109 = num.shiftRight(one, -1);
         require(false);
     }
     catch [problem109: Error, ...rest109] {
-        require(errorCode(problem109) == 301);
+        require(err.code(problem109) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest109) == 0);
     }
     try {
-        let unexpected110 = shiftLeft(one, 64);
+        let unexpected110 = num.shiftLeft(one, 64);
         require(false);
     }
     catch [problem110: Error, ...rest110] {
-        require(errorCode(problem110) == 301);
+        require(err.code(problem110) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest110) == 0);
     }
     try {
-        let unexpected111 = shiftRight(one, 64);
+        let unexpected111 = num.shiftRight(one, 64);
         require(false);
     }
     catch [problem111: Error, ...rest111] {
-        require(errorCode(problem111) == 301);
+        require(err.code(problem111) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest111) == 0);
     }
     try {
-        let unexpected112 = shiftLeft(one, 65);
+        let unexpected112 = num.shiftLeft(one, 65);
         require(false);
     }
     catch [problem112: Error, ...rest112] {
-        require(errorCode(problem112) == 301);
+        require(err.code(problem112) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest112) == 0);
     }
     try {
-        let unexpected113 = shiftRight(one, 65);
+        let unexpected113 = num.shiftRight(one, 65);
         require(false);
     }
     catch [problem113: Error, ...rest113] {
-        require(errorCode(problem113) == 301);
+        require(err.code(problem113) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest113) == 0);
     }
     try {
-        let unexpected114 = shiftLeft(one, 9223372036854775807);
+        let unexpected114 = num.shiftLeft(one, 9223372036854775807);
         require(false);
     }
     catch [problem114: Error, ...rest114] {
-        require(errorCode(problem114) == 301);
+        require(err.code(problem114) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest114) == 0);
     }
     try {
-        let unexpected115 = shiftRight(one, 9223372036854775807);
+        let unexpected115 = num.shiftRight(one, 9223372036854775807);
         require(false);
     }
     catch [problem115: Error, ...rest115] {
-        require(errorCode(problem115) == 301);
+        require(err.code(problem115) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest115) == 0);
     }
     try {
-        let unexpected116 = shiftLeft(one, -9223372036854775808);
+        let unexpected116 = num.shiftLeft(one, -9223372036854775808);
         require(false);
     }
     catch [problem116: Error, ...rest116] {
-        require(errorCode(problem116) == 301);
+        require(err.code(problem116) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest116) == 0);
     }
     try {
-        let unexpected117 = shiftRight(one, -9223372036854775808);
+        let unexpected117 = num.shiftRight(one, -9223372036854775808);
         require(false);
     }
     catch [problem117: Error, ...rest117] {
-        require(errorCode(problem117) == 301);
+        require(err.code(problem117) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest117) == 0);
     }
     let bits: Int = 0b0111_1111;
@@ -1160,121 +1163,121 @@ fn width9() {
     let zero: CInt = 0;
     let one: CInt = 1;
     let two: CInt = 2;
-    require(wrappingAdd(high, one) == low);
-    require(wrappingSub(low, one) == high);
-    require(wrappingMul(high, two) == CInt(-2));
-    require(bitNot(zero) == wrappingSub(zero, one));
-    require(bitXor(high, high) == zero);
-    require(bitAnd(high, zero) == zero);
-    require(bitOr(high, zero) == high);
-    ok<CInt>(checkedAdd(low, zero), low);
-    ok<CInt>(checkedMul(low, zero), zero);
+    require(num.wrappingAdd(high, one) == low);
+    require(num.wrappingSub(low, one) == high);
+    require(num.wrappingMul(high, two) == CInt(-2));
+    require(num.bitNot(zero) == num.wrappingSub(zero, one));
+    require(num.bitXor(high, high) == zero);
+    require(num.bitAnd(high, zero) == zero);
+    require(num.bitOr(high, zero) == high);
+    ok<CInt>(num.checkedAdd(low, zero), low);
+    ok<CInt>(num.checkedMul(low, zero), zero);
     try {
-        let unexpected118 = checkedAdd(high, one);
+        let unexpected118 = num.checkedAdd(high, one);
         require(false);
     }
     catch [problem118: Error, ...rest118] {
-        require(errorCode(problem118) == 300);
+        require(err.code(problem118) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest118) == 0);
     }
     try {
-        let unexpected119 = checkedSub(low, one);
+        let unexpected119 = num.checkedSub(low, one);
         require(false);
     }
     catch [problem119: Error, ...rest119] {
-        require(errorCode(problem119) == 300);
+        require(err.code(problem119) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest119) == 0);
     }
     try {
-        let unexpected120 = checkedMul(high, two);
+        let unexpected120 = num.checkedMul(high, two);
         require(false);
     }
     catch [problem120: Error, ...rest120] {
-        require(errorCode(problem120) == 300);
+        require(err.code(problem120) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest120) == 0);
     }
-    ok<CInt>(shiftLeft(one, 0), one);
-    ok<CInt>(shiftRight(high, 0), high);
-    ok<CInt>(shiftLeft(one, 31), CInt(-2147483648));
-    ok<CInt>(shiftRight(low, 31), CInt(-1));
+    ok<CInt>(num.shiftLeft(one, 0), one);
+    ok<CInt>(num.shiftRight(high, 0), high);
+    ok<CInt>(num.shiftLeft(one, 31), CInt(-2147483648));
+    ok<CInt>(num.shiftRight(low, 31), CInt(-1));
     try {
-        let unexpected121 = shiftLeft(one, -1);
+        let unexpected121 = num.shiftLeft(one, -1);
         require(false);
     }
     catch [problem121: Error, ...rest121] {
-        require(errorCode(problem121) == 301);
+        require(err.code(problem121) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest121) == 0);
     }
     try {
-        let unexpected122 = shiftRight(one, -1);
+        let unexpected122 = num.shiftRight(one, -1);
         require(false);
     }
     catch [problem122: Error, ...rest122] {
-        require(errorCode(problem122) == 301);
+        require(err.code(problem122) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest122) == 0);
     }
     try {
-        let unexpected123 = shiftLeft(one, 32);
+        let unexpected123 = num.shiftLeft(one, 32);
         require(false);
     }
     catch [problem123: Error, ...rest123] {
-        require(errorCode(problem123) == 301);
+        require(err.code(problem123) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest123) == 0);
     }
     try {
-        let unexpected124 = shiftRight(one, 32);
+        let unexpected124 = num.shiftRight(one, 32);
         require(false);
     }
     catch [problem124: Error, ...rest124] {
-        require(errorCode(problem124) == 301);
+        require(err.code(problem124) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest124) == 0);
     }
     try {
-        let unexpected125 = shiftLeft(one, 33);
+        let unexpected125 = num.shiftLeft(one, 33);
         require(false);
     }
     catch [problem125: Error, ...rest125] {
-        require(errorCode(problem125) == 301);
+        require(err.code(problem125) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest125) == 0);
     }
     try {
-        let unexpected126 = shiftRight(one, 33);
+        let unexpected126 = num.shiftRight(one, 33);
         require(false);
     }
     catch [problem126: Error, ...rest126] {
-        require(errorCode(problem126) == 301);
+        require(err.code(problem126) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest126) == 0);
     }
     try {
-        let unexpected127 = shiftLeft(one, 9223372036854775807);
+        let unexpected127 = num.shiftLeft(one, 9223372036854775807);
         require(false);
     }
     catch [problem127: Error, ...rest127] {
-        require(errorCode(problem127) == 301);
+        require(err.code(problem127) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest127) == 0);
     }
     try {
-        let unexpected128 = shiftRight(one, 9223372036854775807);
+        let unexpected128 = num.shiftRight(one, 9223372036854775807);
         require(false);
     }
     catch [problem128: Error, ...rest128] {
-        require(errorCode(problem128) == 301);
+        require(err.code(problem128) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest128) == 0);
     }
     try {
-        let unexpected129 = shiftLeft(one, -9223372036854775808);
+        let unexpected129 = num.shiftLeft(one, -9223372036854775808);
         require(false);
     }
     catch [problem129: Error, ...rest129] {
-        require(errorCode(problem129) == 301);
+        require(err.code(problem129) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest129) == 0);
     }
     try {
-        let unexpected130 = shiftRight(one, -9223372036854775808);
+        let unexpected130 = num.shiftRight(one, -9223372036854775808);
         require(false);
     }
     catch [problem130: Error, ...rest130] {
-        require(errorCode(problem130) == 301);
+        require(err.code(problem130) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest130) == 0);
     }
     let bits: CInt = 0b0111_1111;
@@ -1287,121 +1290,121 @@ fn width10() {
     let zero: CUInt = 0;
     let one: CUInt = 1;
     let two: CUInt = 2;
-    require(wrappingAdd(high, one) == low);
-    require(wrappingSub(low, one) == high);
-    require(wrappingMul(high, two) == CUInt(4294967294));
-    require(bitNot(zero) == wrappingSub(zero, one));
-    require(bitXor(high, high) == zero);
-    require(bitAnd(high, zero) == zero);
-    require(bitOr(high, zero) == high);
-    ok<CUInt>(checkedAdd(low, zero), low);
-    ok<CUInt>(checkedMul(low, zero), zero);
+    require(num.wrappingAdd(high, one) == low);
+    require(num.wrappingSub(low, one) == high);
+    require(num.wrappingMul(high, two) == CUInt(4294967294));
+    require(num.bitNot(zero) == num.wrappingSub(zero, one));
+    require(num.bitXor(high, high) == zero);
+    require(num.bitAnd(high, zero) == zero);
+    require(num.bitOr(high, zero) == high);
+    ok<CUInt>(num.checkedAdd(low, zero), low);
+    ok<CUInt>(num.checkedMul(low, zero), zero);
     try {
-        let unexpected131 = checkedAdd(high, one);
+        let unexpected131 = num.checkedAdd(high, one);
         require(false);
     }
     catch [problem131: Error, ...rest131] {
-        require(errorCode(problem131) == 300);
+        require(err.code(problem131) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest131) == 0);
     }
     try {
-        let unexpected132 = checkedSub(low, one);
+        let unexpected132 = num.checkedSub(low, one);
         require(false);
     }
     catch [problem132: Error, ...rest132] {
-        require(errorCode(problem132) == 300);
+        require(err.code(problem132) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest132) == 0);
     }
     try {
-        let unexpected133 = checkedMul(high, two);
+        let unexpected133 = num.checkedMul(high, two);
         require(false);
     }
     catch [problem133: Error, ...rest133] {
-        require(errorCode(problem133) == 300);
+        require(err.code(problem133) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest133) == 0);
     }
-    ok<CUInt>(shiftLeft(one, 0), one);
-    ok<CUInt>(shiftRight(high, 0), high);
-    ok<CUInt>(shiftLeft(one, 31), CUInt(2147483648));
-    ok<CUInt>(shiftRight(high, 31), CUInt(1));
+    ok<CUInt>(num.shiftLeft(one, 0), one);
+    ok<CUInt>(num.shiftRight(high, 0), high);
+    ok<CUInt>(num.shiftLeft(one, 31), CUInt(2147483648));
+    ok<CUInt>(num.shiftRight(high, 31), CUInt(1));
     try {
-        let unexpected134 = shiftLeft(one, -1);
+        let unexpected134 = num.shiftLeft(one, -1);
         require(false);
     }
     catch [problem134: Error, ...rest134] {
-        require(errorCode(problem134) == 301);
+        require(err.code(problem134) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest134) == 0);
     }
     try {
-        let unexpected135 = shiftRight(one, -1);
+        let unexpected135 = num.shiftRight(one, -1);
         require(false);
     }
     catch [problem135: Error, ...rest135] {
-        require(errorCode(problem135) == 301);
+        require(err.code(problem135) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest135) == 0);
     }
     try {
-        let unexpected136 = shiftLeft(one, 32);
+        let unexpected136 = num.shiftLeft(one, 32);
         require(false);
     }
     catch [problem136: Error, ...rest136] {
-        require(errorCode(problem136) == 301);
+        require(err.code(problem136) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest136) == 0);
     }
     try {
-        let unexpected137 = shiftRight(one, 32);
+        let unexpected137 = num.shiftRight(one, 32);
         require(false);
     }
     catch [problem137: Error, ...rest137] {
-        require(errorCode(problem137) == 301);
+        require(err.code(problem137) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest137) == 0);
     }
     try {
-        let unexpected138 = shiftLeft(one, 33);
+        let unexpected138 = num.shiftLeft(one, 33);
         require(false);
     }
     catch [problem138: Error, ...rest138] {
-        require(errorCode(problem138) == 301);
+        require(err.code(problem138) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest138) == 0);
     }
     try {
-        let unexpected139 = shiftRight(one, 33);
+        let unexpected139 = num.shiftRight(one, 33);
         require(false);
     }
     catch [problem139: Error, ...rest139] {
-        require(errorCode(problem139) == 301);
+        require(err.code(problem139) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest139) == 0);
     }
     try {
-        let unexpected140 = shiftLeft(one, 9223372036854775807);
+        let unexpected140 = num.shiftLeft(one, 9223372036854775807);
         require(false);
     }
     catch [problem140: Error, ...rest140] {
-        require(errorCode(problem140) == 301);
+        require(err.code(problem140) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest140) == 0);
     }
     try {
-        let unexpected141 = shiftRight(one, 9223372036854775807);
+        let unexpected141 = num.shiftRight(one, 9223372036854775807);
         require(false);
     }
     catch [problem141: Error, ...rest141] {
-        require(errorCode(problem141) == 301);
+        require(err.code(problem141) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest141) == 0);
     }
     try {
-        let unexpected142 = shiftLeft(one, -9223372036854775808);
+        let unexpected142 = num.shiftLeft(one, -9223372036854775808);
         require(false);
     }
     catch [problem142: Error, ...rest142] {
-        require(errorCode(problem142) == 301);
+        require(err.code(problem142) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest142) == 0);
     }
     try {
-        let unexpected143 = shiftRight(one, -9223372036854775808);
+        let unexpected143 = num.shiftRight(one, -9223372036854775808);
         require(false);
     }
     catch [problem143: Error, ...rest143] {
-        require(errorCode(problem143) == 301);
+        require(err.code(problem143) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest143) == 0);
     }
     let bits: CUInt = 0b0111_1111;
@@ -1414,121 +1417,121 @@ fn width11() {
     let zero: CSize = 0;
     let one: CSize = 1;
     let two: CSize = 2;
-    require(wrappingAdd(high, one) == low);
-    require(wrappingSub(low, one) == high);
-    require(wrappingMul(high, two) == 18446744073709551614);
-    require(bitNot(zero) == wrappingSub(zero, one));
-    require(bitXor(high, high) == zero);
-    require(bitAnd(high, zero) == zero);
-    require(bitOr(high, zero) == high);
-    ok<CSize>(checkedAdd(low, zero), low);
-    ok<CSize>(checkedMul(low, zero), zero);
+    require(num.wrappingAdd(high, one) == low);
+    require(num.wrappingSub(low, one) == high);
+    require(num.wrappingMul(high, two) == 18446744073709551614);
+    require(num.bitNot(zero) == num.wrappingSub(zero, one));
+    require(num.bitXor(high, high) == zero);
+    require(num.bitAnd(high, zero) == zero);
+    require(num.bitOr(high, zero) == high);
+    ok<CSize>(num.checkedAdd(low, zero), low);
+    ok<CSize>(num.checkedMul(low, zero), zero);
     try {
-        let unexpected144 = checkedAdd(high, one);
+        let unexpected144 = num.checkedAdd(high, one);
         require(false);
     }
     catch [problem144: Error, ...rest144] {
-        require(errorCode(problem144) == 300);
+        require(err.code(problem144) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest144) == 0);
     }
     try {
-        let unexpected145 = checkedSub(low, one);
+        let unexpected145 = num.checkedSub(low, one);
         require(false);
     }
     catch [problem145: Error, ...rest145] {
-        require(errorCode(problem145) == 300);
+        require(err.code(problem145) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest145) == 0);
     }
     try {
-        let unexpected146 = checkedMul(high, two);
+        let unexpected146 = num.checkedMul(high, two);
         require(false);
     }
     catch [problem146: Error, ...rest146] {
-        require(errorCode(problem146) == 300);
+        require(err.code(problem146) == Option<Int>.Some(value: 300));
         require(rinzu.list.length(rest146) == 0);
     }
-    ok<CSize>(shiftLeft(one, 0), one);
-    ok<CSize>(shiftRight(high, 0), high);
-    ok<CSize>(shiftLeft(one, 63), 9223372036854775808);
-    ok<CSize>(shiftRight(high, 63), CSize(1));
+    ok<CSize>(num.shiftLeft(one, 0), one);
+    ok<CSize>(num.shiftRight(high, 0), high);
+    ok<CSize>(num.shiftLeft(one, 63), 9223372036854775808);
+    ok<CSize>(num.shiftRight(high, 63), CSize(1));
     try {
-        let unexpected147 = shiftLeft(one, -1);
+        let unexpected147 = num.shiftLeft(one, -1);
         require(false);
     }
     catch [problem147: Error, ...rest147] {
-        require(errorCode(problem147) == 301);
+        require(err.code(problem147) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest147) == 0);
     }
     try {
-        let unexpected148 = shiftRight(one, -1);
+        let unexpected148 = num.shiftRight(one, -1);
         require(false);
     }
     catch [problem148: Error, ...rest148] {
-        require(errorCode(problem148) == 301);
+        require(err.code(problem148) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest148) == 0);
     }
     try {
-        let unexpected149 = shiftLeft(one, 64);
+        let unexpected149 = num.shiftLeft(one, 64);
         require(false);
     }
     catch [problem149: Error, ...rest149] {
-        require(errorCode(problem149) == 301);
+        require(err.code(problem149) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest149) == 0);
     }
     try {
-        let unexpected150 = shiftRight(one, 64);
+        let unexpected150 = num.shiftRight(one, 64);
         require(false);
     }
     catch [problem150: Error, ...rest150] {
-        require(errorCode(problem150) == 301);
+        require(err.code(problem150) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest150) == 0);
     }
     try {
-        let unexpected151 = shiftLeft(one, 65);
+        let unexpected151 = num.shiftLeft(one, 65);
         require(false);
     }
     catch [problem151: Error, ...rest151] {
-        require(errorCode(problem151) == 301);
+        require(err.code(problem151) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest151) == 0);
     }
     try {
-        let unexpected152 = shiftRight(one, 65);
+        let unexpected152 = num.shiftRight(one, 65);
         require(false);
     }
     catch [problem152: Error, ...rest152] {
-        require(errorCode(problem152) == 301);
+        require(err.code(problem152) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest152) == 0);
     }
     try {
-        let unexpected153 = shiftLeft(one, 9223372036854775807);
+        let unexpected153 = num.shiftLeft(one, 9223372036854775807);
         require(false);
     }
     catch [problem153: Error, ...rest153] {
-        require(errorCode(problem153) == 301);
+        require(err.code(problem153) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest153) == 0);
     }
     try {
-        let unexpected154 = shiftRight(one, 9223372036854775807);
+        let unexpected154 = num.shiftRight(one, 9223372036854775807);
         require(false);
     }
     catch [problem154: Error, ...rest154] {
-        require(errorCode(problem154) == 301);
+        require(err.code(problem154) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest154) == 0);
     }
     try {
-        let unexpected155 = shiftLeft(one, -9223372036854775808);
+        let unexpected155 = num.shiftLeft(one, -9223372036854775808);
         require(false);
     }
     catch [problem155: Error, ...rest155] {
-        require(errorCode(problem155) == 301);
+        require(err.code(problem155) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest155) == 0);
     }
     try {
-        let unexpected156 = shiftRight(one, -9223372036854775808);
+        let unexpected156 = num.shiftRight(one, -9223372036854775808);
         require(false);
     }
     catch [problem156: Error, ...rest156] {
-        require(errorCode(problem156) == 301);
+        require(err.code(problem156) == Option<Int>.Some(value: 301));
         require(rinzu.list.length(rest156) == 0);
     }
     let bits: CSize = 0b0111_1111;
@@ -1536,18 +1539,18 @@ fn width11() {
 }
 
 fn floats() {
-    require(mathSqrt(CFloat(2.0)) == CFloat(1.4142135381698608));
-    require(mathSqrt(2.0) == 1.4142135623730951);
-    require(mathAbs(CFloat(-16777217.0)) == CFloat(16777216.0));
-    require(floatIsNan(mathSqrt(CFloat(-1.0))));
-    require(floatIsNan(mathAbs(mathSqrt(-1.0))));
-    require(!floatIsNan(mathSqrt(CDouble(4.0))));
-    require(1.0 / mathAbs(-0.0) > 0.0);
-    require(CFloat(1.0) / mathAbs(CFloat(-0.0)) > CFloat(0.0));
+    require(num.sqrt(CFloat(2.0)) == CFloat(1.4142135381698608));
+    require(num.sqrt(2.0) == 1.4142135623730951);
+    require(num.abs(CFloat(-16777217.0)) == CFloat(16777216.0));
+    require(num.isNaN(num.sqrt(CFloat(-1.0))));
+    require(num.isNaN(num.abs(num.sqrt(-1.0))));
+    require(!num.isNaN(num.sqrt(CDouble(4.0))));
+    require(1.0 / num.abs(-0.0) > 0.0);
+    require(CFloat(1.0) / num.abs(CFloat(-0.0)) > CFloat(0.0));
     let infinity = 1.0 / 0.0;
-    require(mathSqrt(infinity) == infinity);
+    require(num.sqrt(infinity) == infinity);
     let small: CFloat = 0.0;
-    require(mathSqrt(small) == small);
+    require(num.sqrt(small) == small);
 }
 
 fn main() {
@@ -1568,6 +1571,6 @@ fn main() {
         rinzu.stdio.writeLine("numeric vectors ok");
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

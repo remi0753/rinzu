@@ -1,10 +1,12 @@
 import rinzu.list;
 import rinzu.process;
 import rinzu.stdio;
+import rinzu.core;
+import rinzu.error as err;
 
 fn require(value: Bool) {
     if !value {
-        panic("failed");
+        rinzu.core.panic("failed");
     }
 }
 
@@ -14,7 +16,7 @@ fn invalid<T>(operation: fn () -> T, code: Int) {
         require(false);
     }
     catch [problem: Error, ...rest] {
-        require(errorCode(problem) == code);
+        require(err.code(problem) == Option<Int>.Some(value: code));
         require(rinzu.list.length(rest) == 0);
     }
 }
@@ -104,6 +106,6 @@ fn main() {
         rinzu.stdio.writeLine("process-owned-snapshot-ok");
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 pub const TARGET: &str = "aarch64-apple-darwin";
 pub const REVISION: u32 = 7;
 /// Shared by the embedded registry and its distribution fingerprint.
-pub const RUNTIME_CODEGEN_REVISION: u32 = 183;
+pub const RUNTIME_CODEGEN_REVISION: u32 = 184;
 pub const SOURCE_PACKAGES: [&str; 10] = [
     "rinzu.option",
     "rinzu.io",
@@ -23,8 +23,14 @@ pub const SOURCE_PACKAGES: [&str; 10] = [
     "rinzu.socket",
 ];
 
-const BUILTIN_PACKAGES: [&str; 5] = [
+const BUILTIN_PACKAGES: [&str; 11] = [
     "rinzu.core",
+    "rinzu.error",
+    "rinzu.string",
+    "rinzu.bytes",
+    "rinzu.number",
+    "rinzu.future",
+    "rinzu.native",
     "rinzu.stdio",
     "rinzu.timer",
     "rinzu.list",

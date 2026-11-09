@@ -1,4 +1,5 @@
 import rinzu.stdio;
+import rinzu.core;
 
 class Editor {
     text: String,
@@ -59,7 +60,7 @@ async fn main() {
     let editor = make();
     switch editor.command {
         case Option.None: {
-            panic("bad");
+            rinzu.core.panic("bad");
         }
         case Option.Some(command): {
             let commands = Commands(

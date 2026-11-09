@@ -5,8 +5,8 @@ fn cancellable(value: Packet) -> Packet {
         }
     }
     finally {
-        if value.text != "日本語\u{0}🙂" || byteLength(value.bytes) != 4 || value.high != 18446744073709551615 {
-            panic("lost_worker_root");
+        if value.text != "日本語\u{0}🙂" || bytesApi.byteLength(value.bytes) != 4 || value.high != 18446744073709551615 {
+            rinzu.core.panic("lost_worker_root");
         }
         try {
             let worker_cleanup = CInt8(301);
@@ -25,12 +25,12 @@ async fn main() {
         }
         finally {
             if original.text != "日本語\u{0}🙂" || original.bytes != b"A\xff\x00\x00" {
-                panic("lost_origin_root");
+                rinzu.core.panic("lost_origin_root");
             }
             let origin_cleanup = CInt8(401);
         }
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
     }
 }

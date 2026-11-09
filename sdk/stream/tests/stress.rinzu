@@ -2,53 +2,57 @@ import rinzu.timer;
 import rinzu.stream;
 import rinzu.io;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
+import rinzu.future as future;
 
 async fn ready() -> ByteArray {
-    return byteArray(b"ready");
+    return bytesApi.from(b"ready");
 }
 
 async fn main() {
     try {
         var index = 0;
         while index < 2000 {
-            if bytesLength(await ready()) != 5 {
-                panic("badReady");
+            if bytesApi.length(await ready()) != 5 {
+                rinzu.core.panic("badReady");
             }
             index = index + 1;
         }
         try {
             let resultValue12 = await rinzu.stream.openFileWithLimit("missing.bin", 1024);
-            panic("badMissing");
+            rinzu.core.panic("badMissing");
         }
         catch [resultError12: Error, ...resultRest12] {}
         try {
             let resultValue11 = await rinzu.stream.openFileWithLimit("input.bin", 0);
-            panic("badLimit");
+            rinzu.core.panic("badLimit");
         }
         catch [resultError11: Error, ...resultRest11] {
-            if errorCode(resultError11) != -7204 {
-                panic("badLimitCode");
+            if err.code(resultError11) != Option<Int>.Some(value: -7204) {
+                rinzu.core.panic("badLimitCode");
             }
         }
         // A stopped consumer starts no producer/read allocation.
         try {
             let resultValue10 = await rinzu.stream.openFile("input.bin");
             if rinzu.io.liveBuffers() != 0 {
-                panic("badPrefetch1");
+                rinzu.core.panic("badPrefetch1");
             }
             await rinzu.timer.sleep(2);
             if rinzu.io.liveBuffers() != 0 {
-                panic("badPrefetch2");
+                rinzu.core.panic("badPrefetch2");
             }
             try {
                 let resultValue9 = await rinzu.stream.close(resultValue10);
             }
             catch [resultError9: Error, ...resultRest9] {
-                panic("badIdleClose");
+                rinzu.core.panic("badIdleClose");
             }
         }
         catch [resultError10: Error, ...resultRest10] {
-            panic("badIdleOpen");
+            rinzu.core.panic("badIdleOpen");
         }
         // Fault fixture only: invalidate the native owner through its alias and
     // check that stream caches the original I/O Error rather than resume.
@@ -58,22 +62,22 @@ async fn main() {
                 let resultValue7 = await rinzu.io.close(resultValue8.file);
             }
             catch [resultError7: Error, ...resultRest7] {
-                panic("badFaultClose");
+                rinzu.core.panic("badFaultClose");
             }
             var attempt = 0;
             while attempt < 2 {
                 try {
                     let resultValue6 = await rinzu.stream.next(resultValue8);
-                    panic("badFaultResult");
+                    rinzu.core.panic("badFaultResult");
                 }
                 catch [resultError6: Error, ...resultRest6] {
-                    switch errorNativeStatus(resultError6) {
+                    switch err.nativeStatus(resultError6) {
                         case Option.None: {
-                            panic("badFaultMissingStatus");
+                            rinzu.core.panic("badFaultMissingStatus");
                         }
                         case Option.Some(status): {
                             if status != -7102 {
-                                panic("badFaultCode");
+                                rinzu.core.panic("badFaultCode");
                             }
                         }
                     }
@@ -82,23 +86,23 @@ async fn main() {
             }
             try {
                 let resultValue5 = await rinzu.stream.close(resultValue8);
-                panic("badFaultCloseResult");
+                rinzu.core.panic("badFaultCloseResult");
             }
             catch [resultError5: Error, ...resultRest5] {
-                switch errorNativeStatus(resultError5) {
+                switch err.nativeStatus(resultError5) {
                     case Option.None: {
-                        panic("badFaultCloseMissing");
+                        rinzu.core.panic("badFaultCloseMissing");
                     }
                     case Option.Some(status): {
                         if status != -7102 {
-                            panic("badFaultCloseCode");
+                            rinzu.core.panic("badFaultCloseCode");
                         }
                     }
                 }
             }
         }
         catch [resultError8: Error, ...resultRest8] {
-            panic("badFaultOpen");
+            rinzu.core.panic("badFaultOpen");
         }
         try {
             let resultValue4 = await rinzu.stream.openFileWithLimit("input.bin", 1024);
@@ -108,33 +112,33 @@ async fn main() {
                     let settled = cancelledRead(first);
                     try {
                         let resultValue3 = await rinzu.stream.next(resultValue4);
-                        panic("badOverlap");
+                        rinzu.core.panic("badOverlap");
                     }
                     catch [resultError3: Error, ...resultRest3] {
-                        if errorCode(resultError3) != -7203 {
-                            panic("badOverlapCode");
+                        if err.code(resultError3) != Option<Int>.Some(value: -7203) {
+                            rinzu.core.panic("badOverlapCode");
                         }
                     }
                     try {
                         let resultValue2 = await rinzu.stream.close(resultValue4);
-                        panic("badBusyClose");
+                        rinzu.core.panic("badBusyClose");
                     }
                     catch [resultError2: Error, ...resultRest2] {
-                        if errorCode(resultError2) != -7203 {
-                            panic("badBusyCode");
+                        if err.code(resultError2) != Option<Int>.Some(value: -7203) {
+                            rinzu.core.panic("badBusyCode");
                         }
                     }
-                    let requested = cancelFuture(first);
+                    let requested = future.cancel(first);
                     if !requested {
-                        panic("badCancel");
+                        rinzu.core.panic("badCancel");
                     }
-                    while !futureReady(settled) {
+                    while !future.isReady(settled) {
                         await rinzu.timer.sleep(1);
                     }
                 }
                 finally {}
                 if resultValue4.busy {
-                    panic("badDrain");
+                    rinzu.core.panic("badDrain");
                 }
             }
             finally {
@@ -142,20 +146,20 @@ async fn main() {
                     let resultValue1 = await rinzu.stream.close(resultValue4);
                 }
                 catch [resultError1: Error, ...resultRest1] {
-                    panic("badClose");
+                    rinzu.core.panic("badClose");
                 }
             }
         }
         catch [resultError4: Error, ...resultRest4] {
-            panic("badOpen");
+            rinzu.core.panic("badOpen");
         }
         if rinzu.io.liveFiles() != 0 || rinzu.io.liveBuffers() != 0 {
-            panic("badResource");
+            rinzu.core.panic("badResource");
         }
         rinzu.stdio.writeLine("stream-stress-ok");
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }
 
@@ -165,6 +169,6 @@ async fn cancelledRead(value: Future<Option<ByteArray>>) {
         let chunk = await value;
     }
     catch errors {
-        panic("unexpectedReadFailure");
+        rinzu.core.panic("unexpectedReadFailure");
     }
 }

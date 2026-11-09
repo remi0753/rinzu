@@ -1,26 +1,29 @@
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+
 fn check(data: ByteArray, members: ByteArray) -> Bool {
-    return bytesContainsAny(data, members)
-        && !bytesAllIn(data, members)
-        && bytesTrim(data, byteArray(b"\x00\x80")) == byteArray(b"\xff")
-        && !bytesContainsAny(byteArray(b""), members)
-        && bytesAllIn(data, data);
+    return bytesApi.containsAny(data, members)
+        && !bytesApi.allIn(data, members)
+        && bytesApi.trim(data, bytesApi.from(b"\x00\x80")) == bytesApi.from(b"\xff")
+        && !bytesApi.containsAny(bytesApi.from(b""), members)
+        && bytesApi.allIn(data, data);
 }
 
 fn trimValue(data: ByteArray) -> ByteArray {
-    return bytesTrim(data, byteArray(b"\x00\x80"));
+    return bytesApi.trim(data, bytesApi.from(b"\x00\x80"));
 }
 
 async fn main() {
     try {
-        let input = byteArray(b"\x00\xff\x80");
-        let pending = spawn check(input, byteArray(b"\xff"));
+        let input = bytesApi.from(b"\x00\xff\x80");
+        let pending = spawn check(input, bytesApi.from(b"\xff"));
         let trimmed = spawn trimValue(input);
         let workerTrim = await trimmed;
-        if !await pending || input != byteArray(b"\x00\xff\x80") || workerTrim != byteArray(b"\xff") {
-            panic("failed");
+        if !await pending || input != bytesApi.from(b"\x00\xff\x80") || workerTrim != bytesApi.from(b"\xff") {
+            rinzu.core.panic("failed");
         }
     }
     catch errors {
-        panic("unexpectedError");
+        rinzu.core.panic("unexpectedError");
     }
 }

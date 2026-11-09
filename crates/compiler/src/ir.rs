@@ -1827,6 +1827,15 @@ impl<'a> Builder<'a> {
                     let Arguments::Positional(values) = arguments else {
                         unreachable!("checked data operation")
                     };
+                    if kind == crate::DataOperation::ErrorMessage {
+                        let error = self.lower_expression(&values[0]);
+                        self.emit_poll(PollReason::Allocation, expression.range);
+                        return self.emit_value(
+                            OperationKind::ErrorMessage { error },
+                            ty,
+                            expression.range,
+                        );
+                    }
                     let arguments = values.iter().map(|v| self.lower_expression(v)).collect();
                     self.emit_poll(PollReason::Allocation, expression.range);
                     let argument_types = values.iter().map(|v| self.type_of(v)).collect();

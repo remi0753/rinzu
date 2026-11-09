@@ -1,4 +1,5 @@
 import rinzu.core;
+import rinzu.bytes as bytesApi;
 
 class Packet {
     const text: String,
@@ -61,7 +62,7 @@ async fn pending(value: Packet) -> Packet {
     let count = await first;
     churn();
     if count != 11 || copied != value.text {
-        panic("bad_suspend");
+        rinzu.core.panic("bad_suspend");
     }
     return value;
 }
@@ -99,7 +100,7 @@ async fn main() {
         || received_bytes != original.bytes
         || received_list != expected_list
         || received_map != expected_map {
-        panic("bad_ready_root");
+        rinzu.core.panic("bad_ready_root");
     }
     try {
         let invalid = CInt8(200);
@@ -110,27 +111,27 @@ async fn main() {
         let received_error = await ready_error;
         churn();
         if received_error.message != "numeric conversion is out of range or loses required integer precision" {
-            panic("bad_error_root");
+            rinzu.core.panic("bad_error_root");
         }
     }
     if from_first != original || from_close != original || from_second.text != "other" {
-        panic("bad_result");
+        rinzu.core.panic("bad_result");
     }
-    if from_first.bytes != b"A\xff\x00\x00" || byteLength(from_first.bytes) != 4 {
-        panic("bad_bytes");
+    if from_first.bytes != b"A\xff\x00\x00" || bytesApi.byteLength(from_first.bytes) != 4 {
+        rinzu.core.panic("bad_bytes");
     }
     switch selected {
         case Result.empty: {
-            panic("bad_case");
+            rinzu.core.panic("bad_case");
         }
         case Result.packet(packet): {
             if packet != original || packet.high != 18446744073709551615 {
-                panic("bad_packet");
+                rinzu.core.panic("bad_packet");
             }
         }
     }
     let again = await first;
     if again != original {
-        panic("bad_alias");
+        rinzu.core.panic("bad_alias");
     }
 }

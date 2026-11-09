@@ -4,12 +4,19 @@ import "./document.rinzu" as documents;
 import "./document_files.rinzu" as documentFiles;
 import "./image_files.rinzu" as imageFiles;
 import rinzu.shutdown;
+import rinzu.bytes as bytesApi;
+import rinzu.error as err;
+import rinzu.native as bridge;
+import rinzu.string as textApi;
 
 class Buffer {
     const handle: BufferHandle
 
     fn write(self: Buffer, offset: Int, bytes: ByteArray) -> Int {
-        return checked(Int(rawBufferWrite(self.handle, offset, bytes, byteLength(bytes))), "macos.buffer.write");
+        return checked(
+            Int(rawBufferWrite(self.handle, offset, bytes, bytesApi.byteLength(bytes))),
+            "macos.buffer.write"
+        );
     }
 
     fn read(self: Buffer, offset: Int, length: Int) -> ByteArray {
@@ -167,7 +174,7 @@ class Device {
 
     fn buffer(self: Device, bytes: ByteArray) -> Buffer {
         return Buffer(
-            handle: rawBuffer(checked(rawBufferCreate(self.handle, bytes, byteLength(bytes)), "macos.buffer"))
+            handle: rawBuffer(checked(rawBufferCreate(self.handle, bytes, bytesApi.byteLength(bytes)), "macos.buffer"))
         );
     }
 
@@ -176,17 +183,19 @@ class Device {
     }
 
     fn library(self: Device, source: String) -> Library {
-        let bytes = utf8Encode(source);
+        let bytes = textApi.encodeUtf8(source);
         return Library(
-            handle: rawLibrary(checked(rawLibraryCreate(self.handle, bytes, byteLength(bytes), false), "macos.library"))
+            handle: rawLibrary(
+                checked(rawLibraryCreate(self.handle, bytes, bytesApi.byteLength(bytes), false), "macos.library")
+            )
         );
     }
 
     fn loadLibrary(self: Device, path: String) -> Library {
-        let bytes = utf8Encode(path);
+        let bytes = textApi.encodeUtf8(path);
         return Library(
             handle: rawLibrary(
-                checked(rawLibraryCreate(self.handle, bytes, byteLength(bytes), true), "macos.library.load")
+                checked(rawLibraryCreate(self.handle, bytes, bytesApi.byteLength(bytes), true), "macos.library.load")
             )
         );
     }
@@ -216,7 +225,7 @@ class Device {
     fn imageTexture(self: Device, encoded: ByteArray) -> Texture {
         return Texture(
             handle: rawTexture(
-                checked(rawTextureImage(self.handle, encoded, byteLength(encoded)), "macos.imageTexture")
+                checked(rawTextureImage(self.handle, encoded, bytesApi.byteLength(encoded)), "macos.imageTexture")
             )
         );
     }
@@ -228,14 +237,14 @@ class Device {
     /// Allocate packed float32 x,y,u,v,r,g,b,a vertices (32 bytes each).
     fn vertexBuffer2D(self: Device, capacity: Int) -> Buffer {
         if capacity <= 0 || capacity > 8388608 {
-            throw error(-7804, "macos.vertexBuffer2D.capacity");
+            throw err.create(-7804, "macos.vertexBuffer2D.capacity");
         }
         return self.allocateBuffer(capacity * 32);
     }
 
     fn batch2D(self: Device, capacity: Int) -> Batch2D {
         if capacity <= 0 || capacity > 65536 {
-            throw error(-7804, "macos.batch2D.capacity");
+            throw err.create(-7804, "macos.batch2D.capacity");
         }
         let shader = r#"
 #include <metal_stdlib>
@@ -255,7 +264,7 @@ fragment float4 fragment2d(Raster v [[stage_in]], texture2d<float> image [[textu
             let rgba = library.renderPipelineWithOptions("vertex2d", "fragment2d", pixelRGBA8, blendPremultiplied);
             let bgra = library.renderPipelineWithOptions("vertex2d", "fragment2d", pixelBGRA8, blendPremultiplied);
             let white = self.texture2D(1, 1, pixelRGBA8, textureSampled);
-            let uploaded = white.write(Scissor(x: 0, y: 0, width: 1, height: 1), 4, byteArray(b"\xff\xff\xff\xff"));
+            let uploaded = white.write(Scissor(x: 0, y: 0, width: 1, height: 1), 4, bytesApi.from(b"\xff\xff\xff\xff"));
             return Batch2D(
                 vertices: self.vertexBuffer2D(capacity * 6),
                 rgba: rgba,
@@ -324,10 +333,13 @@ class Font {
 
     /// UTF8 <=64 KiB. Width zero is natural; positive width wraps. Alignment 0/1/2.
     fn layout(self: Font, text: String, width: Float, alignment: Int) -> TextLayout {
-        let bytes = utf8Encode(text);
+        let bytes = textApi.encodeUtf8(text);
         return TextLayout(
             handle: rawText(
-                checked(rawTextCreate(self.handle, bytes, byteLength(bytes), width, alignment), "macos.text.layout")
+                checked(
+                    rawTextCreate(self.handle, bytes, bytesApi.byteLength(bytes), width, alignment),
+                    "macos.text.layout"
+                )
             )
         );
     }
@@ -392,7 +404,7 @@ class FrameClock {
         let token = checked(rawWaitToken(), "macos.frame.token");
         try {
             let admitted = checked(Int(rawFrameBegin(self.handle, token)), "macos.frame.wait");
-            await nativeCompleted(rawFrameCompletion(self.handle, token));
+            await bridge.completed(rawFrameCompletion(self.handle, token));
             let output = FrameInfo(sequence: 0, width: 0, height: 0, scale: 1.0, time: 0.0, delta: 0.0);
             let available = checked(Int(rawFrameTake(self.handle, token, output)), "macos.frame.take");
             if available == 0 {
@@ -403,7 +415,7 @@ class FrameClock {
         finally {
             if rawFrameOwned(self.handle, token) {
                 let cancelled = checked(Int(rawFrameCancel(self.handle, token)), "macos.frame.cancel");
-                await nativeCompleted(rawFrameCompletion(self.handle, token));
+                await bridge.completed(rawFrameCompletion(self.handle, token));
                 let finished = checked(Int(rawFrameFinish(self.handle, token)), "macos.frame.finish");
             }
         }
@@ -414,26 +426,26 @@ class Library {
     const handle: LibraryHandle
 
     fn computePipeline(self: Library, name: String) -> ComputePipeline {
-        let bytes = utf8Encode(name);
+        let bytes = textApi.encodeUtf8(name);
         return ComputePipeline(
             handle: rawCompute(
-                checked(rawComputeCreate(self.handle, bytes, byteLength(bytes)), "macos.computePipeline")
+                checked(rawComputeCreate(self.handle, bytes, bytesApi.byteLength(bytes)), "macos.computePipeline")
             )
         );
     }
 
     fn renderPipeline(self: Library, vertex: String, fragment: String) -> RenderPipeline {
-        let vertexBytes = utf8Encode(vertex);
-        let fragmentBytes = utf8Encode(fragment);
+        let vertexBytes = textApi.encodeUtf8(vertex);
+        let fragmentBytes = textApi.encodeUtf8(fragment);
         return RenderPipeline(
             handle: rawRender(
                 checked(
                     rawRenderCreate(
                         self.handle,
                         vertexBytes,
-                        byteLength(vertexBytes),
+                        bytesApi.byteLength(vertexBytes),
                         fragmentBytes,
-                        byteLength(fragmentBytes)
+                        bytesApi.byteLength(fragmentBytes)
                     ),
                     "macos.renderPipeline"
                 )
@@ -447,12 +459,12 @@ class Library {
 
     fn renderPipelineWithOptions(self: Library, vertex: String, fragment: String, format: Int, blend: Int)
         -> RenderPipeline {
-        let v = utf8Encode(vertex);
-        let f = utf8Encode(fragment);
+        let v = textApi.encodeUtf8(vertex);
+        let f = textApi.encodeUtf8(fragment);
         return RenderPipeline(
             handle: rawRender(
                 checked(
-                    rawRenderOptions(self.handle, v, byteLength(v), f, byteLength(f), format, blend),
+                    rawRenderOptions(self.handle, v, bytesApi.byteLength(v), f, bytesApi.byteLength(f), format, blend),
                     "macos.renderPipeline.options"
                 )
             )
@@ -464,27 +476,36 @@ class Menu {
     const handle: MenuHandle
 
     fn addAction(self: Menu, title: String, action: Int, key: String, modifiers: Int) -> Int {
-        let bytes = utf8Encode(title);
-        let shortcut = utf8Encode(key);
+        let bytes = textApi.encodeUtf8(title);
+        let shortcut = textApi.encodeUtf8(key);
         return checked(
             Int(
-                rawMenuItem(self.handle, bytes, byteLength(bytes), shortcut, byteLength(shortcut), modifiers, action, 0)
+                rawMenuItem(
+                    self.handle,
+                    bytes,
+                    bytesApi.byteLength(bytes),
+                    shortcut,
+                    bytesApi.byteLength(shortcut),
+                    modifiers,
+                    action,
+                    0
+                )
             ),
             "macos.menu.action"
         );
     }
 
     fn addStandard(self: Menu, title: String, command: Int, key: String, modifiers: Int) -> Int {
-        let bytes = utf8Encode(title);
-        let shortcut = utf8Encode(key);
+        let bytes = textApi.encodeUtf8(title);
+        let shortcut = textApi.encodeUtf8(key);
         return checked(
             Int(
                 rawMenuItem(
                     self.handle,
                     bytes,
-                    byteLength(bytes),
+                    bytesApi.byteLength(bytes),
                     shortcut,
-                    byteLength(shortcut),
+                    bytesApi.byteLength(shortcut),
                     modifiers,
                     0,
                     CInt(command)
@@ -536,19 +557,19 @@ class Session {
         if length == 0 {
             return Option<String>.None();
         }
-        return Option<String>.Some(value: utf8Decode(rawResourceRootBytes(self.handle)));
+        return Option<String>.Some(value: textApi.decodeUtf8(rawResourceRootBytes(self.handle)));
     }
 
     /// Resolve a normalized app-relative resource name without changing cwd.
     fn resourcePath(self: Session, relative: String) -> String {
-        let bytes = utf8Encode(relative);
-        let valid = checked(Int(rawResourceRelative(bytes, byteLength(bytes))), "macos.resourcePath");
+        let bytes = textApi.encodeUtf8(relative);
+        let valid = checked(Int(rawResourceRelative(bytes, bytesApi.byteLength(bytes))), "macos.resourcePath");
         switch self.resourceRoot() {
             case Option.Some(root): {
                 return f"{root}/{relative}";
             }
             case Option.None: {
-                throw error(-7804, "macos.resourcePath.notBundled");
+                throw err.create(-7804, "macos.resourcePath.notBundled");
             }
         }
     }
@@ -566,10 +587,10 @@ class Session {
     }
 
     fn window(self: Session, title: String, width: Float, height: Float) -> Window {
-        let bytes = utf8Encode(title);
+        let bytes = textApi.encodeUtf8(title);
         return Window(
             handle: rawWindow(
-                checked(rawWindowCreate(self.handle, bytes, byteLength(bytes), width, height), "macos.window")
+                checked(rawWindowCreate(self.handle, bytes, bytesApi.byteLength(bytes), width, height), "macos.window")
             )
         );
     }
@@ -619,15 +640,15 @@ class Session {
     }
 
     fn setClipboardText(self: Session, value: String) -> Int {
-        let bytes = utf8Encode(value);
-        return checked(Int(rawClipboardWrite(self.handle, bytes, byteLength(bytes))), "macos.clipboard.write");
+        let bytes = textApi.encodeUtf8(value);
+        return checked(Int(rawClipboardWrite(self.handle, bytes, bytesApi.byteLength(bytes))), "macos.clipboard.write");
     }
 
     fn clipboardText(self: Session) -> String {
         let token = checked(rawWaitToken(), "macos.clipboard.token");
         try {
             let acquired = checked(Int(rawClipboardSnapshot(self.handle, token)), "macos.clipboard.snapshot");
-            return utf8Decode(rawClipboardBytes(self.handle, token));
+            return textApi.decodeUtf8(rawClipboardBytes(self.handle, token));
         }
         finally {
             if rawClipboardOwned(self.handle, token) {
@@ -642,9 +663,11 @@ class Session {
     }
 
     fn font(self: Session, name: String, size: Float, bold: Bool) -> Font {
-        let bytes = utf8Encode(name);
+        let bytes = textApi.encodeUtf8(name);
         return Font(
-            handle: rawFont(checked(rawFontCreate(self.handle, bytes, byteLength(bytes), size, bold), "macos.font"))
+            handle: rawFont(
+                checked(rawFontCreate(self.handle, bytes, bytesApi.byteLength(bytes), size, bold), "macos.font")
+            )
         );
     }
 }
@@ -686,7 +709,7 @@ class Texture {
 
     fn write(self: Texture, region: Scissor, rowBytes: Int, bytes: ByteArray) -> Int {
         return checked(
-            Int(rawTextureWrite(self.handle, region, rowBytes, bytes, byteLength(bytes))),
+            Int(rawTextureWrite(self.handle, region, rowBytes, bytes, bytesApi.byteLength(bytes))),
             "macos.texture.write"
         );
     }
@@ -710,18 +733,28 @@ class View {
     const handle: ViewHandle
 
     fn setAccessibility(self: View, label: String, help: String, identifier: String) -> Int {
-        let a = utf8Encode(label);
-        let b = utf8Encode(help);
-        let c = utf8Encode(identifier);
+        let a = textApi.encodeUtf8(label);
+        let b = textApi.encodeUtf8(help);
+        let c = textApi.encodeUtf8(identifier);
         return checked(
-            Int(rawAccessibility(self.handle, a, byteLength(a), b, byteLength(b), c, byteLength(c))),
+            Int(
+                rawAccessibility(
+                    self.handle,
+                    a,
+                    bytesApi.byteLength(a),
+                    b,
+                    bytesApi.byteLength(b),
+                    c,
+                    bytesApi.byteLength(c)
+                )
+            ),
             "macos.accessibility"
         );
     }
 
     fn setTooltip(self: View, text: String) -> Int {
-        let bytes = utf8Encode(text);
-        return checked(Int(rawTooltip(self.handle, bytes, byteLength(bytes))), "macos.tooltip");
+        let bytes = textApi.encodeUtf8(text);
+        return checked(Int(rawTooltip(self.handle, bytes, bytesApi.byteLength(bytes))), "macos.tooltip");
     }
 
     fn identity(self: View) -> Int {
@@ -785,7 +818,7 @@ class View {
     fn fill(self: View, parent: View, inset: Float) -> Int {
         let bounds = parent.frame();
         if inset < 0.0 || bounds.width < inset * 2.0 || bounds.height < inset * 2.0 {
-            throw error(-7804, "macos.layout.invalidInset");
+            throw err.create(-7804, "macos.layout.invalidInset");
         }
         let attached = parent.addSubview(self);
         let framed = self.setFrame(
@@ -817,8 +850,8 @@ class Window {
     }
 
     fn setTitle(self: Window, title: String) -> Int {
-        let bytes = utf8Encode(title);
-        return checked(Int(rawWindowTitle(self.handle, bytes, byteLength(bytes))), "macos.window.title");
+        let bytes = textApi.encodeUtf8(title);
+        return checked(Int(rawWindowTitle(self.handle, bytes, bytesApi.byteLength(bytes))), "macos.window.title");
     }
 
     fn setContentSize(self: Window, width: Float, height: Float) -> Int {
@@ -834,9 +867,9 @@ class Window {
     }
 
     fn menu(self: Window, title: String) -> Menu {
-        let bytes = utf8Encode(title);
+        let bytes = textApi.encodeUtf8(title);
         return Menu(
-            handle: rawMenu(checked(rawMenuCreate(self.handle, bytes, byteLength(bytes)), "macos.menu.create"))
+            handle: rawMenu(checked(rawMenuCreate(self.handle, bytes, bytesApi.byteLength(bytes)), "macos.menu.create"))
         );
     }
 
@@ -863,31 +896,31 @@ class Window {
         await sheetReady(self);
         let token = checked(rawWaitToken(), "macos.sheet.token");
         try {
-            let heading = utf8Encode(title);
-            let body = utf8Encode(message);
-            let one = utf8Encode(first);
-            let two = utf8Encode(second);
-            let three = utf8Encode(third);
+            let heading = textApi.encodeUtf8(title);
+            let body = textApi.encodeUtf8(message);
+            let one = textApi.encodeUtf8(first);
+            let two = textApi.encodeUtf8(second);
+            let three = textApi.encodeUtf8(third);
             let admitted = checked(
                 Int(
                     rawAlertBegin(
                         self.handle,
                         token,
                         heading,
-                        byteLength(heading),
+                        bytesApi.byteLength(heading),
                         body,
-                        byteLength(body),
+                        bytesApi.byteLength(body),
                         one,
-                        byteLength(one),
+                        bytesApi.byteLength(one),
                         two,
-                        byteLength(two),
+                        bytesApi.byteLength(two),
                         three,
-                        byteLength(three)
+                        bytesApi.byteLength(three)
                     )
                 ),
                 "macos.alert.begin"
             );
-            await nativeCompleted(rawSheetCompletion(self.handle, token));
+            await bridge.completed(rawSheetCompletion(self.handle, token));
             return checked(Int(rawSheetResult(self.handle, token)), "macos.alert.result");
         }
         finally {
@@ -896,7 +929,7 @@ class Window {
                     let dismissed = checked(Int(rawSheetCancel(self.handle, token)), "macos.sheet.cancel");
                 }
                 finally {
-                    await nativeCompleted(rawSheetCompletion(self.handle, token));
+                    await bridge.completed(rawSheetCompletion(self.handle, token));
                     let finished = checked(Int(rawSheetFinish(self.handle, token)), "macos.sheet.finish");
                 }
             }
@@ -1656,12 +1689,12 @@ class UiEvent {
 
 /// Copy the latest Main-thread native diagnostic. Errors include this text.
 fn diagnostic() -> String {
-    return utf8Decode(rawDiagnostic());
+    return textApi.decodeUtf8(rawDiagnostic());
 }
 
 fn checked(status: Int, operation: String) -> Int {
     if status < 0 {
-        return nativeStatus(status, f"{operation}: {diagnostic()}");
+        return bridge.checkStatus(status, f"{operation}: {diagnostic()}");
     }
     return status;
 }
@@ -1735,7 +1768,7 @@ async fn nextEvent(session: Session) -> UiEvent {
         let token = checked(rawWaitToken(), "macos.event.token");
         try {
             let admitted = checked(Int(rawEventBegin(session.handle, token)), "macos.event.wait");
-            await nativeCompleted(rawEventCompletion(session.handle, token));
+            await bridge.completed(rawEventCompletion(session.handle, token));
             let output = Event(
                 kind: 0,
                 windowId: 0,
@@ -1759,7 +1792,7 @@ async fn nextEvent(session: Session) -> UiEvent {
             let taken = checked(Int(rawEventTake(session.handle, token, output)), "macos.event.take");
             if taken != 0 {
                 let event = output;
-                let text = utf8Decode(rawEventBytes(session.handle, token));
+                let text = textApi.decodeUtf8(rawEventBytes(session.handle, token));
                 return UiEvent(
                     kind: event.kind,
                     windowId: event.windowId,
@@ -1786,12 +1819,12 @@ async fn nextEvent(session: Session) -> UiEvent {
         finally {
             if rawEventOwned(session.handle, token) {
                 let cancelled = checked(Int(rawEventCancel(session.handle, token)), "macos.event.cancel");
-                await nativeCompleted(rawEventCompletion(session.handle, token));
+                await bridge.completed(rawEventCompletion(session.handle, token));
                 let finished = checked(Int(rawEventFinish(session.handle, token)), "macos.event.finish");
             }
         }
     }
-    throw error(-7804, "unreachable event loop exit");
+    throw err.create(-7804, "unreachable event loop exit");
 }
 
 fn stop(session: Session) -> Int {
@@ -1804,13 +1837,13 @@ async fn waitStatus(command: Command) -> Int {
     let token = checked(rawWaitToken(), "macos.command.waitToken");
     try {
         let acquired = checked(Int(rawWaitBegin(command.handle, token)), "macos.command.wait");
-        await nativeCompleted(rawCompletion(command.handle, token));
+        await bridge.completed(rawCompletion(command.handle, token));
         return Int(rawCommandStatus(command.handle));
     }
     finally {
         // Cancellation still awaits the actual GPU publication before releasing leases.
         if rawWaitOwned(command.handle, token) {
-            await nativeCompleted(rawCompletion(command.handle, token));
+            await bridge.completed(rawCompletion(command.handle, token));
             let finished = checked(Int(rawFinish(command.handle, token)), "macos.command.finish");
         }
     }
@@ -1926,7 +1959,7 @@ class UiJob {
 
     fn wake(self: UiJob) -> Int {
         if self.control.closed {
-            throw error(-7803, "UI scope is closed");
+            throw err.create(-7803, "UI scope is closed");
         }
         return checked(Int(rawScopeNotify(self.session.handle, self.windowId)), "macos.job.wake");
     }
@@ -1946,7 +1979,7 @@ class UiScope {
     fn start(self: UiScope, work: fn (UiJob) -> Future<Unit>) -> Int {
         {
             if self.control.closed || self.control.stopping {
-                throw error(-7803, "UI scope is stopping");
+                throw err.create(-7803, "UI scope is stopping");
             }
             self.tasks = rinzu.list.filter(
                 self.tasks,
@@ -1955,7 +1988,7 @@ class UiScope {
                 }
             );
             if rinzu.list.length(self.tasks) >= 256 {
-                throw error(-7803, "UI scope job limit");
+                throw err.create(-7803, "UI scope job limit");
             }
             let job = UiTask(pending: Option<Future<Unit>>.None(), done: false, started: false);
             self.tasks = rinzu.list.append(self.tasks, job);
@@ -1976,7 +2009,7 @@ class UiScope {
     /// Wake the single dispatcher after Source state changes outside an input handler.
     fn wake(self: UiScope) -> Int {
         if self.control.closed {
-            throw error(-7803, "UI scope is closed");
+            throw err.create(-7803, "UI scope is closed");
         }
         return checked(Int(rawScopeNotify(self.session.handle, self.windowId)), "macos.scope.wake");
     }
@@ -2050,7 +2083,7 @@ class UiScope {
         draw: fn (Frame2D) -> Future<Unit>
     ) -> Canvas2D {
         if self.control.stopping || rinzu.list.length(self.canvases) >= 256 {
-            throw error(-7803, "macos.canvas.limitOrStopping");
+            throw err.create(-7803, "macos.canvas.limitOrStopping");
         }
         var result: Option<Canvas2D> = Option<Canvas2D>.None();
         // Native-only acquisition is masked. The scope owns the canvas before
@@ -2124,14 +2157,14 @@ class UiScope {
                             throw problem;
                         }
                         case Option.None: {
-                            throw error(-7803, "macos.canvas.jobAdmission");
+                            throw err.create(-7803, "macos.canvas.jobAdmission");
                         }
                     }
                 }
                 return created;
             }
             case Option.None: {
-                throw error(-7804, "macos.canvas.creation");
+                throw err.create(-7804, "macos.canvas.creation");
             }
         }
     }
@@ -2170,7 +2203,7 @@ class UiScope {
 
     fn menu(self: UiScope, title: String) -> Menu {
         if self.control.closed || self.control.stopping {
-            throw error(-7803, "UI scope is stopping");
+            throw err.create(-7803, "UI scope is stopping");
         }
         return self.window.menu(title);
     }
@@ -2303,11 +2336,11 @@ async fn withWindow(session: Session, title: String, width: Float, height: Float
     -> Int {
     let token = checked(rawWaitToken(), "macos.window.scopeToken");
     try {
-        let bytes = utf8Encode(title);
+        let bytes = textApi.encodeUtf8(title);
         let window = Window(
             handle: rawWindow(
                 checked(
-                    rawWindowScoped(session.handle, token, bytes, byteLength(bytes), width, height),
+                    rawWindowScoped(session.handle, token, bytes, bytesApi.byteLength(bytes), width, height),
                     "macos.window.scope"
                 )
             )
@@ -2365,7 +2398,7 @@ async fn stopAndDrain(session: Session) {
                 let stopped = checked(Int(rawRequestStop(session.handle)), "macos.run.stop");
             }
             finally {
-                await nativeCompleted(rawRunCompletion(session.handle, token));
+                await bridge.completed(rawRunCompletion(session.handle, token));
                 let finished = checked(Int(rawRunWaitFinish(session.handle, token)), "macos.run.finish");
             }
         }
@@ -2389,11 +2422,11 @@ async fn uiApplication(
         let session = open();
         let token = checked(rawWaitToken(), "macos.application.scopeToken");
         try {
-            let bytes = utf8Encode(title);
+            let bytes = textApi.encodeUtf8(title);
             let window = Window(
                 handle: rawWindow(
                     checked(
-                        rawWindowScoped(session.handle, token, bytes, byteLength(bytes), width, height),
+                        rawWindowScoped(session.handle, token, bytes, bytesApi.byteLength(bytes), width, height),
                         "macos.application.window"
                     )
                 )
@@ -2466,23 +2499,26 @@ export eventTaskFinished;
 let eventInputLimit = 19;
 
 fn newWidget(session: Session, kind: Int, title: String, frame: Rect, action: Int) -> View {
-    let text = utf8Encode(title);
+    let text = textApi.encodeUtf8(title);
     return View(
         handle: rawView(
-            checked(rawWidgetCreate(session.handle, CInt(kind), text, byteLength(text), frame, action), "macos.widget")
+            checked(
+                rawWidgetCreate(session.handle, CInt(kind), text, bytesApi.byteLength(text), frame, action),
+                "macos.widget"
+            )
         )
     );
 }
 
 fn scopedWidget(scope: UiScope, kind: Int, title: String, frame: Rect, action: Int) -> View {
     if scope.control.closed || scope.control.stopping {
-        throw error(-7803, "UI scope is stopping");
+        throw err.create(-7803, "UI scope is stopping");
     }
-    let text = utf8Encode(title);
+    let text = textApi.encodeUtf8(title);
     return View(
         handle: rawView(
             checked(
-                rawWidgetScoped(scope.window.handle, CInt(kind), text, byteLength(text), frame, action),
+                rawWidgetScoped(scope.window.handle, CInt(kind), text, bytesApi.byteLength(text), frame, action),
                 "macos.widget.scoped"
             )
         )
@@ -2490,15 +2526,15 @@ fn scopedWidget(scope: UiScope, kind: Int, title: String, frame: Rect, action: I
 }
 
 fn widgetSetText(view: View, value: String) -> Int {
-    let text = utf8Encode(value);
-    return checked(Int(rawWidgetSetText(view.handle, text, byteLength(text))), "macos.widget.setText");
+    let text = textApi.encodeUtf8(value);
+    return checked(Int(rawWidgetSetText(view.handle, text, bytesApi.byteLength(text))), "macos.widget.setText");
 }
 
 fn widgetText(view: View) -> String {
     let token = checked(rawWaitToken(), "macos.widget.snapshotToken");
     try {
         let prepared = checked(Int(rawWidgetSnapshot(view.handle, token)), "macos.widget.text");
-        return utf8Decode(rawWidgetBytes(view.handle, token));
+        return textApi.decodeUtf8(rawWidgetBytes(view.handle, token));
     }
     finally {
         if rawWidgetSnapshotOwned(view.handle, token) {
@@ -2752,7 +2788,7 @@ fn layoutStack(parent: View, children: List<View>, padding: Float, gap: Float, v
     let bounds = parent.frame();
     let count = rinzu.list.length(children);
     if padding < 0.0 || gap < 0.0 || bounds.width < padding * 2.0 || bounds.height < padding * 2.0 {
-        throw error(-7804, "macos.layout.invalidSpacing");
+        throw err.create(-7804, "macos.layout.invalidSpacing");
     }
     if count == 0 {
         return 0;
@@ -2763,7 +2799,7 @@ fn layoutStack(parent: View, children: List<View>, padding: Float, gap: Float, v
     }
     let available = extent - gap * Float(count - 1);
     if available < 0.0 {
-        throw error(-7804, "macos.layout.insufficientSpace");
+        throw err.create(-7804, "macos.layout.insufficientSpace");
     }
     let cell = available / Float(count);
     var index = 0;
@@ -2844,7 +2880,7 @@ class DocumentBinding {
 
     fn capture(self: DocumentBinding) -> Bool {
         if self.input.isComposing() {
-            throw error(-7803, "finish text composition before capturing a document");
+            throw err.create(-7803, "finish text composition before capturing a document");
         }
         let text = self.input.text();
         let selection = self.input.selection();
@@ -2855,14 +2891,14 @@ class DocumentBinding {
 
     /// Replace the document after a successful load, with fresh history and version.
     fn load(self: DocumentBinding, text: String) -> Bool {
-        if utf8ByteLength(text) > 1048576 {
-            throw error(-7820, "document.textLimit");
+        if textApi.utf8ByteLength(text) > 1048576 {
+            throw err.create(-7820, "document.textLimit");
         }
         if !self.document.accepting {
             return false;
         }
         if self.input.isComposing() {
-            throw error(-7803, "finish text composition before loading a document");
+            throw err.create(-7803, "finish text composition before loading a document");
         }
         var changed = false;
         try {}
@@ -2901,8 +2937,8 @@ class DocumentBinding {
     }
 
     fn replace(self: DocumentBinding, text: String, start: Int, end: Int) -> Bool {
-        if utf8ByteLength(text) > 1048576 || start < 0 || end < start || end > stringLength(text) {
-            throw error(-7820, "document.invalidReplacement");
+        if textApi.utf8ByteLength(text) > 1048576 || start < 0 || end < start || end > textApi.length(text) {
+            throw err.create(-7820, "document.invalidReplacement");
         }
         if !self.document.accepting {
             return false;
@@ -2978,7 +3014,7 @@ class DocumentBinding {
 
     fn setAccepting(self: DocumentBinding, accepting: Bool) -> Int {
         if !accepting && self.input.isComposing() {
-            throw error(-7803, "finish text composition before closing a document");
+            throw err.create(-7803, "finish text composition before closing a document");
         }
         try {}
         finally {
@@ -3035,9 +3071,9 @@ async fn filePanel(window: Window, save: Bool, title: String, directory: String,
     await sheetReady(window);
     let token = checked(rawWaitToken(), "macos.sheet.token");
     try {
-        let heading = utf8Encode(title);
-        let folder = utf8Encode(directory);
-        let filename = utf8Encode(name);
+        let heading = textApi.encodeUtf8(title);
+        let folder = textApi.encodeUtf8(directory);
+        let filename = textApi.encodeUtf8(name);
         var kind = 0;
         if save {
             kind = 1;
@@ -3049,19 +3085,19 @@ async fn filePanel(window: Window, save: Bool, title: String, directory: String,
                     token,
                     CInt(kind),
                     heading,
-                    byteLength(heading),
+                    bytesApi.byteLength(heading),
                     folder,
-                    byteLength(folder),
+                    bytesApi.byteLength(folder),
                     filename,
-                    byteLength(filename)
+                    bytesApi.byteLength(filename)
                 )
             ),
             "macos.panel.begin"
         );
-        await nativeCompleted(rawSheetCompletion(window.handle, token));
+        await bridge.completed(rawSheetCompletion(window.handle, token));
         let result = checked(Int(rawSheetResult(window.handle, token)), "macos.panel.result");
         if result == 1 {
-            return Option<String>.Some(value: utf8Decode(rawSheetBytes(window.handle, token)));
+            return Option<String>.Some(value: textApi.decodeUtf8(rawSheetBytes(window.handle, token)));
         }
         return Option<String>.None();
     }
@@ -3071,7 +3107,7 @@ async fn filePanel(window: Window, save: Bool, title: String, directory: String,
                 let dismissed = checked(Int(rawSheetCancel(window.handle, token)), "macos.sheet.cancel");
             }
             finally {
-                await nativeCompleted(rawSheetCompletion(window.handle, token));
+                await bridge.completed(rawSheetCompletion(window.handle, token));
                 let finished = checked(Int(rawSheetFinish(window.handle, token)), "macos.sheet.finish");
             }
         }
@@ -3201,10 +3237,10 @@ class Batch2D {
         finally {
             let ready = checked(Int(rawBufferWritable(self.vertices.handle)), "macos.batch2D.reset");
             if self.rendering {
-                throw error(-7803, "macos.batch2D.rendering");
+                throw err.create(-7803, "macos.batch2D.rendering");
             }
             if self.closed || width <= 0 || height <= 0 || width > 32768 || height > 32768 {
-                throw error(-7804, "macos.batch2D.size");
+                throw err.create(-7804, "macos.batch2D.size");
             }
             self.width = width;
             self.height = height;
@@ -3219,7 +3255,7 @@ class Batch2D {
     fn setTransform(self: Batch2D, transform: Transform2D) {
         let ready = checked(Int(rawBufferWritable(self.vertices.handle)), "macos.batch2D.transform");
         if self.rendering {
-            throw error(-7803, "macos.batch2D.rendering");
+            throw err.create(-7803, "macos.batch2D.rendering");
         }
         self.transform = transform;
     }
@@ -3227,7 +3263,7 @@ class Batch2D {
     fn setClip(self: Batch2D, clip: Scissor) {
         let ready = checked(Int(rawBufferWritable(self.vertices.handle)), "macos.batch2D.clip");
         if self.rendering {
-            throw error(-7803, "macos.batch2D.rendering");
+            throw err.create(-7803, "macos.batch2D.rendering");
         }
         if clip.x < 0
             || clip.y < 0
@@ -3237,7 +3273,7 @@ class Batch2D {
             || clip.y > self.height
             || clip.width > self.width - clip.x
             || clip.height > self.height - clip.y {
-            throw error(-7804, "macos.batch2D.clip");
+            throw err.create(-7804, "macos.batch2D.clip");
         }
         self.clip = clip;
     }
@@ -3245,10 +3281,10 @@ class Batch2D {
     fn setFilter(self: Batch2D, filter: Int) {
         let ready = checked(Int(rawBufferWritable(self.vertices.handle)), "macos.batch2D.filter");
         if self.rendering {
-            throw error(-7803, "macos.batch2D.rendering");
+            throw err.create(-7803, "macos.batch2D.rendering");
         }
         if filter != filterNearest && filter != filterLinear {
-            throw error(-7804, "macos.batch2D.filter");
+            throw err.create(-7804, "macos.batch2D.filter");
         }
         self.filter = filter;
     }
@@ -3281,10 +3317,10 @@ class Batch2D {
         finally {
             let ready = checked(Int(rawBufferWritable(self.vertices.handle)), "macos.batch2D.image");
             if self.rendering {
-                throw error(-7803, "macos.batch2D.rendering");
+                throw err.create(-7803, "macos.batch2D.rendering");
             }
             if self.closed || self.width <= 0 || self.count >= self.capacity {
-                throw error(-7804, "macos.batch2D.capacityOrState");
+                throw err.create(-7804, "macos.batch2D.capacityOrState");
             }
             let id = texture.identity();
             let projection = Transform2D(
@@ -3343,14 +3379,14 @@ class Batch2D {
     /// Encode into an already begun pass. On Error the caller must abandon it.
     fn encode(self: Batch2D, command: Command, format: Int) -> Int {
         if self.rendering {
-            throw error(-7803, "macos.batch2D.rendering");
+            throw err.create(-7803, "macos.batch2D.rendering");
         }
         return self.encodeNow(command, format);
     }
 
     private fn encodeNow(self: Batch2D, command: Command, format: Int) -> Int {
         if self.closed || self.width <= 0 || (format != pixelRGBA8 && format != pixelBGRA8) {
-            throw error(-7804, "macos.batch2D.encode");
+            throw err.create(-7804, "macos.batch2D.encode");
         }
         // Binding first makes subsequent writes/reset fail until finish/abandon.
         let bound = command.setVertexBuffer(0, self.vertices, 0);
@@ -3363,7 +3399,7 @@ class Batch2D {
         while index < rinzu.list.length(self.draws) {
             switch rinzu.list.get(self.draws, index) {
                 case Option.None: {
-                    throw error(-7804, "macos.batch2D.span");
+                    throw err.create(-7804, "macos.batch2D.span");
                 }
                 case Option.Some(draw): {
                     let clipped = command.setScissor(draw.clip);
@@ -3384,7 +3420,7 @@ class Batch2D {
             try {}
             finally {
                 if self.rendering || rawCommandState(self.command.handle) != 0 {
-                    throw error(-7803, "macos.batch2D.rendering");
+                    throw err.create(-7803, "macos.batch2D.rendering");
                 }
                 self.rendering = true;
                 admitted = true;
@@ -3417,7 +3453,7 @@ class Batch2D {
             try {}
             finally {
                 if self.rendering || rawCommandState(self.command.handle) != 0 {
-                    throw error(-7803, "macos.batch2D.rendering");
+                    throw err.create(-7803, "macos.batch2D.rendering");
                 }
                 self.rendering = true;
                 admitted = true;
@@ -3447,7 +3483,7 @@ class Batch2D {
 
     fn destroy(self: Batch2D) {
         if self.rendering || rawCommandState(self.command.handle) != 0 {
-            throw error(-7803, "macos.batch2D.commandBusy");
+            throw err.create(-7803, "macos.batch2D.commandBusy");
         }
         let ready = checked(Int(rawBufferWritable(self.vertices.handle)), "macos.batch2D.destroy");
         let command = self.command.destroy();
@@ -3599,7 +3635,7 @@ async fn canvasLoop(job: UiJob, canvas: Canvas2D, draw: fn (Frame2D) -> Future<U
                             switch rinzu.list.get(errors, index) {
                                 case Option.None: {}
                                 case Option.Some(problem): {
-                                    if errorCode(problem) != -7810 {
+                                    if err.code(problem) != Option<Int>.Some(value: -7810) {
                                         throw problem;
                                     }
                                 }
@@ -3646,7 +3682,7 @@ class UiActions {
 
     fn on(self: UiActions, action: Int, handler: fn (UiJob, UiEvent) -> Future<Unit>) {
         if rinzu.list.length(self.bindings) >= 256 {
-            throw error(-7803, "macos.actions.limit");
+            throw err.create(-7803, "macos.actions.limit");
         }
         let duplicate = rinzu.list.any(
             self.bindings,
@@ -3655,7 +3691,7 @@ class UiActions {
             }
         );
         if duplicate {
-            throw error(-7804, "macos.actions.duplicate");
+            throw err.create(-7804, "macos.actions.duplicate");
         }
         self.bindings = rinzu.list.append(self.bindings, UiAction(action: action, handler: handler, busy: false));
     }
@@ -3722,7 +3758,7 @@ class LayoutItem {
 
 fn weightedStack(parent: View, children: List<LayoutItem>, padding: Float, gap: Float, vertical: Bool) -> Int {
     if !(padding >= 0.0 && padding <= 32768.0 && gap >= 0.0 && gap <= 32768.0) || rinzu.list.length(children) > 256 {
-        throw error(-7804, "macos.layout.spacing");
+        throw err.create(-7804, "macos.layout.spacing");
     }
     let bounds = parent.frame();
     var extent = bounds.width - padding * 2.0;
@@ -3743,7 +3779,7 @@ fn weightedStack(parent: View, children: List<LayoutItem>, padding: Float, gap: 
             case Option.None: {}
             case Option.Some(item): {
                 if !(item.fixed >= 0.0 && item.fixed <= 32768.0 && item.grow >= 0.0 && item.grow <= 32768.0) {
-                    throw error(-7804, "macos.layout.item");
+                    throw err.create(-7804, "macos.layout.item");
                 }
                 let valid = item.view.identity();
                 remaining = remaining - item.fixed;
@@ -3753,7 +3789,7 @@ fn weightedStack(parent: View, children: List<LayoutItem>, padding: Float, gap: 
         index = index + 1;
     }
     if remaining < 0.0 || cross < 0.0 {
-        throw error(-7804, "macos.layout.insufficientSpace");
+        throw err.create(-7804, "macos.layout.insufficientSpace");
     }
     var offset = padding;
     index = 0;
@@ -3962,7 +3998,7 @@ class DataView {
         let token = checked(rawWaitToken(), "macos.data.cellToken");
         try {
             let ready = checked(Int(rawDataCell(self.view.handle, token, id, column)), "macos.data.cell");
-            return utf8Decode(rawWidgetBytes(self.view.handle, token));
+            return textApi.decodeUtf8(rawWidgetBytes(self.view.handle, token));
         }
         finally {
             if rawWidgetSnapshotOwned(self.view.handle, token) {
@@ -3974,7 +4010,7 @@ class DataView {
     /// Build offscreen, yield every 256 rows, and publish one complete model.
     async fn generateRows(self: DataView, count: Int, make: fn (Int) -> DataRow) {
         if self.control.closed || self.control.stopping || count < 0 || count > 100000 {
-            throw error(-7804, "macos.data.countOrStopping");
+            throw err.create(-7804, "macos.data.countOrStopping");
         }
         let token = checked(rawWaitToken(), "macos.data.updateToken");
         try {
@@ -3984,7 +4020,7 @@ class DataView {
                 let row = make(index);
                 let bytes = dataCells(row.cells, self.columns);
                 let added = checked(
-                    Int(rawDataAppend(self.view.handle, token, row.id, row.parent, bytes, byteLength(bytes))),
+                    Int(rawDataAppend(self.view.handle, token, row.id, row.parent, bytes, bytesApi.byteLength(bytes))),
                     "macos.data.row"
                 );
                 index = index + 1;
@@ -4012,7 +4048,7 @@ class DataView {
                         return row;
                     }
                     case Option.None: {
-                        throw error(-7804, "macos.data.rowIndex");
+                        throw err.create(-7804, "macos.data.rowIndex");
                     }
                 }
             }
@@ -4022,22 +4058,22 @@ class DataView {
 
 fn dataCells(cells: List<String>, columns: Int) -> ByteArray {
     if rinzu.list.length(cells) != columns {
-        throw error(-7804, "macos.data.columnCount");
+        throw err.create(-7804, "macos.data.columnCount");
     }
     let result = rinzu.list.fold(
         cells,
         "",
         fn (encoded: String, cell: String) -> String {
-            let length = byteLength(utf8Encode(cell));
+            let length = bytesApi.byteLength(textApi.encodeUtf8(cell));
             if length > 65536 {
-                throw error(-7804, "macos.data.cellLimit");
+                throw err.create(-7804, "macos.data.cellLimit");
             }
             return f"{encoded}{length}:{cell}";
         }
     );
-    let bytes = utf8Encode(result);
-    if byteLength(bytes) > 1048576 {
-        throw error(-7804, "macos.data.rowLimit");
+    let bytes = textApi.encodeUtf8(result);
+    if bytesApi.byteLength(bytes) > 1048576 {
+        throw err.create(-7804, "macos.data.rowLimit");
     }
     return bytes;
 }
@@ -4047,16 +4083,18 @@ fn createDataView(scope: UiScope, kind: Int, columns: List<DataColumn>, frame: R
         || scope.control.stopping
         || rinzu.list.length(columns) < 1
         || rinzu.list.length(columns) > 32 {
-        throw error(-7804, "macos.data.columnsOrStopping");
+        throw err.create(-7804, "macos.data.columnsOrStopping");
     }
     let validColumns = rinzu.list.all(
         columns,
         fn (column: DataColumn) -> Bool {
-            return column.width >= 16.0 && column.width <= 4096.0 && byteLength(utf8Encode(column.title)) <= 4096;
+            return column.width >= 16.0
+                && column.width <= 4096.0
+                && bytesApi.byteLength(textApi.encodeUtf8(column.title)) <= 4096;
         }
     );
     if !validColumns {
-        throw error(-7804, "macos.data.column");
+        throw err.create(-7804, "macos.data.column");
     }
     let view = View(
         handle: rawView(
@@ -4072,9 +4110,18 @@ fn createDataView(scope: UiScope, kind: Int, columns: List<DataColumn>, frame: R
         while index < rinzu.list.length(columns) {
             switch rinzu.list.get(columns, index) {
                 case Option.Some(column): {
-                    let bytes = utf8Encode(column.title);
+                    let bytes = textApi.encodeUtf8(column.title);
                     let configured = checked(
-                        Int(rawDataColumn(view.handle, index, bytes, byteLength(bytes), column.width, column.sortable)),
+                        Int(
+                            rawDataColumn(
+                                view.handle,
+                                index,
+                                bytes,
+                                bytesApi.byteLength(bytes),
+                                column.width,
+                                column.sortable
+                            )
+                        ),
                         "macos.data.column"
                     );
                 }

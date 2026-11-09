@@ -361,3 +361,55 @@ fn main() {
             .any(|operation| matches!(operation.kind, OperationKind::FunctionReference { .. }))
     );
 }
+
+#[test]
+fn builtin_modules_share_call_reference_and_constant_resolution() {
+    let source = |text: &str| SourceFile::new(FileId(1), "intrinsics.rinzu", text.to_owned());
+    let artifact = compile_source(&source(
+        r#"
+import rinzu.bytes as bytes;
+import rinzu.core as old;
+import rinzu.error;
+import rinzu.number as number;
+import rinzu.string;
+
+let CAPACITY: Int = number.bitOr(2, 4);
+error Broken<T> { payload: T }
+fn errorMessage(problem: Error) nothrow -> String { return "local"; }
+
+fn main() {
+    let broken = Broken<Int>(message: "", payload: 1);
+    let text = rinzu.error.message(broken);
+    let oldText = old.errorMessage(broken);
+    let localText = errorMessage(broken);
+    let stringLength: fn (String) -> CSize = rinzu.string.utf8ByteLength;
+    let byteLength: fn (Bytes(CAPACITY)) -> CSize = bytes.byteLength;
+    let value = stringLength(text);
+}
+"#,
+    ))
+    .unwrap();
+    let operations: Vec<_> = artifact
+        .ir
+        .functions
+        .iter()
+        .flat_map(|function| &function.blocks)
+        .flat_map(|block| &block.operations)
+        .collect();
+    assert_eq!(
+        operations
+            .iter()
+            .filter(|op| matches!(op.kind, OperationKind::ErrorMessage { .. }))
+            .count(),
+        2
+    );
+    assert!(operations.iter().any(|op| matches!(&op.kind, OperationKind::ManagedCall { target, .. } if target == "errorMessage")));
+
+    let diagnostics = compile_source(&source(
+        r#"
+fn main() { let text = rinzu.error.message(error(7, "")); }
+"#,
+    ))
+    .unwrap_err();
+    assert_eq!(diagnostics[0].code.as_str(), "RZ0202");
+}

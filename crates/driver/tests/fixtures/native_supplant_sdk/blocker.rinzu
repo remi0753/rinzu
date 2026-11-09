@@ -1,4 +1,5 @@
 import loops;
+import rinzu.core;
 
 fn work(seed: CInt) -> CInt {
     let retained = ["callback root", "shutdown remains masked through physical return"];
@@ -8,7 +9,7 @@ fn work(seed: CInt) -> CInt {
         index = index + 1;
     }
     if retained != ["callback root", "shutdown remains masked through physical return"] {
-        panic("lost");
+        rinzu.core.panic("lost");
     }
     return 41;
 }
@@ -27,13 +28,13 @@ async fn main() {
         loops.checkReset(0);
         try {
             let result = await loops.checkRun(callback, "queued argument 日本語", b"\x00\xAA\x00\x7F", 4);
-            panic("shutdownWasLost");
+            rinzu.core.panic("shutdownWasLost");
         }
         finally {
             loops.checkOuter(1);
         }
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
     }
 }

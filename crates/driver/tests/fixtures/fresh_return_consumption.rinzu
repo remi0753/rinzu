@@ -1,5 +1,7 @@
 import rinzu.stdio;
 import rinzu.process;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
 
 class Held {
     text: String,
@@ -10,20 +12,20 @@ error Expected {}
 
 fn check(value: Bool) {
     if !value {
-        panic("bad");
+        rinzu.core.panic("bad");
     }
 }
 
 fn churn() {
     var i = 0;
     while i < 32 {
-        let discarded = Held(text: f"moved {i}", bytes: byteArray(b"garbage"));
+        let discarded = Held(text: f"moved {i}", bytes: bytesApi.from(b"garbage"));
         i = i + 1;
     }
 }
 
 async fn leaf() -> Held {
-    return Held(text: "日本語\u{0}held", bytes: byteArray(b"\x00\x80\xff"));
+    return Held(text: "日本語\u{0}held", bytes: bytesApi.from(b"\x00\x80\xff"));
 }
 
 async fn failing() -> Held {
@@ -68,7 +70,7 @@ fn identityBytes(value: Future<ByteArray>) -> Future<ByteArray> {
 
 fn worker() -> ByteArray {
     churn();
-    return byteArray(b"\x00\xff");
+    return bytesApi.from(b"\x00\xff");
 }
 
 async fn main() {
@@ -76,7 +78,7 @@ async fn main() {
         let environment = rinzu.process.environment("PATH");
         let a = await chain();
         churn();
-        check(a.text == "日本語\u{0}held" && bytesLength(a.bytes) == 3);
+        check(a.text == "日本語\u{0}held" && bytesApi.length(a.bytes) == 3);
         let b = await choose(true);
         let c = await choose(false);
         churn();
@@ -88,7 +90,7 @@ async fn main() {
         check(first.text == again.text && first.bytes == again.bytes);
         try {
             let bad = await failWrapper();
-            panic("expected failure was not thrown");
+            rinzu.core.panic("expected failure was not thrown");
         }
         catch [Expected] {
             churn();
@@ -100,7 +102,7 @@ async fn main() {
         let result = await identityBytes(job);
         churn();
         let resultAgain = await job;
-        check(result == byteArray(b"\x00\xff") && resultAgain == result);
+        check(result == bytesApi.from(b"\x00\xff") && resultAgain == result);
         try {
             let inner = await direct();
             check(inner.bytes == a.bytes);
@@ -113,6 +115,6 @@ async fn main() {
         rinzu.stdio.writeLine("A13:fresh-wrapper:alias:reawait:finally:error:gc:worker:OK");
     }
     catch unexpected {
-        panic("failed");
+        rinzu.core.panic("failed");
     }
 }

@@ -1,4 +1,5 @@
 import rinzu.core;
+import rinzu.bytes as bytesApi;
 
 type State = {
     id: Int,
@@ -51,23 +52,23 @@ fn exercise() -> State {
         value = EventValue.state(value: first)
     };
     let other: Other = { id = 7 };
-    let status = probe(first, first, second, event, other, byteLength, 0);
-    let swapped = probe(second, second, first, { value = EventValue.empty() }, other, byteLength, 1);
+    let status = probe(first, first, second, event, other, bytesApi.byteLength, 0);
+    let swapped = probe(second, second, first, { value = EventValue.empty() }, other, bytesApi.byteLength, 1);
     if status != 0 || swapped != 17 {
-        panic("wrongTokens");
+        rinzu.core.panic("wrongTokens");
     }
     var index = 0;
     while index < 10 {
-        let repeated = probe(first, first, second, event, other, byteLength, 0);
+        let repeated = probe(first, first, second, event, other, bytesApi.byteLength, 0);
         if repeated != 0 {
-            panic("reusedToken");
+            rinzu.core.panic("reusedToken");
         }
         index = index + 1;
     }
     if first != original() || second.id != 42 || event != {
         value = EventValue.state(value: first)
     } || other.id != 7 {
-        panic("lostData");
+        rinzu.core.panic("lostData");
     }
     return first;
 }
@@ -86,11 +87,11 @@ fn returning() -> State {
                 value = EventValue.state(value: value)
             },
             { id = 7 },
-            byteLength,
+            bytesApi.byteLength,
             0
         );
         if finalStatus != 0 {
-            panic("earlyRelease");
+            rinzu.core.panic("earlyRelease");
         }
     }
 }
@@ -106,7 +107,7 @@ fn preEntryError() -> Int {
             value,
             { value = EventValue.empty() },
             { id = 7 },
-            byteLength,
+            bytesApi.byteLength,
             CInt(2147483648)
         );
     }
@@ -115,7 +116,7 @@ fn preEntryError() -> Int {
     }
     let after = entries();
     if before != after || value != original() {
-        panic("unexpectedEntry");
+        rinzu.core.panic("unexpectedEntry");
     }
     return caught;
 }
@@ -123,7 +124,7 @@ fn preEntryError() -> Int {
 fn failed() -> Int {
     let value = original();
     try {
-        let status = probe(value, value, value, { value = EventValue.empty() }, { id = 7 }, byteLength, 0);
+        let status = probe(value, value, value, { value = EventValue.empty() }, { id = 7 }, bytesApi.byteLength, 0);
         let invalid = CInt8(300);
         return 0;
     }
@@ -136,11 +137,11 @@ fn failed() -> Int {
                 value = EventValue.state(value: value)
             },
             { id = 7 },
-            byteLength,
+            bytesApi.byteLength,
             1
         );
         if cleanupStatus != 17 {
-            panic("failedCleanup");
+            rinzu.core.panic("failedCleanup");
         }
     }
 }
@@ -165,7 +166,7 @@ fn work() -> Int {
 
 async fn pending() -> State {
     let value = original();
-    let initial = probe(value, value, value, { value = EventValue.empty() }, { id = 7 }, byteLength, 0);
+    let initial = probe(value, value, value, { value = EventValue.empty() }, { id = 7 }, bytesApi.byteLength, 0);
     try {
         let count = await spawn work();
         let next = probe(
@@ -176,18 +177,26 @@ async fn pending() -> State {
                 value = EventValue.state(value: value)
             },
             { id = 7 },
-            byteLength,
+            bytesApi.byteLength,
             0
         );
         if count != 1000 || initial != 0 || next != 0 {
-            panic("lostAwait");
+            rinzu.core.panic("lostAwait");
         }
         return value;
     }
     finally {
-        let finalStatus = probe(value, value, value, { value = EventValue.empty() }, { id = 7 }, byteLength, 0);
+        let finalStatus = probe(
+            value,
+            value,
+            value,
+            { value = EventValue.empty() },
+            { id = 7 },
+            bytesApi.byteLength,
+            0
+        );
         if finalStatus != 0 {
-            panic("lostCleanup");
+            rinzu.core.panic("lostCleanup");
         }
     }
 }
@@ -211,11 +220,11 @@ fn leaks() -> Int {
                 value = EventValue.state(value: value)
             },
             { id = 7 },
-            byteLength,
+            bytesApi.byteLength,
             0
         );
         if finalStatus != 0 {
-            panic("lostCancelCleanup");
+            rinzu.core.panic("lostCancelCleanup");
         }
     }
 }

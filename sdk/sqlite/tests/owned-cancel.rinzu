@@ -1,6 +1,9 @@
 import rinzu.timer;
 import rinzu.sqlite;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.future as future;
 
 fn worker() -> ByteArray {
     try {
@@ -11,7 +14,7 @@ fn worker() -> ByteArray {
                 return resultValue1;
             }
             catch [resultError1: Error, ...resultRest1] {
-                panic("badQuery");
+                rinzu.core.panic("badQuery");
             }
         }
         finally {
@@ -19,9 +22,9 @@ fn worker() -> ByteArray {
         }
     }
     catch [resultError2: Error, ...resultRest2] {
-        panic("badOpen");
+        rinzu.core.panic("badOpen");
     }
-    return byteArray(b"");
+    return bytesApi.from(b"");
 }
 
 async fn main() {
@@ -30,27 +33,27 @@ async fn main() {
             let child = spawn worker();
             await rinzu.sqlite.gateStarted();
             if rinzu.sqlite.ownedLive() != 1 {
-                panic("badHeld");
+                rinzu.core.panic("badHeld");
             }
-            let cancelled = cancelFuture(child);
+            let cancelled = future.cancel(child);
             if !cancelled {
-                panic("badCancel");
+                rinzu.core.panic("badCancel");
             }
             if rinzu.sqlite.ownedLive() != 1 {
-                panic("badEarlyFree");
+                rinzu.core.panic("badEarlyFree");
             }
             rinzu.sqlite.gateRelease();
-            while !futureReady(child) {
+            while !future.isReady(child) {
                 await rinzu.timer.sleep(1);
             }
         }
         finally {}
         if rinzu.sqlite.ownedLive() != 0 || rinzu.sqlite.ownedAllocations() != 1 || rinzu.sqlite.ownedReleases() != 1 {
-            panic("badBaseline");
+            rinzu.core.panic("badBaseline");
         }
         rinzu.stdio.writeLine("owned-cancel-ok");
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

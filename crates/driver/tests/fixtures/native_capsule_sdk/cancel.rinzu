@@ -1,4 +1,5 @@
 import capsules;
+import rinzu.core;
 
 fn synchronousWork(seed: CInt) -> CInt {
     let retained = ["callback root", "GC remains enabled during cancellation mask"];
@@ -7,7 +8,7 @@ fn synchronousWork(seed: CInt) -> CInt {
         value = value + 1;
     }
     if retained != ["callback root", "GC remains enabled during cancellation mask"] {
-        panic("lost");
+        rinzu.core.panic("lost");
     }
     return 41;
 }
@@ -30,7 +31,7 @@ async fn main() {
             outside = outside + 1;
         }
         if value != 41 {
-            panic("lost");
+            rinzu.core.panic("lost");
         }
     }
     finally {

@@ -31,7 +31,7 @@ fn main() {
 
 An `error` declaration creates a nominal Error type. A constructor requires `message`. The declaration name supplies `name`. `payload: T` is required; `payload?: T` is optional and reads as `Option<T>`; an empty body has no payload. Generic Error constructors and catch patterns specify concrete type arguments.
 
-Error retains its concrete type when stored as Error. `name`, `message`, and payload bindings are read-only. A class payload still refers to its original instance. A payload cannot contain a Future, directly or indirectly.
+Error retains its concrete type when stored as Error. `name`, `message`, and payload bindings are read-only. A class payload still refers to its original instance. Import `rinzu.error` to use `rinzu.error.message(problem)` with any Error. It reads the same String as `problem.message`. A payload cannot contain a Future, directly or indirectly.
 
 ## Declare an Error upper bound
 
@@ -154,6 +154,6 @@ A return, break, or continue stops the body. Collected Errors, catch, and finall
 
 The first throw attaches source information; rethrow preserves it. `source` is an Option of a SourceLocation with one-based file/line/column information. `cause` is an explicit Option of Error. Set `RINZU_ERROR_TRACE=1` to collect diagnostic traces; there is no public Error.trace field.
 
-Use `panic("reason")` for an unrecoverable invariant violation. Panic bypasses ordinary catches, still follows required cleanup, and fails normal process execution. Cancellation, shutdown, arithmetic traps, fatal native failures, and OOM are not ordinary catchable Error values.
+Use `rinzu.core.panic("reason")` for an unrecoverable invariant violation. Panic bypasses ordinary catches, still follows required cleanup, and fails normal process execution. Cancellation, shutdown, arithmetic traps, fatal native failures, and OOM are not ordinary catchable Error values.
 
 Next: [Asynchronous tasks and Workers](async.md).

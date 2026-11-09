@@ -1,5 +1,7 @@
 import rinzu.list;
 import rinzu.stream;
+import rinzu.bytes as bytesApi;
+import rinzu.error as err;
 
 /// Bounded encoded image input. The stream owner recovers an unreceived open.
 async fn readImageBytes(path: String) -> ByteArray {
@@ -10,18 +12,18 @@ async fn readImageBytes(path: String) -> ByteArray {
         while true {
             switch await rinzu.stream.next(input) {
                 case Option.None: {
-                    return bytesConcatAll(chunks);
+                    return bytesApi.concatAll(chunks);
                 }
                 case Option.Some(bytes): {
-                    if bytesLength(bytes) > 67108864 - length {
-                        throw error(-7804, "macos.image.encodedLimit");
+                    if bytesApi.length(bytes) > 67108864 - length {
+                        throw err.create(-7804, "macos.image.encodedLimit");
                     }
                     chunks = rinzu.list.append(chunks, bytes);
-                    length = length + bytesLength(bytes);
+                    length = length + bytesApi.length(bytes);
                 }
             }
         }
-        throw error(-7804, "macos.image.unreachable");
+        throw err.create(-7804, "macos.image.unreachable");
     }
     finally {
         let closed = await rinzu.stream.close(input);

@@ -1,6 +1,8 @@
 import rinzu.log;
 import rinzu.io;
 import rinzu.stdio;
+import rinzu.core;
+import rinzu.error as err;
 
 async fn main() {
     try {
@@ -10,18 +12,18 @@ async fn main() {
                 let first = rinzu.log.emit(resultValue8, 1, 0, 0, 0);
                 try {
                     let resultValue7 = await rinzu.log.emit(resultValue8, 1, 0, 1, 0);
-                    panic("badOverlap");
+                    rinzu.core.panic("badOverlap");
                 }
                 catch [resultError7: Error, ...resultRest7] {
-                    if errorCode(resultError7) != -7401 {
-                        panic("badBusy");
+                    if err.code(resultError7) != Option<Int>.Some(value: -7401) {
+                        rinzu.core.panic("badBusy");
                     }
                 }
                 try {
                     let resultValue6 = await first;
                 }
                 catch [resultError6: Error, ...resultRest6] {
-                    panic("badFirst");
+                    rinzu.core.panic("badFirst");
                 }
                 var i = 1;
                 while i < 1000 {
@@ -29,20 +31,20 @@ async fn main() {
                         let resultValue5 = await rinzu.log.emit(resultValue8, 1, i, 2, 0);
                     }
                     catch [resultError5: Error, ...resultRest5] {
-                        panic("badRow");
+                        rinzu.core.panic("badRow");
                     }
                     i = i + 1;
                 }
                 try {
                     let resultValue4 = await rinzu.log.emit(resultValue8, 4, 0, 0, 0);
-                    panic("badLevel");
+                    rinzu.core.panic("badLevel");
                 }
                 catch [resultError4: Error, ...resultRest4] {}
                 try {
                     let resultValue3 = await rinzu.log.flush(resultValue8);
                 }
                 catch [resultError3: Error, ...resultRest3] {
-                    panic("badFlush");
+                    rinzu.core.panic("badFlush");
                 }
             }
             finally {
@@ -50,28 +52,28 @@ async fn main() {
                     let resultValue2 = await rinzu.log.close(resultValue8);
                 }
                 catch [resultError2: Error, ...resultRest2] {
-                    panic("badClose");
+                    rinzu.core.panic("badClose");
                 }
             }
             try {
                 let resultValue1 = await rinzu.log.emit(resultValue8, 1, 0, 0, 0);
-                panic("badClosed");
+                rinzu.core.panic("badClosed");
             }
             catch [resultError1: Error, ...resultRest1] {
-                if errorCode(resultError1) != -7402 {
-                    panic("badClosedCode");
+                if err.code(resultError1) != Option<Int>.Some(value: -7402) {
+                    rinzu.core.panic("badClosedCode");
                 }
             }
         }
         catch [resultError8: Error, ...resultRest8] {
-            panic("badOpen");
+            rinzu.core.panic("badOpen");
         }
         if rinzu.io.liveFiles() != 0 || rinzu.io.liveBuffers() != 0 {
-            panic("badLive");
+            rinzu.core.panic("badLive");
         }
         rinzu.stdio.writeLine("log-ok");
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

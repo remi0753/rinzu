@@ -20,6 +20,9 @@ impl RuntimeFunction {
         {
             return Some(Self::Sleep);
         }
+        if matches!(path, [name] if name == "$io::readResourceSize") {
+            return Some(Self::ReadResourceSize);
+        }
         Some(match crate::core::function_name(path)? {
             "readResourceSize" => Self::ReadResourceSize,
             "nativeCompleted" => Self::NativeCompleted,

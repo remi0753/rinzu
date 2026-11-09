@@ -1,6 +1,7 @@
 import rinzu.macos;
 import rinzu.testing;
 import rinzu.stdio;
+import rinzu.core;
 
 fn test_history_and_selection() {
     let doc = rinzu.macos.Document.create("initial🙂", true);
@@ -89,6 +90,6 @@ fn main() {
         rinzu.stdio.writeLine("DOCUMENT:model-ok");
     }
     catch errors {
-        panic(f"document test failed: {errors}");
+        rinzu.core.panic(f"document test failed: {errors}");
     }
 }

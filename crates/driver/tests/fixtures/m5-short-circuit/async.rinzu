@@ -1,6 +1,8 @@
 import rinzu.timer;
 import rinzu.stdio;
 import rinzu.testing;
+import rinzu.core;
+import rinzu.string as textApi;
 
 class State {
     calls: Int,
@@ -36,8 +38,12 @@ async fn main() {
         rinzu.testing.assertTrue(initial, "consumed Future before boolean edges");
         rinzu.testing.assertTrue(true || await unsafeValue(), "skipped async OR");
         rinzu.testing.assertTrue(!(false && await unsafeValue()), "skipped async AND");
-        let data = combine(utf8Encode("日\u{0}\u{fffd}"), false || await choose(state, true));
-        rinzu.testing.assertEqual<ByteArray>(data, utf8Encode("日\u{0}\u{fffd}"), "earlier argument across pending RHS");
+        let data = combine(textApi.encodeUtf8("日\u{0}\u{fffd}"), false || await choose(state, true));
+        rinzu.testing.assertEqual<ByteArray>(
+            data,
+            textApi.encodeUtf8("日\u{0}\u{fffd}"),
+            "earlier argument across pending RHS"
+        );
         let flag = (true && await choose(state, true)) || await unsafeValue();
         rinzu.testing.assertTrue(flag, "nested await short circuit");
         rinzu.testing.assertEqual<Int>(state.calls, 3, "only selected futures started");
@@ -45,6 +51,6 @@ async fn main() {
         rinzu.stdio.writeLine("SHORT-CIRCUIT:async:skip:await:cleanup:OK");
     }
     catch errors {
-        panic("failed");
+        rinzu.core.panic("failed");
     }
 }

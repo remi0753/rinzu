@@ -1,5 +1,6 @@
 import rinzu.list;
 import rinzu.map;
+import rinzu.core;
 
 error Failed {}
 
@@ -9,7 +10,7 @@ class Visits {
 
 fn require(condition: Bool) {
     if !condition {
-        panic("collection construction");
+        rinzu.core.panic("collection construction");
     }
 }
 
@@ -50,7 +51,7 @@ fn main() {
                 for item in nested {
                     return item;
                 }
-                panic("nested map");
+                rinzu.core.panic("nested map");
                 return 0;
             }
         );
@@ -68,7 +69,7 @@ fn main() {
             rinzu.list.filter(
                 empty,
                 fn (value: Int) -> Bool {
-                    panic("empty callback");
+                    rinzu.core.panic("empty callback");
                     return true;
                 }
             ) == []
@@ -85,7 +86,7 @@ fn main() {
                     return value > 1;
                 }
             );
-            panic("callback did not fail");
+            rinzu.core.panic("callback did not fail");
         }
         catch [problem: Failed] {
             require(problem.message == "stop" && visits.trace == 123);
@@ -99,7 +100,7 @@ fn main() {
                     return value;
                 }
             );
-            panic("duplicate accepted");
+            rinzu.core.panic("duplicate accepted");
         }
         catch [problem: rinzu.map.DuplicateKey<Int>] {
             require(visits.trace == 121);
@@ -121,7 +122,7 @@ fn main() {
         ];
         try {
             let failedEntries = rinzu.map.fromEntries(duplicate);
-            panic("duplicate accepted");
+            rinzu.core.panic("duplicate accepted");
         }
         catch [problem: rinzu.map.DuplicateKey<String>] {
             require(
@@ -147,10 +148,10 @@ fn main() {
             require(prefix == [1, 2]);
         }
         catch [overflow: rinzu.list.LengthOverflow] {
-            panic(overflow.message);
+            rinzu.core.panic(overflow.message);
         }
     }
     catch errors {
-        panic("unexpected collection Error");
+        rinzu.core.panic("unexpected collection Error");
     }
 }

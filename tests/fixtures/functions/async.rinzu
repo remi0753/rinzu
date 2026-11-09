@@ -1,5 +1,6 @@
 import rinzu.timer;
 import rinzu.stdio;
+import rinzu.core;
 
 enum Environment {
     Later(value: Int)
@@ -38,6 +39,6 @@ async fn main() {
         rinzu.stdio.writeLine(await pending);
     }
     catch errors {
-        panic(f"unexpected Error in Main: {errors}");
+        rinzu.core.panic(f"unexpected Error in Main: {errors}");
     }
 }

@@ -1,5 +1,6 @@
 import rinzu.timer;
 import rinzu.io;
+import rinzu.core;
 
 async fn main() {
     try {
@@ -7,7 +8,7 @@ async fn main() {
         await rinzu.timer.sleep(0);
         let size = await rinzu.io.readSize("data/input.txt");
         if size != 5 {
-            panic("invalidSize");
+            rinzu.core.panic("invalidSize");
         }
         var caught = 0;
         try {
@@ -25,10 +26,10 @@ async fn main() {
             index = index + 1;
         }
         if caught != 11 || retained != ["source io SDK 日本語", "timer continuation"] {
-            panic("invalidRoots");
+            rinzu.core.panic("invalidRoots");
         }
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
     }
 }

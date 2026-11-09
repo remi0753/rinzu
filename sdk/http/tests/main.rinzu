@@ -1,6 +1,8 @@
 import rinzu.timer;
 import rinzu.http;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
 
 class Ticks {
     value: Int
@@ -22,33 +24,33 @@ async fn main() {
         try all {
             let counter = ticking(ticks);
             try {
-                let resultValue5 = await rinzu.http.request(client, "BASE/slow", byteArray(b""), false, 2000);
-                if resultValue5.status != 200 || bytesLength(resultValue5.body) != 8192 || ticks.value != 20 {
-                    panic("badResponse");
+                let resultValue5 = await rinzu.http.request(client, "BASE/slow", bytesApi.from(b""), false, 2000);
+                if resultValue5.status != 200 || bytesApi.length(resultValue5.body) != 8192 || ticks.value != 20 {
+                    rinzu.core.panic("badResponse");
                 }
             }
             catch [resultError5: Error, ...resultRest5] {
-                panic("badGet");
+                rinzu.core.panic("badGet");
             }
             await counter;
-            let body = byteArray(b"\x00\xff\x02\x00\x04\x05\x80");
+            let body = bytesApi.from(b"\x00\xff\x02\x00\x04\x05\x80");
             try {
                 let resultValue4 = await rinzu.http.request(client, "BASE/echo", body, true, 2000);
                 if resultValue4.body != body {
-                    panic("badEcho");
+                    rinzu.core.panic("badEcho");
                 }
             }
             catch [resultError4: Error, ...resultRest4] {
-                panic("badPost");
+                rinzu.core.panic("badPost");
             }
             try {
-                let resultValue3 = await rinzu.http.request(client, "BASE/disconnect", byteArray(b""), false, 2000);
-                panic("badDisconnect");
+                let resultValue3 = await rinzu.http.request(client, "BASE/disconnect", bytesApi.from(b""), false, 2000);
+                rinzu.core.panic("badDisconnect");
             }
             catch [resultError3: Error, ...resultRest3] {
                 if resultError3 is rinzu.http.HttpFailure {
-                    if resultError3.payload.status != 200 || bytesLength(resultError3.payload.partial) != 7 {
-                        panic("badPartial");
+                    if resultError3.payload.status != 200 || bytesApi.length(resultError3.payload.partial) != 7 {
+                        rinzu.core.panic("badPartial");
                     }
                 }
                 else {
@@ -56,13 +58,13 @@ async fn main() {
                 }
             }
             try {
-                let resultValue2 = await rinzu.http.request(client, "BASE/binary", byteArray(b""), false, 2000);
-                if bytesLength(resultValue2.body) != 8192 {
-                    panic("badRecoveredLength");
+                let resultValue2 = await rinzu.http.request(client, "BASE/binary", bytesApi.from(b""), false, 2000);
+                if bytesApi.length(resultValue2.body) != 8192 {
+                    rinzu.core.panic("badRecoveredLength");
                 }
             }
             catch [resultError2: Error, ...resultRest2] {
-                panic("badRecovery");
+                rinzu.core.panic("badRecovery");
             }
         }
         finally {
@@ -70,15 +72,15 @@ async fn main() {
                 let resultValue1 = await rinzu.http.close(client);
             }
             catch [resultError1: Error, ...resultRest1] {
-                panic("badClose");
+                rinzu.core.panic("badClose");
             }
         }
         if rinzu.http.liveClients() != 0 || rinzu.http.liveBuffers() != 0 {
-            panic("badLive");
+            rinzu.core.panic("badLive");
         }
         rinzu.stdio.writeLine("http-basic-ok");
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

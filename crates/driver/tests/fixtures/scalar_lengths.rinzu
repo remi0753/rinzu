@@ -1,6 +1,9 @@
 import rinzu.list;
 import rinzu.map;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.string as textApi;
 
 class Box {
     value: Int
@@ -8,17 +11,17 @@ class Box {
 
 fn check(value: Bool) {
     if !value {
-        panic("lengthFailure");
+        rinzu.core.panic("lengthFailure");
     }
 }
 
 fn checks() {
-    let empty = byteArray(b"");
-    let binary = byteArray(b"\x00\xff\x80z");
+    let empty = bytesApi.from(b"");
+    let binary = bytesApi.from(b"\x00\xff\x80z");
     let text = "A日本😀é\u{0}";
-    check(bytesLength(empty) == 0 && bytesLength(binary) == 4);
-    check(stringLength("") == 0 && stringLength("ASCII\u{0}") == 6);
-    check(stringLength(text) == 7 && bytesLength(utf8Encode(text)) == 15);
+    check(bytesApi.length(empty) == 0 && bytesApi.length(binary) == 4);
+    check(textApi.length("") == 0 && textApi.length("ASCII\u{0}") == 6);
+    check(textApi.length(text) == 7 && bytesApi.length(textApi.encodeUtf8(text)) == 15);
     let noInts: List<Int> = [];
     let noStrings: List<String> = [];
     let noMap: Map<String, Int> = {};
@@ -37,12 +40,12 @@ fn checks() {
     var map = noMap;
     var index = 0;
     while index < 96 {
-        bytes = bytesConcat(bytes, binary);
+        bytes = bytesApi.concat(bytes, binary);
         ints = rinzu.list.append(ints, index);
         map = rinzu.map.insert(map, f"key-{index}", index);
-        check(bytesLength(bytes) == (index + 2) * 4);
+        check(bytesApi.length(bytes) == (index + 2) * 4);
         check(rinzu.list.length(ints) == index + 1 && rinzu.map.length(map) == index + 1);
-        check(stringLength(text) == 7 && rinzu.list.length(boxes) == 2);
+        check(textApi.length(text) == 7 && rinzu.list.length(boxes) == 2);
         index = index + 1;
     }
     box.value = 9;
@@ -54,10 +57,10 @@ fn worker() -> Int {
         checks();
     }
     catch [overflow: rinzu.list.LengthOverflow] {
-        panic(overflow.message);
+        rinzu.core.panic(overflow.message);
     }
     catch [overflow: rinzu.map.LengthOverflow] {
-        panic(overflow.message);
+        rinzu.core.panic(overflow.message);
     }
     return 42;
 }
@@ -70,6 +73,6 @@ async fn main() {
         rinzu.stdio.writeLine("scalar-lengths-ok");
     }
     catch errors {
-        panic("unexpectedLengthError");
+        rinzu.core.panic("unexpectedLengthError");
     }
 }

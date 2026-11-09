@@ -2,6 +2,9 @@ import rinzu.list;
 import rinzu.macos;
 import rinzu.process;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.string as textApi;
 
 class Task {
     const id: Int,
@@ -106,7 +109,7 @@ class Tasks {
         if title == "" {
             return;
         }
-        if byteLength(utf8Encode(title)) > 4096 {
+        if bytesApi.byteLength(textApi.encodeUtf8(title)) > 4096 {
             let limited = self.status.setText("Task title is too long. Use a shorter title.");
             return;
         }
@@ -160,34 +163,34 @@ class Tasks {
 
     async fn exercise(self: Tasks, job: rinzu.macos.UiJob) {
         var longTitle = "x";
-        while byteLength(utf8Encode(longTitle)) < 8192 {
+        while bytesApi.byteLength(textApi.encodeUtf8(longTitle)) < 8192 {
             longTitle = f"{longTitle}{longTitle}";
         }
         let oversized = self.input.setText(longTitle);
         await self.add(job);
         if rinzu.list.length(self.items) != 3 {
-            panic("task input limit failed");
+            rinzu.core.panic("task input limit failed");
         }
         let title = self.input.setText("テスト task 😀");
         await self.add(job);
         if rinzu.list.length(self.items) != 4 || self.list.cell(4, 0) != "テスト task 😀" {
-            panic("task add failed");
+            rinzu.core.panic("task add failed");
         }
         await self.change(job);
         if self.list.cell(4, 0) != "✓  テスト task 😀" {
-            panic("task toggle failed");
+            rinzu.core.panic("task toggle failed");
         }
         self.openOnly = true;
         await self.refresh();
         let filtered = self.list.state();
         if filtered.rows != 2 || filtered.selectedId != 0 {
-            panic("task filter failed");
+            rinzu.core.panic("task filter failed");
         }
         let selected = self.list.select(1, true);
         self.selected = 1;
         await self.erase(job);
         if rinzu.list.length(self.items) != 3 {
-            panic("task delete failed");
+            rinzu.core.panic("task delete failed");
         }
         let theme = job.window.setTheme(rinzu.macos.themeDark);
         rinzu.stdio.writeLine("TASKS:add:unicode:toggle:filter:delete:theme");
@@ -304,11 +307,11 @@ async fn main() {
         }
         let stats = rinzu.macos.statistics();
         if stats.retainedControls + stats.dataRows + stats.dataBytes + stats.dataUpdates != 0 {
-            panic("tasks leaked resources");
+            rinzu.core.panic("tasks leaked resources");
         }
         rinzu.stdio.writeLine("TASKS:closed");
     }
     catch errors {
-        panic(f"tasks failed: {errors}");
+        rinzu.core.panic(f"tasks failed: {errors}");
     }
 }

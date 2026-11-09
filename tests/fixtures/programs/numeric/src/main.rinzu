@@ -1,8 +1,23 @@
 import rinzu.stdio;
+import rinzu.core;
+import rinzu.error as err;
+import rinzu.number as num;
 
-let MASK: CUInt8 = bitOr(0xf0, 0b0000_1111);
+fn requiredErrorCode(problem: Error) nothrow -> Int {
+    switch err.code(problem) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            rinzu.core.panic("expected a numeric error code");
+            return 0;
+        }
+    }
+}
 
-let NEXT: CUInt8 = wrappingAdd(MASK, 1);
+let MASK: CUInt8 = num.bitOr(0xf0, 0b0000_1111);
+
+let NEXT: CUInt8 = num.wrappingAdd(MASK, 1);
 
 fn echo(value: CUInt8) -> CUInt8 {
     return value;
@@ -12,43 +27,43 @@ async fn main() {
     try {
         try {
             let data: CUInt8 = 0xAA;
-            rinzu.stdio.writeLine(bitAnd(data, 0x0f));
-            rinzu.stdio.writeLine(bitXor(data, MASK));
-            rinzu.stdio.writeLine(bitNot(data));
+            rinzu.stdio.writeLine(num.bitAnd(data, 0x0f));
+            rinzu.stdio.writeLine(num.bitXor(data, MASK));
+            rinzu.stdio.writeLine(num.bitNot(data));
             rinzu.stdio.writeLine(NEXT);
-            rinzu.stdio.writeLine(wrappingSub(CUInt8(0), 1));
-            rinzu.stdio.writeLine(wrappingMul(CInt8(100), 2));
-            rinzu.stdio.writeLine(shiftRight(CInt8(-128), 7));
-            rinzu.stdio.writeLine(shiftLeft(CUInt8(1), 7));
+            rinzu.stdio.writeLine(num.wrappingSub(CUInt8(0), 1));
+            rinzu.stdio.writeLine(num.wrappingMul(CInt8(100), 2));
+            rinzu.stdio.writeLine(num.shiftRight(CInt8(-128), 7));
+            rinzu.stdio.writeLine(num.shiftLeft(CUInt8(1), 7));
             try {
-                let resultValue3 = checkedAdd(data, 0xff);
+                let resultValue3 = num.checkedAdd(data, 0xff);
                 rinzu.stdio.writeLine(resultValue3);
             }
             catch [resultError3: Error, ...resultRest3] {
-                rinzu.stdio.writeLine(errorCode(resultError3));
+                rinzu.stdio.writeLine(requiredErrorCode(resultError3));
             }
             try {
-                let resultValue2 = shiftLeft(data, -1);
+                let resultValue2 = num.shiftLeft(data, -1);
                 rinzu.stdio.writeLine(resultValue2);
             }
             catch [resultError2: Error, ...resultRest2] {
-                rinzu.stdio.writeLine(errorCode(resultError2));
+                rinzu.stdio.writeLine(requiredErrorCode(resultError2));
             }
             try {
-                let resultValue1 = checkedMul(CUInt8(12), 2);
+                let resultValue1 = num.checkedMul(CUInt8(12), 2);
                 let pending = spawn echo(resultValue1);
                 rinzu.stdio.writeLine((await pending));
             }
             catch [resultError1: Error, ...resultRest1] {
                 rinzu.stdio.writeLine((resultError1));
             }
-            rinzu.stdio.writeLine(mathAbs(CFloat(-1.5)));
-            rinzu.stdio.writeLine(mathSqrt(4.0));
-            rinzu.stdio.writeLine(floatIsNan(mathSqrt(-1.0)));
+            rinzu.stdio.writeLine(num.abs(CFloat(-1.5)));
+            rinzu.stdio.writeLine(num.sqrt(4.0));
+            rinzu.stdio.writeLine(num.isNaN(num.sqrt(-1.0)));
         }
         catch errors {}
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

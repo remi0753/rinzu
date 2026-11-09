@@ -1,4 +1,5 @@
 import rinzu.list;
+import rinzu.core;
 
 class Trace {
     values: List<Int>
@@ -9,7 +10,7 @@ fn note(trace: Trace, value: Int) {
         trace.values = rinzu.list.append(trace.values, value);
     }
     catch [overflow: rinzu.list.LengthOverflow] {
-        panic(overflow.message);
+        rinzu.core.panic(overflow.message);
     }
 }
 
@@ -41,12 +42,12 @@ async fn main() {
         let first = parent(trace);
         let second = mark(trace, 2);
         if rinzu.list.length(trace.values) != 0 {
-            panic("ranBeforeTurn");
+            rinzu.core.panic("ranBeforeTurn");
         }
         let one = await first;
         let two = await second;
         if one != 3 || two != 2 || trace.values != [1, 2, 3, 5, 4, 6, 7] {
-            panic("changedSnapshot");
+            rinzu.core.panic("changedSnapshot");
         }
         round = round + 1;
     }

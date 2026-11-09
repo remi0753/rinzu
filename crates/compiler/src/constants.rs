@@ -265,13 +265,11 @@ impl Evaluator<'_> {
 }
 fn pure_integer_operation(target: &[String]) -> Option<crate::DataOperation> {
     use crate::DataOperation::*;
-    let name = crate::core::function_name(target)?;
-    crate::DataOperation::ALL.into_iter().find(|op| {
-        op.name() == name
-            && matches!(
-                op,
-                BitAnd | BitOr | BitXor | BitNot | WrappingAdd | WrappingSub | WrappingMul
-            )
+    crate::core::data_operation(target).filter(|op| {
+        matches!(
+            op,
+            BitAnd | BitOr | BitXor | BitNot | WrappingAdd | WrappingSub | WrappingMul
+        )
     })
 }
 fn invalid(range: SourceRange, message: impl Into<String>) -> Diagnostic {

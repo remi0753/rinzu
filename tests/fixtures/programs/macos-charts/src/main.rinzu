@@ -2,6 +2,8 @@ import rinzu.macos;
 import rinzu.timer;
 import rinzu.process;
 import rinzu.stdio;
+import rinzu.core;
+import rinzu.error as err;
 
 class Chart {
     canvas: Option<rinzu.macos.Canvas2D>,
@@ -18,7 +20,7 @@ class Chart {
                 return canvas;
             }
             case Option.None: {
-                throw error(-7803, "chart is not ready");
+                throw err.create(-7803, "chart is not ready");
             }
         }
     }
@@ -94,7 +96,7 @@ class Chart {
         var ticks = 0;
         while canvas.frames < 3 && !job.isStopping() {
             if ticks > 1000 {
-                panic("chart did not render");
+                rinzu.core.panic("chart did not render");
             }
             await rinzu.timer.sleep(10);
             ticks = ticks + 1;
@@ -114,7 +116,7 @@ class Chart {
         await rinzu.timer.sleep(50);
         let stats = canvas.clock.statistics();
         if stats.coalesced < 999 {
-            panic("draw requests were not coalesced");
+            rinzu.core.panic("draw requests were not coalesced");
         }
         let hidden = job.window.hide();
         let dirtyHidden = canvas.invalidate();
@@ -122,7 +124,7 @@ class Chart {
         let hiddenStats = canvas.clock.statistics();
         let hiddenResources = rinzu.macos.statistics();
         if hiddenStats.visible || hiddenResources.frameTimers != 0 {
-            panic("hidden canvas kept a timer");
+            rinzu.core.panic("hidden canvas kept a timer");
         }
         let shown = job.window.show();
         let resized = job.window.setContentSize(880.0, 620.0);
@@ -132,7 +134,7 @@ class Chart {
         }
         let frame = canvas.view.frame();
         if frame.width != 856.0 || frame.height != 516.0 {
-            panic("chart layout did not resize");
+            rinzu.core.panic("chart layout did not resize");
         }
         rinzu.stdio.writeLine("CHARTS:text:frames:coalesced:hidden:resume:resize");
         job.requestStop();
@@ -270,7 +272,7 @@ async fn main() {
         }
         let stats = rinzu.macos.statistics();
         if stats.retainedControls != 0 || stats.textBytes != 0 || stats.frameTimers != 0 {
-            panic("chart resources remained");
+            rinzu.core.panic("chart resources remained");
         }
         rinzu.stdio.writeLine("CHARTS:closed");
     }
@@ -279,6 +281,6 @@ async fn main() {
             rinzu.stdio.writeLine(f"Charts failed: {errors}");
         }
         catch outputErrors {}
-        panic("charts application failed");
+        rinzu.core.panic("charts application failed");
     }
 }

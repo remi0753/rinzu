@@ -1,5 +1,6 @@
 import rinzu.list;
 import rinzu.stdio;
+import rinzu.future as future;
 
 error Failed {
     payload: Int
@@ -56,7 +57,7 @@ async fn main() {
     await start(jobs);
     switch rinzu.list.get(jobs, 0) {
         case Option.Some(job): {
-            let cancelled = cancelFuture(job);
+            let cancelled = future.cancel(job);
         }
         case Option.None: {}
     }

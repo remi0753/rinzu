@@ -1,3 +1,5 @@
+import rinzu.core;
+
 class Counter {
     value: Int
 
@@ -20,7 +22,7 @@ async fn exercise(value: Int) -> Int {
         3
     );
     if result != counter.value {
-        panic("lost supplant capture");
+        rinzu.core.panic("lost supplant capture");
     }
     return result;
 }

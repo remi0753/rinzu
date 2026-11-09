@@ -1,4 +1,5 @@
 import threads;
+import rinzu.core;
 
 fn worker() -> Int {
     let normal = threads.exercise(0);
@@ -31,10 +32,10 @@ async fn main() {
             || threads.live() != 9
             || threads.clear() != 9
             || threads.live() != 0 {
-            panic("wrongLifetime");
+            rinzu.core.panic("wrongLifetime");
         }
     }
     catch unexpectedErrors {
-        panic("failed");
+        rinzu.core.panic("failed");
     }
 }

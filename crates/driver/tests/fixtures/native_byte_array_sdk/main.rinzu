@@ -1,12 +1,13 @@
 import spans;
+import rinzu.core;
 
 async fn main() {
     if spans.exercise() != 65540 {
-        panic("wrongMain");
+        rinzu.core.panic("wrongMain");
     }
     let first = spawn spans.exercise();
     let second = spawn spans.exercise();
     if await first != 65540 || await second != 65540 {
-        panic("wrongWorker");
+        rinzu.core.panic("wrongWorker");
     }
 }

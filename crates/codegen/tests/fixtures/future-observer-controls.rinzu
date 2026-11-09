@@ -1,5 +1,6 @@
 import rinzu.stdio;
 import rinzu.timer;
+import rinzu.future as future;
 
 error Failed {
     payload: Int
@@ -41,7 +42,7 @@ async fn main() {
     try {
         let pending = fail(307);
         let observer = slow(pending);
-        let cancelled = cancelFuture(observer);
+        let cancelled = future.cancel(observer);
         try {
             let received = await pending;
         }
@@ -51,7 +52,7 @@ async fn main() {
         catch errors {}
         let private = make(311);
         await private;
-        let completed = cancelFuture(private);
+        let completed = future.cancel(private);
         try {
             let repeated = await pending;
         }

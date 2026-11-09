@@ -1,11 +1,12 @@
 import loops;
+import rinzu.core;
 
 async fn child() -> Int {
     try {
         try {
             let read = await loops.readSize("data/proof.bin");
             if read != 8193 {
-                panic("wrongRead");
+                rinzu.core.panic("wrongRead");
             }
             return read;
         }
@@ -14,7 +15,7 @@ async fn child() -> Int {
         }
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
         return 0;
     }
 }
@@ -28,7 +29,7 @@ fn work(seed: CInt) -> CInt {
         index = index + 1;
     }
     if retained != ["callback root", "shutdown remains masked"] {
-        panic("lost");
+        rinzu.core.panic("lost");
     }
     return 41;
 }
@@ -55,9 +56,9 @@ async fn main() {
     try {
         loops.checkReset(0);
         let result = await wrapper();
-        panic("shutdownWasLost");
+        rinzu.core.panic("shutdownWasLost");
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
     }
 }

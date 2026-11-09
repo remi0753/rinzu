@@ -1,5 +1,8 @@
 import rinzu.sqlite;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
 
 fn query() -> ByteArray {
     try {
@@ -10,7 +13,7 @@ fn query() -> ByteArray {
                 return resultValue8;
             }
             catch [resultError8: Error, ...resultRest8] {
-                panic("badWorkerQuery");
+                rinzu.core.panic("badWorkerQuery");
             }
         }
         finally {
@@ -18,9 +21,9 @@ fn query() -> ByteArray {
         }
     }
     catch [resultError9: Error, ...resultRest9] {
-        panic("badWorkerOpen");
+        rinzu.core.panic("badWorkerOpen");
     }
-    return byteArray(b"");
+    return bytesApi.from(b"");
 }
 
 async fn main() {
@@ -31,47 +34,47 @@ async fn main() {
                 try {
                     let resultValue6 = resultValue7.queryText("SELECT cast(x'610062' AS TEXT)");
                     if resultValue6 != "a\u{0}b" {
-                        panic("badNul");
+                        rinzu.core.panic("badNul");
                     }
                 }
                 catch [resultError6: Error, ...resultRest6] {
-                    panic("badText");
+                    rinzu.core.panic("badText");
                 }
                 try {
                     let resultValue5 = resultValue7.queryText("SELECT cast(x'ff' AS TEXT)");
-                    panic("badUtf8");
+                    rinzu.core.panic("badUtf8");
                 }
                 catch [resultError5: Error, ...resultRest5] {
-                    if errorCode(resultError5) != 200 {
-                        panic("badUtf8Code");
+                    if err.code(resultError5) != Option<Int>.Some(value: 200) {
+                        rinzu.core.panic("badUtf8Code");
                     }
                 }
                 try {
                     let resultValue4 = resultValue7.queryBytes("SELECT x''");
-                    if bytesLength(resultValue4) != 0 {
-                        panic("badEmptyLength");
+                    if bytesApi.length(resultValue4) != 0 {
+                        rinzu.core.panic("badEmptyLength");
                     }
                 }
                 catch [resultError4: Error, ...resultRest4] {
-                    panic("badEmpty");
+                    rinzu.core.panic("badEmpty");
                 }
                 try {
                     let resultValue3 = resultValue7.queryBytes("SELECT zeroblob(65536)");
-                    if bytesLength(resultValue3) != 65536 {
-                        panic("badLimitLength");
+                    if bytesApi.length(resultValue3) != 65536 {
+                        rinzu.core.panic("badLimitLength");
                     }
                 }
                 catch [resultError3: Error, ...resultRest3] {
-                    panic("badLimit");
+                    rinzu.core.panic("badLimit");
                 }
                 try {
                     let resultValue2 = resultValue7.queryBytes("SELECT zeroblob(65537)");
-                    panic("badOver");
+                    rinzu.core.panic("badOver");
                 }
                 catch [resultError2: Error, ...resultRest2] {}
                 try {
                     let resultValue1 = resultValue7.queryBytes("SELECT 'wrong type'");
-                    panic("badType");
+                    rinzu.core.panic("badType");
                 }
                 catch [resultError1: Error, ...resultRest1] {}
             }
@@ -80,18 +83,18 @@ async fn main() {
             }
         }
         catch [resultError7: Error, ...resultRest7] {
-            panic("badOpen");
+            rinzu.core.panic("badOpen");
         }
         let result = spawn query();
-        if await result != byteArray(b"\x00\xff\x00\x01") || await result != byteArray(b"\x00\xff\x00\x01") {
-            panic("badWorkerResult");
+        if await result != bytesApi.from(b"\x00\xff\x00\x01") || await result != bytesApi.from(b"\x00\xff\x00\x01") {
+            rinzu.core.panic("badWorkerResult");
         }
         if rinzu.sqlite.ownedLive() != 0 || rinzu.sqlite.ownedAllocations() != rinzu.sqlite.ownedReleases() {
-            panic("badBaseline");
+            rinzu.core.panic("badBaseline");
         }
         rinzu.stdio.writeLine("owned-ok");
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

@@ -1,5 +1,7 @@
 import rinzu.list;
 import rinzu.core;
+import rinzu.bytes as bytesApi;
+import rinzu.string as textApi;
 
 native {
     record Wide {
@@ -27,8 +29,8 @@ native {
 
 fn callback(value: Int) -> Int {
     try {
-        let text = utf8Decode(byteArray(b"callback"));
-        if stringLength(text) != 8 {
+        let text = textApi.decodeUtf8(bytesApi.from(b"callback"));
+        if textApi.length(text) != 8 {
             return -100;
         }
         return value + 2;
@@ -46,7 +48,7 @@ fn exercise() -> Int {
         let mixture = mixed(0);
         mutate();
         if received.left != 9 || received.right != high || one.value != 23 || !mixture.flag || mixture.count != 7 {
-            panic("unexpected failure");
+            rinzu.core.panic("unexpected failure");
             return 0;
         }
         var caught = 0;
@@ -55,7 +57,7 @@ fn exercise() -> Int {
         }
         catch [problem: Error, ...rest] {
             if problem.message != "native value is NULL" || rinzu.list.length(rest) != 0 {
-                panic("unexpected failure");
+                rinzu.core.panic("unexpected failure");
                 return 0;
             }
             caught = caught + 1;
@@ -66,28 +68,28 @@ fn exercise() -> Int {
         catch [problem: Error, ...rest] {
             if problem.message != "numeric conversion is out of range or loses required integer precision"
                 || rinzu.list.length(rest) != 0 {
-                panic("unexpected failure");
+                rinzu.core.panic("unexpected failure");
                 return 0;
             }
             caught = caught + 1;
         }
         var index = 0;
         while index < 8 {
-            let temporary = utf8Decode(byteArray(b"gc"));
-            if stringLength(temporary) != 2 || received.left != 9 || received.right != high {
-                panic("unexpected failure");
+            let temporary = textApi.decodeUtf8(bytesApi.from(b"gc"));
+            if textApi.length(temporary) != 2 || received.left != 9 || received.right != high {
+                rinzu.core.panic("unexpected failure");
                 return 0;
             }
             index = index + 1;
         }
         if caught != 2 {
-            panic("unexpected failure");
+            rinzu.core.panic("unexpected failure");
             return 0;
         }
         return 42;
     }
     catch unexpected {
-        panic("unexpected failure");
+        rinzu.core.panic("unexpected failure");
         return 0;
     }
 }

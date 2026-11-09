@@ -1,6 +1,8 @@
 import rinzu.list;
 import rinzu.map;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
 
 class Kept {
     text: String,
@@ -10,20 +12,20 @@ class Kept {
 
 fn check(value: Bool) {
     if !value {
-        panic("gcFailure");
+        rinzu.core.panic("gcFailure");
     }
 }
 
 fn pressure() {
     var index = 0;
     while index < 2048 {
-        let dead = Kept(text: f"discarded {index}", bytes: byteArray(b"temporary"), next: Option<Kept>.None());
+        let dead = Kept(text: f"discarded {index}", bytes: bytesApi.from(b"temporary"), next: Option<Kept>.None());
         index = index + 1;
     }
 }
 
 async fn produce() -> Kept {
-    let root = Kept(text: "日本語\u{0}held", bytes: byteArray(b"\x00\x80\xff"), next: Option<Kept>.None());
+    let root = Kept(text: "日本語\u{0}held", bytes: bytesApi.from(b"\x00\x80\xff"), next: Option<Kept>.None());
     root.next = Option<Kept>.Some(value: root);
     return root;
 }
@@ -40,7 +42,10 @@ async fn main() {
             pressure();
             let again = await pending;
             check(first.text == "日本語\u{0}held" && again.text == first.text);
-            check(bytesLength(again.bytes) == 3 && bytesGet(again.bytes, 2) == bytesGet(byteArray(b"\xff"), 0));
+            check(
+                bytesApi.length(again.bytes) == 3
+                    && bytesApi.get(again.bytes, 2) == bytesApi.get(bytesApi.from(b"\xff"), 0)
+            );
             switch rinzu.list.get(words, 0) {
                 case Option.Some(word): {
                     check(word == first.text);
@@ -51,7 +56,7 @@ async fn main() {
             }
             switch rinzu.map.get(kept, "binary") {
                 case Option.Some(binary): {
-                    check(bytesLength(binary) == 3);
+                    check(bytesApi.length(binary) == 3);
                 }
                 case Option.None: {
                     check(false);
@@ -73,6 +78,6 @@ async fn main() {
         rinzu.stdio.writeLine("R01:pressure:cycle:future-result:alias:bytes:list:map:OK");
     }
     catch errors {
-        panic("unexpectedGcFailure");
+        rinzu.core.panic("unexpectedGcFailure");
     }
 }

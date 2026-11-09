@@ -1,4 +1,6 @@
 import rinzu.list;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
 
 class Box {
     value: Int
@@ -14,7 +16,7 @@ fn integer(values: List<Int>, index: Int) -> Int {
             return value;
         }
         case Option.None: {
-            panic("assertionFailure0");
+            rinzu.core.panic("assertionFailure0");
             return 0;
         }
     }
@@ -25,46 +27,46 @@ fn checks() {
     let one = rinzu.list.append(empty, 11);
     let two = rinzu.list.append(one, 22);
     if empty != [] || one != [11] || two != [11, 22] {
-        panic("assertionFailure1");
+        rinzu.core.panic("assertionFailure1");
     }
     switch rinzu.list.set(one, 0, 33) {
         case Option.Some(updated): {
             if updated != [33] || one != [11] {
-                panic("assertionFailure2");
+                rinzu.core.panic("assertionFailure2");
             }
         }
         case Option.None: {
-            panic("assertionFailure3");
+            rinzu.core.panic("assertionFailure3");
         }
     }
     switch rinzu.list.remove(one, 0) {
         case Option.Some(updated): {
             if updated != [] || one != [11] {
-                panic("assertionFailure4");
+                rinzu.core.panic("assertionFailure4");
             }
         }
         case Option.None: {
-            panic("assertionFailure5");
+            rinzu.core.panic("assertionFailure5");
         }
     }
     switch rinzu.list.remove(two, 0) {
         case Option.Some(updated): {
             if updated != [22] {
-                panic("assertionFailure6");
+                rinzu.core.panic("assertionFailure6");
             }
         }
         case Option.None: {
-            panic("assertionFailure7");
+            rinzu.core.panic("assertionFailure7");
         }
     }
     switch rinzu.list.remove(two, 1) {
         case Option.Some(updated): {
             if updated != [11] {
-                panic("assertionFailure8");
+                rinzu.core.panic("assertionFailure8");
             }
         }
         case Option.None: {
-            panic("assertionFailure9");
+            rinzu.core.panic("assertionFailure9");
         }
     }
     var index = -1;
@@ -73,13 +75,13 @@ fn checks() {
             switch rinzu.list.set(one, index, 99) {
                 case Option.None: {}
                 case Option.Some(unexpected): {
-                    panic("assertionFailure10");
+                    rinzu.core.panic("assertionFailure10");
                 }
             }
             switch rinzu.list.remove(one, index) {
                 case Option.None: {}
                 case Option.Some(unexpected): {
-                    panic("assertionFailure11");
+                    rinzu.core.panic("assertionFailure11");
                 }
             }
         }
@@ -88,7 +90,7 @@ fn checks() {
     switch rinzu.list.remove(empty, 9223372036854775807) {
         case Option.None: {}
         case Option.Some(unexpected): {
-            panic("assertionFailure12");
+            rinzu.core.panic("assertionFailure12");
         }
     }
     var values: List<Int> = [];
@@ -106,19 +108,19 @@ fn checks() {
                     setExpected = 999;
                 }
                 if integer(updated, index) != setExpected || integer(values, index) != index {
-                    panic("assertionFailure13");
+                    rinzu.core.panic("assertionFailure13");
                 }
                 index = index + 1;
             }
         }
         case Option.None: {
-            panic("assertionFailure14");
+            rinzu.core.panic("assertionFailure14");
         }
     }
     switch rinzu.list.remove(values, 64) {
         case Option.Some(updated): {
             if rinzu.list.length(updated) != 129 {
-                panic("assertionFailure15");
+                rinzu.core.panic("assertionFailure15");
             }
             index = 0;
             while index < 129 {
@@ -127,13 +129,13 @@ fn checks() {
                     removeExpected = index + 1;
                 }
                 if integer(updated, index) != removeExpected {
-                    panic("assertionFailure16");
+                    rinzu.core.panic("assertionFailure16");
                 }
                 index = index + 1;
             }
         }
         case Option.None: {
-            panic("assertionFailure17");
+            rinzu.core.panic("assertionFailure17");
         }
     }
     let strings = ["日本語", "tail"];
@@ -141,24 +143,24 @@ fn checks() {
     switch rinzu.list.set(appended, 1, "changed") {
         case Option.Some(updated): {
             if updated != ["日本語", "changed", "third"] || strings != ["日本語", "tail"] {
-                panic("assertionFailure18");
+                rinzu.core.panic("assertionFailure18");
             }
         }
         case Option.None: {
-            panic("assertionFailure19");
+            rinzu.core.panic("assertionFailure19");
         }
     }
-    let bytes = [byteArray(b"\x00\xff"), byteArray(b"\x80")];
-    let more = rinzu.list.append(bytes, byteArray(b"end"));
+    let bytes = [bytesApi.from(b"\x00\xff"), bytesApi.from(b"\x80")];
+    let more = rinzu.list.append(bytes, bytesApi.from(b"end"));
     switch rinzu.list.remove(more, 1) {
         case Option.Some(updated): {
-            if updated != [byteArray(b"\x00\xff"), byteArray(b"end")]
-                || bytes != [byteArray(b"\x00\xff"), byteArray(b"\x80")] {
-                panic("assertionFailure20");
+            if updated != [bytesApi.from(b"\x00\xff"), bytesApi.from(b"end")]
+                || bytes != [bytesApi.from(b"\x00\xff"), bytesApi.from(b"\x80")] {
+                rinzu.core.panic("assertionFailure20");
             }
         }
         case Option.None: {
-            panic("assertionFailure21");
+            rinzu.core.panic("assertionFailure21");
         }
     }
     let box = Box(value: 7);
@@ -168,11 +170,11 @@ fn checks() {
     switch rinzu.list.get(shared, 1) {
         case Option.Some(value): {
             if value.value != 8 {
-                panic("assertionFailure22");
+                rinzu.core.panic("assertionFailure22");
             }
         }
         case Option.None: {
-            panic("assertionFailure23");
+            rinzu.core.panic("assertionFailure23");
         }
     }
     let noErrors: List<Error> = [];
@@ -180,22 +182,22 @@ fn checks() {
     switch rinzu.list.set(problems, 0, Problem(message: "second", payload: box)) {
         case Option.Some(replacedProblems): {
             if rinzu.list.length(replacedProblems) != 1 || rinzu.list.length(problems) != 1 {
-                panic("errorListFailure");
+                rinzu.core.panic("errorListFailure");
             }
         }
         case Option.None: {
-            panic("missingErrorList");
+            rinzu.core.panic("missingErrorList");
         }
     }
     let nested = [one, two];
     switch rinzu.list.set(nested, 0, [44]) {
         case Option.Some(updated): {
             if updated != [[44], [11, 22]] || nested != [[11], [11, 22]] {
-                panic("assertionFailure24");
+                rinzu.core.panic("assertionFailure24");
             }
         }
         case Option.None: {
-            panic("assertionFailure25");
+            rinzu.core.panic("assertionFailure25");
         }
     }
 }
@@ -206,7 +208,7 @@ fn worker() -> Int {
         return 42;
     }
     catch errors {
-        panic("assertionFailure26");
+        rinzu.core.panic("assertionFailure26");
         return 0;
     }
 }
@@ -220,7 +222,7 @@ async fn main() {
         checks();
         let result = await spawn worker();
         if result != 42 {
-            panic("assertionFailure27");
+            rinzu.core.panic("assertionFailure27");
         }
         let first = number(41);
         let second = number(42);
@@ -231,25 +233,25 @@ async fn main() {
                     case Option.Some(future): {
                         let value = await future;
                         if value != 42 {
-                            panic("assertionFailure28");
+                            rinzu.core.panic("assertionFailure28");
                         }
                     }
                     case Option.None: {
-                        panic("assertionFailure29");
+                        rinzu.core.panic("assertionFailure29");
                     }
                 }
             }
             case Option.None: {
-                panic("assertionFailure30");
+                rinzu.core.panic("assertionFailure30");
             }
         }
         let old = await first;
         let new = await second;
         if old != 41 || new != 42 {
-            panic("assertionFailure31");
+            rinzu.core.panic("assertionFailure31");
         }
     }
     catch errors {
-        panic("assertionFailure32");
+        rinzu.core.panic("assertionFailure32");
     }
 }

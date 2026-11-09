@@ -1,8 +1,10 @@
 import rinzu.list;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
 
 fn equal(actual: ByteArray, expected: ByteArray) {
     if actual != expected {
-        panic("invalid");
+        rinzu.core.panic("invalid");
     }
 }
 
@@ -11,48 +13,48 @@ fn padded(value: Bytes(3)) -> Bytes(8) {
 }
 
 fn sliceEqual(data: ByteArray, start: Int, end: Int, expected: ByteArray) {
-    switch bytesSlice(data, start, end) {
+    switch bytesApi.slice(data, start, end) {
         case Option.Some(value): {
             equal(value, expected);
         }
         case Option.None: {
-            panic("missingSlice");
+            rinzu.core.panic("missingSlice");
         }
     }
 }
 
 fn escapingSlice() -> ByteArray {
-    let local = byteArray(b"\x00\xffA\x80");
-    switch bytesSlice(bytesConcat(byteArray(b""), local), 0, 4) {
+    let local = bytesApi.from(b"\x00\xffA\x80");
+    switch bytesApi.slice(bytesApi.concat(bytesApi.from(b""), local), 0, 4) {
         case Option.Some(value): {
             return value;
         }
         case Option.None: {
-            panic("missing");
-            return byteArray(b"");
+            rinzu.core.panic("missing");
+            return bytesApi.from(b"");
         }
     }
 }
 
 fn escapingConcatAll() -> ByteArray {
-    let local = byteArray(b"\x00\xffA\x80");
-    return bytesConcatAll([byteArray(b""), local, byteArray(b"")]);
+    let local = bytesApi.from(b"\x00\xffA\x80");
+    return bytesApi.concatAll([bytesApi.from(b""), local, bytesApi.from(b"")]);
 }
 
 fn escapingFixedBytes() -> ByteArray {
     let local = padded(b"\x00\xffA");
-    return byteArray(local);
+    return bytesApi.from(local);
 }
 
 fn concatBounds() -> ByteArray {
     var parts: List<ByteArray> = [];
-    var expected = byteArray(b"");
+    var expected = bytesApi.from(b"");
     var index = 0;
     while index < 258 {
-        let part = byteArray([CUInt8(index % 256)]);
-        parts = rinzu.list.append(parts, byteArray(b""));
+        let part = bytesApi.from([CUInt8(index % 256)]);
+        parts = rinzu.list.append(parts, bytesApi.from(b""));
         parts = rinzu.list.append(parts, part);
-        expected = bytesConcat(expected, part);
+        expected = bytesApi.concat(expected, part);
         if index == 62
             || index == 63
             || index == 64
@@ -63,44 +65,44 @@ fn concatBounds() -> ByteArray {
             || index == 255
             || index == 256
             || index == 257 {
-            equal(bytesConcatAll(parts), expected);
+            equal(bytesApi.concatAll(parts), expected);
         }
         index = index + 1;
     }
-    return bytesConcatAll(parts);
+    return bytesApi.concatAll(parts);
 }
 
 fn checks() {
-    let empty = byteArray(b"");
+    let empty = bytesApi.from(b"");
     let bounded = concatBounds();
-    let original = byteArray(b"\x00\xffA\x80");
+    let original = bytesApi.from(b"\x00\xffA\x80");
     let noChunks: List<ByteArray> = [];
-    equal(bytesConcatAll(noChunks), empty);
-    equal(bytesConcatAll([empty]), empty);
-    equal(bytesConcatAll([original]), original);
-    equal(bytesConcatAll([empty, original, empty]), original);
-    let combined = bytesConcatAll([original, empty, original]);
-    equal(combined, byteArray(b"\x00\xffA\x80\x00\xffA\x80"));
+    equal(bytesApi.concatAll(noChunks), empty);
+    equal(bytesApi.concatAll([empty]), empty);
+    equal(bytesApi.concatAll([original]), original);
+    equal(bytesApi.concatAll([empty, original, empty]), original);
+    let combined = bytesApi.concatAll([original, empty, original]);
+    equal(combined, bytesApi.from(b"\x00\xffA\x80\x00\xffA\x80"));
     let sharedConcat = escapingConcatAll();
     let sharedFixed = escapingFixedBytes();
-    equal(bytesConcat(empty, original), original);
-    equal(bytesConcat(original, empty), original);
-    equal(bytesConcat(original, original), byteArray(b"\x00\xffA\x80\x00\xffA\x80"));
-    equal(bytesXor(original, CUInt8(255)), byteArray(b"\xff\x00\xbe\x7f"));
-    equal(bytesXor(empty, CUInt8(255)), empty);
-    equal(original, byteArray(b"\x00\xffA\x80"));
+    equal(bytesApi.concat(empty, original), original);
+    equal(bytesApi.concat(original, empty), original);
+    equal(bytesApi.concat(original, original), bytesApi.from(b"\x00\xffA\x80\x00\xffA\x80"));
+    equal(bytesApi.xor(original, CUInt8(255)), bytesApi.from(b"\xff\x00\xbe\x7f"));
+    equal(bytesApi.xor(empty, CUInt8(255)), empty);
+    equal(original, bytesApi.from(b"\x00\xffA\x80"));
     sliceEqual(original, 0, 4, original);
     sliceEqual(empty, 0, 0, empty);
-    sliceEqual(original, 1, 4, byteArray(b"\xffA\x80"));
+    sliceEqual(original, 1, 4, bytesApi.from(b"\xffA\x80"));
     sliceEqual(original, 4, 4, empty);
-    let shared = bytesConcat(empty, original);
-    let copied = bytesCopy(shared);
+    let shared = bytesApi.concat(empty, original);
+    let copied = bytesApi.copy(shared);
     let escaped = escapingSlice();
     let noBytes: List<CUInt8> = [];
-    equal(byteArray(noBytes), empty);
-    equal(byteArray([CUInt8(0), CUInt8(255), CUInt8(128)]), byteArray(b"\x00\xff\x80"));
+    equal(bytesApi.from(noBytes), empty);
+    equal(bytesApi.from([CUInt8(0), CUInt8(255), CUInt8(128)]), bytesApi.from(b"\x00\xff\x80"));
     if padded(b"\x00\xffA") != b"\x00\xffA\x00\x00\x00\x00\x00" {
-        panic("invalidPadding");
+        rinzu.core.panic("invalidPadding");
     }
     var alphabet: List<CUInt8> = [];
     var index = 0;
@@ -108,17 +110,17 @@ fn checks() {
         alphabet = rinzu.list.append(alphabet, CUInt8(index));
         index = index + 1;
     }
-    let bytes = byteArray(alphabet);
+    let bytes = bytesApi.from(alphabet);
     var large = bytes;
     index = 0;
     while index < 8 {
-        large = bytesConcat(large, large);
+        large = bytesApi.concat(large, large);
         index = index + 1;
     }
-    if bytesLength(large) != 65536 {
-        panic("wrongLength");
+    if bytesApi.length(large) != 65536 {
+        rinzu.core.panic("wrongLength");
     }
-    equal(bytesXor(bytesXor(large, CUInt8(255)), CUInt8(255)), large);
+    equal(bytesApi.xor(bytesApi.xor(large, CUInt8(255)), CUInt8(255)), large);
     var lowerAlphabet: List<CUInt8> = [];
     index = 0;
     while index < 256 {
@@ -129,60 +131,60 @@ fn checks() {
         lowerAlphabet = rinzu.list.append(lowerAlphabet, CUInt8(code));
         index = index + 1;
     }
-    let lowerBytes = byteArray(lowerAlphabet);
+    let lowerBytes = bytesApi.from(lowerAlphabet);
     var lowerLarge = lowerBytes;
     index = 0;
     while index < 8 {
-        lowerLarge = bytesConcat(lowerLarge, lowerLarge);
+        lowerLarge = bytesApi.concat(lowerLarge, lowerLarge);
         index = index + 1;
     }
-    equal(bytesLowerAscii(large), lowerLarge);
-    equal(bytesLowerAscii(bytes), lowerBytes);
-    equal(bytesLowerAscii(empty), empty);
-    sliceEqual(large, 0, bytesLength(large), large);
+    equal(bytesApi.lowerAscii(large), lowerLarge);
+    equal(bytesApi.lowerAscii(bytes), lowerBytes);
+    equal(bytesApi.lowerAscii(empty), empty);
+    sliceEqual(large, 0, bytesApi.length(large), large);
     // Leave the original inputs live across allocation pressure and moving GC.
-    equal(bytes, byteArray(alphabet));
-    equal(original, byteArray(b"\x00\xffA\x80"));
-    equal(shared, byteArray(b"\x00\xffA\x80"));
+    equal(bytes, bytesApi.from(alphabet));
+    equal(original, bytesApi.from(b"\x00\xffA\x80"));
+    equal(shared, bytesApi.from(b"\x00\xffA\x80"));
     equal(copied, shared);
     equal(escaped, shared);
     equal(sharedConcat, original);
-    equal(combined, bytesConcat(original, original));
-    equal(sharedFixed, byteArray(b"\x00\xffA\x00\x00\x00\x00\x00"));
-    sliceEqual(bounded, 0, 2, byteArray(b"\x00\x01"));
-    sliceEqual(bounded, 128, 130, byteArray(b"\x80\x81"));
-    sliceEqual(bounded, 256, 258, byteArray(b"\x00\x01"));
+    equal(combined, bytesApi.concat(original, original));
+    equal(sharedFixed, bytesApi.from(b"\x00\xffA\x00\x00\x00\x00\x00"));
+    sliceEqual(bounded, 0, 2, bytesApi.from(b"\x00\x01"));
+    sliceEqual(bounded, 128, 130, bytesApi.from(b"\x80\x81"));
+    sliceEqual(bounded, 256, 258, bytesApi.from(b"\x00\x01"));
 }
 
 fn workerChecks(value: ByteArray) -> ByteArray {
     try {
         checks();
-        switch bytesSlice(bytesConcat(byteArray(b""), value), 0, bytesLength(value)) {
+        switch bytesApi.slice(bytesApi.concat(bytesApi.from(b""), value), 0, bytesApi.length(value)) {
             case Option.Some(full): {
-                return bytesConcat(full, full);
+                return bytesApi.concat(full, full);
             }
             case Option.None: {
-                panic("missingWorkerSlice");
-                return byteArray(b"");
+                rinzu.core.panic("missingWorkerSlice");
+                return bytesApi.from(b"");
             }
         }
     }
     catch errors {
-        panic("unexpectedWorkerError");
-        return byteArray(b"");
+        rinzu.core.panic("unexpectedWorkerError");
+        return bytesApi.from(b"");
     }
 }
 
 async fn main() {
     try {
         checks();
-        let input = byteArray(b"\x00\xffA\x80");
+        let input = bytesApi.from(b"\x00\xffA\x80");
         let retainedFixed = escapingFixedBytes();
         let completed = await spawn workerChecks(input);
-        equal(completed, bytesConcat(input, input));
-        equal(retainedFixed, byteArray(b"\x00\xffA\x00\x00\x00\x00\x00"));
+        equal(completed, bytesApi.concat(input, input));
+        equal(retainedFixed, bytesApi.from(b"\x00\xffA\x00\x00\x00\x00\x00"));
     }
     catch errors {
-        panic("unexpected");
+        rinzu.core.panic("unexpected");
     }
 }

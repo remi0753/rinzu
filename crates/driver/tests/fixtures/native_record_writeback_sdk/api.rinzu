@@ -1,4 +1,5 @@
 import rinzu.stdio;
+import rinzu.core;
 
 type Context = { id: Int };
 
@@ -56,7 +57,7 @@ fn exercise() {
     rinzu.stdio.writeLine(point.x);
     let other = Packet(x: 14, valid: true);
     if aliases(point, other) {
-        panic("equal contents are different targets");
+        rinzu.core.panic("equal contents are different targets");
     }
     let cursor = Cursor(point: point);
     let replaced = change(cursor.point, replace(cursor, other));

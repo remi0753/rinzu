@@ -1,4 +1,5 @@
 import returns;
+import rinzu.core;
 
 async fn main() {
     try {
@@ -31,10 +32,10 @@ async fn main() {
             || r8 != 56
             || again != 56
             || returns.verifyHeld() != 1 {
-            panic("wrong");
+            rinzu.core.panic("wrong");
         }
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

@@ -1,4 +1,5 @@
 import objects;
+import rinzu.core;
 
 fn badSeed() -> Int {
     let failed = CInt8(999);
@@ -12,7 +13,7 @@ async fn failAsync() -> objects.Object {
 async fn main() {
     try {
         if objects.measure(42) != 42 {
-            panic("wrongMain");
+            rinzu.core.panic("wrongMain");
         }
         let first = spawn objects.measure(1);
         let second = spawn objects.measure(2);
@@ -30,7 +31,7 @@ async fn main() {
             || await sixth != 6
             || await seventh != 7
             || await eighth != 8 {
-            panic("wrongWorker");
+            rinzu.core.panic("wrongWorker");
         }
         var caught = 0;
         try {
@@ -52,14 +53,14 @@ async fn main() {
             order = order * 10 + 2;
             caught = caught + 1;
             if nullError.message != "native value is NULL" {
-                panic("wrongError");
+                rinzu.core.panic("wrongError");
             }
         }
         finally {
             order = order * 10 + 3;
         }
         if order != 123 {
-            panic("wrongFinally");
+            rinzu.core.panic("wrongFinally");
         }
         try {
             let missingAsync = await failAsync();
@@ -69,11 +70,11 @@ async fn main() {
         }
         let failedWorker = spawn objects.failWorker();
         if await failedWorker != 1 {
-            panic("workerMissing");
+            rinzu.core.panic("workerMissing");
         }
         caught = caught + 1;
         if await failedWorker != 1 {
-            panic("workerMissingAgain");
+            rinzu.core.panic("workerMissingAgain");
         }
         caught = caught + 1;
         if caught != 5
@@ -83,10 +84,10 @@ async fn main() {
             || objects.stats(3) != 0
             || objects.stats(4) != 12
             || objects.stats(5) != 18 {
-            panic("wrongNativeLifetime");
+            rinzu.core.panic("wrongNativeLifetime");
         }
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
     }
 }

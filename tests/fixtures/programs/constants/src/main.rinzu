@@ -1,6 +1,7 @@
 import rinzu.list;
 import rinzu.map;
 import rinzu.stdio;
+import rinzu.number as num;
 
 class Config {
     const enabled: Bool,
@@ -19,7 +20,7 @@ let TITLE = r#"日本語 {name}"#;
 
 let ALIAS = TITLE;
 
-let MASK = bitOr(0xf0, 0b1111);
+let MASK = num.bitOr(0xf0, 0b1111);
 
 let MASKS: List<Int> = [MASK, 2, 3];
 

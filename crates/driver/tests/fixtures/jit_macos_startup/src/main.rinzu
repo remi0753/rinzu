@@ -1,5 +1,6 @@
 import rinzu.macos;
 import rinzu.stdio;
+import rinzu.core;
 
 fn main() {
     try {
@@ -7,6 +8,6 @@ fn main() {
         rinzu.stdio.writeLine(statistics.sessions);
     }
     catch errors {
-        panic("macOS startup probe failed");
+        rinzu.core.panic("macOS startup probe failed");
     }
 }

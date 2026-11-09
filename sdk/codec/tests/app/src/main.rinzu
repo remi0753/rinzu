@@ -1,63 +1,66 @@
 import rinzu.codec;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
 
 fn main() nothrow {
     try {
         let document = rinzu.codec.Document(text: "A", selection: 1);
         let documentBytes = rinzu.codec.encode(document);
-        if documentBytes != byteArray(b"RZCD\x01\x01\x01\x00\x00\x00\x01\x00\x00\x00A") {
-            panic("document wire format changed");
+        if documentBytes != bytesApi.from(b"RZCD\x01\x01\x01\x00\x00\x00\x01\x00\x00\x00A") {
+            rinzu.core.panic("document wire format changed");
         }
         if documentBytes != document.encode() || documentBytes != rinzu.codec.encodeDocument(document) {
-            panic("document encoding entry points disagree");
+            rinzu.core.panic("document encoding entry points disagree");
         }
         if rinzu.codec.decodeDocument(documentBytes) != document {
-            panic("document round trip failed");
+            rinzu.core.panic("document round trip failed");
         }
         let settings = rinzu.codec.Settings(fontSize: 12, tabWidth: 4, wrap: true);
         let settingsBytes = rinzu.codec.encode(settings);
-        if settingsBytes != byteArray(b"RZCD\x01\x02\x0c\x04\x01") {
-            panic("settings wire format changed");
+        if settingsBytes != bytesApi.from(b"RZCD\x01\x02\x0c\x04\x01") {
+            rinzu.core.panic("settings wire format changed");
         }
         if settingsBytes != rinzu.codec.encodeSettings(settings)
             || rinzu.codec.decodeSettings(settingsBytes) != settings {
-            panic("settings round trip failed");
+            rinzu.core.panic("settings round trip failed");
         }
-        let message = rinzu.codec.Message(sequence: 7, operation: "set", payload: byteArray(b"\x00\xff"));
+        let message = rinzu.codec.Message(sequence: 7, operation: "set", payload: bytesApi.from(b"\x00\xff"));
         let messageBytes = rinzu.codec.encode(message);
-        if messageBytes != byteArray(b"RZCD\x01\x03\x07\x00\x00\x00\x03\x02\x00\x00\x00set\x00\xff") {
-            panic("message wire format changed");
+        if messageBytes != bytesApi.from(b"RZCD\x01\x03\x07\x00\x00\x00\x03\x02\x00\x00\x00set\x00\xff") {
+            rinzu.core.panic("message wire format changed");
         }
         if messageBytes != rinzu.codec.encodeMessage(message) || rinzu.codec.decodeMessage(messageBytes) != message {
-            panic("message round trip failed");
+            rinzu.core.panic("message round trip failed");
         }
     }
     catch problems {
-        panic("valid encoding failed");
+        rinzu.core.panic("valid encoding failed");
     }
     var documentRejected = false;
     try {
         let rejectedDocumentBytes = rinzu.codec.encode(rinzu.codec.Document(text: "x", selection: 2));
     }
     catch [problem: Error, ...rest] {
-        documentRejected = errorCode(problem) == 503;
+        documentRejected = err.code(problem) == Option<Int>.Some(value: 503);
     }
     var settingsRejected = false;
     try {
         let rejectedSettingsBytes = rinzu.codec.encode(rinzu.codec.Settings(fontSize: 2, tabWidth: 4, wrap: false));
     }
     catch [problem: Error, ...rest] {
-        settingsRejected = errorCode(problem) == 503;
+        settingsRejected = err.code(problem) == Option<Int>.Some(value: 503);
     }
     var messageRejected = false;
     try {
         let rejectedMessageBytes = rinzu.codec.encode(
-            rinzu.codec.Message(sequence: -1, operation: "set", payload: byteArray(b""))
+            rinzu.codec.Message(sequence: -1, operation: "set", payload: bytesApi.from(b""))
         );
     }
     catch [problem: Error, ...rest] {
-        messageRejected = errorCode(problem) == 503;
+        messageRejected = err.code(problem) == Option<Int>.Some(value: 503);
     }
     if !documentRejected || !settingsRejected || !messageRejected {
-        panic("invalid encoding was accepted");
+        rinzu.core.panic("invalid encoding was accepted");
     }
 }

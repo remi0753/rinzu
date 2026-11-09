@@ -1,5 +1,7 @@
 import contexts;
 import rinzu.stdio;
+import rinzu.core;
+import rinzu.future as future;
 
 async fn invoke(first: contexts.Context, second: contexts.Context) -> contexts.Context {
     return await contexts.select(
@@ -21,9 +23,9 @@ async fn invoke(first: contexts.Context, second: contexts.Context) -> contexts.C
 fn queue(first: contexts.Context, second: contexts.Context, early: Bool) -> Future<contexts.Context> {
     let pending = invoke(first, second);
     if early {
-        let accepted = cancelFuture(pending);
+        let accepted = future.cancel(pending);
         if !accepted {
-            panic("queued cancellation was lost");
+            rinzu.core.panic("queued cancellation was lost");
         }
     }
     else {
@@ -31,7 +33,7 @@ fn queue(first: contexts.Context, second: contexts.Context, early: Bool) -> Futu
             let status = contexts.change(second.point, 20);
         }
         catch errors {
-            panic("record became Busy before native entry");
+            rinzu.core.panic("record became Busy before native entry");
         }
     }
     return pending;
@@ -67,15 +69,15 @@ async fn main() {
                 rinzu.stdio.writeLine(second.point.x);
                 rinzu.stdio.writeLine(contexts.selectEntries());
                 if first.editor.value != 10 {
-                    panic("selected the wrong context");
+                    rinzu.core.panic("selected the wrong context");
                 }
             }
             catch errors {
-                panic("record remained Busy during cleanup");
+                rinzu.core.panic("record remained Busy during cleanup");
             }
         }
     }
     catch errors {
-        panic("unexpected supplant context Error");
+        rinzu.core.panic("unexpected supplant context Error");
     }
 }

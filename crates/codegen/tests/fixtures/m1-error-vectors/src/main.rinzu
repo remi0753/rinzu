@@ -1,5 +1,42 @@
 import rinzu.list;
 import rinzu.stdio;
+import rinzu.core;
+import rinzu.error as err;
+import rinzu.native as bridge;
+
+fn addErrorCause(problem: Error, cause: Error) -> Error {
+    switch err.withCause(problem, cause) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            return problem;
+        }
+    }
+}
+
+fn addErrorContext(problem: Error, context: String) nothrow -> Error {
+    switch err.withContext(problem, context) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            return problem;
+        }
+    }
+}
+
+fn requiredErrorCode(problem: Error) nothrow -> Int {
+    switch err.code(problem) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            rinzu.core.panic("expected a numeric error code");
+            return 0;
+        }
+    }
+}
 
 async fn failCleanup() -> Int {
     try {
@@ -13,38 +50,38 @@ async fn failCleanup() -> Int {
 
 fn showStatus(status: Int) {
     try {
-        let resultValue3 = nativeStatus(status, "native domain");
+        let resultValue3 = bridge.checkStatus(status, "native domain");
         rinzu.stdio.writeLine(resultValue3);
     }
     catch [resultError3: Error, ...resultRest3] {
-        rinzu.stdio.writeLine(errorNativeStatus(resultError3));
+        rinzu.stdio.writeLine(err.nativeStatus(resultError3));
     }
 }
 
 async fn main() {
     try {
-        var chain = error(1000, "root");
+        var chain = err.create(1000, "root");
         var count = 1;
         while count < 64 {
             try {
-                let resultValue2 = errorWithCause(error(1001, "wrap"), chain);
+                let resultValue2 = addErrorCause(err.create(1001, "wrap"), chain);
                 chain = resultValue2;
             }
             catch [resultError2: Error, ...resultRest2] {
-                rinzu.stdio.writeLine(errorCode(resultError2));
+                rinzu.stdio.writeLine(requiredErrorCode(resultError2));
             }
             count = count + 1;
         }
         try {
-            let resultValue1 = errorWithCause(error(1002, "limit"), chain);
+            let resultValue1 = addErrorCause(err.create(1002, "limit"), chain);
             rinzu.stdio.writeLine(false);
         }
         catch [resultError1: Error, ...resultRest1] {
-            rinzu.stdio.writeLine(errorCode(resultError1));
+            rinzu.stdio.writeLine(requiredErrorCode(resultError1));
         }
-        rinzu.stdio.writeLine(errorMessage(errorWithContext(error(1200, "日本語\u{0}tail"), "context")));
-        rinzu.stdio.writeLine(errorCode(chain));
-        rinzu.stdio.writeLine(errorCause(error(1000, "no cause")));
+        rinzu.stdio.writeLine(err.message(addErrorContext(err.create(1200, "日本語\u{0}tail"), "context")));
+        rinzu.stdio.writeLine(requiredErrorCode(chain));
+        rinzu.stdio.writeLine(err.cause(err.create(1000, "no cause")));
         showStatus(0);
         showStatus(-9223372036854775808);
         showStatus(9223372036854775807);
@@ -53,13 +90,13 @@ async fn main() {
             let result = await pending;
         }
         catch [primary: Error, ...primaryRest] {
-            rinzu.stdio.writeLine(errorCode(primary));
+            rinzu.stdio.writeLine(requiredErrorCode(primary));
             let cleanup = primaryRest;
             rinzu.stdio.writeLine(rinzu.list.length(cleanup));
             switch rinzu.list.get(cleanup, 0) {
                 case Option.Some(extra): {
-                    rinzu.stdio.writeLine(errorCode(extra));
-                    switch errorSourceStart(extra) {
+                    rinzu.stdio.writeLine(requiredErrorCode(extra));
+                    switch err.sourceStartByte(extra) {
                         case Option.Some(start): {
                             rinzu.stdio.writeLine(start >= 0);
                         }
@@ -76,6 +113,6 @@ async fn main() {
         }
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

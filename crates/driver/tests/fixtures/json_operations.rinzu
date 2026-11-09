@@ -2,6 +2,10 @@ import rinzu.json;
 import rinzu.list;
 import rinzu.map;
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.number as num;
+import rinzu.string as textApi;
 
 type Row = {
     id: Int,
@@ -14,7 +18,7 @@ type Rows = Map<String, List<Row>>;
 
 fn check(condition: Bool, label: String) nothrow {
     if !condition {
-        panic(label);
+        rinzu.core.panic(label);
     }
 }
 
@@ -32,14 +36,14 @@ fn need<T>(value: Option<T>) throws(Absent) -> T {
 }
 
 fn fragment() -> rinzu.json.Value {
-    let root = rinzu.json.parse(utf8Encode(r#"  {"payload":[1, {"a\u0000":"\uD83D\uDE00"}]}  "#));
+    let root = rinzu.json.parse(textApi.encodeUtf8(r#"  {"payload":[1, {"a\u0000":"\uD83D\uDE00"}]}  "#));
     return need(rinzu.json.at(need(rinzu.json.field(root, "payload")), 1));
 }
 
 fn decodeError(source: ByteArray, reason: rinzu.json.DecodeReason, offset: Int, first: Option<Int>) {
     try {
         let unused1 = rinzu.json.parse(source);
-        panic("expected DecodeFailed");
+        rinzu.core.panic("expected DecodeFailed");
     }
     catch [problem: rinzu.json.DecodeFailed] {
         check(problem.payload.reason == reason, "decode reason");
@@ -47,14 +51,14 @@ fn decodeError(source: ByteArray, reason: rinzu.json.DecodeReason, offset: Int, 
         check(problem.payload.firstOffset == first, "first duplicate offset");
     }
     catch other {
-        panic("unexpected decode Error");
+        rinzu.core.panic("unexpected decode Error");
     }
 }
 
 fn schemaError(source: String, reason: rinzu.json.SchemaReason, offset: Int, path: String, key: Option<String>) {
     try {
         let unused2 = rinzu.json.parseStringWithTy<List<Row>>(source);
-        panic("expected SchemaMismatch");
+        rinzu.core.panic("expected SchemaMismatch");
     }
     catch [problem: rinzu.json.SchemaMismatch] {
         check(problem.payload.reason == reason, "schema reason");
@@ -69,7 +73,7 @@ fn schemaError(source: String, reason: rinzu.json.SchemaReason, offset: Int, pat
         }
     }
     catch other {
-        panic("unexpected schema Error");
+        rinzu.core.panic("unexpected schema Error");
     }
 }
 
@@ -82,13 +86,13 @@ fn numberError(token: String, asInteger: Bool, reason: rinzu.json.NumberReason) 
         else {
             let unused4 = rinzu.json.asFloat(number);
         }
-        panic("expected NumberError");
+        rinzu.core.panic("expected NumberError");
     }
     catch [problem: rinzu.json.NumberError] {
         check(problem.payload.reason == reason, "number reason");
     }
     catch other {
-        panic("unexpected number Error");
+        rinzu.core.panic("unexpected number Error");
     }
 }
 
@@ -102,18 +106,18 @@ fn verifyLimits() {
     check(rinzu.json.arrayLength(ok) == 1, "parse limits allow equality");
     try {
         let unused5 = rinzu.json.parseStringWithLimits("[0] ", bounds);
-        panic("expected input byte limit");
+        rinzu.core.panic("expected input byte limit");
     }
     catch [problem: rinzu.json.LimitExceeded] {
         check(problem.payload.kind == rinzu.json.LimitKind.InputBytes() && problem.payload.limit == 3, "input limit");
         check(need<Int>(problem.payload.byteOffset) == 3, "input limit offset");
     }
     catch other {
-        panic("unexpected input limit Error");
+        rinzu.core.panic("unexpected input limit Error");
     }
     try {
         let unused6 = rinzu.json.parseStringWithLimits("[[]]", { ...bounds, maxInputBytes = 4 });
-        panic("expected depth limit");
+        rinzu.core.panic("expected depth limit");
     }
     catch [problem: rinzu.json.LimitExceeded] {
         check(
@@ -122,11 +126,11 @@ fn verifyLimits() {
         );
     }
     catch other {
-        panic("unexpected depth Error");
+        rinzu.core.panic("unexpected depth Error");
     }
     try {
         let unused7 = rinzu.json.parseStringWithLimits(r#"{"a":0}"#, { ...bounds, maxInputBytes = 7 });
-        panic("expected nodes limit");
+        rinzu.core.panic("expected nodes limit");
     }
     catch [problem: rinzu.json.LimitExceeded] {
         check(
@@ -135,7 +139,7 @@ fn verifyLimits() {
         );
     }
     catch other {
-        panic("unexpected nodes Error");
+        rinzu.core.panic("unexpected nodes Error");
     }
     try {
         let unused8 = rinzu.json.parseStringWithLimits(
@@ -146,7 +150,7 @@ fn verifyLimits() {
                 maxNodes = 0
             }
         );
-        panic("expected invalid limits");
+        rinzu.core.panic("expected invalid limits");
     }
     catch [problem: rinzu.json.InvalidLimits] {
         let p = problem.payload;
@@ -156,7 +160,7 @@ fn verifyLimits() {
         );
     }
     catch other {
-        panic("unexpected invalid limits Error");
+        rinzu.core.panic("unexpected invalid limits Error");
     }
     let encoded: rinzu.json.EncodeLimits = {
         maxOutputBytes = 3,
@@ -166,7 +170,7 @@ fn verifyLimits() {
     check(rinzu.json.stringifyWithLimits(ok, encoded) == "[0]", "encode limits allow equality");
     try {
         let unused9 = rinzu.json.encodeWithLimits(ok, { ...encoded, maxOutputBytes = 2 });
-        panic("expected encode limit");
+        rinzu.core.panic("expected encode limit");
     }
     catch [problem: rinzu.json.LimitExceeded] {
         check(
@@ -176,7 +180,7 @@ fn verifyLimits() {
         );
     }
     catch other {
-        panic("unexpected encode Error");
+        rinzu.core.panic("unexpected encode Error");
     }
     check(rinzu.json.defaultParseLimits.maxInputBytes == 134217728, "default input limit");
     check(rinzu.json.defaultEncodeLimits.maxNodes == 16777216, "default output nodes");
@@ -192,13 +196,13 @@ fn checkValues() {
     let original = " \t[true, null, 1E+002] \r\n";
     let root = rinzu.json.parseString(original);
     check(rinzu.json.stringify(root) == original, "root whitespace");
-    check(rinzu.json.encode(root) == utf8Encode(original), "cross representation output");
+    check(rinzu.json.encode(root) == textApi.encodeUtf8(original), "cross representation output");
     check(rinzu.json.asBool(need(rinzu.json.at(root, 0))), "boolean");
     check(rinzu.json.kind(need(rinzu.json.at(root, 1))) == rinzu.json.Kind.Null(), "array null");
     check(rinzu.json.numberText(need(rinzu.json.at(root, 2))) == "1E+002", "number token");
     switch rinzu.json.at(root, -1) {
         case Option.Some(item): {
-            panic("negative index");
+            rinzu.core.panic("negative index");
         }
         case Option.None: {}
     }
@@ -224,7 +228,7 @@ fn checkValues() {
     check(need(rinzu.json.intField(object, "i")) == -7, "built object numeric lookup");
     try {
         let unused10 = rinzu.json.intField(wide, "j");
-        panic("expected TypeMismatch");
+        rinzu.core.panic("expected TypeMismatch");
     }
     catch [problem: rinzu.json.TypeMismatch] {
         check(
@@ -233,7 +237,7 @@ fn checkValues() {
         );
     }
     catch other {
-        panic("unexpected kind Error");
+        rinzu.core.panic("unexpected kind Error");
     }
 }
 
@@ -269,20 +273,20 @@ fn checkNumbers() {
     numberError("9223372036854775808", true, rinzu.json.NumberReason.OutOfRange());
     numberError("1e400", false, rinzu.json.NumberReason.OutOfRange());
     try {
-        let unused11 = rinzu.json.floatValue(mathSqrt(-1.0));
-        panic("expected NonFinite");
+        let unused11 = rinzu.json.floatValue(num.sqrt(-1.0));
+        rinzu.core.panic("expected NonFinite");
     }
     catch [problem: rinzu.json.NumberError] {
         check(problem.payload.reason == rinzu.json.NumberReason.NonFinite(), "nonfinite constructor");
     }
     catch other {
-        panic("unexpected nonfinite Error");
+        rinzu.core.panic("unexpected nonfinite Error");
     }
 }
 
 fn checkSchemas() {
     let model: Rows = rinzu.json.parseWithTy(
-        utf8Encode(
+        textApi.encodeUtf8(
             r#"{"食費":[{"rate":0.5,"amount":2,"\u0069d":9007199254740993},{"note":null,"id":9,"amount":4,"rate":1}]}"#
         )
     );
@@ -302,7 +306,7 @@ fn checkSchemas() {
             check(i == 2, "typed list length");
         }
         case Option.None: {
-            panic("typed map key");
+            rinzu.core.panic("typed map key");
         }
     }
     let nested = rinzu.json.parseStringWithTy<List<Option<Option<String>>>>(r#"["\u0000", null]"#);
@@ -336,7 +340,7 @@ fn checkSchemas() {
     schemaError(r#"[{"rate":1e400}]"#, rinzu.json.SchemaReason.FloatOutOfRange(), 9, "/0/rate", Option<String>.None());
     try {
         let unused12 = rinzu.json.parseStringWithTy<Row>(r#"{"id":1,"\u0069d":2}"#);
-        panic("expected typed duplicate key");
+        rinzu.core.panic("expected typed duplicate key");
     }
     catch [problem: rinzu.json.DecodeFailed] {
         check(
@@ -347,7 +351,7 @@ fn checkSchemas() {
         );
     }
     catch other {
-        panic("unexpected typed duplicate Error");
+        rinzu.core.panic("unexpected typed duplicate Error");
     }
 }
 
@@ -356,20 +360,25 @@ fn exercise() {
     checkNumbers();
     checkSchemas();
     verifyLimits();
-    decodeError(utf8Encode("true false"), rinzu.json.DecodeReason.TrailingData(), 5, Option<Int>.None());
-    decodeError(utf8Encode("1e"), rinzu.json.DecodeReason.UnexpectedEnd(), 2, Option<Int>.None());
-    decodeError(utf8Encode("01"), rinzu.json.DecodeReason.InvalidNumber(), 1, Option<Int>.None());
+    decodeError(textApi.encodeUtf8("true false"), rinzu.json.DecodeReason.TrailingData(), 5, Option<Int>.None());
+    decodeError(textApi.encodeUtf8("1e"), rinzu.json.DecodeReason.UnexpectedEnd(), 2, Option<Int>.None());
+    decodeError(textApi.encodeUtf8("01"), rinzu.json.DecodeReason.InvalidNumber(), 1, Option<Int>.None());
     decodeError(
-        utf8Encode(r#"{"a":1,"\u0061":2}"#),
+        textApi.encodeUtf8(r#"{"a":1,"\u0061":2}"#),
         rinzu.json.DecodeReason.DuplicateKey(),
         7,
         Option<Int>.Some(value: 1)
     );
-    decodeError(utf8Encode(r#""\uD800""#), rinzu.json.DecodeReason.UnpairedSurrogate(), 1, Option<Int>.None());
-    decodeError(byteArray(b"\"x\xe0\x80\x80\""), rinzu.json.DecodeReason.InvalidUtf8(), 2, Option<Int>.None());
-    decodeError(byteArray(b"\"a\x00\""), rinzu.json.DecodeReason.ControlCharacter(), 2, Option<Int>.None());
-    decodeError(byteArray(b"\xef\xbb\xbfnull"), rinzu.json.DecodeReason.UnexpectedToken(), 0, Option<Int>.None());
-    decodeError(utf8Encode(r#"{"a":1,"a":}"#), rinzu.json.DecodeReason.UnexpectedToken(), 11, Option<Int>.None());
+    decodeError(textApi.encodeUtf8(r#""\uD800""#), rinzu.json.DecodeReason.UnpairedSurrogate(), 1, Option<Int>.None());
+    decodeError(bytesApi.from(b"\"x\xe0\x80\x80\""), rinzu.json.DecodeReason.InvalidUtf8(), 2, Option<Int>.None());
+    decodeError(bytesApi.from(b"\"a\x00\""), rinzu.json.DecodeReason.ControlCharacter(), 2, Option<Int>.None());
+    decodeError(bytesApi.from(b"\xef\xbb\xbfnull"), rinzu.json.DecodeReason.UnexpectedToken(), 0, Option<Int>.None());
+    decodeError(
+        textApi.encodeUtf8(r#"{"a":1,"a":}"#),
+        rinzu.json.DecodeReason.UnexpectedToken(),
+        11,
+        Option<Int>.None()
+    );
 }
 
 fn main() {
@@ -378,6 +387,6 @@ fn main() {
         rinzu.stdio.writeLine("json ok");
     }
     catch problems {
-        panic(f"{problems}");
+        rinzu.core.panic(f"{problems}");
     }
 }

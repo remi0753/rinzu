@@ -1,6 +1,7 @@
 import rinzu.list;
 import rinzu.map;
 import rinzu.stdio;
+import rinzu.core;
 
 fn countMatches<T: Equality>(values: List<T>, wanted: T) -> Int {
     var count = 0;
@@ -45,7 +46,7 @@ fn sumSnapshot(values: List<Int>) -> Int {
         index = index + 1;
     }
     if rinzu.list.length(changed) != count + count {
-        panic("wrongSnapshot");
+        rinzu.core.panic("wrongSnapshot");
     }
     return total;
 }

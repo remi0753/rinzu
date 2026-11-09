@@ -1,3 +1,5 @@
+import rinzu.native as bridge;
+
 native {
     fn rawEnable() -> CInt symbol "rinzu_shutdown_enable";
 
@@ -9,11 +11,11 @@ native {
 }
 
 fn enableSignals() -> Int {
-    return nativeStatus(Int(rawEnable()), "shutdown.enableSignals");
+    return bridge.checkStatus(Int(rawEnable()), "shutdown.enableSignals");
 }
 
 fn disableSignals() -> Int {
-    return nativeStatus(Int(rawDisable()), "shutdown.disableSignals");
+    return bridge.checkStatus(Int(rawDisable()), "shutdown.disableSignals");
 }
 
 export enableSignals;

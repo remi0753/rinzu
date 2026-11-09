@@ -1,5 +1,6 @@
 import rinzu.list;
 import rinzu.map;
+import rinzu.core;
 
 interface Getter<T> {
     fn get(self: Self) nothrow -> T;
@@ -44,7 +45,7 @@ fn synchronous() -> Int {
         total = total + handle(10);
     }
     if total != 36 {
-        panic("iteration capture or snapshot changed");
+        rinzu.core.panic("iteration capture or snapshot changed");
     }
     let boxed = Box.create(total);
     let next = boxed.map(
@@ -56,7 +57,7 @@ fn synchronous() -> Int {
     let before: Pair = { x = 1, y = 2 };
     let after = { ...before, x = get(next, 0) };
     if after.y != 2 || before.x != 1 {
-        panic("record update mutated its base");
+        rinzu.core.panic("record update mutated its base");
     }
     let named: Map<String, fn (Int) -> Int> = {
         "identity": fn (value: Int) -> Int {
@@ -102,11 +103,11 @@ async fn observe(handlers: List<fn () -> Future<Int>>) {
 
 async fn main() {
     if synchronous() != 42 {
-        panic("synchronous result");
+        rinzu.core.panic("synchronous result");
     }
     let handle = await makeHandler();
     if handle(40) != 42 {
-        panic("function Future result");
+        rinzu.core.panic("function Future result");
     }
     let pending = fail();
     let handlers: List<fn () -> Future<Int>> = [

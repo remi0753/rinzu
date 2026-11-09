@@ -1,4 +1,21 @@
 import rinzu.stdio;
+import rinzu.bytes as bytesApi;
+import rinzu.core;
+import rinzu.error as err;
+import rinzu.number as num;
+import rinzu.string as textApi;
+
+fn requiredErrorCode(problem: Error) nothrow -> Int {
+    switch err.code(problem) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            rinzu.core.panic("expected a numeric error code");
+            return 0;
+        }
+    }
+}
 
 fn echo<T: Transferable>(value: T) -> T {
     return value;
@@ -8,47 +25,47 @@ async fn main() {
     try {
         try {
             let text = "日é\u{0}tail";
-            rinzu.stdio.writeLine(stringLength(text));
-            rinzu.stdio.writeLine(utf8ByteLength(text));
-            rinzu.stdio.writeLine(stringGet(text, 0));
-            rinzu.stdio.writeLine(stringSlice(text, 1, 3));
-            rinzu.stdio.writeLine(stringFind(text, "tail", 0));
-            rinzu.stdio.writeLine(stringSplit("a,,日本語,", ","));
-            rinzu.stdio.writeLine(formatInt(-9223372036854775808));
+            rinzu.stdio.writeLine(textApi.length(text));
+            rinzu.stdio.writeLine(textApi.utf8ByteLength(text));
+            rinzu.stdio.writeLine(textApi.get(text, 0));
+            rinzu.stdio.writeLine(textApi.slice(text, 1, 3));
+            rinzu.stdio.writeLine(textApi.find(text, "tail", 0));
+            rinzu.stdio.writeLine(textApi.split("a,,日本語,", ","));
+            rinzu.stdio.writeLine(num.formatInt(-9223372036854775808));
             try {
-                let resultValue4 = parseInt("+42");
+                let resultValue4 = num.parseInt("+42");
                 rinzu.stdio.writeLine(resultValue4);
             }
             catch [resultError4: Error, ...resultRest4] {
-                rinzu.stdio.writeLine(errorCode(resultError4));
+                rinzu.stdio.writeLine(requiredErrorCode(resultError4));
             }
             try {
-                let resultValue3 = parseInt("9223372036854775808");
+                let resultValue3 = num.parseInt("9223372036854775808");
                 rinzu.stdio.writeLine(resultValue3);
             }
             catch [resultError3: Error, ...resultRest3] {
-                rinzu.stdio.writeLine(errorCode(resultError3));
+                rinzu.stdio.writeLine(requiredErrorCode(resultError3));
             }
             try {
-                let resultValue2 = utf8Decode(utf8Encode(text));
+                let resultValue2 = textApi.decodeUtf8(textApi.encodeUtf8(text));
                 let pending = spawn echo<String>(resultValue2);
                 rinzu.stdio.writeLine((await pending) == text);
             }
             catch [resultError2: Error, ...resultRest2] {
-                rinzu.stdio.writeLine(errorCode(resultError2));
+                rinzu.stdio.writeLine(requiredErrorCode(resultError2));
             }
             let invalid: List<CUInt8> = [255];
             try {
-                let resultValue1 = utf8Decode(byteArray(invalid));
+                let resultValue1 = textApi.decodeUtf8(bytesApi.from(invalid));
                 rinzu.stdio.writeLine(resultValue1);
             }
             catch [resultError1: Error, ...resultRest1] {
-                rinzu.stdio.writeLine(errorCode(resultError1));
+                rinzu.stdio.writeLine(requiredErrorCode(resultError1));
             }
         }
         catch errors {}
     }
     catch unexpectedEntryErrors {
-        panic("unexpectedEntryFailure");
+        rinzu.core.panic("unexpectedEntryFailure");
     }
 }

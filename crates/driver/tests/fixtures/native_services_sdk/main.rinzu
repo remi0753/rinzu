@@ -1,5 +1,6 @@
 import rinzu.timer;
 import services;
+import rinzu.core;
 
 async fn retainedTimer(milliseconds: Int) -> Int {
     try {
@@ -11,12 +12,12 @@ async fn retainedTimer(milliseconds: Int) -> Int {
             index = index + 1;
         }
         if retained != ["timer roots 日本語", "pending future"] {
-            panic("invalidRoots");
+            rinzu.core.panic("invalidRoots");
         }
         return milliseconds;
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
         return 0;
     }
 }
@@ -27,11 +28,11 @@ async fn main() {
         let fast = retainedTimer(0);
         let fastResult = await fast;
         if fastResult != 0 {
-            panic("invalidZero");
+            rinzu.core.panic("invalidZero");
         }
         let fileSize = await services.readSize("data/input.txt");
         if fileSize != 5 {
-            panic("invalidFile");
+            rinzu.core.panic("invalidFile");
         }
         var caught = 0;
         try {
@@ -39,7 +40,7 @@ async fn main() {
         }
         catch [error: Error, ...errorRest] {
             if error.message != "numeric conversion is out of range or loses required integer precision" {
-                panic("invalidError");
+                rinzu.core.panic("invalidError");
             }
             caught = caught + 1;
         }
@@ -47,14 +48,14 @@ async fn main() {
             caught = caught + 10;
         }
         if caught != 11 {
-            panic("invalidCleanup");
+            rinzu.core.panic("invalidCleanup");
         }
         let slowResult = await slow;
         if slowResult != 500 {
-            panic("invalidSlow");
+            rinzu.core.panic("invalidSlow");
         }
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
     }
 }

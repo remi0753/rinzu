@@ -1,4 +1,5 @@
 import rinzu.io;
+import rinzu.error as err;
 
 class FileStream {
     const file: rinzu.io.File,
@@ -9,7 +10,7 @@ class FileStream {
 }
 
 fn problem(code: Int) nothrow -> Error {
-    return error(code, "stream.file");
+    return err.create(code, "stream.file");
 }
 
 async fn openFile(path: String) throws(Error) -> FileStream {

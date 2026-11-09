@@ -1,5 +1,6 @@
 import rinzu.timer;
 import services;
+import rinzu.core;
 
 async fn main() {
     try {
@@ -19,11 +20,11 @@ async fn main() {
                 cleanupIndex = cleanupIndex + 1;
             }
             if retained != ["cancel timer roots 日本語", "pending child admission"] {
-                panic("invalidRoots");
+                rinzu.core.panic("invalidRoots");
             }
         }
     }
     catch unexpectedErrors {
-        panic("unexpectedFailure");
+        rinzu.core.panic("unexpectedFailure");
     }
 }

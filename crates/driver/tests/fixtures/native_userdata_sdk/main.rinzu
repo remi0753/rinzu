@@ -1,4 +1,5 @@
 import userdata;
+import rinzu.core;
 
 async fn main() {
     let original = userdata.exercise();
@@ -28,16 +29,16 @@ async fn main() {
         || r6 != r7
         || r7 != r8
         || r1 != again {
-        panic("wrongTransport");
+        rinzu.core.panic("wrongTransport");
     }
     let returned = userdata.returning();
     let returnedWorker = await spawn userdata.returning();
     let parked = await userdata.pending();
     if returned != original || returnedWorker != returned || parked != original {
-        panic("lostReturn");
+        rinzu.core.panic("lostReturn");
     }
     if userdata.preEntryError() != 1 {
-        panic("unexpectedEntry");
+        rinzu.core.panic("unexpectedEntry");
     }
     var caught = 0;
     try {
@@ -50,10 +51,10 @@ async fn main() {
     let failedFirst = await failedWorker;
     let failedAgain = await failedWorker;
     if failedFirst != 1 || failedAgain != 1 {
-        panic("lostWorkerFailure");
+        rinzu.core.panic("lostWorkerFailure");
     }
     caught = caught + failedFirst + failedAgain;
     if caught != 3 {
-        panic("wrongErrorCount");
+        rinzu.core.panic("wrongErrorCount");
     }
 }

@@ -22,10 +22,15 @@ pub fn create_sdk_callbacks(root: &std::path::Path) {
         .unwrap()
         .replace("import records;", "")
         .replace("import rinzu.stdio;", "")
+        .replace("import rinzu.core;", "")
+        .replace("import rinzu.error as err;", "")
         .replace("records.", "");
     std::fs::write(
         root.join("records/src/api.rinzu"),
-        format!("{}\n{body}\nexport execute;\n", include_str!("api.rinzu")),
+        format!(
+            "import rinzu.error as err;\n{}\n{body}\nexport execute;\n",
+            include_str!("api.rinzu")
+        ),
     )
     .unwrap();
     std::fs::write(root.join("app/src/main.rinzu"), "import records;fn execute()->Int{return records.execute();}fn main(){try{let result=execute();}catch errors{panic(\"unexpected SDK Busy failure\");}}").unwrap();

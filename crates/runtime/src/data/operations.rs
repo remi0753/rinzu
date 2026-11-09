@@ -64,6 +64,9 @@ impl ManagedData {
         ) {
             return self.bytes_operation(heap, op, result, types, slots);
         }
+        if op.is_optional_error_metadata() {
+            return self.error_operation(heap, op, result, types, slots);
+        }
         if op as u32 >= DataOperation::BitAnd as u32 {
             return self.numeric_operation(heap, op, result, slots);
         }
