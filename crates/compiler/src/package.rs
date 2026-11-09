@@ -3026,7 +3026,7 @@ fn rewrite_statement(
             rewrite_block(body, context, locals);
             rewrite_block(cleanup, context, locals);
         }
-        StatementKind::Break | StatementKind::Continue => {}
+        StatementKind::Rethrow { .. } | StatementKind::Break | StatementKind::Continue => {}
     }
 }
 fn rewrite_value_path(

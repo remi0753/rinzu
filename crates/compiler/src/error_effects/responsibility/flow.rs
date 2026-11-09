@@ -122,6 +122,32 @@ impl Engine<'_> {
                 .into_iter()
                 .map(expressions::Evaluation::path)
                 .collect(),
+            StatementKind::Rethrow { .. } => {
+                let selection = &self.checked.rethrows[&statement.range];
+                let Some(words) = state.caught.get(&self.at(selection.handler)) else {
+                    return Vec::new();
+                };
+                let words = language::select_caught(
+                    words,
+                    &selection.elements,
+                    selection.tail,
+                    self.bound,
+                    None,
+                );
+                words
+                    .into_iter()
+                    .filter_map(|word| {
+                        let mut state = state.condition(&word.guards)?;
+                        if self.replay.is_some() {
+                            state.trace.set_exit(Some(self.at(statement.range)));
+                        }
+                        Some(Path {
+                            state,
+                            control: Control::Error(word, None),
+                        })
+                    })
+                    .collect()
+            }
             StatementKind::Throw(expression) => {
                 let mut result = Vec::new();
                 for evaluated in self.expression(expression, state) {
@@ -527,6 +553,19 @@ impl Engine<'_> {
                     }
                     let mut state = path.state.clone();
                     state.trace.set_exit(None);
+                    if !self.checked.rethrows.is_empty() {
+                        let accepted =
+                            language::accepted(&Language::from([word.clone()]), &catch_pattern);
+                        let Some(guards) = accepted
+                            .iter()
+                            .next()
+                            .and_then(|word| language::merge_guards(&state.guards, &word.guards))
+                        else {
+                            continue;
+                        };
+                        state.guards = guards;
+                        state.caught.insert(self.at(handler.body.range), accepted);
+                    }
                     // try all may resume this return after handling the collected Errors.
                     if let Some(Control::Return(value)) = &saved {
                         state.record_handoff(std::iter::once(value));
@@ -568,6 +607,7 @@ impl Engine<'_> {
                         false,
                     ) {
                         caught.state.env.retain(|name, _| outer.contains(name));
+                        caught.state.caught.remove(&self.at(handler.body.range));
                         if caught.control == Control::Normal
                             && let Some(saved) = &saved
                         {
@@ -700,6 +740,7 @@ fn same_path(previous: &Path, path: &Path) -> bool {
         && left.iterated == right.iterated
         && left.requirements == right.requirements
         && left.guards == right.guards
+        && left.caught == right.caught
         && left.objects == right.objects
         && left.stores == right.stores
         && left.async_stores == right.async_stores
@@ -766,6 +807,7 @@ fn path_hash(path: &Path) -> u64 {
     state.iterated.hash(&mut hash);
     state.requirements.hash(&mut hash);
     state.guards.hash(&mut hash);
+    state.caught.hash(&mut hash);
     state.objects.hash(&mut hash);
     state.stores.hash(&mut hash);
     state.async_stores.hash(&mut hash);

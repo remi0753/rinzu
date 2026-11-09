@@ -1,10 +1,155 @@
 //! Dedicated Error identities and payload contracts, independent of class semantics.
 use super::*;
-use crate::ast::{CatchClause, CatchPattern, ErrorDecl, FieldDecl, RecordDecl};
+use crate::ast::{CatchBinding, CatchClause, CatchPattern, ErrorDecl, FieldDecl, RecordDecl};
 
 pub(super) const SOURCE_LOCATION: &str = "$rinzu_SourceLocation";
 
+#[derive(Clone, Copy, PartialEq)]
+enum CatchPosition {
+    Element(u32),
+    Tail(u32),
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct CatchSource {
+    handler: SourceRange,
+    position: CatchPosition,
+    declaration: SourceRange,
+    nonempty: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct Rethrow {
+    pub handler: SourceRange,
+    pub elements: Vec<u32>,
+    pub tail: Option<u32>,
+    /// The selection needs a proof from the incoming failure language.
+    pub prove_tail: Option<(CatchBinding, SourceRange)>,
+}
+
 impl Checker<'_> {
+    pub(super) fn check_rethrow(
+        &mut self,
+        elements: &[CatchBinding],
+        rest: Option<&CatchBinding>,
+        range: SourceRange,
+        context: &FunctionContext<'_>,
+    ) {
+        let mut previous: Option<(CatchSource, &CatchBinding)> = None;
+        let mut fixed = Vec::new();
+        let mut tail = None;
+        let mut prove_tail = None;
+        for (binding, needs_tail) in elements
+            .iter()
+            .map(|binding| (binding, false))
+            .chain(rest.map(|binding| (binding, true)))
+        {
+            let Some(source) = context.caught_bindings.get(&binding.name).copied() else {
+                if context.locals.contains_key(&binding.name)
+                    || self.declarations.contains_key(&binding.name)
+                    || AbiScalar::from_name(&binding.name).is_some()
+                    || binding.name == "Error"
+                {
+                    self.diagnostics.push(Diagnostic::error(
+                        DiagnosticCode::InvalidControlFlow,
+                        binding.range,
+                        format!("{} is not a catch binding in this function", binding.name),
+                        "select a binding declared directly by an enclosing catch",
+                    ));
+                } else {
+                    self.unknown_name(&binding.name, binding.range);
+                }
+                return;
+            };
+            if let Some((earlier, _)) = previous
+                && earlier.handler != source.handler
+            {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        DiagnosticCode::InvalidControlFlow,
+                        binding.range,
+                        "rethrow selections must come from the same catch",
+                        "select positions from a single catch pattern",
+                    )
+                    .with_secondary(earlier.declaration, "first catch binding")
+                    .with_secondary(source.declaration, "binding from a different catch"),
+                );
+                return;
+            }
+            match (source.position, needs_tail) {
+                (CatchPosition::Element(index), false) => {
+                    if fixed.last().is_some_and(|earlier| *earlier >= index) {
+                        let (_, name) = previous.unwrap();
+                        let message = if fixed.contains(&index) {
+                            format!("{} has already been selected", binding.name)
+                        } else {
+                            format!(
+                                "{} was caught before {} but is selected after it",
+                                binding.name, name.name
+                            )
+                        };
+                        self.diagnostics.push(
+                            Diagnostic::error(
+                                DiagnosticCode::InvalidControlFlow,
+                                binding.range,
+                                message,
+                                "select each Error once, in the order it was caught",
+                            )
+                            .with_secondary(
+                                elements
+                                    .iter()
+                                    .take(fixed.len())
+                                    .find(|item| item.name == binding.name)
+                                    .unwrap_or(name)
+                                    .range,
+                                "previous selection is here",
+                            ),
+                        );
+                        return;
+                    }
+                    fixed.push(index);
+                }
+                (CatchPosition::Tail(start), true) => {
+                    tail = Some(start);
+                    if fixed.is_empty() && !source.nonempty {
+                        prove_tail = Some((binding.clone(), source.declaration));
+                    }
+                }
+                (CatchPosition::Element(_), true) | (CatchPosition::Tail(_), false) => {
+                    let help = if needs_tail {
+                        format!("use rethrow [{}] to select a single Error", binding.name)
+                    } else {
+                        format!(
+                            "select {} by itself if nonempty, or use ...{} at the end",
+                            binding.name, binding.name
+                        )
+                    };
+                    self.diagnostics.push(
+                        Diagnostic::error(
+                            DiagnosticCode::InvalidControlFlow,
+                            binding.range,
+                            "selection does not match the kind of catch binding",
+                            help,
+                        )
+                        .with_secondary(source.declaration, "catch binding is declared here"),
+                    );
+                    return;
+                }
+            }
+            previous = Some((source, binding));
+        }
+        let (source, _) = previous.expect("parser requires a rethrow selection");
+        self.rethrows.insert(
+            range,
+            Rethrow {
+                handler: source.handler,
+                elements: fixed,
+                tail,
+                prove_tail,
+            },
+        );
+    }
+
     pub(super) fn check_error_test(
         &mut self,
         value: &Expression,
@@ -92,11 +237,14 @@ impl Checker<'_> {
             let names_before = context.declared_names.clone();
             let mut bindings = Vec::new();
             match &handler.pattern {
-                CatchPattern::Binding(binding) => {
-                    bindings.push((binding, Type::List(Box::new(Type::Error))))
-                }
+                CatchPattern::Binding(binding) => bindings.push((
+                    binding,
+                    Type::List(Box::new(Type::Error)),
+                    CatchPosition::Tail(0),
+                    true,
+                )),
                 CatchPattern::List { elements, rest, .. } => {
-                    for element in elements {
+                    for (position, element) in elements.iter().enumerate() {
                         let Some(ty) = self.resolve_type(&element.ty) else {
                             continue;
                         };
@@ -108,16 +256,44 @@ impl Checker<'_> {
                         }
                         self.error_patterns.insert(element.range, ty.clone());
                         if let Some(binding) = &element.binding {
-                            bindings.push((binding, ty));
+                            bindings.push((
+                                binding,
+                                ty,
+                                CatchPosition::Element(position as u32),
+                                true,
+                            ));
                         }
                     }
                     if let Some(binding) = rest {
-                        bindings.push((binding, Type::List(Box::new(Type::Error))));
+                        let nonempty = elements.is_empty()
+                            || handlers[..index].iter().any(|earlier| {
+                                let CatchPattern::List {
+                                    elements: covered,
+                                    rest: None,
+                                    ..
+                                } = &earlier.pattern
+                                else {
+                                    return false;
+                                };
+                                covered.len() == elements.len()
+                                    && covered.iter().zip(elements).all(|(a, b)| {
+                                        self.error_patterns.get(&a.range).is_some_and(|ty| {
+                                            *ty == Type::Error
+                                                || self.error_patterns.get(&b.range) == Some(ty)
+                                        })
+                                    })
+                            });
+                        bindings.push((
+                            binding,
+                            Type::List(Box::new(Type::Error)),
+                            CatchPosition::Tail(elements.len() as u32),
+                            nonempty,
+                        ));
                     }
                 }
             }
             let mut inserted = Vec::new();
-            for (binding, ty) in bindings {
+            for (binding, ty, position, nonempty) in bindings {
                 if let Some(previous) = context.declared_names.get(&binding.name) {
                     self.diagnostics.push(
                         Diagnostic::error(
@@ -142,12 +318,22 @@ impl Checker<'_> {
                             targets: Vec::new(),
                         },
                     );
+                    context.caught_bindings.insert(
+                        binding.name.clone(),
+                        CatchSource {
+                            handler: handler.body.range,
+                            position,
+                            declaration: binding.range,
+                            nonempty,
+                        },
+                    );
                     inserted.push(binding.name.clone());
                 }
             }
             self.check_block(&handler.body, context);
             for name in inserted {
                 context.locals.remove(&name);
+                context.caught_bindings.remove(&name);
             }
             context.declared_names = names_before;
         }

@@ -101,6 +101,102 @@ pub(super) fn verify_groups(function: &IrFunction, diagnostics: &mut Vec<Diagnos
     }
 }
 
+fn caught_local(handler: SourceRange) -> String {
+    format!(
+        "$caught_{}_{}_{}",
+        handler.file_id.0, handler.start_byte, handler.instance
+    )
+}
+
+pub(super) fn verify_caught(function: &IrFunction, diagnostics: &mut Vec<Diagnostic>) {
+    let selections: Vec<_> = function
+        .blocks
+        .iter()
+        .flat_map(|block| {
+            block
+                .operations
+                .iter()
+                .enumerate()
+                .filter_map(move |(index, operation)| {
+                    if matches!(operation.kind, OperationKind::RethrowCaught { .. }) {
+                        Some((block, index, operation))
+                    } else {
+                        None
+                    }
+                })
+        })
+        .collect();
+    if selections.is_empty() {
+        return;
+    }
+    let mut shapes: HashMap<BlockId, Vec<Option<(usize, bool)>>> = HashMap::new();
+    for block in &function.blocks {
+        match block.terminator {
+            Terminator::Goto { target, .. } => {
+                shapes.entry(target).or_default().push(Some((0, true)))
+            }
+            Terminator::Branch {
+                condition,
+                then_target,
+                else_target,
+            } => {
+                let matched = block.operations.iter().find_map(|operation| {
+                    if let OperationKind::ErrorMatch { types, rest, .. } = &operation.kind
+                        && operation
+                            .result
+                            .as_ref()
+                            .is_some_and(|result| result.id == condition)
+                    {
+                        Some((types.len(), *rest))
+                    } else {
+                        None
+                    }
+                });
+                shapes.entry(then_target).or_default().push(matched);
+                shapes.entry(else_target).or_default().push(None);
+            }
+            _ => {}
+        }
+    }
+    let mut handlers = HashMap::new();
+    for block in &function.blocks {
+        if let Some(OperationKind::EnterScope { scope }) = block.operations.first().map(|op| &op.kind)
+            && let Some([Some(shape)]) = shapes.get(&block.id).map(Vec::as_slice)
+            && block.operations.iter().any(|op| matches!(&op.kind, OperationKind::StoreLocal { name, .. } if *name == caught_local(*scope)))
+        {
+            handlers.insert(*scope, *shape);
+        }
+    }
+    for (block, index, operation) in selections {
+        let OperationKind::RethrowCaught {
+            errors,
+            handler,
+            elements,
+            tail,
+            ..
+        } = &operation.kind
+        else {
+            unreachable!();
+        };
+        let valid = handlers.get(handler).is_some_and(|&(width, rest)| {
+            elements.iter().all(|index| (*index as usize) < width)
+                && elements.windows(2).all(|pair| pair[0] < pair[1])
+                && tail.is_none_or(|start| rest && start as usize == width)
+                && (!elements.is_empty() || tail.is_some())
+        }) && block.operations[..index].iter().any(|op| {
+            op.result.as_ref().is_some_and(|result| result.id == *errors)
+                && matches!(&op.kind, OperationKind::LoadLocal { name } if *name == caught_local(*handler))
+        }) && index + 1 == block.operations.len()
+            && matches!(block.terminator, Terminator::Unreachable);
+        if !valid {
+            diagnostics.push(ir_error(
+                operation.range,
+                "rethrow requires an ordered selection from its accepted catch",
+            ));
+        }
+    }
+}
+
 pub(super) fn verify_operation(
     module: &IrModule,
     operation: &Operation,
@@ -117,9 +213,12 @@ pub(super) fn verify_operation(
         OperationKind::ThrowError { value, .. } => {
             values.get(value) == Some(&Type::Error) && result.is_none()
         }
-        OperationKind::CatchErrors { observes_failure } => {
-            index == 0 && *observes_failure && result == Some(&list)
+        OperationKind::RethrowCaught { errors, .. } => {
+            values.get(errors) == Some(&list) && result.is_none()
         }
+        OperationKind::CatchErrors {
+            observes_failure, ..
+        } => index == 0 && *observes_failure && result == Some(&list),
         OperationKind::ErrorCast { operand } => match (values.get(operand), result) {
             (Some(source), Some(Type::Error)) => nominal_error(source),
             (Some(Type::Error), Some(target)) => nominal_error(target),
@@ -288,6 +387,39 @@ impl Builder<'_> {
         self.set_terminator(Terminator::Unreachable);
     }
 
+    pub(super) fn lower_rethrow(&mut self, range: SourceRange) {
+        let selection = &self.checked.rethrows[&range];
+        let errors = self.emit_value(
+            OperationKind::LoadLocal {
+                name: caught_local(selection.handler),
+            },
+            Type::List(Box::new(Type::Error)),
+            range,
+        );
+        self.emit_poll(PollReason::Allocation, range);
+        self.emit(
+            OperationKind::RethrowCaught {
+                errors,
+                handler: selection.handler,
+                elements: selection.elements.clone(),
+                tail: selection.tail,
+                failure: self.failure,
+                error: self.error_edge(),
+                cleanup_chain: self.cleanup_chain(),
+            },
+            None,
+            range,
+        );
+        self.set_terminator(Terminator::Unreachable);
+    }
+
+    fn preserves_caught(&self, handler: &CatchClause) -> bool {
+        self.checked
+            .rethrows
+            .values()
+            .any(|selection| selection.handler == handler.body.range)
+    }
+
     fn catch_binding(&mut self, name: &str, ty: Type, value: ValueId, range: SourceRange) {
         self.local_types.insert(name.into(), ty);
         self.scopes
@@ -344,6 +476,9 @@ impl Builder<'_> {
         let errors = self.emit_value(
             OperationKind::CatchErrors {
                 observes_failure: true,
+                preserve: handlers
+                    .iter()
+                    .any(|handler| self.preserves_caught(handler)),
             },
             Type::List(Box::new(Type::Error)),
             range,
@@ -434,6 +569,9 @@ impl Builder<'_> {
             OperationKind::FinishErrorGroup {
                 scope,
                 handles: !handlers.is_empty(),
+                preserve: handlers
+                    .iter()
+                    .any(|handler| self.preserves_caught(handler)),
             },
             ty.clone(),
             range,
@@ -496,6 +634,13 @@ impl Builder<'_> {
             ty,
             range,
         );
+        self.emit(
+            OperationKind::DeclareLocal {
+                name: saved.clone(),
+            },
+            None,
+            range,
+        );
         self.lower_error_dispatch(errors, handlers, after, range);
         self.current = after;
         self.local_types.remove(&saved);
@@ -526,6 +671,9 @@ impl Builder<'_> {
             None,
             range,
         );
+        let preserved_dispatch = handlers
+            .iter()
+            .any(|handler| self.preserves_caught(handler));
         for handler in handlers {
             let accepted = self.new_block(handler.body.range);
             let next = self.new_block(range);
@@ -560,6 +708,7 @@ impl Builder<'_> {
                 }
             }
             self.current = accepted;
+            let preserve = self.preserves_caught(handler);
             self.lower_block_with_prelude(&handler.body, |builder| {
                 let errors = builder.emit_value(
                     OperationKind::LoadLocal {
@@ -568,13 +717,42 @@ impl Builder<'_> {
                     list_type.clone(),
                     handler.range,
                 );
-                match &handler.pattern {
-                    CatchPattern::Binding(binding) => builder.catch_binding(
-                        &binding.name,
-                        Type::List(Box::new(Type::Error)),
+                builder.emit(
+                    OperationKind::DeclareLocal {
+                        name: saved.clone(),
+                    },
+                    None,
+                    handler.range,
+                );
+                if preserve {
+                    builder.catch_binding(
+                        &caught_local(handler.body.range),
+                        list_type.clone(),
                         errors,
-                        binding.range,
-                    ),
+                        handler.range,
+                    );
+                }
+                match &handler.pattern {
+                    CatchPattern::Binding(binding) => {
+                        // Expose the ordinary list without the private
+                        // snapshot, which is scoped to this handler.
+                        let values = if preserved_dispatch {
+                            builder.emit_poll(PollReason::Allocation, binding.range);
+                            builder.emit_value(
+                                OperationKind::ErrorRest { errors, start: 0 },
+                                list_type.clone(),
+                                binding.range,
+                            )
+                        } else {
+                            errors
+                        };
+                        builder.catch_binding(
+                            &binding.name,
+                            list_type.clone(),
+                            values,
+                            binding.range,
+                        );
+                    }
                     CatchPattern::List { elements, rest, .. } => {
                         for (index, element) in elements.iter().enumerate() {
                             if let Some(binding) = &element.binding {

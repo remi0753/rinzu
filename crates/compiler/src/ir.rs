@@ -199,6 +199,7 @@ pub enum OperationKind {
     FinishErrorGroup {
         scope: SourceRange,
         handles: bool,
+        preserve: bool,
     },
     ErrorGroupOutcome {
         scope: SourceRange,
@@ -269,6 +270,16 @@ pub enum OperationKind {
     },
     CatchErrors {
         observes_failure: bool,
+        preserve: bool,
+    },
+    RethrowCaught {
+        errors: ValueId,
+        handler: SourceRange,
+        elements: Vec<u32>,
+        tail: Option<u32>,
+        failure: BlockId,
+        error: ErrorEdge,
+        cleanup_chain: Vec<BlockId>,
     },
     ThrowError {
         value: ValueId,
@@ -1125,6 +1136,7 @@ impl<'a> Builder<'a> {
     fn lower_statement(&mut self, statement: &Statement) {
         match &statement.kind {
             StatementKind::Throw(value) => self.lower_throw(value, statement.range),
+            StatementKind::Rethrow { .. } => self.lower_rethrow(statement.range),
             StatementKind::TryErrors {
                 all,
                 body,
@@ -2737,6 +2749,7 @@ fn verify_task_groups(function: &IrFunction, diagnostics: &mut Vec<Diagnostic>) 
 fn verify_function(module: &IrModule, function: &IrFunction, diagnostics: &mut Vec<Diagnostic>) {
     verify_task_groups(function, diagnostics);
     errors::verify_groups(function, diagnostics);
+    errors::verify_caught(function, diagnostics);
     if function
         .callback_fallback
         .as_ref()
@@ -2908,7 +2921,8 @@ fn verify_function(module: &IrModule, function: &IrFunction, diagnostics: &mut V
                                     OperationKind::CatchError {
                                         observes_failure: true
                                     } | OperationKind::CatchErrors {
-                                        observes_failure: true
+                                        observes_failure: true,
+                                        ..
                                     } | OperationKind::RecordTaskError { .. }
                                 )
                             })
@@ -2921,6 +2935,14 @@ fn verify_function(module: &IrModule, function: &IrFunction, diagnostics: &mut V
                 }
             }
             errors::verify_operation(module, operation, index, &value_types, diagnostics);
+            if let OperationKind::RethrowCaught { handler, .. } = operation.kind
+                && !active_scopes.contains(&handler)
+            {
+                diagnostics.push(ir_error(
+                    operation.range,
+                    "rethrow requires an active catch scope",
+                ));
+            }
             match &operation.kind {
                 OperationKind::Parameter { index } => {
                     if !operation.result.as_ref().is_some_and(|result| {
@@ -4308,6 +4330,7 @@ fn operation_inputs(kind: &OperationKind) -> Vec<ValueId> {
             vec![*error]
         }
         OperationKind::ThrowError { value, .. } => vec![*value],
+        OperationKind::RethrowCaught { errors, .. } => vec![*errors],
         OperationKind::ErrorCast { operand } | OperationKind::ErrorIs { operand, .. } => {
             vec![*operand]
         }
@@ -4363,6 +4386,7 @@ fn operation_inputs_mut(kind: &mut OperationKind) -> Vec<&mut ValueId> {
             vec![error]
         }
         OperationKind::ThrowError { value, .. } => vec![value],
+        OperationKind::RethrowCaught { errors, .. } => vec![errors],
         OperationKind::ErrorCast { operand } | OperationKind::ErrorIs { operand, .. } => {
             vec![operand]
         }
@@ -4498,6 +4522,7 @@ fn operation_error_edge(kind: &OperationKind) -> Option<&ErrorEdge> {
             error.as_ref()
         }
         OperationKind::ThrowError { error, .. }
+        | OperationKind::RethrowCaught { error, .. }
         | OperationKind::CheckLocal { error, .. }
         | OperationKind::ErrorGroupOutcome { error, .. }
         | OperationKind::TaskScopeOutcome { error, .. }
@@ -4523,6 +4548,7 @@ fn operation_failure_target(kind: &OperationKind) -> Option<BlockId> {
         }
         OperationKind::Unary { failure, .. } | OperationKind::Binary { failure, .. } => *failure,
         OperationKind::ThrowError { failure, .. }
+        | OperationKind::RethrowCaught { failure, .. }
         | OperationKind::CheckLocal { failure, .. }
         | OperationKind::ErrorGroupOutcome { failure, .. }
         | OperationKind::TaskScopeOutcome { failure, .. }
@@ -4548,6 +4574,7 @@ fn operation_cleanup_chain(kind: &OperationKind) -> Option<&[BlockId]> {
         OperationKind::Field { cleanup_chain, .. }
         | OperationKind::FormatString { cleanup_chain, .. } => Some(cleanup_chain),
         OperationKind::ThrowError { cleanup_chain, .. }
+        | OperationKind::RethrowCaught { cleanup_chain, .. }
         | OperationKind::CheckLocal { cleanup_chain, .. }
         | OperationKind::ErrorGroupOutcome { cleanup_chain, .. }
         | OperationKind::TaskScopeOutcome { cleanup_chain, .. }

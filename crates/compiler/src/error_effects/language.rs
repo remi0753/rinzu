@@ -32,6 +32,7 @@ pub(super) enum Guard {
     Bool(bool),
     Variant(String),
     Target(String),
+    CaughtType(String),
 }
 pub(super) type Guards = BTreeMap<Input, Guard>;
 
@@ -477,6 +478,157 @@ pub(super) fn subtract(errors: &Language, pattern: &Pattern) -> Language {
     result
 }
 
+/// Preserve the incoming guard when a catch narrows a symbolic Error.
+pub(super) fn narrow_tag(word: &mut Word, index: usize, expected: &Tag) -> bool {
+    let actual = &word.prefix[index];
+    match Pattern::match_tag(expected, actual) {
+        Match::Never => return false,
+        Match::All => return true,
+        Match::Some => {}
+    }
+    if let Tag::Named(name) = expected {
+        let input = match actual {
+            Tag::Parameter(input) => Some(input.clone()),
+            Tag::FutureElement(input, element) => {
+                let mut input = input.clone();
+                input.path.push(super::Projection::FailureElement(*element));
+                Some(input)
+            }
+            _ => None,
+        };
+        if let Some(input) = input {
+            let condition = Guards::from([(input, Guard::CaughtType(name.clone()))]);
+            let Some(guards) = merge_guards(&word.guards, &condition) else {
+                return false;
+            };
+            word.guards = guards;
+        }
+    }
+    word.prefix[index] = expected.clone();
+    true
+}
+
+pub(super) fn accepted(errors: &Language, pattern: &Pattern) -> Language {
+    let mut accepted = Language::new();
+    for word in errors {
+        if pattern.length_mismatch(word).is_none() {
+            let mut narrowed = word.clone();
+            if pattern
+                .prefix
+                .iter()
+                .enumerate()
+                .all(|(index, tag)| narrow_tag(&mut narrowed, index, tag))
+            {
+                accepted.insert_from(narrowed, errors, word);
+            }
+        }
+    }
+    accepted
+}
+
+pub(super) fn select_caught(
+    errors: &Language,
+    elements: &[u32],
+    tail: Option<u32>,
+    bound: usize,
+    forwarded: Option<Origin>,
+) -> Language {
+    let mut selected = Language::new();
+    for word in errors {
+        let positions = elements
+            .iter()
+            .map(|index| *index as usize)
+            .chain(
+                tail.into_iter()
+                    .flat_map(|start| start as usize..word.prefix.len()),
+            )
+            .collect::<Vec<_>>();
+        let prefix = positions
+            .iter()
+            .map(|index| word.prefix[*index].clone())
+            .collect::<Vec<_>>();
+        let mut add = |prefix: Vec<Tag>, longer: bool| {
+            let next = Word {
+                prefix,
+                longer,
+                tail: if longer {
+                    word.tail.clone()
+                } else {
+                    BTreeSet::new()
+                },
+                guards: word.guards.clone(),
+            };
+            if let Some(forwarded) = forwarded
+                && let Some(trace) = &errors.trace
+            {
+                let origins = errors.origins(word);
+                let project = |origin: Option<Origin>| {
+                    let mut origin = origin.unwrap_or(forwarded);
+                    origin.forwarded = Some(forwarded.range);
+                    Some(origin)
+                };
+                let origins = Origins {
+                    prefix: (0..next.prefix.len())
+                        .map(|i| {
+                            project(positions.get(i).and_then(|position| {
+                                origins.and_then(|origins| origins.prefix[*position])
+                            }))
+                        })
+                        .collect(),
+                    tail: next
+                        .tail
+                        .iter()
+                        .map(|tag| {
+                            (
+                                tag.clone(),
+                                project(origins.and_then(|origins| origins.tail.get(tag).copied()))
+                                    .unwrap(),
+                            )
+                        })
+                        .collect(),
+                };
+                let sequence = errors
+                    .sequence(word)
+                    .map(|_| Sequence::selected(&next, &origins));
+                selected.record(&trace.allowed, &next, Witness { origins, sequence });
+            }
+            selected.insert(next);
+        };
+        if tail.is_some() && word.longer {
+            // The old tail guarantees at least one further Error. Every
+            // shorter exact length and the new open tail remain possible.
+            let mut names = BTreeSet::new();
+            let finite = word.tail.iter().all(|tag| match tag {
+                Tag::Named(name) => {
+                    names.insert(name.clone());
+                    true
+                }
+                Tag::Set(set) => {
+                    names.extend(set.clone());
+                    true
+                }
+                _ => false,
+            });
+            let tag = if finite && !names.is_empty() {
+                Tag::Set(names)
+            } else {
+                Tag::Any
+            };
+            for length in prefix.len() + 1..=bound {
+                let mut exact = prefix.clone();
+                exact.resize(length, tag.clone());
+                add(exact, false);
+            }
+            let mut longer = prefix;
+            longer.resize(bound, tag);
+            add(longer, true);
+        } else if !prefix.is_empty() {
+            add(prefix, false);
+        }
+    }
+    selected
+}
+
 pub(super) fn future(input: Input, bound: usize) -> Language {
     unknown(bound)
         .into_iter()
@@ -688,7 +840,7 @@ impl Pattern {
         }
     }
 
-    fn match_tag(expected: &Tag, actual: &Tag) -> Match {
+    pub(super) fn match_tag(expected: &Tag, actual: &Tag) -> Match {
         if *expected == Tag::Any || expected == actual {
             return Match::All;
         }
@@ -861,6 +1013,7 @@ mod tests {
                 Origin {
                     range: crate::SourceRange::new(crate::FileId(1), byte, byte + 1),
                     kind: OriginKind::Throw,
+                    forwarded: None,
                     in_finally: false,
                 },
                 true,

@@ -278,3 +278,200 @@ fn documentation_and_navigation_keep_error_identity_and_catch_local_scopes() {
     );
     assert!(visible.iter().any(|symbol| symbol.name == "Failure"));
 }
+
+#[test]
+fn rethrow_selects_original_positions_and_proves_nonempty_tails() {
+    let code = r#"
+error A {}
+error B {}
+
+fn persist(extra: Bool) {
+    try { throw A(message: "write"); }
+    finally { if extra { throw B(message: "close"); } }
+}
+
+fn forward(extra: Bool) throws(B) {
+    try { persist(extra); }
+    catch [A] {}
+    catch [A, ...rest] {
+        try { throw A(message: "nested"); }
+        catch inner { rethrow rest; }
+    }
+}
+
+fn rethrow(n: Int) -> Int { return n; }
+fn main() {
+    try { forward(true); }
+    catch errors { let value = rethrow(1); }
+}
+"#;
+    let artifact = compile_source(&source(code)).unwrap();
+    let plan = artifact
+        .ir
+        .functions
+        .iter()
+        .flat_map(|function| &function.blocks)
+        .flat_map(|block| &block.operations)
+        .find_map(|op| match &op.kind {
+            rinzu_compiler::OperationKind::RethrowCaught { elements, tail, .. } => {
+                Some((elements, tail))
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert!(plan.0.is_empty());
+    assert_eq!(*plan.1, Some(1));
+
+    let invalid = code.replace("    catch [A] {}\n", "");
+    let errors = compile_source(&source(&invalid)).unwrap_err();
+    assert!(
+        errors.iter().any(|error| {
+            error.code == DiagnosticCode::InvalidControlFlow
+                && &invalid[error.primary.start_byte as usize..error.primary.end_byte as usize]
+                    == "rest"
+                && !error.secondary.is_empty()
+        }),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rethrow_rejects_invalid_positions_and_keeps_contract_diagnostic_at_selection() {
+    let program = r#"
+error A {}
+error B {}
+fn persist() {
+    try { throw A(message: "write"); }
+    finally { throw B(message: "close"); }
+}
+fn forward() throws(A) {
+    try { persist(); }
+    catch [first: A, second: B] {
+        let alias = first;
+        rethrow [first];
+    }
+}
+fn main() { try { forward(); } catch errors {} }
+"#;
+    for (selection, offending, expected) in [
+        (
+            "[second, first]",
+            "first",
+            DiagnosticCode::InvalidControlFlow,
+        ),
+        (
+            "[first, first]",
+            "first",
+            DiagnosticCode::InvalidControlFlow,
+        ),
+        ("[alias]", "alias", DiagnosticCode::InvalidControlFlow),
+        ("first", "first", DiagnosticCode::InvalidControlFlow),
+        ("[missing]", "missing", DiagnosticCode::UnknownName),
+        (
+            "[first, second]",
+            "rethrow [first, second];",
+            DiagnosticCode::InvalidErrorContract,
+        ),
+    ] {
+        let text = program.replace("rethrow [first];", &format!("rethrow {selection};"));
+        let errors = compile_source(&source(&text)).unwrap_err();
+        assert!(
+            errors.iter().any(|error| {
+                error.code == expected
+                    && &text[error.primary.start_byte as usize..error.primary.end_byte as usize]
+                        == offending
+            }),
+            "{selection}: {errors:?}"
+        );
+    }
+    assert!(parse_source(&source(&program.replace("rethrow [first];", "rethrow [];"))).is_err());
+    let formatted = format_source(&source(
+        &program.replace("rethrow [first];", "rethrow[first,];"),
+    ))
+    .unwrap();
+    assert!(formatted.contains("rethrow [first,];"));
+}
+
+#[test]
+fn rethrow_projects_a_known_tail_into_an_exact_outer_pattern() {
+    compile_source(&source(
+        r#"
+error A {}
+error B {}
+fn persist() {
+    try { throw A(message: "first"); }
+    finally { throw B(message: "second"); }
+}
+fn forward() {
+    try { persist(); }
+    catch [A, ...rest] { rethrow rest; }
+}
+fn main() {
+    try { forward(); }
+    catch [B] {}
+}
+"#,
+    ))
+    .unwrap();
+}
+
+#[test]
+fn rethrow_rejects_unknown_tail_length_and_unobserved_futures() {
+    let program = r#"
+error A {}
+fn fail() throws(A) { throw A(message: "single"); }
+fn forward() throws(A) {
+    try { fail(); }
+    catch [A, ...rest] { rethrow rest; }
+}
+fn main() { try { forward(); } catch errors {} }
+"#;
+    let errors = compile_source(&source(program)).unwrap_err();
+    let rethrow = errors
+        .iter()
+        .find(|error| error.code == DiagnosticCode::InvalidControlFlow)
+        .unwrap();
+    assert!(rethrow.message.contains("cannot prove"), "{rethrow:?}");
+    assert!(
+        rethrow.secondary.iter().any(|(range, reason)| {
+            range.start_byte as usize == program.find("throws(A)").unwrap()
+                && reason.contains("Error type upper bound")
+        }),
+        "{rethrow:?}"
+    );
+
+    let inferred = program.replace("fn fail() throws(A)", "fn fail()");
+    let errors = compile_source(&source(&inferred)).unwrap_err();
+    let rethrow = errors
+        .iter()
+        .find(|error| error.code == DiagnosticCode::InvalidControlFlow)
+        .unwrap();
+    assert!(rethrow.message.contains("always empty"), "{rethrow:?}");
+    assert!(
+        rethrow.secondary.iter().any(|(range, reason)| {
+            range.start_byte as usize == inferred.find("throw A").unwrap()
+                && reason.contains("Error 1 of 1 is A")
+        }),
+        "{rethrow:?}"
+    );
+
+    let errors = compile_source(&source(
+        r#"
+error A {}
+async fn work() { throw A(message: "unobserved"); }
+async fn forward() {
+    try { throw A(message: "before"); }
+    catch caught {
+        let task = work();
+        rethrow caught;
+    }
+}
+async fn main() { try { await forward(); } catch errors {} }
+"#,
+    ))
+    .unwrap_err();
+    assert!(
+        errors.iter().any(|error| error.code.as_str() == "RZ0406"),
+        "{errors:?}"
+    );
+}

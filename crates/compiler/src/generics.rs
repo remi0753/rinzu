@@ -841,6 +841,11 @@ impl<'a> Expander<'a> {
             StatementKind::Expression(value) | StatementKind::Throw(value) => {
                 self.expression(value, substitution, instance)?
             }
+            StatementKind::Rethrow { elements, rest } => {
+                for binding in elements.iter_mut().chain(rest.iter_mut()) {
+                    binding.range.instance = instance;
+                }
+            }
             StatementKind::Return(value) => {
                 if let Some(value) = value {
                     let expected = self.expected_result.clone();

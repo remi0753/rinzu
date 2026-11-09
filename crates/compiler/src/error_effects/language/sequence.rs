@@ -91,6 +91,38 @@ impl Sequence {
         }
     }
 
+    pub(super) fn selected(word: &Word, origins: &super::Origins) -> Self {
+        let mut parts: Vec<_> = word
+            .prefix
+            .iter()
+            .zip(&origins.prefix)
+            .take(VISIBLE_ERRORS)
+            .map(|(tag, origin)| Part {
+                kind: PartKind::Element(tag.clone()),
+                origin: *origin,
+                cleanup: origin
+                    .filter(|origin| origin.in_finally)
+                    .map(|origin| origin.range),
+            })
+            .collect();
+        let omitted = word.longer || word.prefix.len() > VISIBLE_ERRORS;
+        if omitted {
+            parts.push(Part {
+                kind: PartKind::Unordered,
+                origin: None,
+                cleanup: None,
+            });
+        }
+        Self {
+            word: word.clone(),
+            count: Some(Count::of(word)),
+            parts,
+            omitted,
+            awaits: false,
+            may_alias_await: false,
+        }
+    }
+
     pub(super) fn unknown(word: &Word, cleanup: Option<SourceRange>) -> Self {
         Self {
             word: word.clone(),

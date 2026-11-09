@@ -44,7 +44,7 @@ pub(super) extern "C" fn error_data(
                         .replace_cleanup_incoming(None)
                         .map_err(|_| DataError::InvalidEncoding)?;
                     let (errors, incoming) =
-                        rinzu_runtime::error_groups::settle(errors, incoming, value != 0);
+                        rinzu_runtime::error_groups::settle(errors, incoming, value & 1 != 0);
                     runtime
                         .pending
                         .replace_cleanup_incoming(incoming)
@@ -52,7 +52,10 @@ pub(super) extern "C" fn error_data(
                     runtime
                         .caught_errors
                         .extend(errors.iter().map(Failure::diagnostics_only));
-                    failure_list(runtime, ty, &errors)
+                    Ok(runtime
+                        .data
+                        .catch_error_list(&mut runtime.heap, ty, &errors, value & 2 != 0)?
+                        .bits())
                 }
                 11 => {
                     if value == 0 {
@@ -141,26 +144,40 @@ pub(super) extern "C" fn error_data(
                         .pending
                         .observe_error()
                         .ok_or(DataError::NotRecoverable)?;
-                    let mut slots = Vec::new();
-                    for (index, _diagnostic) in std::iter::once(&failure.primary)
-                        .chain(&failure.cleanup)
-                        .enumerate()
-                    {
-                        let handle = if let Some(error) = failure.managed.get(&index) {
-                            runtime.data.leased_error(&runtime.heap, error)?
-                        } else {
-                            runtime.data.create_error(
-                                &mut runtime.heap,
-                                &failure.diagnostic_at(index).unwrap(),
-                            )?
-                        };
-                        slots.push(ManagedSlot::Reference(handle));
-                    }
                     runtime.caught_errors.push(failure.diagnostics_only());
                     Ok(runtime
                         .data
-                        .create_composite(&mut runtime.heap, ty, None, &slots)?
+                        .catch_error_list(&mut runtime.heap, ty, &[failure], argument != 0)?
                         .bits())
+                }
+                12 => {
+                    let count = usize::try_from(count).map_err(|_| DataError::InvalidEncoding)?;
+                    if count > isize::MAX as usize / 8 || (count != 0 && types.is_null()) {
+                        return Err(DataError::InvalidEncoding);
+                    }
+                    let indices = if count == 0 {
+                        &[][..]
+                    } else {
+                        // SAFETY: verified lowering provides the aligned selection array.
+                        unsafe { std::slice::from_raw_parts(types, count) }
+                    };
+                    let indices = indices
+                        .iter()
+                        .map(|index| u32::try_from(*index).map_err(|_| DataError::InvalidEncoding))
+                        .collect::<std::result::Result<Vec<_>, _>>()?;
+                    let tail = if argument == -1 {
+                        None
+                    } else {
+                        Some(u32::try_from(argument).map_err(|_| DataError::InvalidEncoding)?)
+                    };
+                    let failure = runtime.data.rethrow_caught(
+                        &mut runtime.heap,
+                        handle()?,
+                        &indices,
+                        tail,
+                    )?;
+                    runtime.pending.propagate(failure);
+                    Ok(0)
                 }
                 7 => Ok(u64::from(runtime.data.error_is(
                     &runtime.heap,
@@ -183,33 +200,6 @@ pub(super) extern "C" fn error_data(
         }
         result as i64
     })
-}
-
-fn failure_list(
-    runtime: &mut BaselineRuntime,
-    ty: usize,
-    failures: &[Failure],
-) -> Result<u64, DataError> {
-    let mut slots = Vec::new();
-    for failure in failures {
-        for (index, _diagnostic) in std::iter::once(&failure.primary)
-            .chain(&failure.cleanup)
-            .enumerate()
-        {
-            let handle = if let Some(error) = failure.managed.get(&index) {
-                runtime.data.leased_error(&runtime.heap, error)?
-            } else {
-                runtime
-                    .data
-                    .create_error(&mut runtime.heap, &failure.diagnostic_at(index).unwrap())?
-            };
-            slots.push(ManagedSlot::Reference(handle));
-        }
-    }
-    Ok(runtime
-        .data
-        .create_composite(&mut runtime.heap, ty, None, &slots)?
-        .bits())
 }
 
 // Shared by explicit throw and checked data operations.

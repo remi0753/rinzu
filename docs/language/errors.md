@@ -113,7 +113,15 @@ catch problems {
 
 Only the first matching catch runs. Catch does not dispatch each element separately. Patterns must cover possible failures; add an exhaustive binding when the full list shape is not known. An incomplete catch is rejected even if an outer catch exists. A catch or finally cannot catch its own newly raised failures.
 
-`throw` accepts one Error, not a list. There is no dedicated rethrow statement; throw a captured element to propagate it. Main, Worker, and native exits must not leak ordinary Errors. Tests use their own failure boundary.
+`throw expression;` sends one Error. Main, Worker, and native exits must handle ordinary Errors. Tests use their own failure boundary.
+
+## Rethrow caught Errors
+
+`rethrow problems;` forwards the entire list bound by `catch problems`. In a typed catch, `rethrow [first, second];` selects those two positions. You can skip positions, and each selection must follow the order in the caught list. A trailing `...rest` forwards the remaining suffix.
+
+A selection must contain at least one Error on every path to the statement. For `catch [first: SaveFailed, ...rest]`, `rethrow [first, ...rest];` always has one. `rethrow rest;` requires proof that another Error follows the first. An earlier catch for `[SaveFailed]` can supply that proof. A declared `throws` bound describes types and permits different list lengths.
+
+Selections refer to bindings declared directly by one catch in the current function. A nested catch may select from an enclosing catch. The statement preserves the selected Error values, source positions, causes, and traces. An enclosing `try all` records the list together and continues. Subsequent Errors from `finally` follow the selected list.
 
 ## Continue with try all
 

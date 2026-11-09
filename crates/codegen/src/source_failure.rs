@@ -263,6 +263,11 @@ impl FailureRoutes {
                 error,
                 cleanup_chain,
                 ..
+            }
+            | OperationKind::RethrowCaught {
+                error,
+                cleanup_chain,
+                ..
             } => (Some(error), cleanup_chain.as_slice()),
             OperationKind::CheckLocal {
                 error,

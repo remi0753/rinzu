@@ -107,6 +107,7 @@ pub(crate) struct IndirectSignature {
 pub struct CheckedModule {
     pub(crate) error_upcasts: HashMap<SourceRange, Type>,
     pub(crate) error_patterns: HashMap<SourceRange, Type>,
+    pub(crate) rethrows: HashMap<SourceRange, errors::Rethrow>,
     pub(crate) error_tests: HashMap<SourceRange, Type>,
     pub(crate) error_narrowings: HashMap<SourceRange, Type>,
     pub(crate) bindings: HashMap<SourceRange, BoundFunction>,
@@ -497,6 +498,7 @@ struct Checker<'a> {
     error_schemas: std::collections::BTreeMap<String, SourceTypeSchema>,
     error_upcasts: HashMap<SourceRange, Type>,
     error_patterns: HashMap<SourceRange, Type>,
+    rethrows: HashMap<SourceRange, errors::Rethrow>,
     error_tests: HashMap<SourceRange, Type>,
     error_narrowings: HashMap<SourceRange, Type>,
     lambda_replacements: HashMap<SourceRange, ExpressionKind>,
@@ -549,6 +551,7 @@ impl<'a> Checker<'a> {
             error_schemas: std::collections::BTreeMap::new(),
             error_upcasts: HashMap::new(),
             error_patterns: HashMap::new(),
+            rethrows: HashMap::new(),
             error_tests: HashMap::new(),
             error_narrowings: HashMap::new(),
             lambda_replacements: HashMap::new(),
@@ -765,6 +768,7 @@ impl<'a> Checker<'a> {
         Ok(CheckedModule {
             error_upcasts: self.error_upcasts,
             error_patterns: self.error_patterns,
+            rethrows: self.rethrows,
             error_tests: self.error_tests,
             error_narrowings: self.error_narrowings,
             bindings: self.bindings,
@@ -2991,6 +2995,7 @@ impl<'a> Checker<'a> {
 }
 
 struct FunctionContext<'a> {
+    caught_bindings: HashMap<String, errors::CatchSource>,
     all_depth: usize,
     narrowed_errors: HashMap<String, Type>,
     function: &'a FunctionDecl,
@@ -3010,6 +3015,7 @@ impl<'a> FunctionContext<'a> {
     fn new(function: &'a FunctionDecl, result: Type, owner_sync: bool) -> Self {
         Self {
             all_depth: 0,
+            caught_bindings: HashMap::new(),
             narrowed_errors: HashMap::new(),
             function,
             result,

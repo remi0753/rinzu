@@ -1670,6 +1670,7 @@ fn lower_block_operations(
             | OperationKind::FinishErrorGroup { .. }
             | OperationKind::RecordTaskError { .. }
             | OperationKind::ThrowError { .. }
+            | OperationKind::RethrowCaught { .. }
             | OperationKind::CatchErrors { .. }
             | OperationKind::ErrorIs { .. }
             | OperationKind::ErrorCast { .. }
@@ -1735,7 +1736,20 @@ fn lower_block_operations(
                     OperationKind::ErrorRest { errors, start } => {
                         (4, Some(*errors), i64::from(*start), Vec::new())
                     }
-                    OperationKind::CatchErrors { .. } => (5, None, 0, Vec::new()),
+                    OperationKind::CatchErrors { preserve, .. } => {
+                        (5, None, i64::from(*preserve), Vec::new())
+                    }
+                    OperationKind::RethrowCaught {
+                        errors,
+                        elements,
+                        tail,
+                        ..
+                    } => (
+                        12,
+                        Some(*errors),
+                        tail.map_or(-1, i64::from),
+                        elements.iter().map(|index| *index as usize).collect(),
+                    ),
                     OperationKind::ThrowError { value, .. } => (6, Some(*value), 0, Vec::new()),
                     _ => unreachable!(),
                 };
@@ -1746,9 +1760,13 @@ fn lower_block_operations(
                         .map_or(&Type::Error, |result| &result.ty),
                 )?;
                 let type_id = builder.ins().iconst(types::I64, i64::try_from(ty)?);
-                let value = if let OperationKind::FinishErrorGroup { handles, .. } = operation.kind
+                let value = if let OperationKind::FinishErrorGroup {
+                    handles, preserve, ..
+                } = operation.kind
                 {
-                    builder.ins().iconst(types::I64, i64::from(handles))
+                    builder
+                        .ins()
+                        .iconst(types::I64, i64::from(handles) | (i64::from(preserve) << 1))
                 } else if let Some(operand) = operand {
                     value_of(values, operand)?
                 } else {
@@ -1778,6 +1796,11 @@ fn lower_block_operations(
                 );
                 let value = builder.inst_results(call)[0];
                 if let OperationKind::ThrowError {
+                    error,
+                    cleanup_chain,
+                    ..
+                }
+                | OperationKind::RethrowCaught {
                     error,
                     cleanup_chain,
                     ..

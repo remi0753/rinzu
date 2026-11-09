@@ -21,6 +21,10 @@ impl Checker<'_> {
                 self.expect_expression(value, &Type::Error, context);
                 context.facts.may_fail = true;
             }
+            StatementKind::Rethrow { elements, rest } => {
+                self.check_rethrow(elements, rest.as_ref(), statement.range, context);
+                context.facts.may_fail = true;
+            }
             StatementKind::TryErrors {
                 all,
                 body,
@@ -541,7 +545,7 @@ pub(crate) fn block_always_returns(block: &Block) -> bool {
 fn statement_always_returns(statement: &Statement) -> bool {
     match &statement.kind {
         StatementKind::Block(block) => block_always_returns(block),
-        StatementKind::Return(_) | StatementKind::Throw(_) => true,
+        StatementKind::Return(_) | StatementKind::Throw(_) | StatementKind::Rethrow { .. } => true,
         StatementKind::If {
             then_block,
             else_branch: Some(else_branch),

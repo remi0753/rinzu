@@ -28,6 +28,58 @@ static void rinzu_aot_group_observed(RinzuContext *context, const rinzu_failure_
   context->pending.observed = observed;
   rinzu_aot_async_observe(context, failure);
 }
+static uint64_t rinzu_aot_catch_list(rinzu_managed_data_t *data, size_t type,
+                                     const rinzu_failure_t *failure, int preserve) {
+  uint64_t list = rinzu_managed_failure_list(data, type, failure);
+  if (preserve) {
+    rinzu_failure_t *snapshot = rinzu_failure_allocate(sizeof(*snapshot));
+    *snapshot = rinzu_failure_copy(failure);
+    rinzu_failure_forget_managed(snapshot);
+    rinzu_managed_find(data, list)->caught_errors = snapshot;
+  }
+  return list;
+}
+
+static void rinzu_aot_rethrow(RinzuContext *context, rinzu_managed_data_t *data, uint64_t value,
+                              int64_t tail, const uint64_t *elements, size_t count) {
+  rinzu_managed_value_t *list = rinzu_managed_error_list(data, value);
+  const rinzu_failure_t *snapshot = list->caught_errors;
+  if (!snapshot || context->pending.current.primary || (count && !elements) || tail < -1 ||
+      (tail >= 0 && (uint64_t)tail > list->count))
+    rinzu_failure_fatal();
+  for (size_t i = 0; i < count; i++)
+    if (elements[i] >= list->count || (i && elements[i - 1] >= elements[i]) ||
+        (tail >= 0 && elements[i] >= (uint64_t)tail))
+      rinzu_failure_fatal();
+
+  rinzu_failure_t selected = {0};
+  rinzu_diagnostic_node_t primary = {.cause = snapshot->primary,
+                                     .source = snapshot->primary_source,
+                                     .trace = snapshot->primary_trace,
+                                     .next = snapshot->head};
+  size_t index = 0, fixed = 0;
+  for (const rinzu_diagnostic_node_t *node = &primary; node; node = node->next, index++) {
+    if (index >= list->count)
+      rinzu_failure_fatal();
+    int explicit = fixed < count && elements[fixed] == index;
+    if (explicit || (tail >= 0 && index >= (uint64_t)tail)) {
+      if (!list->slots[index].reference)
+        rinzu_failure_fatal();
+      rinzu_error_group_append(
+          &selected, (rinzu_failure_t){.primary = node->cause,
+                                       .primary_source = node->source,
+                                       .primary_error =
+                                           rinzu_managed_lease_error(data, list->slots[index].bits),
+                                       .primary_trace = rinzu_error_trace_copy(node->trace)});
+      fixed += (size_t)explicit;
+    }
+  }
+  if (index != list->count || fixed != count || !selected.primary)
+    rinzu_failure_fatal();
+  context->failure_origin = 0;
+  context->pending.current = selected;
+}
+
 int64_t rinzu_baseline_error_data(void *raw, int64_t operation, int64_t type, int64_t value,
                                   int64_t argument, const uint64_t *types, int64_t count) {
   RinzuContext *context = raw;
@@ -56,7 +108,8 @@ int64_t rinzu_baseline_error_data(void *raw, int64_t operation, int64_t type, in
     cleanup->incoming = (rinzu_failure_t){0};
     rinzu_failure_state_t check = {.current = incoming};
     int control = incoming.primary && !rinzu_failure_recoverable(&check);
-    if (value && !control) {
+    int handles = value & 1;
+    if (handles && !control) {
       for (rinzu_group_failure_t *entry = entries; entry; entry = entry->next)
         rinzu_aot_group_observed(context, &entry->failure);
       if (incoming.primary)
@@ -68,10 +121,10 @@ int64_t rinzu_baseline_error_data(void *raw, int64_t operation, int64_t type, in
       cleanup->incoming = incoming;
     } else {
       rinzu_error_group_append(&combined, incoming);
-      if (!value)
+      if (!handles)
         cleanup->incoming = combined;
       else if (combined.primary) {
-        output = rinzu_managed_failure_list(data, (size_t)type, &combined);
+        output = rinzu_aot_catch_list(data, (size_t)type, &combined, value & 2);
         rinzu_failure_release(combined);
       }
     }
@@ -112,7 +165,7 @@ int64_t rinzu_baseline_error_data(void *raw, int64_t operation, int64_t type, in
     (void)rinzu_failure_observe(&context->pending);
     rinzu_failure_t *failure = &context->pending.observed->failure;
     rinzu_aot_async_observe(context, failure);
-    output = rinzu_managed_failure_list(data, (size_t)type, failure);
+    output = rinzu_aot_catch_list(data, (size_t)type, failure, argument != 0);
     rinzu_failure_forget_managed(failure);
     break;
   }
@@ -125,6 +178,9 @@ int64_t rinzu_baseline_error_data(void *raw, int64_t operation, int64_t type, in
     output = error->kind == RINZU_MANAGED_COMPOSITE && error->type == (size_t)argument;
     break;
   }
+  case 12:
+    rinzu_aot_rethrow(context, data, (uint64_t)value, argument, types, (size_t)count);
+    break;
   case 6:
     rinzu_aot_throw_error(context, (uint64_t)value);
     break;

@@ -17,6 +17,7 @@ pub(in crate::error_effects) struct Origin {
     pub range: SourceRange,
     pub kind: Kind,
     pub in_finally: bool,
+    pub forwarded: Option<SourceRange>,
 }
 
 impl Origin {

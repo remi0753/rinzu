@@ -64,7 +64,9 @@ impl Analyzer<'_> {
         for statement in &block.statements {
             if active.is_empty() {
                 if self.check_dead_code() {
+                    let dead = std::mem::replace(&mut self.dead, true);
                     self.statement(statement, &mut env.clone());
+                    self.dead = dead;
                 }
                 continue;
             }

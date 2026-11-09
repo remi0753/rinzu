@@ -33,7 +33,8 @@ fn error_message_and_catch_scopes_are_typed() {
             .any(|op| matches!(
                 op.kind,
                 OperationKind::CatchErrors {
-                    observes_failure: true
+                    observes_failure: true,
+                    ..
                 }
             ))
     );

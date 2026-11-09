@@ -130,6 +130,82 @@ impl ManagedData {
         Ok(self.composite_fields(heap, reference, ty)?.1)
     }
 
+    /// The private list roots the materialized Errors. Its diagnostic snapshot
+    /// contains no leases and is retired with the list's scoped handle.
+    pub fn catch_error_list(
+        &mut self,
+        heap: &mut DomainHeap,
+        ty: usize,
+        errors: &[Failure],
+        preserve: bool,
+    ) -> Result<ManagedHandle, DataError> {
+        let mut values = Vec::new();
+        for failure in errors {
+            for index in 0..=failure.cleanup.len() {
+                let diagnostic = failure.diagnostic_at(index).expect("failure element");
+                values.push(ManagedSlot::Reference(
+                    self.create_error(heap, &diagnostic)?,
+                ));
+            }
+        }
+        let list = self.create_composite(heap, ty, None, &values)?;
+        if preserve
+            && let Some(snapshot) =
+                crate::error_groups::aggregate(errors.iter().map(Failure::diagnostics_only))
+        {
+            self.caught_errors.insert(list, snapshot);
+        }
+        Ok(list)
+    }
+
+    pub fn rethrow_caught(
+        &mut self,
+        heap: &mut DomainHeap,
+        list: ManagedHandle,
+        elements: &[u32],
+        tail: Option<u32>,
+    ) -> Result<Failure, DataError> {
+        let snapshot = self
+            .caught_errors
+            .get(&list)
+            .cloned()
+            .ok_or(DataError::WrongKind)?;
+        let ty = self.error_list_type(heap, list)?;
+        let ValueType::List(element) = *self.value_schema()?.ty(ty)? else {
+            return Err(DataError::WrongKind);
+        };
+        let fields = self.error_list_fields(heap, list, ty)?;
+        if elements.windows(2).any(|pair| pair[0] >= pair[1])
+            || tail.is_some_and(|start| {
+                start as usize > fields.len()
+                    || elements.last().is_some_and(|index| *index >= start)
+            })
+        {
+            return Err(DataError::InvalidEncoding);
+        }
+        let indices = elements.iter().map(|index| *index as usize).chain(
+            tail.into_iter()
+                .flat_map(|start| start as usize..fields.len()),
+        );
+        let mut result: Option<Failure> = None;
+        for index in indices {
+            let field = *fields.get(index).ok_or(DataError::InvalidEncoding)?;
+            let ManagedSlot::Reference(handle) = self.slot_from_field(heap, element, field)? else {
+                return Err(DataError::WrongKind);
+            };
+            let mut failure = snapshot
+                .diagnostic_at(index)
+                .ok_or(DataError::InvalidEncoding)?;
+            failure.managed.insert(0, self.lease_error(heap, handle)?);
+            if let Some(result) = &mut result {
+                result.append_cleanup(failure);
+            } else {
+                result = Some(failure);
+            }
+        }
+        result.ok_or(DataError::InvalidEncoding)
+    }
+
     pub fn match_error_list(
         &self,
         heap: &DomainHeap,

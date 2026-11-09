@@ -113,6 +113,13 @@ fn statement(
             expression(value, bound, visit);
         }
         StatementKind::Expression(e) | StatementKind::Throw(e) => expression(e, bound, visit),
+        StatementKind::Rethrow { elements, rest } => {
+            for binding in elements.iter_mut().chain(rest.iter_mut()) {
+                if !bound.contains(&binding.name) {
+                    visit(&mut binding.name, binding.range);
+                }
+            }
+        }
         StatementKind::Return(e) => {
             if let Some(e) = e {
                 expression(e, bound, visit);

@@ -120,6 +120,7 @@
           }
         },
         { "name": "keyword.control.rinzu", "match": "\\b(?:if|else|switch|case|while|break|continue|return|throw|try|catch|finally|fallback|await|spawn|taskScope|with|all)\\b" },
+        { "name": "keyword.control.rinzu", "match": "\\brethrow\\b(?=\\s+(?:[A-Za-z_]|\\[))" },
         { "name": "keyword.control.import.rinzu", "match": "\\b(?:import|export|as)\\b" },
         { "name": "storage.type.rinzu", "match": "\\b(?:fn|class|interface|enum|record|type|error|native|opaque|userdata|payload|let|var)\\b" },
         { "name": "storage.modifier.rinzu", "match": "\\b(?:async|supplant|private|const|throws|nothrow)\\b" },

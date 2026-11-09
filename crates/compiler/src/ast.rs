@@ -341,6 +341,10 @@ impl CatchClause {
 #[derive(Clone, Debug, PartialEq)]
 pub enum StatementKind {
     Throw(Expression),
+    Rethrow {
+        elements: Vec<CatchBinding>,
+        rest: Option<CatchBinding>,
+    },
     /// Ordered whole-list catches, including typed element and rest patterns.
     TryErrors {
         all: bool,

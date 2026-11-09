@@ -102,6 +102,40 @@ fn alternatives(
                     }
                 }
             }
+            language::Guard::CaughtType(expected) => {
+                let mut base = input.clone();
+                let position = if let Some(Projection::FailureElement(index)) = base.path.last() {
+                    let index = *index;
+                    base.path.pop();
+                    Some(index)
+                } else {
+                    None
+                };
+                let expected = Tag::Named(expected.clone());
+                for (guards, selected) in &alternatives {
+                    let candidates = if position.is_none() {
+                        argument(input, arguments, Value::Error(BTreeSet::from([Tag::Any])))
+                            .thrown_errors()
+                    } else if let Some(candidate) = selected.get(&base) {
+                        Language::from([candidate.clone()])
+                    } else {
+                        argument(&base, arguments, unknown_future(bound)).future_errors(bound)
+                    };
+                    for mut candidate in candidates {
+                        let index = position.unwrap_or(0);
+                        if candidate.prefix.get(index).is_some()
+                            && language::narrow_tag(&mut candidate, index, &expected)
+                            && let Some(guards) = language::merge_guards(guards, &candidate.guards)
+                        {
+                            let mut selected = selected.clone();
+                            if position.is_some() {
+                                selected.insert(base.clone(), candidate);
+                            }
+                            expanded.push((guards, selected));
+                        }
+                    }
+                }
+            }
             language::Guard::Variant(variant) => {
                 let actual = argument(input, arguments, Value::Plain).selection_guards(variant);
                 for (guards, selected) in &alternatives {

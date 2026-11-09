@@ -2091,7 +2091,8 @@ impl SourceTask {
             | OperationKind::ErrorMatch { .. }
             | OperationKind::ErrorIndex { .. }
             | OperationKind::ErrorRest { .. }
-            | OperationKind::ThrowError { .. } => {
+            | OperationKind::ThrowError { .. }
+            | OperationKind::RethrowCaught { .. } => {
                 bail!("fixed Bytes execution requires the R3 data backend")
             }
             OperationKind::EnterScope { .. } | OperationKind::ExitScope { .. } => Value::Unit,
@@ -2102,7 +2103,7 @@ impl SourceTask {
             | OperationKind::ReleaseNativeCall { .. } => {
                 bail!("native callback ledger execution requires R4 backend")
             }
-            OperationKind::CatchErrors { .. } => {
+            OperationKind::CatchErrors { preserve, .. } => {
                 let failure = self.frame.failure.catch(self.frame.block)?;
                 self.shared
                     .lock()
@@ -2115,7 +2116,7 @@ impl SourceTask {
                     .ok_or_else(|| anyhow!("List catch requires managed Owner values"))?
                     .owner
                     .borrow_mut()
-                    .error_list(&[failure])?
+                    .error_list(&[failure], *preserve)?
             }
             OperationKind::CatchError { .. } => {
                 let failure = self.frame.failure.catch(self.frame.block)?;
@@ -2279,7 +2280,11 @@ impl SourceTask {
                 self.frame.failure.enter_error_group(*scope);
                 return Ok(Step::none());
             }
-            OperationKind::FinishErrorGroup { scope, handles } => {
+            OperationKind::FinishErrorGroup {
+                scope,
+                handles,
+                preserve,
+            } => {
                 let errors = self.frame.failure.finish_error_group(*scope, *handles)?;
                 self.shared
                     .lock()
@@ -2292,7 +2297,7 @@ impl SourceTask {
                     .ok_or_else(|| anyhow!("Error group requires Owner"))?
                     .owner
                     .borrow_mut()
-                    .error_list(&errors)?
+                    .error_list(&errors, *preserve)?
             }
             OperationKind::RecordTaskError { scope } => {
                 self.frame.failure.record_error(
@@ -2322,7 +2327,7 @@ impl SourceTask {
                         .unwrap()
                         .owner
                         .borrow_mut()
-                        .error_list(&[])?
+                        .error_list(&[], false)?
                 } else {
                     self.frame.failure.settle_task_join(*scope, None)?;
                     self.shared
@@ -2336,7 +2341,7 @@ impl SourceTask {
                         .unwrap()
                         .owner
                         .borrow_mut()
-                        .error_list(&errors)?
+                        .error_list(&errors, false)?
                 }
             }
             OperationKind::EnterTaskScope { scope, all, .. } => {
@@ -3414,7 +3419,8 @@ fn evaluate_sync_context(
                     | OperationKind::ErrorMatch { .. }
                     | OperationKind::ErrorIndex { .. }
                     | OperationKind::ErrorRest { .. }
-                    | OperationKind::ThrowError { .. } => {
+                    | OperationKind::ThrowError { .. }
+                    | OperationKind::RethrowCaught { .. } => {
                         bail!("fixed Bytes execution requires the R3 data backend")
                     }
                     OperationKind::EnterScope { .. } | OperationKind::ExitScope { .. } => {
@@ -3431,7 +3437,11 @@ fn evaluate_sync_context(
                         frame.failure.enter_error_group(*scope);
                         Value::Unit
                     }
-                    OperationKind::FinishErrorGroup { scope, handles } => {
+                    OperationKind::FinishErrorGroup {
+                        scope,
+                        handles,
+                        preserve,
+                    } => {
                         let errors = frame.failure.finish_error_group(*scope, *handles)?;
                         for failure in &errors {
                             record_sync_caught(failure, worker, main, observed);
@@ -3442,7 +3452,7 @@ fn evaluate_sync_context(
                             .ok_or_else(|| anyhow!("Error group requires Owner"))?
                             .owner
                             .borrow_mut()
-                            .error_list(&errors)?
+                            .error_list(&errors, *preserve)?
                     }
                     OperationKind::RecordTaskError { scope } => {
                         frame.failure.record_error(
@@ -3458,7 +3468,7 @@ fn evaluate_sync_context(
                         }
                         Value::Unit
                     }
-                    OperationKind::CatchErrors { .. } => {
+                    OperationKind::CatchErrors { preserve, .. } => {
                         let failure = frame.failure.catch(block.id)?;
                         record_sync_caught(&failure, worker, main, observed);
                         frame
@@ -3467,7 +3477,7 @@ fn evaluate_sync_context(
                             .ok_or_else(|| anyhow!("List catch requires managed Owner values"))?
                             .owner
                             .borrow_mut()
-                            .error_list(&[failure])?
+                            .error_list(&[failure], *preserve)?
                     }
                     OperationKind::CatchError { .. } => {
                         let failure = frame.failure.catch(block.id)?;

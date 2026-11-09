@@ -862,6 +862,14 @@ impl Parser<'_> {
         if self.at(&TokenKind::Try) {
             return self.try_finally();
         }
+        if self.at_identifier("rethrow")
+            && matches!(
+                self.peek_kind(1),
+                Some(TokenKind::Identifier(_) | TokenKind::LeftBracket)
+            )
+        {
+            return self.rethrow_statement();
+        }
         if self.at(&TokenKind::Throw) {
             let start = self.advance().range;
             let value = self.expression()?;
@@ -1118,6 +1126,36 @@ impl Parser<'_> {
                 cleanup,
             },
             range,
+        })
+    }
+
+    fn rethrow_statement(&mut self) -> Result<Statement, Diagnostic> {
+        let start = self.advance().range;
+        let mut elements = Vec::new();
+        let mut rest = None;
+        if self.consume(&TokenKind::LeftBracket).is_some() {
+            loop {
+                let (name, range) = self.identifier()?;
+                elements.push(CatchBinding { name, range });
+                if self.consume(&TokenKind::Comma).is_none() || self.at(&TokenKind::RightBracket) {
+                    break;
+                }
+                if self.consume(&TokenKind::Ellipsis).is_some() {
+                    let (name, range) = self.identifier()?;
+                    rest = Some(CatchBinding { name, range });
+                    self.consume(&TokenKind::Comma);
+                    break;
+                }
+            }
+            self.take(&TokenKind::RightBracket)?;
+        } else {
+            let (name, range) = self.identifier()?;
+            rest = Some(CatchBinding { name, range });
+        }
+        let end = self.take(&TokenKind::Semicolon)?.range;
+        Ok(Statement {
+            range: start.join(end),
+            kind: StatementKind::Rethrow { elements, rest },
         })
     }
 

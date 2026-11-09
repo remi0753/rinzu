@@ -354,6 +354,10 @@ impl Lexical<'_> {
     }
 }
 impl Visitor for Lexical<'_> {
+    fn rethrow_name(&mut self, binding: &mut CatchBinding) {
+        self.reference(&binding.name, binding.range);
+    }
+
     fn enter_function(&mut self, function: &FunctionDecl) {
         self.env.push(HashMap::new());
         self.scopes.push(function.range);

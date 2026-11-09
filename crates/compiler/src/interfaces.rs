@@ -1214,7 +1214,7 @@ impl Resolver<'_> {
                 self.block(body)?;
                 self.block(cleanup)?;
             }
-            StatementKind::Break | StatementKind::Continue => {}
+            StatementKind::Rethrow { .. } | StatementKind::Break | StatementKind::Continue => {}
         }
         Ok(())
     }

@@ -53,6 +53,7 @@ struct State {
     restrictions: BTreeSet<retention::Restriction>,
     guards: language::Guards,
     groups: Vec<Group>,
+    caught: BTreeMap<Site, Language>,
     resolved: BTreeMap<Token, BTreeSet<usize>>,
     iterated: BTreeSet<(Site, Vec<Access>)>,
     /// Variant facts for one representative element, never a whole population.
@@ -953,6 +954,12 @@ impl State {
     }
     fn join(&mut self, other: &Self) {
         self.trace.intersect(&other.trace);
+        for (handler, words) in &other.caught {
+            self.caught
+                .entry(*handler)
+                .or_default()
+                .extend(words.clone());
+        }
         self.restrictions.extend(other.restrictions.clone());
         let left_population = self.task_population();
         let right_population = other.task_population();

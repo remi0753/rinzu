@@ -10,6 +10,7 @@ pub(crate) enum Projection {
     AnyFailure(String),
     MapValues(String),
     FailureShape(usize, bool),
+    FailureElement(usize),
     Variant(String, String, usize),
     Await(String),
 }

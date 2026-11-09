@@ -57,6 +57,9 @@ typedef struct rinzu_managed_value {
     struct {
       size_t collection_capacity;
       unsigned collection_building;
+      /* A private catch snapshot owns diagnostics, and its slots root the
+         corresponding Error objects for the duration of the handler. */
+      rinzu_failure_t *caught_errors;
     };
     rinzu_source_position_t error_source;
   };
@@ -900,6 +903,11 @@ static inline void rinzu_managed_value_release(rinzu_managed_data_t *data,
   if (value->kind == RINZU_MANAGED_COMPOSITE && data->schema && value->type < data->schema->count &&
       data->schema->types[value->type].kind == RINZU_VALUE_MAP)
     free(value->map_index);
+  if (value->kind == RINZU_MANAGED_COMPOSITE && data->schema && value->type < data->schema->count &&
+      data->schema->types[value->type].kind == RINZU_VALUE_LIST && value->caught_errors) {
+    rinzu_failure_release(*value->caught_errors);
+    free(value->caught_errors);
+  }
   if (value->kind == RINZU_MANAGED_ERROR || value->kind == RINZU_MANAGED_RICH_ERROR ||
       (value->kind == RINZU_MANAGED_COMPOSITE && value->count >= 4 && data->schema &&
        value->type < data->schema->count &&

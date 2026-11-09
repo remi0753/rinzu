@@ -378,26 +378,12 @@ impl OwnerValues {
         Value::Managed { ty, handle }
     }
 
-    pub fn error_list(&mut self, errors: &[rinzu_runtime::failure::Failure]) -> Result<Value> {
+    pub fn error_list(&mut self, errors: &[Failure], preserve: bool) -> Result<Value> {
         let ty = self.schema.index(&Type::List(Box::new(Type::Error)))?;
-        let mut slots = Vec::new();
-        for failure in errors {
-            for (index, _diagnostic) in std::iter::once(&failure.primary)
-                .chain(&failure.cleanup)
-                .enumerate()
-            {
-                let handle = if let Some(error) = failure.managed.get(&index) {
-                    checked(self.data.leased_error(&self.heap, error))?
-                } else {
-                    checked(
-                        self.data
-                            .create_error(&mut self.heap, &failure.diagnostic_at(index).unwrap()),
-                    )?
-                };
-                slots.push(ManagedSlot::Reference(handle));
-            }
-        }
-        let handle = checked(self.data.create_composite(&mut self.heap, ty, None, &slots))?;
+        let handle = checked(
+            self.data
+                .catch_error_list(&mut self.heap, ty, errors, preserve),
+        )?;
         Ok(self.allocated(ty, handle))
     }
     pub fn adopt(&mut self, value: Value, ty: &Type) -> Result<Value> {
@@ -1002,6 +988,22 @@ impl OwnerValues {
                 .index(&operation.result.as_ref().expect("typed result").ty)
         };
         let value = match &operation.kind {
+            OperationKind::RethrowCaught {
+                errors,
+                elements,
+                tail,
+                ..
+            } => {
+                let Value::Managed { handle, .. } = get(*errors)? else {
+                    bail!("caught Error list is not managed");
+                };
+                let failure =
+                    checked(
+                        self.data
+                            .rethrow_caught(&mut self.heap, *handle, elements, *tail),
+                    )?;
+                return Err(ManagedFailure(failure).into());
+            }
             OperationKind::ThrowError { value, .. } => {
                 let Value::Managed { handle, .. } = get(*value)? else {
                     bail!("throw operand is not managed Error")

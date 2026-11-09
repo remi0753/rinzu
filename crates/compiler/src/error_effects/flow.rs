@@ -74,6 +74,9 @@ pub(super) struct Analyzer<'a> {
     trace_bound: Option<Arc<BTreeSet<Tag>>>,
     catch_trace: Option<Box<catch_diagnostics::Replay>>,
     in_finally: bool,
+    caught: Vec<(SourceRange, Language)>,
+    rethrow_paths: std::collections::HashMap<SourceRange, Language>,
+    dead: bool,
 }
 
 impl<'a> Analyzer<'a> {
@@ -94,6 +97,9 @@ impl<'a> Analyzer<'a> {
             trace_bound: None,
             catch_trace: None,
             in_finally: false,
+            caught: Vec::new(),
+            rethrow_paths: Default::default(),
+            dead: false,
         }
     }
 
@@ -140,6 +146,7 @@ impl<'a> Analyzer<'a> {
                     range,
                     kind,
                     in_finally: self.in_finally,
+                    forwarded: None,
                 },
                 self.catch_trace.is_some(),
                 reception,
@@ -151,6 +158,28 @@ impl<'a> Analyzer<'a> {
 
     pub fn function(mut self, function: &crate::CheckedFunction) -> (Summary, Vec<Diagnostic>) {
         let summary = self.analyze_function(function);
+        if self.diagnose && !self.proof {
+            let mut sites: Vec<_> = std::mem::take(&mut self.rethrow_paths)
+                .into_iter()
+                .collect();
+            sites.sort_by_key(|(range, _)| (range.file_id.0, range.start_byte));
+            for (range, paths) in sites {
+                let selection = &self.checked.rethrows[&range];
+                let start = selection.tail.unwrap() as usize;
+                if paths.is_empty()
+                    || paths
+                        .iter()
+                        .any(|word| word.prefix.len() + usize::from(word.longer) <= start)
+                {
+                    let (binding, definition) = selection.prove_tail.as_ref().unwrap();
+                    self.diagnostics.push(Diagnostic::error(
+                        DiagnosticCode::InvalidControlFlow, binding.range,
+                        format!("cannot prove that {} is nonempty for rethrow", binding.name),
+                        "handle the shorter lists in a preceding catch or include a fixed Error",
+                    ).with_secondary(*definition, "this catch binding can select an empty tail"));
+                }
+            }
+        }
         (summary, self.diagnostics)
     }
 
@@ -257,7 +286,9 @@ impl<'a> Analyzer<'a> {
             } else if self.check_dead_code() {
                 // Still check an unreachable catch locally, but never let dead
                 // assignments alter the environment seen by finally.
+                let dead = std::mem::replace(&mut self.dead, true);
                 self.statement(statement, &mut env.clone());
+                self.dead = dead;
             }
         }
         // finally can run at any exit, including an earlier failing expression.
@@ -324,6 +355,49 @@ impl<'a> Analyzer<'a> {
                     ..Flow::default()
                 }
             }
+            StatementKind::Rethrow { .. } => {
+                let selection = &self.checked.rethrows[&statement.range];
+                let mut catches = self.caught.iter();
+                let mut paths = catches
+                    .find(|(scope, _)| *scope == selection.handler)
+                    .map_or_else(Language::new, |(_, paths)| paths.clone());
+                for (_, inner) in catches {
+                    paths = language::conditioned(&paths, inner);
+                }
+                if let Some((binding, _)) = &selection.prove_tail {
+                    if self.diagnose && !self.proof {
+                        let reached = self.rethrow_paths.entry(statement.range).or_default();
+                        if !self.dead {
+                            reached.extend(paths.clone());
+                        }
+                    }
+                    if !self.dead
+                        && let Some(trace) = &mut self.catch_trace
+                    {
+                        trace.record_rethrow(
+                            binding.range,
+                            selection.tail.unwrap() as usize,
+                            &paths,
+                        );
+                    }
+                }
+                let forwarded = self.trace_bound.as_ref().map(|_| Origin {
+                    range: statement.range,
+                    kind: OriginKind::Throw,
+                    in_finally: self.in_finally,
+                    forwarded: Some(statement.range),
+                });
+                Flow {
+                    errors: language::select_caught(
+                        &paths,
+                        &selection.elements,
+                        selection.tail,
+                        self.bound,
+                        forwarded,
+                    ),
+                    ..Flow::default()
+                }
+            }
             StatementKind::Return(expression) => {
                 let value = expression.as_ref().map_or_else(
                     || Evaluated::pure(Value::Plain),
@@ -355,11 +429,15 @@ impl<'a> Analyzer<'a> {
                     _ => None,
                 };
                 let mut yes_env = env.clone();
+                let dead = self.dead;
+                self.dead |= !condition.success || known == Some(false);
                 let yes = self.block(then_block, &mut yes_env);
+                self.dead = dead || !condition.success || known == Some(true);
                 let mut no_env = env.clone();
                 let no = else_branch
                     .as_ref()
                     .map_or_else(Flow::normal, |branch| self.statement(branch, &mut no_env));
+                self.dead = dead;
                 let mut flow = Flow {
                     errors: condition.errors,
                     ..Flow::default()
@@ -646,7 +724,14 @@ impl<'a> Analyzer<'a> {
                     }
                 }
             }
+            if !self.checked.rethrows.is_empty() {
+                self.caught
+                    .push((handler.body.range, language::accepted(&remaining, &pattern)));
+            }
             let mut caught = self.block(&handler.body, &mut catch_env);
+            if !self.checked.rethrows.is_empty() {
+                self.caught.pop();
+            }
             caught.errors = language::conditioned(&caught.errors, &matched);
             if !matched.is_empty() {
                 flow.join(caught);
@@ -1268,6 +1353,9 @@ impl Visitor for Reads<'_> {
         // directly thrown nominal Error cannot change the resulting tag.
         if self.found {
             return;
+        }
+        if matches!(statement.kind, StatementKind::Rethrow { .. }) {
+            self.found = true;
         }
         let StatementKind::Throw(expression) = &statement.kind else {
             return;

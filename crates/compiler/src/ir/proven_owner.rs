@@ -33,6 +33,7 @@ fn runtime_only(kind: &O) -> bool {
             | O::Unary { .. }
             | O::NumericConvert { .. }
             | O::ThrowError { .. }
+            | O::RethrowCaught { .. }
             | O::ErrorCast { .. }
             | O::EnterTry { .. }
             | O::LeaveTry { .. }

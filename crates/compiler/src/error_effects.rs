@@ -212,7 +212,17 @@ fn analysis_bound(checked: &CheckedModule) -> usize {
     }
     let mut bound = Bound(1);
     ast_walk::module(&mut checked.syntax.clone(), &mut bound);
-    bound.0
+    let discarded = checked
+        .rethrows
+        .values()
+        .filter_map(|selection| {
+            selection
+                .tail
+                .map(|start| start as usize - selection.elements.len())
+        })
+        .max()
+        .unwrap_or(0);
+    bound.0 + discarded
 }
 
 fn infer(
@@ -356,16 +366,25 @@ fn effect_diagnostics(
 ) -> Vec<Diagnostic> {
     let mut timing = crate::timing::span("frontend.effects.diagnostics");
     let ordered = failures.iter().any(|(_, diagnostics, _)| {
-        diagnostics
-            .iter()
-            .any(|d| d.code == DiagnosticCode::NonExhaustiveCatch)
+        diagnostics.iter().any(|diagnostic| {
+            matches!(
+                diagnostic.code,
+                DiagnosticCode::NonExhaustiveCatch | DiagnosticCode::InvalidControlFlow
+            )
+        })
     });
     let mut traces = BTreeMap::new();
     let mut replays = Vec::new();
     for (function, diagnostics, violation) in &failures {
         let targets: HashSet<_> = diagnostics
             .iter()
-            .filter_map(|d| (d.code == DiagnosticCode::NonExhaustiveCatch).then_some(d.primary))
+            .filter_map(|d| {
+                matches!(
+                    d.code,
+                    DiagnosticCode::NonExhaustiveCatch | DiagnosticCode::InvalidControlFlow
+                )
+                .then_some(d.primary)
+            })
             .collect();
         if targets.is_empty() && violation.is_none() {
             replays.push(None);
@@ -386,50 +405,58 @@ fn effect_diagnostics(
     let mut diagnostics = Vec::new();
     for ((function, errors, violation), replay) in failures.into_iter().zip(replays) {
         let mut reported = HashSet::new();
+        let mut expand = |callee: &str, word: &language::Word| {
+            let (name, function) = functions.get_key_value(callee)?;
+            if !*expandable.entry(name.as_str()).or_insert_with(|| {
+                let source = function.declaration.body.range.file_id;
+                source != crate::FileId::MANIFEST
+                    && checked.closure_source != Some(source)
+                    && source != crate::collections::source_file().id()
+                    && !is_recursive(name, graph)
+                    && flow::arguments_independent(checked, function)
+            }) {
+                return None;
+            }
+            let errors = traces.entry(name.as_str()).or_insert_with(|| {
+                callee_replays += 1;
+                flow::Analyzer::new(checked, summaries, bound, false)
+                    .traced_function(
+                        function,
+                        BTreeSet::new(),
+                        Some(catch_diagnostics::Replay::new(HashSet::new())),
+                    )
+                    .0
+            });
+            catch_diagnostics::best_sequence(errors.iter().filter_map(|candidate| {
+                let sequence = errors.sequence(candidate)?;
+                (sequence.word.guards.is_empty()
+                    && sequence
+                        .word
+                        .prefix
+                        .iter()
+                        .chain(&sequence.word.tail)
+                        .all(|tag| !matches!(tag, Tag::Parameter(_) | Tag::FutureElement(..)))
+                    && word.contains(&sequence.word))
+                .then_some(sequence)
+            }))
+            .cloned()
+        };
         for mut diagnostic in errors {
-            if diagnostic.code == DiagnosticCode::NonExhaustiveCatch {
-                let at = diagnostic.primary;
-                if !reported.insert(at) {
-                    continue;
-                }
-                if let Some(detail) = replay.as_ref().and_then(|replay| {
-                    replay.diagnostic(at, |callee, word| {
-                        let (name, function) = functions.get_key_value(callee)?;
-                        if !*expandable.entry(name.as_str()).or_insert_with(|| {
-                            let source = function.declaration.body.range.file_id;
-                            source != crate::FileId::MANIFEST
-                                && checked.closure_source != Some(source)
-                                && source != crate::collections::source_file().id()
-                                && !is_recursive(name, graph)
-                                && flow::arguments_independent(checked, function)
-                        }) {
-                            return None;
+            if let Some(replay) = &replay {
+                match diagnostic.code {
+                    DiagnosticCode::NonExhaustiveCatch => {
+                        let at = diagnostic.primary;
+                        if !reported.insert(at) {
+                            continue;
                         }
-                        let errors = traces.entry(name.as_str()).or_insert_with(|| {
-                            callee_replays += 1;
-                            flow::Analyzer::new(checked, summaries, bound, false)
-                                .traced_function(
-                                    function,
-                                    BTreeSet::new(),
-                                    Some(catch_diagnostics::Replay::new(HashSet::new())),
-                                )
-                                .0
-                        });
-                        catch_diagnostics::best_sequence(errors.iter().filter_map(|candidate| {
-                            let sequence = errors.sequence(candidate)?;
-                            (sequence.word.guards.is_empty()
-                                && sequence.word.prefix.iter().chain(&sequence.word.tail).all(
-                                    |tag| {
-                                        !matches!(tag, Tag::Parameter(_) | Tag::FutureElement(..))
-                                    },
-                                )
-                                && word.contains(&sequence.word))
-                            .then_some(sequence)
-                        }))
-                        .cloned()
-                    })
-                }) {
-                    diagnostic = detail;
+                        if let Some(detail) = replay.diagnostic(at, &mut expand) {
+                            diagnostic = detail;
+                        }
+                    }
+                    DiagnosticCode::InvalidControlFlow => {
+                        replay.explain_rethrow(&mut diagnostic, &mut expand);
+                    }
+                    _ => {}
                 }
             }
             diagnostics.push(diagnostic);

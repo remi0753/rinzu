@@ -2559,3 +2559,99 @@ fn parked_prepared_and_completed_composite_callee_roots_match_jit_aot() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("outcome=cancelled"));
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+fn caught_error_selection_preserves_order_in_jit_and_aot() {
+    let root = scratch::Scratch::new("rinzu-rethrow");
+    let path = root.path();
+    std::fs::create_dir_all(path.join("src")).unwrap();
+    std::fs::write(
+        path.join("rinzu.toml"),
+        "[package]\nname=\"rethrow_demo\"\nlanguage=\"0.5\"\n",
+    )
+    .unwrap();
+    let source = r#"
+import rinzu.error as err;
+
+error Saved { payload: Int }
+error CloseFailed {}
+error Before {}
+error After {}
+
+fn persist() {
+    try all {
+        throw Saved(message: "first", payload: 42, cause: err.create(77, "disk"));
+        throw Saved(message: "skip", payload: 0);
+        throw CloseFailed(message: "close");
+    }
+    finally {}
+}
+
+fn validate(value: Saved, close: CloseFailed) nothrow {
+    if value.payload != 42 || value.message != "first" || close.message != "close" {
+        panic("wrong_selection");
+    }
+    switch value.cause {
+        case Option.Some(cause): { if cause.message != "disk" { panic("wrong_cause"); } }
+        case Option.None: { panic("missing_cause"); }
+    }
+    switch value.source {
+        case Option.Some(location): { if location.line <= 0 { panic("wrong_source"); } }
+        case Option.None: { panic("missing_source"); }
+    }
+}
+
+fn select() {
+    try { persist(); }
+    catch [first: Saved, Saved, close: CloseFailed] { rethrow [first, close]; }
+}
+
+fn collect() {
+    try { select(); }
+    catch errors {
+        try all {
+            throw Before(message: "before");
+            try { rethrow errors; }
+            catch forwarded { rethrow forwarded; }
+            throw After(message: "after");
+        }
+        finally {}
+    }
+}
+
+async fn pause() nothrow -> Int { return 1; }
+async fn asyncSelect() {
+    try { persist(); }
+    catch [first: Saved, Saved, ...rest] {
+        let n = await pause();
+        if n != 1 { panic("pause"); }
+        rethrow [first, ...rest];
+    }
+}
+"#;
+    for main in [
+        r#"fn main() {
+            try { collect(); }
+            catch [Before, value: Saved, close: CloseFailed, After] { validate(value, close); }
+        }"#,
+        r#"async fn main() {
+            try { await asyncSelect(); }
+            catch [value: Saved, close: CloseFailed] { validate(value, close); }
+        }"#,
+    ] {
+        std::fs::write(path.join("src/main.rinzu"), format!("{source}\n{main}\n")).unwrap();
+        let output = Command::new(frozen_cli::path())
+            .arg("verify-aot")
+            .arg(path)
+            .env("RINZU_GC_STRESS", "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("outcome=success"));
+    }
+}

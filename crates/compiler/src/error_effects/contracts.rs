@@ -201,7 +201,12 @@ pub(super) fn diagnostic(
             format!("{recover}, or use `{widened}` if callers should handle it")
         }
     };
-    let primary = origin.map_or(contract.range, |origin| origin.range);
+    if origin.is_some_and(|origin| origin.forwarded.is_some()) {
+        message = format!("{subject} can be rethrown by {name}, {contract_owner}");
+    }
+    let primary = origin.map_or(contract.range, |origin| {
+        origin.forwarded.unwrap_or(origin.range)
+    });
     let mut diagnostic =
         Diagnostic::error(DiagnosticCode::InvalidErrorContract, primary, message, help);
     if primary != contract.range {
@@ -211,6 +216,19 @@ pub(super) fn diagnostic(
             format!("`{name}` declares `{declared}` here")
         };
         diagnostic = diagnostic.with_secondary(contract.range, note);
+    }
+    if let Some(origin) = origin
+        && origin.forwarded.is_some()
+        && primary != origin.range
+    {
+        diagnostic = diagnostic.with_secondary(
+            origin.range,
+            if origin.in_finally {
+                "the selected Error can be added by finally here"
+            } else {
+                "the selected Error can originate here"
+            },
+        );
     }
     diagnostic
 }

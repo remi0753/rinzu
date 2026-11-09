@@ -345,6 +345,7 @@ impl Session {
                                 "for",
                                 "in",
                                 "return",
+                                "rethrow",
                                 "try",
                                 "catch",
                                 "finally",

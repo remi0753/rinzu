@@ -7,6 +7,7 @@ pub(crate) trait Visitor {
     fn leave_function(&mut self, _function: &FunctionDecl) {}
     fn enter_block(&mut self, _block: &Block) {}
     fn leave_block(&mut self, _block: &Block) {}
+    fn rethrow_name(&mut self, _binding: &mut CatchBinding) {}
     fn enter_statement(&mut self, _statement: &Statement) {}
     fn leave_statement(&mut self, _statement: &Statement) {}
 }
@@ -152,6 +153,11 @@ pub(crate) fn statement(s: &mut Statement, v: &mut impl Visitor) {
         StatementKind::Assign { value, .. }
         | StatementKind::Expression(value)
         | StatementKind::Throw(value) => expression(value, v),
+        StatementKind::Rethrow { elements, rest } => {
+            for binding in elements.iter_mut().chain(rest.iter_mut()) {
+                v.rethrow_name(binding);
+            }
+        }
         StatementKind::Return(value) => {
             if let Some(e) = value {
                 expression(e, v);

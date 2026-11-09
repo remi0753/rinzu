@@ -521,7 +521,7 @@ fn rewrite_statement(
             rewrite_block(body, locals, rich, used);
             rewrite_block(cleanup, locals, rich, used);
         }
-        Break | Continue => {}
+        Rethrow { .. } | Break | Continue => {}
     }
 }
 fn rewrite_expression(

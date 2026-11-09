@@ -73,6 +73,7 @@ pub(super) fn unreachable(
 pub(super) struct Replay {
     targets: HashSet<SourceRange>,
     catches: HashMap<SourceRange, Catch>,
+    rethrows: HashMap<SourceRange, (usize, Language)>,
     receptions: HashMap<SourceRange, Arc<Reception>>,
 }
 
@@ -87,6 +88,7 @@ impl Replay {
         Self {
             targets,
             catches: HashMap::new(),
+            rethrows: HashMap::new(),
             receptions: HashMap::new(),
         }
     }
@@ -117,6 +119,49 @@ impl Replay {
                     .map(|handler| (handler.range, handler.pattern.clone()))
                     .collect(),
             });
+    }
+
+    pub fn record_rethrow(&mut self, range: SourceRange, start: usize, paths: &Language) {
+        if self.targets(range) {
+            self.rethrows
+                .entry(range)
+                .or_insert_with(|| (start, Language::new()))
+                .1
+                .extend(paths.clone());
+        }
+    }
+
+    pub fn explain_rethrow(
+        &self,
+        diagnostic: &mut Diagnostic,
+        expand: &mut impl FnMut(&str, &Word) -> Option<Sequence>,
+    ) {
+        let Some((start, paths)) = self.rethrows.get(&diagnostic.primary) else {
+            return;
+        };
+        let short = |word: &Word| !word.longer && word.prefix.len() <= *start;
+        let Some(example) = paths.iter().find(|word| short(word)) else {
+            return;
+        };
+        let selected = best_sequence(paths.iter().filter_map(|word| {
+            let sequence = paths.sequence(word)?;
+            (short(word) && short(&sequence.word) && word.contains(&sequence.word))
+                .then_some(sequence)
+        }));
+        let evidence = selected.map(|sequence| Shown::new(sequence, expand));
+        let list = evidence
+            .as_ref()
+            .map_or_else(|| display_word(example), |evidence| evidence.list.clone());
+        if paths.iter().all(short) {
+            diagnostic.message = "this rethrow selection is always empty".into();
+        }
+        if let Some((_, message)) = diagnostic.secondary.first_mut() {
+            *message = format!("this tail is empty when the catch receives {list}");
+        }
+        if let Some(evidence) = evidence {
+            diagnostic.secondary.extend(evidence.receipts);
+            diagnostic.secondary.extend(evidence.details);
+        }
     }
 
     pub fn direct(&mut self, at: SourceRange, callee: &FunctionDecl) -> Arc<Reception> {
@@ -508,6 +553,13 @@ impl DisplayParts {
                             origin.range,
                             format!("{position} is {} {source}", display_tag(tag)),
                         ));
+                        if let Some(site) = origin.forwarded
+                            && site != origin.range
+                        {
+                            self.shown
+                                .details
+                                .push((site, format!("{position} was rethrown here")));
+                        }
                         self.index = Some(index + 1);
                     } else if let Some(cleanup) = cleanup {
                         self.cleanup(cleanup);

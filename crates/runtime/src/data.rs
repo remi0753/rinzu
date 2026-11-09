@@ -235,6 +235,7 @@ pub struct ManagedData {
     roots: BTreeMap<ManagedHandle, (RootSlot, DataKind)>,
     schema: Option<std::sync::Arc<crate::value::ValueSchema>>,
     error_leases: BTreeMap<ManagedHandle, std::sync::Weak<()>>,
+    caught_errors: BTreeMap<ManagedHandle, Failure>,
     source_catalog: std::sync::Arc<SourceCatalog>,
     native_records: native_record_loans::NativeRecordLoans,
 }
@@ -245,6 +246,7 @@ impl ManagedData {
             roots: BTreeMap::new(),
             schema: None,
             error_leases: BTreeMap::new(),
+            caught_errors: BTreeMap::new(),
             source_catalog: Default::default(),
             native_records: Default::default(),
         }
@@ -520,6 +522,7 @@ impl ManagedData {
         heap.release_root(root)?;
         self.roots.remove(&handle);
         self.error_leases.remove(&handle);
+        self.caught_errors.remove(&handle);
         Ok(())
     }
     /// Publish a complete live-root set before collecting. Validate the entire set
@@ -564,6 +567,7 @@ impl ManagedData {
         }
         self.roots.clear();
         self.error_leases.clear();
+        self.caught_errors.clear();
         Ok(())
     }
     /// Validate new roots without scanning unrelated provisional roots. The
