@@ -242,14 +242,9 @@ class Notepad {
                     let saved = await self.saveCurrent(job.window, action == saveAsAction);
                 }
             }
-            catch errors {
+            catch [problem: Error, ...rest] {
                 self.failures = self.failures + 1;
-                switch rinzu.list.get(errors, 0) {
-                    case Option.Some(problem): {
-                        self.message(f"Operation failed: {err.message(problem)} — retry from File");
-                    }
-                    case Option.None: {}
-                }
+                self.message(f"Operation failed: {err.message(problem)} — retry from File");
                 rinzu.stdio.writeLine("NOTEPAD:FAILED");
             }
         }

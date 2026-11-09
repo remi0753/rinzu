@@ -187,13 +187,13 @@ fn decodeDocument(data: ByteArray) throws(Error) -> Document {
         }
         return (Document(text: resultValue6, selection: selection));
     }
-    catch [resultError6: Error, ...resultRest6] {
-        switch err.withContext(resultError6, "codec.document.text") {
+    catch [problem: Error, ...rest] {
+        switch err.withContext(problem, "codec.document.text") {
             case Option.Some(updated): {
                 throw updated;
             }
             case Option.None: {
-                throw resultError6;
+                rethrow [problem];
             }
         }
     }
@@ -238,13 +238,13 @@ fn decodeMessage(data: ByteArray) throws(Error) -> Message {
         let resultValue1 = slice(data, 15 + nameLength, 15 + nameLength + length);
         return (Message(sequence: sequence, operation: resultValue2, payload: resultValue1));
     }
-    catch [resultError2: Error, ...resultRest2] {
-        switch err.withContext(resultError2, "codec.message.operation") {
+    catch [problem: Error, ...rest] {
+        switch err.withContext(problem, "codec.message.operation") {
             case Option.Some(updated): {
                 throw updated;
             }
             case Option.None: {
-                throw resultError2;
+                rethrow [problem];
             }
         }
     }

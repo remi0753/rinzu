@@ -2150,16 +2150,9 @@ class UiScope {
                         }
                     );
                 }
-                catch errors {
+                catch [problem: Error, ...rest] {
                     uiDisposeCanvas(created);
-                    switch rinzu.list.get(errors, 0) {
-                        case Option.Some(problem): {
-                            throw problem;
-                        }
-                        case Option.None: {
-                            throw err.create(-7803, "macos.canvas.jobAdmission");
-                        }
-                    }
+                    rethrow [problem];
                 }
                 return created;
             }

@@ -125,14 +125,9 @@ async fn main() {
         let closed = await rinzu.macos.applicationWithSignals("Rinzu Widgets", 640.0, 454.0, screen);
         rinzu.stdio.writeLine("WIDGETS:closed");
     }
-    catch errors {
+    catch [problem: Error, ...rest] {
         try {
-            switch rinzu.list.get(errors, 0) {
-                case Option.Some(problem): {
-                    rinzu.stdio.writeLine(f"Widgets failed: {err.message(problem)} {errorContextText(problem)}");
-                }
-                case Option.None: {}
-            }
+            rinzu.stdio.writeLine(f"Widgets failed: {err.message(problem)} {errorContextText(problem)}");
         }
         catch outputErrors {}
         rinzu.core.panic("widgets application failed");

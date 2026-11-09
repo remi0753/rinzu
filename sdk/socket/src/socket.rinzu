@@ -169,9 +169,9 @@ async fn listenerResult(id: Int, label: String) -> Listener {
             rawAck(operation);
             return (value);
         }
-        catch [resultError6: Error, ...resultRest6] {
+        catch [failure: Error, ...rest] {
             rawAck(operation);
-            throw resultError6;
+            rethrow [failure];
         }
     }
     finally {
@@ -194,9 +194,9 @@ async fn streamResult(id: Int, label: String) -> TcpStream {
             rawAck(operation);
             return (value);
         }
-        catch [resultError5: Error, ...resultRest5] {
+        catch [failure: Error, ...rest] {
             rawAck(operation);
-            throw resultError5;
+            rethrow [failure];
         }
     }
     finally {
@@ -273,10 +273,10 @@ async fn receiving(stream: TcpStream, maximum: Int, milliseconds: Int) -> ReadCh
             acknowledged = true;
             return (ReadChunk(data: data, eof: length == 0));
         }
-        catch [resultError4: Error, ...resultRest4] {
+        catch [failure: Error, ...rest] {
             rawAckId(id);
             acknowledged = true;
-            throw resultError4;
+            rethrow [failure];
         }
     }
     finally {

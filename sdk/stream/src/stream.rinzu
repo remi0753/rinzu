@@ -45,17 +45,17 @@ async fn next(stream: FileStream) throws(Error) -> Option<ByteArray> {
     stream.busy = true;
     try {
         try {
-            let resultValue1 = await rinzu.io.read(stream.file, stream.maximum);
-            if resultValue1.eof {
+            let chunk = await rinzu.io.read(stream.file, stream.maximum);
+            if chunk.eof {
                 stream.state = 1;
-                return (Option<ByteArray>.None());
+                return Option<ByteArray>.None();
             }
-            return (Option<ByteArray>.Some(value: resultValue1.data));
+            return Option<ByteArray>.Some(value: chunk.data);
         }
-        catch [resultError1: Error, ...resultRest1] {
+        catch [failure: Error, ...rest] {
             stream.state = 2;
-            stream.failure = Option<Error>.Some(value: resultError1);
-            throw resultError1;
+            stream.failure = Option<Error>.Some(value: failure);
+            rethrow [failure];
         }
     }
     finally {
