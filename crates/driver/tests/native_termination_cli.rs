@@ -224,7 +224,11 @@ fn callback_fail_fast_and_explicit_fallbacks_match_compiled_jit_aot_signed_and_s
     let api_path = root.join("termination/src/api.rinzu");
     let api = std::fs::read_to_string(&api_path).unwrap();
     for invalid in [
-        api.replacen("panic(\"invalid\");", "let invalid = CInt8(300);", 1),
+        api.replacen(
+            "rinzu.core.panic(\"invalid\");",
+            "let invalid = CInt8(300);",
+            1,
+        ),
         api.replacen(
             "fn missingUnit() -> Unit {",
             "fn missingUnit() -> Unit { let rejectedNormalError=CInt8(300);",

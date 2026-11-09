@@ -1,5 +1,5 @@
 #include "rinzu_io.h"
-#include "rinzu/native_completion.h"
+#include "io_pool.h"
 #include "rinzu/posix_write.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -42,36 +42,20 @@ struct File {
   struct File *next_owner;
 };
 enum { THREADS = 2, QUEUE = 32 };
+struct Job {
+  void (*run)(void *);
+  void *context;
+  bool reserved;
+};
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t changed = PTHREAD_COND_INITIALIZER;
 static pthread_t workers[THREADS];
-static struct File *queue[QUEUE];
-static size_t head, queued, operations, owners, buffers, retained;
+static struct Job queue[QUEUE];
+/* Slots count queued ordinary jobs and all whole-file reservations, even idle ones. */
+static size_t head, queued, slots, operations, owners, buffers, retained;
 static bool running, stopping;
 static _Thread_local struct File *owner_files;
 
-static void fatal(void) {
-  _Exit(86);
-}
-static void *allocate(size_t size) {
-  void *value = calloc(1, size);
-  if (!value)
-    _Exit(70);
-  return value;
-}
-static char *copy_text(const char *text) {
-  size_t length = strlen(text);
-  if (length == SIZE_MAX)
-    fatal();
-  char *copy = allocate(length + 1);
-  memcpy(copy, text, length);
-  return copy;
-}
-static int32_t native_error(void) {
-  if (errno == ENOMEM)
-    _Exit(70);
-  return errno ? errno : EIO;
-}
 static int32_t check(struct File *file) {
   if (!file)
     fatal();
@@ -105,7 +89,8 @@ static int32_t pipe_ready(struct File *file, short events) {
       return 0;
   }
 }
-static void perform(struct File *file) {
+static void perform(void *context) {
+  struct File *file = context;
   int32_t status = 0;
   size_t length = 0;
   if (cancelled(file) && file->operation != CLOSE) {
@@ -283,16 +268,20 @@ static void *worker(void *unused) {
       pthread_mutex_unlock(&lock);
       return NULL;
     }
-    struct File *file = queue[head];
+    struct Job job = queue[head];
     head = (head + 1) % QUEUE;
     queued--;
+    if (!job.reserved)
+      slots--;
     pthread_mutex_unlock(&lock);
-    perform(file);
+    job.run(job.context);
   }
 }
-static int32_t start_pool(void) { /* lock held */
+static int32_t admit_job(void) { /* lock held */
   while (stopping)
     pthread_cond_wait(&changed, &lock);
+  if (slots == QUEUE)
+    return RINZU_IO_SATURATED;
   if (running)
     return 0;
   running = true;
@@ -315,12 +304,78 @@ static int32_t start_pool(void) { /* lock held */
   }
   return 0;
 }
+static void enqueue(struct Job job) { /* lock held */
+  if (queued == QUEUE)
+    fatal();
+  operations++;
+  queue[(head + queued) % QUEUE] = job;
+  queued++;
+  pthread_cond_signal(&changed);
+}
+
+static void unlock_and_stop_if_idle(void) { /* lock held */
+  bool stop = running && !stopping && !operations && !owners && !slots;
+  if (stop) {
+    stopping = true;
+    pthread_cond_broadcast(&changed);
+  }
+  pthread_mutex_unlock(&lock);
+  if (stop) {
+    for (size_t index = 0; index < THREADS; index++)
+      pthread_join(workers[index], NULL);
+    pthread_mutex_lock(&lock);
+    running = false;
+    stopping = false;
+    pthread_cond_broadcast(&changed);
+    pthread_mutex_unlock(&lock);
+  }
+}
+
+int32_t rinzu_io_reserve(size_t control_bytes) {
+  pthread_mutex_lock(&lock);
+  int32_t status = admit_job();
+  if (!status) {
+    slots++;
+    retained += control_bytes;
+  }
+  pthread_mutex_unlock(&lock);
+  return status;
+}
+
+void rinzu_io_submit_reserved(void (*run)(void *), void *context) {
+  pthread_mutex_lock(&lock);
+  enqueue((struct Job){.run = run, .context = context, .reserved = true});
+  pthread_mutex_unlock(&lock);
+}
+
+void rinzu_io_publish_reserved(rinzu_native_completion_v2_t *completion) {
+  pthread_mutex_lock(&lock);
+  operations--;
+  rinzu_native_completion_v2_publish(completion);
+  pthread_mutex_unlock(&lock);
+}
+
+void rinzu_io_release_reservation(size_t control_bytes) {
+  pthread_mutex_lock(&lock);
+  slots--;
+  retained -= control_bytes;
+  unlock_and_stop_if_idle();
+}
+
+void rinzu_io_track_resource(bool file, bool acquired) {
+  pthread_mutex_lock(&lock);
+  size_t *count = file ? &owners : &buffers;
+  if (acquired)
+    (*count)++;
+  else
+    (*count)--;
+  pthread_mutex_unlock(&lock);
+}
+
 static int32_t submit(struct File *file, enum Operation operation) { /* lock held */
   if (file->busy)
     return RINZU_IO_BUSY;
-  if (queued == QUEUE)
-    return RINZU_IO_SATURATED;
-  int32_t pool_status = start_pool();
+  int32_t pool_status = admit_job();
   if (pool_status)
     return pool_status;
   file->operation = operation;
@@ -329,10 +384,8 @@ static int32_t submit(struct File *file, enum Operation operation) { /* lock hel
   file->cancelled = false;
   rinzu_native_completion_v2_init(&file->completion);
   file->status = 0;
-  operations++;
-  queue[(head + queued) % QUEUE] = file;
-  queued++;
-  pthread_cond_signal(&changed);
+  slots++;
+  enqueue((struct Job){.run = perform, .context = file});
   return 0;
 }
 static struct File *new_file(bool owns) {
@@ -472,7 +525,7 @@ static int32_t start(void *value, enum Operation operation, const uint8_t *data,
     status = RINZU_IO_BUSY;
   else if (file->fd < 0)
     status = RINZU_IO_CLOSED;
-  else if (queued == QUEUE)
+  else if (slots == QUEUE)
     status = RINZU_IO_SATURATED;
   else {
     if (operation == READ || operation == WRITE || operation == WRITE_ALL) {
@@ -593,21 +646,7 @@ void rinzu_io_finish(void *value) {
     file->owns = false;
   }
   file->ready = false;
-  bool stop = running && !stopping && !operations && !owners;
-  if (stop) {
-    stopping = true;
-    pthread_cond_broadcast(&changed);
-  }
-  pthread_mutex_unlock(&lock);
-  if (stop) {
-    for (size_t index = 0; index < THREADS; index++)
-      pthread_join(workers[index], NULL);
-    pthread_mutex_lock(&lock);
-    running = false;
-    stopping = false;
-    pthread_cond_broadcast(&changed);
-    pthread_mutex_unlock(&lock);
-  }
+  unlock_and_stop_if_idle();
 }
 static int64_t millis(clockid_t kind) {
   struct timespec time;

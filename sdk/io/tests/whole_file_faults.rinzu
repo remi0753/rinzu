@@ -1,0 +1,257 @@
+import rinzu.io as io;
+import "./whole_file_probe.rinzu" as probe;
+import rinzu.core as core;
+import rinzu.error as err;
+import rinzu.future as future;
+import rinzu.list as listApi;
+import rinzu.process;
+import rinzu.stdio;
+import rinzu.timer;
+
+fn require(condition: Bool, message: String) {
+    if !condition {
+        core.panic(message);
+    }
+}
+
+fn checkIssue(problem: io.FileOperationFailed, phase: io.FilePhase, status: Int) {
+    require(problem.payload.phase == phase, f"unexpected failure phase {problem.payload.phase}");
+    require(
+        problem.payload.status == Option<Int>.Some(value: status),
+        f"unexpected failure status {problem.payload.status}"
+    );
+    switch problem.cause {
+        case Option.Some(cause): {
+            require(err.nativeStatus(cause) == problem.payload.status, "native cause and status");
+        }
+        case Option.None: {
+            core.panic("missing native cause");
+        }
+    }
+}
+
+fn checkReleased(controls: Int) {
+    require(io.liveFiles() == 0 && io.liveBuffers() == 0 && io.liveOperations() == 0, "file resources settled");
+    require(io.retainedControlBytes() == controls, "file control released");
+}
+
+async fn failures() {
+    let controls = io.retainedControlBytes();
+    // DENY_LIST, DENY_XATTR, DROP_XATTR and DROP_MODE in the native probe.
+    let attempts: List<{ mode: Int, status: Int }> = [
+        { mode = 1, status = 13 },
+        { mode = 2, status = 1 },
+        { mode = 3, status = 93 },
+        { mode = 5, status = 70 }
+    ];
+    for attempt in attempts {
+        probe.setFault(attempt.mode);
+        try {
+            let metadataFailure = await io.replaceText("destination", "new");
+            core.panic("metadata failure installed data");
+        }
+        catch [problem: io.FileOperationFailed, ...rest] {
+            checkIssue(problem, io.FilePhase.CopyMetadata(), attempt.status);
+            require(probe.outcome() == 0 && listApi.length(rest) == 0, "metadata failure recorded NotInstalled");
+        }
+        catch problems {
+            core.panic(f"unexpected metadata errors {problems}");
+        }
+        probe.setFault(0);
+        let preserved = await io.readText("destination", 3);
+        require(preserved == "old", "metadata failure preserved contents");
+        checkReleased(controls);
+    }
+    probe.setFault(13);
+    // CLOSES_FAILED
+    try {
+        let invalidText = await io.readText("invalid.bin", 1);
+        core.panic("invalid text returned");
+    }
+    catch [encoding: io.InvalidFileUtf8, close: io.FileOperationFailed, ...rest] {
+        require(
+            encoding.payload.path == "invalid.bin" && listApi.length(rest) == 0,
+            "decode failure ordered before close"
+        );
+        checkIssue(close, io.FilePhase.CloseFile(), 4);
+    }
+    catch problems {
+        core.panic(f"unexpected decoding and close errors {problems}");
+    }
+    probe.setFault(13);
+    try {
+        let failedClose = await io.readText("destination", 3);
+        core.panic("read returned before successful close");
+    }
+    catch [close: io.FileOperationFailed, ...rest] {
+        checkIssue(close, io.FilePhase.CloseFile(), 4);
+        require(listApi.length(rest) == 0, "one read close error");
+    }
+    catch problems {
+        core.panic(f"unexpected read close errors {problems}");
+    }
+    probe.setFault(9);
+    // INSTALL_IO_ERROR
+    try {
+        let uncertainInstall = await io.replaceText("destination", "new");
+        core.panic("uncertain rename returned a receipt");
+    }
+    catch [issue: io.InstallUncertain, ...rest] {
+        require(
+            issue.payload.phase == io.FilePhase.Install() && issue.payload.status == Option<Int>.Some(value: 5),
+            "uncertain rename status"
+        );
+        require(probe.outcome() == 2 && listApi.length(rest) == 0, "rename recorded Indeterminate");
+    }
+    catch problems {
+        core.panic(f"unexpected uncertain install errors {problems}");
+    }
+    probe.setFault(14);
+    // REMOVE_FAILED, with close faults on the same path.
+    try {
+        let rejectedInstall = await io.replaceText("destination", "new");
+        core.panic("rejected rename returned a receipt");
+    }
+    catch [
+        install: io.FileOperationFailed,
+        first: io.FileOperationFailed,
+        second: io.FileOperationFailed,
+        removal: io.FileOperationFailed,
+        directory: io.FileOperationFailed,
+        ...rest
+    ] {
+        checkIssue(install, io.FilePhase.Install(), 13);
+        checkIssue(first, io.FilePhase.CloseFile(), 4);
+        checkIssue(second, io.FilePhase.CloseFile(), 5);
+        checkIssue(removal, io.FilePhase.RemoveTemporary(), 1);
+        checkIssue(directory, io.FilePhase.CloseDirectory(), 9);
+        switch removal.payload.temporaryName {
+            case Option.Some(name): {
+                require(probe.removeName(name), "reported temporary name exists in the parent directory");
+            }
+            case Option.None: {
+                core.panic("missing retained temporary name");
+            }
+        }
+        require(probe.outcome() == 0 && listApi.length(rest) == 0, "rejected rename recorded NotInstalled");
+    }
+    catch problems {
+        core.panic(f"unexpected install and cleanup errors {problems}");
+    }
+    probe.setFault(13);
+    let saving = io.replaceText("destination", "new");
+    let receipt: io.ReplaceReceipt = await saving;
+    require(!future.cancel(saving), "completed replacement rejected cancellation");
+    let repeated = await saving;
+    require(receipt.bytesWritten == 3 && repeated.bytesWritten == 3, "installed receipt survives repeated await");
+    require(
+        listApi.length(receipt.cleanupErrors) == 3 && listApi.length(repeated.cleanupErrors) == 3,
+        "three failed closes in the receipt"
+    );
+    var index = 0;
+    for issue in receipt.cleanupErrors {
+        if index == 0 {
+            checkIssue(issue, io.FilePhase.CloseFile(), 4);
+        }
+        else if index == 1 {
+            checkIssue(issue, io.FilePhase.CloseFile(), 5);
+        }
+        else {
+            checkIssue(issue, io.FilePhase.CloseDirectory(), 9);
+        }
+        index = index + 1;
+    }
+    probe.setFault(0);
+    let installed = await io.readText("destination", 3);
+    require(installed == "new" && probe.outcome() == 1, "receipt reported installed content despite close failures");
+    checkReleased(controls);
+    rinzu.stdio.writeLine("whole-file-faults-ok");
+}
+
+async fn observeCancelled(saving: Future<io.ReplaceReceipt>) {
+    try {
+        let unwantedReceipt = await saving;
+        core.panic("controlled future returned a receipt");
+    }
+    catch problems {
+        core.panic(f"control request returned ordinary errors {problems}");
+    }
+}
+
+async fn cancelAt(stage: Int, timedOut: Bool) {
+    let controls = io.retainedControlBytes();
+    probe.setGate(stage);
+    var accepted = false;
+    var observed = false;
+    var stillInFlight = false;
+    try all {
+        let saving = io.replaceText("destination", "new");
+        let settled = observeCancelled(saving);
+        let deadline = io.monotonicMillis() + 5000;
+        while !probe.entered() && io.monotonicMillis() < deadline {
+            await rinzu.timer.sleep(1);
+        }
+        if probe.entered() {
+            if stage == 7 {
+                probe.setFault(13);
+            }
+            if timedOut {
+                accepted = future.timeout(saving);
+            }
+            else {
+                accepted = future.cancel(saving);
+            }
+            while !probe.cancelled() && io.monotonicMillis() < deadline {
+                await rinzu.timer.sleep(1);
+            }
+            observed = probe.cancelled();
+            stillInFlight = io.liveOperations() == 1;
+        }
+        probe.setGate(0);
+        await settled;
+    }
+    finally {
+        probe.setFault(0);
+        require(accepted && observed && stillInFlight, "control request reached the blocked native record");
+        checkReleased(controls);
+        let contents = await io.readText("destination", 3);
+        if stage == 5 {
+            require(contents == "old" && probe.outcome() == 0, "cancel won before installation");
+        }
+        else {
+            require(contents == "new" && probe.outcome() == 1, "installation survived late cancellation");
+        }
+        rinzu.stdio.writeLine(f"whole-file-control-ok:{stage}");
+    }
+}
+
+async fn exercise() {
+    switch listApi.get(rinzu.process.arguments(), 0) {
+        case Option.Some(mode): {
+            if mode == "before" {
+                await cancelAt(5, false);
+            }
+            else if mode == "during" {
+                await cancelAt(6, false);
+            }
+            else if mode == "after" {
+                await cancelAt(7, false);
+            }
+            else if mode == "timeout" {
+                await cancelAt(5, true);
+            }
+        }
+        case Option.None: {
+            await failures();
+        }
+    }
+}
+
+async fn main() {
+    try {
+        await exercise();
+    }
+    catch problems {
+        core.panic(f"whole-file fault tests failed with {problems}");
+    }
+}

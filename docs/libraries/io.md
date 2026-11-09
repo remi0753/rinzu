@@ -2,6 +2,16 @@
 
 `rinzu.io` provides bounded binary I/O. File handles belong to their acquiring Domain and physical Owner. Perform I/O on the supported Main path and explicitly close acquired resources after their users finish.
 
+## Read or replace a whole file
+
+`await readBytes(path, maxBytes)` reads a regular file up to the required byte limit. Zero accepts an empty file. A negative limit raises `InvalidReadLimit`, and a file beyond the limit raises `ReadLimitExceeded`. `readText` also checks the complete byte sequence for UTF-8 and raises `InvalidFileUtf8` with the decoder error as its cause. It preserves a BOM, NULs, and line endings.
+
+`await replaceBytes(path, data)` and `await replaceText(path, text)` prepare and flush a sibling temporary file before atomically installing it. New files use mode `0600` subject to umask and inherited ACLs. Replacing an existing file preserves its owner, group, access mode, ACL, creation time where available, and macOS save-time extended attributes including quarantine. Failure to preserve required metadata stops the replacement at `CopyMetadata`.
+
+`ReplaceReceipt.bytesWritten` is the size of the installed content. Check `cleanupErrors` after recording the installation. A `FileOperationFailed` describes the failing phase, the available native status and cause, and the sibling temporary name if cleanup could not remove it. `InstallUncertain` reports a rename whose outcome could not be established. Read the destination to check its current content before retrying.
+
+Cancellation and timeouts wait for physical cleanup. A request observed before the installation decision prevents the rename. A request observed later can leave the file installed while the Future reports a control failure.
+
 ## Write a file
 
 ```rinzu-test

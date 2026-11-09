@@ -200,6 +200,18 @@ fn io_standard_streams_and_temporary_files_preserve_ownership() {
 }
 
 #[test]
+fn io_whole_file_preserves_metadata_and_settles_installation_races() {
+    replay(
+        "io",
+        "whole_file",
+        &[],
+        SANITIZERS,
+        "whole-file-native-ok",
+        (0, &[]),
+    );
+}
+
+#[test]
 fn process_environment_snapshots_are_thread_local() {
     replay(
         "process",

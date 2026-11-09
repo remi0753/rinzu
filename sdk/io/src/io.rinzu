@@ -1,5 +1,7 @@
 import rinzu.bytes as bytesApi;
+import rinzu.core as core;
 import rinzu.error as err;
+import rinzu.list as listApi;
 import rinzu.native as bridge;
 import rinzu.string as textApi;
 
@@ -385,3 +387,383 @@ export standardInput;
 export standardOutput;
 export closeOwnerFiles;
 export liveOperations;
+
+enum FilePhase {
+    ValidatePath,
+    Submit,
+    OpenFile,
+    Read,
+    OpenDirectory,
+    InspectDestination,
+    CreateTemporary,
+    Write,
+    CopyMetadata,
+    Flush,
+    Install,
+    CloseFile,
+    RemoveTemporary,
+    CloseDirectory
+}
+
+type FileFailure = {
+    path: String,
+    phase: FilePhase,
+    status: Option<Int>,
+    temporaryName: Option<String>
+};
+
+error FileOperationFailed {
+    payload: FileFailure
+}
+
+error InvalidReadLimit {
+    payload: { maxBytes: Int }
+}
+
+error ReadLimitExceeded {
+    payload: { path: String, maxBytes: Int }
+}
+
+error InvalidFileUtf8 {
+    payload: { path: String }
+}
+
+error InstallUncertain {
+    payload: FileFailure
+}
+
+type ReplaceReceipt = {
+    bytesWritten: Int,
+    cleanupErrors: List<FileOperationFailed>
+};
+
+native {
+    opaque WholeFile;
+
+    fn rawWholeNew(path: String, maximum: Int, replacing: CBool) -> WholeFile symbol "rinzu_io_whole_new";
+
+    fn rawWholeOpen(file: WholeFile) -> Unit symbol "rinzu_io_whole_open";
+
+    fn rawWholeRead(file: WholeFile) -> Unit symbol "rinzu_io_whole_read";
+
+    fn rawWholeWrite(file: WholeFile, data: ByteArray, length: CSize) -> Unit symbol "rinzu_io_whole_write";
+
+    fn rawWholeInstall(file: WholeFile) -> Unit symbol "rinzu_io_whole_install";
+
+    fn rawWholeCancelPending(file: WholeFile) -> CBool symbol "rinzu_io_whole_cancel_pending";
+
+    fn rawWholeCleanup(file: WholeFile) -> CBool symbol "rinzu_io_whole_cleanup";
+
+    fn rawWholeRelease(file: WholeFile) -> Unit symbol "rinzu_io_whole_release";
+
+    fn rawWholeStatus(file: WholeFile) -> Int symbol "rinzu_io_whole_status";
+
+    fn rawWholePhase(file: WholeFile) -> Int symbol "rinzu_io_whole_phase";
+
+    fn rawWholeEof(file: WholeFile) -> CBool symbol "rinzu_io_whole_eof";
+
+    fn rawWholeLimitExceeded(file: WholeFile) -> CBool symbol "rinzu_io_whole_limit_exceeded";
+
+    fn rawWholeBytes(file: WholeFile) -> ByteArray symbol "rinzu_io_whole_bytes";
+
+    fn rawWholeInstallResult(file: WholeFile) -> Int symbol "rinzu_io_whole_install_result";
+
+    fn rawWholeCleanupStatus(file: WholeFile, index: Int) -> Int symbol "rinzu_io_whole_cleanup_status";
+
+    fn rawWholeTemporaryName(file: WholeFile) -> String symbol "rinzu_io_whole_temporary_name";
+}
+
+fn wholePhase(file: WholeFile) -> FilePhase {
+    // Same order as RinzuIoFilePhase in the private bridge.
+    let phases = [
+        FilePhase.ValidatePath(),
+        FilePhase.Submit(),
+        FilePhase.OpenFile(),
+        FilePhase.Read(),
+        FilePhase.OpenDirectory(),
+        FilePhase.InspectDestination(),
+        FilePhase.CreateTemporary(),
+        FilePhase.Write(),
+        FilePhase.CopyMetadata(),
+        FilePhase.Flush(),
+        FilePhase.Install(),
+        FilePhase.CloseFile(),
+        FilePhase.RemoveTemporary(),
+        FilePhase.CloseDirectory()
+    ];
+    switch listApi.get(phases, rawWholePhase(file)) {
+        case Option.Some(phase): {
+            return phase;
+        }
+        case Option.None: {
+            core.panic("invalid whole-file phase");
+            return FilePhase.Submit();
+        }
+    }
+}
+
+fn fileFailure(path: String, phase: FilePhase, cause: Error, temporaryName: Option<String>) -> FileOperationFailed {
+    return FileOperationFailed(
+        message: f"File operation failed at {phase} for {path}: {cause.message}",
+        cause: cause,
+        payload: {
+            path = path,
+            phase = phase,
+            status = err.nativeStatus(cause),
+            temporaryName = temporaryName
+        }
+    );
+}
+
+fn checkWholeStatus(file: WholeFile, path: String) throws(FileOperationFailed) {
+    let status = rawWholeStatus(file);
+    if status != 0 {
+        let phase = wholePhase(file);
+        throw fileFailure(path, phase, problem(status, f"io.{phase}"), Option<String>.None());
+    }
+}
+
+fn newWhole(path: String, maximum: Int, replacing: CBool) throws(FileOperationFailed) -> WholeFile {
+    if invalidPath(path) {
+        throw fileFailure(path, FilePhase.ValidatePath(), problem(-7104, "io.path"), Option<String>.None());
+    }
+    try {
+        return rawWholeNew(path, maximum, replacing);
+    }
+    catch [cause: Error, ...rest] {
+        throw fileFailure(path, FilePhase.Submit(), cause, Option<String>.None());
+    }
+}
+
+async fn waitWhole(file: WholeFile, path: String, phase: FilePhase) throws(FileOperationFailed) {
+    try {
+        await bridge.completed(file);
+    }
+    catch [cause: Error, ...rest] {
+        throw fileFailure(path, phase, cause, Option<String>.None());
+    }
+}
+
+fn wholeTemporaryName(file: WholeFile) -> Option<String> {
+    try {
+        return Option<String>.Some(value: rawWholeTemporaryName(file));
+    }
+    catch problems {
+        return Option<String>.None();
+    }
+}
+
+fn cleanupIssue(file: WholeFile, path: String, index: Int) -> Option<FileOperationFailed> {
+    let status = rawWholeCleanupStatus(file, index);
+    if status == 0 {
+        return Option<FileOperationFailed>.None();
+    }
+    var phase = FilePhase.CloseFile();
+    var name = Option<String>.None();
+    if index == 2 {
+        phase = FilePhase.RemoveTemporary();
+        name = wholeTemporaryName(file);
+    }
+    else if index == 3 {
+        phase = FilePhase.CloseDirectory();
+    }
+    return Option<FileOperationFailed>.Some(value: fileFailure(path, phase, problem(status, f"io.{phase}"), name));
+}
+
+fn throwCleanupIssue(file: WholeFile, path: String, index: Int) throws(FileOperationFailed) {
+    switch cleanupIssue(file, path, index) {
+        case Option.Some(issue): {
+            throw issue;
+        }
+        case Option.None: {}
+    }
+}
+
+async fn finishWhole(file: WholeFile, path: String) throws(FileOperationFailed) {
+    try {
+        if rawWholeCancelPending(file) {
+            await waitWhole(file, path, FilePhase.Submit());
+        }
+        if rawWholeCleanup(file) {
+            await waitWhole(file, path, FilePhase.CloseFile());
+        }
+        try all {
+            throwCleanupIssue(file, path, 0);
+            throwCleanupIssue(file, path, 1);
+            throwCleanupIssue(file, path, 2);
+            throwCleanupIssue(file, path, 3);
+        }
+        finally {}
+    }
+    finally {
+        rawWholeRelease(file);
+    }
+}
+
+fn checkReadLimit(maxBytes: Int) throws(InvalidReadLimit) {
+    if maxBytes < 0 {
+        throw InvalidReadLimit(message: "File read limit must be nonnegative", payload: { maxBytes = maxBytes });
+    }
+}
+
+async fn readWhole(file: WholeFile, path: String, maxBytes: Int) throws(ReadLimitExceeded, FileOperationFailed)
+    -> ByteArray {
+    rawWholeOpen(file);
+    await waitWhole(file, path, FilePhase.OpenFile());
+    checkWholeStatus(file, path);
+    while !rawWholeEof(file) {
+        rawWholeRead(file);
+        await waitWhole(file, path, FilePhase.Read());
+        checkWholeStatus(file, path);
+        if rawWholeLimitExceeded(file) {
+            throw ReadLimitExceeded(
+                message: f"File exceeds the {maxBytes}-byte limit: {path}",
+                payload: { path = path, maxBytes = maxBytes }
+            );
+        }
+    }
+    try {
+        return rawWholeBytes(file);
+    }
+    catch [cause: Error, ...rest] {
+        throw fileFailure(path, FilePhase.Read(), cause, Option<String>.None());
+    }
+}
+
+/// Read a regular file completely, up to the required byte limit.
+async fn readBytes(path: String, maxBytes: Int) throws(InvalidReadLimit, ReadLimitExceeded, FileOperationFailed)
+    -> ByteArray {
+    checkReadLimit(maxBytes);
+    let file = newWhole(path, maxBytes, false);
+    try {
+        return await readWhole(file, path, maxBytes);
+    }
+    finally {
+        await finishWhole(file, path);
+    }
+}
+
+/// Read and strictly decode a regular file as UTF-8, preserving its BOM, NULs and newlines.
+async fn readText(path: String, maxBytes: Int) throws(
+    InvalidReadLimit,
+    ReadLimitExceeded,
+    FileOperationFailed,
+    InvalidFileUtf8
+) -> String {
+    checkReadLimit(maxBytes);
+    let file = newWhole(path, maxBytes, false);
+    try {
+        let data = await readWhole(file, path, maxBytes);
+        try {
+            return textApi.decodeUtf8(data);
+        }
+        catch [cause: Error, ...rest] {
+            throw InvalidFileUtf8(message: f"File is not valid UTF-8: {path}", payload: { path = path }, cause: cause);
+        }
+    }
+    finally {
+        await finishWhole(file, path);
+    }
+}
+
+async fn writeWhole(file: WholeFile, path: String, data: ByteArray) throws(FileOperationFailed) {
+    let length = bytesApi.length(data);
+    var offset = 0;
+    while offset < length {
+        var count = length - offset;
+        if count > 65536 {
+            count = 65536;
+        }
+        let end = offset + count;
+        switch bytesApi.slice(data, offset, end) {
+            case Option.Some(chunk): {
+                rawWholeWrite(file, chunk, bytesApi.byteLength(chunk));
+                await waitWhole(file, path, FilePhase.Write());
+                checkWholeStatus(file, path);
+            }
+            case Option.None: {
+                core.panic("invalid whole-file write slice");
+            }
+        }
+        offset = end;
+    }
+}
+
+/// Atomically install the new bytes. The receipt includes any post-install cleanup errors.
+async fn replaceBytes(path: String, data: ByteArray) throws(FileOperationFailed, InstallUncertain) -> ReplaceReceipt {
+    let file = newWhole(path, 0, true);
+    var delivered = false;
+    try {
+        rawWholeOpen(file);
+        await waitWhole(file, path, FilePhase.OpenDirectory());
+        checkWholeStatus(file, path);
+        await writeWhole(file, path, data);
+        rawWholeInstall(file);
+        await waitWhole(file, path, FilePhase.Install());
+        if rawWholeInstallResult(file) == 2 {
+            let cause = problem(rawWholeStatus(file), "io.Install");
+            throw InstallUncertain(
+                message: f"File installation could not be confirmed: {path}",
+                cause: cause,
+                payload: {
+                    path = path,
+                    phase = FilePhase.Install(),
+                    status = err.nativeStatus(cause),
+                    temporaryName = Option<String>.None()
+                }
+            );
+        }
+        checkWholeStatus(file, path);
+        if rawWholeCleanup(file) {
+            await waitWhole(file, path, FilePhase.CloseFile());
+        }
+        var issues: List<FileOperationFailed> = [];
+        var index = 0;
+        while index < 4 {
+            switch cleanupIssue(file, path, index) {
+                case Option.Some(issue): {
+                    try {
+                        issues = listApi.append(issues, issue);
+                    }
+                    catch [overflow: listApi.LengthOverflow] {
+                        core.panic("whole-file cleanup has at most four errors");
+                    }
+                }
+                case Option.None: {}
+            }
+            index = index + 1;
+        }
+        let receipt: ReplaceReceipt = {
+            bytesWritten = bytesApi.length(data),
+            cleanupErrors = issues
+        };
+        delivered = true;
+        return receipt;
+    }
+    finally {
+        if delivered {
+            rawWholeRelease(file);
+        }
+        else {
+            await finishWhole(file, path);
+        }
+    }
+}
+
+/// Encode UTF-8 and atomically install the resulting bytes.
+async fn replaceText(path: String, text: String) throws(FileOperationFailed, InstallUncertain) -> ReplaceReceipt {
+    return await replaceBytes(path, textApi.encodeUtf8(text));
+}
+
+export FilePhase;
+export FileFailure;
+export FileOperationFailed;
+export InvalidReadLimit;
+export ReadLimitExceeded;
+export InvalidFileUtf8;
+export InstallUncertain;
+export ReplaceReceipt;
+export readBytes;
+export readText;
+export replaceBytes;
+export replaceText;

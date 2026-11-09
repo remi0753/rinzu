@@ -1,0 +1,20 @@
+native {
+    fn setFault(mode: Int) -> Unit symbol "whole_test_fault";
+
+    fn setGate(stage: Int) -> Unit symbol "whole_test_gate";
+
+    fn entered() -> CBool symbol "whole_test_entered";
+
+    fn cancelled() -> CBool symbol "whole_test_cancelled";
+
+    fn outcome() -> Int symbol "whole_test_outcome";
+
+    fn removeName(name: String) -> CBool symbol "whole_test_remove_name";
+}
+
+export setFault;
+export setGate;
+export entered;
+export cancelled;
+export outcome;
+export removeName;

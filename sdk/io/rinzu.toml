@@ -5,6 +5,6 @@ kind = "sdk"
 entry = "src/io.rinzu"
 
 [native]
-sources = ["native/src/io.c"]
+sources = ["native/src/io.c", "native/src/whole_file.c"]
 headers = ["native/include/rinzu_io.h"]
 include-dirs = ["native/include"]

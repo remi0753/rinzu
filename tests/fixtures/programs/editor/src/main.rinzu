@@ -143,6 +143,7 @@ class Editor {
     closing: Bool,
     analyzing: Bool,
     saving: Bool,
+    saveUncertain: Bool,
     sending: Bool,
     analysisRequested: Bool,
     analyzedVersion: Int,
@@ -232,6 +233,7 @@ class Editor {
             closing: false,
             analyzing: false,
             saving: false,
+            saveUncertain: false,
             sending: false,
             analysisRequested: true,
             analyzedVersion: -1,
@@ -322,15 +324,29 @@ class Editor {
     }
 
     async fn save(self: Editor, path: String, snapshot: rinzu.macos.DocumentSnapshot) {
+        self.saveUncertain = false;
         try {
             try {
-                let installed = await rinzu.macos.saveDocument(path, snapshot.text);
+                let receipt = await rinzu.io.replaceText(path, snapshot.text);
                 self.binding.document.markSaved(snapshot);
                 self.message("Saved");
                 rinzu.stdio.writeLine(f"SAVE:OK:{snapshot.version}");
+                for issue in receipt.cleanupErrors {
+                    self.message(f"Saved with a cleanup warning. {issue.message}");
+                    rinzu.stdio.writeLine(f"SAVE:CLEANUP:{issue.message}");
+                }
+            }
+            catch [problem: rinzu.io.InstallUncertain, ...rest] {
+                self.saveUncertain = true;
+                self.message("Save outcome unknown. Check the file before retrying.");
+                rinzu.stdio.writeLine(f"SAVE:UNCERTAIN:{problem.message}");
+            }
+            catch [problem: rinzu.io.FileOperationFailed, ...rest] {
+                self.message(f"Save failed. {problem.message} Retry Save.");
+                rinzu.stdio.writeLine(f"SAVE:FAILED:{problem.payload.status}:{problem.payload.phase}");
             }
             catch [problem: Error, ...rest] {
-                self.message(f"Save failed: {err.message(problem)}; retry Save");
+                self.message(f"Save failed. {problem.message} Retry Save.");
                 rinzu.stdio.writeLine(f"SAVE:FAILED:{displayErrorCode(problem)}:{errorContextText(problem)}");
             }
         }
@@ -475,6 +491,7 @@ class Editor {
                 self.editAfterSchedule = true;
             }
             if self.config.mode == "close-pending" {
+                self.queueSave(self.config.path);
                 self.closeAfterSchedule = true;
             }
         }
@@ -590,7 +607,7 @@ class Editor {
                 let joined = await scope.join();
             }
             finally {
-                if saveCommitted && self.binding.document.dirty() {
+                if saveCommitted && !self.saveUncertain && self.binding.document.dirty() {
                     self.saving = true;
                     await self.save(self.config.path, self.binding.document.snapshot());
                 }
@@ -637,7 +654,12 @@ class Editor {
                 if !finished {
                     self.closing = false;
                     let accepting = self.binding.setAccepting(true);
-                    self.message("Close postponed: Save failed; retry");
+                    if self.saveUncertain {
+                        self.message("Close postponed. Check the file before retrying Save.");
+                    }
+                    else {
+                        self.message("Close postponed: Save failed; retry");
+                    }
                 }
             }
         }

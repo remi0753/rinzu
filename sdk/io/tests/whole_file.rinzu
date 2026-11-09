@@ -1,0 +1,197 @@
+import rinzu.io as io;
+import rinzu.bytes as bytesApi;
+import rinzu.core as core;
+import rinzu.error as err;
+import rinzu.future as future;
+import rinzu.list as listApi;
+import rinzu.stdio;
+import rinzu.string as textApi;
+
+fn require(condition: Bool, message: String) {
+    if !condition {
+        core.panic(message);
+    }
+}
+
+fn checkFailure(problem: io.FileOperationFailed, path: String, phase: io.FilePhase, status: Int) {
+    require(problem.payload.path == path && problem.payload.phase == phase, "file failure phase and path");
+    require(problem.payload.status == Option<Int>.Some(value: status), "file failure status");
+    require(problem.payload.temporaryName == Option<String>.None(), "unexpected temporary name");
+    switch problem.cause {
+        case Option.Some(cause): {
+            require(err.nativeStatus(cause) == problem.payload.status, "native cause status");
+        }
+        case Option.None: {
+            core.panic("missing native cause");
+        }
+    }
+}
+
+async fn reads() {
+    let emptyBytes = await io.readBytes("empty.bin", 0);
+    let emptyText = await io.readText("empty.bin", 0);
+    require(bytesApi.length(emptyBytes) == 0 && emptyText == "", "empty file at limit zero");
+    let exact = await io.readBytes("exact.bin", 65536);
+    require(bytesApi.length(exact) == 65536, "exact chunk limit");
+    let boundary = await io.readBytes("boundary.txt", 9223372036854775807);
+    let text = await io.readText("boundary.txt", 65540);
+    require(textApi.encodeUtf8(text) == boundary, "BOM, NUL and split UTF-8 preserved");
+    let invalid = await io.readBytes("invalid.bin", 1);
+    require(invalid == bytesApi.from(b"\xff"), "invalid UTF-8 is still valid binary input");
+    try {
+        let invalidText = await io.readText("invalid.bin", 1);
+        core.panic("accepted invalid UTF-8");
+    }
+    catch [problem: io.InvalidFileUtf8, ...rest] {
+        require(problem.payload.path == "invalid.bin" && listApi.length(rest) == 0, "UTF-8 failure path");
+        switch problem.cause {
+            case Option.Some(cause): {}
+            case Option.None: {
+                core.panic("missing UTF-8 cause");
+            }
+        }
+    }
+    catch problems {
+        core.panic(f"unexpected UTF-8 errors {problems}");
+    }
+    try {
+        let pastZeroLimit = await io.readText("invalid.bin", 0);
+        core.panic("accepted data at limit zero");
+    }
+    catch [problem: io.ReadLimitExceeded, ...rest] {
+        require(
+            problem.payload.path == "invalid.bin" && problem.payload.maxBytes == 0 && listApi.length(rest) == 0,
+            "limit takes precedence over UTF-8"
+        );
+    }
+    catch problems {
+        core.panic(f"unexpected zero-limit errors {problems}");
+    }
+    try {
+        let oversized = await io.readBytes("over.bin", 65536);
+        core.panic("accepted one byte beyond the limit");
+    }
+    catch [problem: io.ReadLimitExceeded, ...rest] {
+        require(problem.payload.maxBytes == 65536 && listApi.length(rest) == 0, "chunk overflow limit");
+    }
+    catch problems {
+        core.panic(f"unexpected read overflow errors {problems}");
+    }
+    try {
+        let negativeLimit = await io.readBytes("\u{0}", -1);
+        core.panic("accepted negative limit");
+    }
+    catch [problem: io.InvalidReadLimit, ...rest] {
+        require(
+            problem.payload.maxBytes == -1 && listApi.length(rest) == 0,
+            "negative limit takes precedence over path validation"
+        );
+    }
+    catch problems {
+        core.panic(f"unexpected negative-limit errors {problems}");
+    }
+    try {
+        let nulPath = await io.readBytes("bad\u{0}path", 0);
+        core.panic("accepted NUL in path");
+    }
+    catch [problem: io.FileOperationFailed, ...rest] {
+        checkFailure(problem, "bad\u{0}path", io.FilePhase.ValidatePath(), -7104);
+        require(listApi.length(rest) == 0, "path validation has no cleanup errors");
+    }
+    catch problems {
+        core.panic(f"unexpected path validation errors {problems}");
+    }
+    for path in [".", "link.bin"] {
+        try {
+            let nonRegular = await io.readBytes(path, 0);
+            core.panic("opened non-regular input");
+        }
+        catch [problem: io.FileOperationFailed, ...rest] {
+            checkFailure(problem, path, io.FilePhase.OpenFile(), -7106);
+            require(listApi.length(rest) == 0, "non-regular input has no cleanup errors");
+        }
+        catch problems {
+            core.panic(f"unexpected file type errors {problems}");
+        }
+    }
+}
+
+async fn replacements() {
+    let original = await io.readText("boundary.txt", 65540);
+    let textReceipt = await io.replaceText("output.bin", original);
+    require(
+        textReceipt.bytesWritten == 65540 && listApi.length(textReceipt.cleanupErrors) == 0,
+        "text installation receipt"
+    );
+    let bytes = await io.readBytes("output.bin", 65540);
+    require(bytes == textApi.encodeUtf8(original), "installed full text across write boundary");
+    let binary = bytesApi.from(b"\x00\xff\r\n");
+    let binaryReceipt = await io.replaceBytes("output.bin", binary);
+    require(
+        binaryReceipt.bytesWritten == 4 && listApi.length(binaryReceipt.cleanupErrors) == 0,
+        "binary replacement receipt"
+    );
+    let installed = await io.readBytes("output.bin", 4);
+    require(installed == binary, "installed binary bytes");
+    let emptyReceipt = await io.replaceBytes("output.bin", bytesApi.from(b""));
+    let empty = await io.readBytes("output.bin", 0);
+    require(emptyReceipt.bytesWritten == 0 && bytesApi.length(empty) == 0, "empty replacement");
+    for path in ["", ".", "..", "missing/"] {
+        try {
+            let invalidDestination = await io.replaceText(path, "bad");
+            core.panic("accepted invalid destination");
+        }
+        catch [problem: io.FileOperationFailed, ...rest] {
+            checkFailure(problem, path, io.FilePhase.ValidatePath(), -7104);
+            require(listApi.length(rest) == 0, "invalid destination has no cleanup errors");
+        }
+        catch problems {
+            core.panic(f"unexpected destination path errors {problems}");
+        }
+    }
+    try {
+        let replacedLink = await io.replaceText("link.bin", "bad");
+        core.panic("replaced symlink");
+    }
+    catch [problem: io.FileOperationFailed, ...rest] {
+        checkFailure(problem, "link.bin", io.FilePhase.InspectDestination(), -7106);
+        require(listApi.length(rest) == 0, "symlink rejection has no cleanup errors");
+    }
+    catch problems {
+        core.panic(f"unexpected symlink errors {problems}");
+    }
+}
+
+async fn exercise() {
+    let controls = io.retainedControlBytes();
+    await reads();
+    await replacements();
+    require(io.liveFiles() == 0 && io.liveBuffers() == 0 && io.liveOperations() == 0, "whole-file resources released");
+    require(io.retainedControlBytes() == controls, "whole-file records released");
+    rinzu.stdio.writeLine("whole-file-ok");
+    var accepted = false;
+    try all {
+        let saving = io.replaceText("before-start.txt", "new");
+        accepted = future.cancel(saving);
+        let unwantedReceipt = await saving;
+        core.panic("cancelled future returned a receipt");
+    }
+    finally {
+        require(accepted, "cancel before the async body starts");
+        let content = await io.readText("before-start.txt", 3);
+        require(
+            content == "old" && io.retainedControlBytes() == controls,
+            "cancel before start preserves original and releases resources"
+        );
+        rinzu.stdio.writeLine("whole-file-cancel-before-start");
+    }
+}
+
+async fn main() {
+    try {
+        await exercise();
+    }
+    catch problems {
+        core.panic(f"whole-file tests failed with {problems}");
+    }
+}

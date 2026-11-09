@@ -1,5 +1,6 @@
 #ifndef RINZU_IO_H
 #define RINZU_IO_H
+#include "rinzu/native_bytes.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -42,4 +43,44 @@ int64_t rinzu_io_live_files(void);
 int64_t rinzu_io_live_buffers(void);
 int64_t rinzu_io_live_operations(void);
 int64_t rinzu_io_retained_controls(void);
+
+/* Private whole-file bridge. One Owner, one job at a time per record. */
+enum RinzuIoFilePhase {
+  RINZU_IO_VALIDATE_PATH,
+  RINZU_IO_SUBMIT,
+  RINZU_IO_OPEN_FILE,
+  RINZU_IO_READ,
+  RINZU_IO_OPEN_DIRECTORY,
+  RINZU_IO_INSPECT_DESTINATION,
+  RINZU_IO_CREATE_TEMPORARY,
+  RINZU_IO_WRITE,
+  RINZU_IO_COPY_METADATA,
+  RINZU_IO_FLUSH,
+  RINZU_IO_INSTALL,
+  RINZU_IO_CLOSE_FILE,
+  RINZU_IO_REMOVE_TEMPORARY,
+  RINZU_IO_CLOSE_DIRECTORY
+};
+enum RinzuIoInstallResult {
+  RINZU_IO_NOT_INSTALLED,
+  RINZU_IO_INSTALLED,
+  RINZU_IO_INDETERMINATE,
+  RINZU_IO_INSTALLING
+};
+void *rinzu_io_whole_new(const char *path, int64_t maximum, bool replacing);
+void rinzu_io_whole_open(void *record);
+void rinzu_io_whole_read(void *record);
+void rinzu_io_whole_write(void *record, const uint8_t *data, size_t length);
+void rinzu_io_whole_install(void *record);
+bool rinzu_io_whole_cancel_pending(void *record);
+bool rinzu_io_whole_cleanup(void *record);
+void rinzu_io_whole_release(void *record);
+int64_t rinzu_io_whole_status(void *record);
+int64_t rinzu_io_whole_phase(void *record);
+bool rinzu_io_whole_eof(void *record);
+bool rinzu_io_whole_limit_exceeded(void *record);
+const rinzu_native_byte_array_t *rinzu_io_whole_bytes(void *record);
+int64_t rinzu_io_whole_install_result(void *record);
+int64_t rinzu_io_whole_cleanup_status(void *record, int64_t index);
+const char *rinzu_io_whole_temporary_name(void *record);
 #endif

@@ -163,6 +163,8 @@ pub fn resources() -> BTreeMap<&'static str, &'static [u8]> {
         sdk_resource!("io", "rinzu.toml"),
         sdk_resource!("io", "src/io.rinzu"),
         sdk_resource!("io", "native/src/io.c"),
+        sdk_resource!("io", "native/src/io_pool.h"),
+        sdk_resource!("io", "native/src/whole_file.c"),
         sdk_resource!("io", "native/include/rinzu_io.h"),
         sdk_resource!("process", "rinzu.toml"),
         sdk_resource!("process", "src/process.rinzu"),
