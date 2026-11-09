@@ -586,28 +586,39 @@ fn unicode_diagnostics_bom_and_rich_secondary_locations_are_original_bytes() {
 }
 
 #[test]
-fn discovers_the_json_sdk_package_from_its_source_file() {
-    let package = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../sdk/json")
+fn discovers_sdk_packages_from_their_source_files() {
+    let sdk = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../sdk")
         .canonicalize()
         .unwrap();
-    let source = package.join("src/json.rinzu");
-    let manifest = package.join("rinzu.toml");
-    let text = std::fs::read_to_string(&source).unwrap();
     let mut client = Client::new(None);
-    client.open(&source, 1, &text);
 
-    let response = client.query("diagnostics", &source, 1, json!(null));
-    assert_eq!(response["result"]["diagnostics"], json!([]), "{response:#}");
-    assert_eq!(response["result"]["syntaxOnly"], false);
-    assert!(
-        response["result"]["inputs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|input| input["path"] == json!(manifest) && input["kind"] == "disk-manifest"),
-        "{response:#}"
-    );
+    // Log's Logger holds an imported rinzu.io.File, which needs the SDK graph.
+    for name in ["json", "log"] {
+        let package = sdk.join(name);
+        let source = package.join(format!("src/{name}.rinzu"));
+        let manifest = package.join("rinzu.toml");
+        let text = std::fs::read_to_string(&source).unwrap();
+        client.open(&source, 1, &text);
+
+        let response = client.query("diagnostics", &source, 1, json!(null));
+        let result = &response["result"];
+        assert_eq!(result["diagnostics"], json!([]), "{name}: {response:#}");
+        assert_eq!(result["syntaxOnly"], false, "{name}: {response:#}");
+        assert_eq!(
+            result["diagnosticScopes"],
+            json!([{"kind":"package","path":manifest,"indices":[]}]),
+            "{name}: {response:#}"
+        );
+        assert!(
+            result["inputs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|input| input["path"] == json!(manifest) && input["kind"] == "disk-manifest"),
+            "{name}: {response:#}"
+        );
+    }
     client.shutdown();
 }
 

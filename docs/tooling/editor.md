@@ -48,6 +48,8 @@ With `rinzu.workspace` unset, the editor service selects the closest `rinzu.toml
 
 Use `rinzu.entry` for an explicit standalone source file; it takes precedence over the package workspace. Relative workspace/entry paths resolve against the opened folder. `rinzu.executable` is one executable path, not a shell command with arguments. Reload the window after changing the service configuration.
 
+After updating the checkout, rebuild the driver selected by `rinzu.executable` with `cargo build -p rinzu-driver --bin rinzu` and run **Developer: Reload Window**. Older drivers may report imported SDK types as unavailable because they check the source buffer without discovering its package.
+
 The extension provides syntax highlighting for keywords, built-in types, numbers, comments, and String/Bytes literals, including raw Strings and formatted String expressions. Colors follow the selected VS Code theme. Highlighting does not require the Rinzu executable. After updating a linked local extension, run **Developer: Reload Window** to reload its grammar.
 
 The extension also supports diagnostics for open buffers, definition/reference navigation, completion, formatting, and import organization. Diagnostics show related source locations and explanation-only suggestions under **Help**. Results for separate packages stay visible as you switch between files. **Rinzu: Refresh Diagnostics** rechecks the open buffers and their dependencies. Import organization sorts and deduplicates eligible groups without guessing which imports are unused.
