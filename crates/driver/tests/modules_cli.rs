@@ -39,19 +39,26 @@ impl Fixture {
     }
 
     fn cli(&self, args: &[&str]) -> Output {
+        self.command(Path::new(env!("CARGO_BIN_EXE_rinzu")))
+            .args(args)
+            .output()
+            .unwrap()
+    }
+
+    fn command(&self, binary: &Path) -> Command {
         let path = std::env::join_paths(
             std::iter::once(self.path("bin"))
                 .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
         )
         .unwrap();
-        Command::new(env!("CARGO_BIN_EXE_rinzu"))
+        let mut command = Command::new(binary);
+        command
             .current_dir(self.path("app"))
             .env("RINZU_CACHE_DIR", self.path("cache"))
             .env("RINZU_TEST_ARCHIVES", &self.0)
             .env("PATH", path)
-            .args(args)
-            .output()
-            .unwrap()
+            .env_remove("RINZU_TOOLCHAIN_ROOT");
+        command
     }
 }
 
@@ -90,6 +97,149 @@ fn rejected(output: Output, expected: &str) {
     assert!(
         !output.status.success() && error.contains(expected),
         "{error}"
+    );
+}
+
+#[test]
+fn incompatible_archive_preserves_the_manifest_and_lock() {
+    let fixture = Fixture::new();
+    let manifest = fixture.path("app/rinzu.toml");
+    let mut original = fs::read_to_string(&manifest).unwrap();
+    original = original.replace("0.5", "0.4");
+    fs::write(&manifest, &original).unwrap();
+    let archive_path = fixture.path("values.tar.gz");
+    archive(&archive_path, "values", SDK, SOURCE);
+    rejected(
+        fixture.cli(&["modules", "add", "values", "../values.tar.gz"]),
+        "project language 0.4 is below required language 0.5 (app -> values",
+    );
+    assert_eq!(fs::read_to_string(&manifest).unwrap(), original);
+    assert!(!fixture.path("app/rinzu.modules.lock").exists());
+
+    let required = format!("{SDK}\n[requires]\ntoolchain = \"99.0.0\"\n");
+    archive(&archive_path, "values", &required, SOURCE);
+    original = original.replace("0.4", "0.5");
+    fs::write(&manifest, &original).unwrap();
+    rejected(
+        fixture.cli(&["modules", "add", "values", "../values.tar.gz"]),
+        "Rinzu 99.0.0 or later is required (app -> values)",
+    );
+    assert_eq!(fs::read_to_string(&manifest).unwrap(), original);
+    assert!(!fixture.path("app/rinzu.modules.lock").exists());
+}
+
+#[test]
+fn relock_updates_language_without_reselecting_an_archive() {
+    let fixture = Fixture::new();
+    archive(
+        &fixture.path("values.tar.gz"),
+        "values",
+        &SDK.replace("0.5", "0.4"),
+        SOURCE,
+    );
+    success(fixture.cli(&["modules", "add", "values", "../values.tar.gz"]));
+    let lock = fixture.path("app/rinzu.modules.lock");
+    let before: serde_json::Value = serde_json::from_slice(&fs::read(&lock).unwrap()).unwrap();
+    let manifest = fixture.path("app/rinzu.toml");
+    let lower = fs::read_to_string(&manifest).unwrap().replace("0.5", "0.4");
+    fs::write(&manifest, &lower).unwrap();
+    fs::remove_file(fixture.path("values.tar.gz")).unwrap();
+    rejected(
+        fixture.cli(&["modules", "sync", "--offline"]),
+        "does not match",
+    );
+    success(fixture.cli(&["modules", "relock"]));
+    let after: serde_json::Value = serde_json::from_slice(&fs::read(&lock).unwrap()).unwrap();
+    assert_ne!(
+        before["packages"][0]["declarations_sha256"],
+        after["packages"][0]["declarations_sha256"]
+    );
+    assert_eq!(before["packages"][1], after["packages"][1]);
+    success(fixture.cli(&["modules", "sync", "--offline"]));
+    success(fixture.cli(&["check", "."]));
+
+    fs::write(&manifest, lower.replace("values.tar.gz", "other.tar.gz")).unwrap();
+    rejected(fixture.cli(&["modules", "relock"]), "does not match");
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&fs::read(lock).unwrap()).unwrap(),
+        after
+    );
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+fn relocated_toolchain_resolves_official_imports_and_verifies_its_catalog() {
+    let fixture = Fixture::new();
+    success(fixture.cli(&["toolchain-bundle", "--output", "../toolchain"]));
+    fs::rename(
+        fixture.path("toolchain"),
+        fixture.path("relocated toolchain"),
+    )
+    .unwrap();
+    let installed = fixture.path("relocated toolchain/bin/rinzu");
+    let run = |args: &[&str]| fixture.command(&installed).args(args).output().unwrap();
+    success(run(&["doctor", "--sdk", "rinzu.codec"]));
+    let entry = fixture.path("app/src/main.rinzu");
+    let direct = "import rinzu.codec; fn main() { let document = rinzu.codec.Document(text: \"Rinzu\", selection: 0); }";
+    fs::write(&entry, direct).unwrap();
+    success(run(&["check", "."]));
+    success(run(&["check", "src/main.rinzu"]));
+
+    archive(
+        &fixture.path("values.tar.gz"),
+        "values",
+        SDK,
+        &format!("import rinzu.codec; {SOURCE}"),
+    );
+    success(run(&["modules", "add", "values", "../values.tar.gz"]));
+    fs::write(&entry, format!("import values; {direct}")).unwrap();
+    let checked = fixture
+        .command(&installed)
+        .env("RINZU_COMPILE_TIMINGS", "1")
+        .args(["check", "."])
+        .output()
+        .unwrap();
+    let timing = String::from_utf8_lossy(&checked.stderr);
+    assert_eq!(
+        timing
+            .lines()
+            .filter(|line| line.contains("\"detail\":\"rinzu.codec\"")
+                && line.contains("\"phase\":\"frontend.package\""))
+            .count(),
+        1,
+        "{timing}"
+    );
+    success(checked);
+
+    let bundle = fixture.path("relocated toolchain/bundle.json");
+    let expected = fs::read_to_string(&bundle).unwrap();
+    let mut corrupt: serde_json::Value = serde_json::from_str(&expected).unwrap();
+    corrupt["officialSdkCatalogSha256"] = serde_json::Value::String("0".repeat(64));
+    fs::write(&bundle, serde_json::to_vec(&corrupt).unwrap()).unwrap();
+    rejected(run(&["check", "."]), "installed SDK catalog does not match");
+    fs::write(&bundle, expected).unwrap();
+
+    let codec = fixture.path("relocated toolchain/share/rinzu/sdk/rinzu.codec/src/codec.rinzu");
+    let source = fs::read(&codec).unwrap();
+    fs::write(&codec, "fn unrelated() {}").unwrap();
+    rejected(run(&["check", "."]), "verified inventory");
+    fs::write(&codec, source).unwrap();
+
+    archive(
+        &fixture.path("native_user.tar.gz"),
+        "native_user",
+        &SDK.replace("values", "native_user"),
+        &format!("import rinzu.sqlite; {SOURCE}"),
+    );
+    success(run(&[
+        "modules",
+        "add",
+        "native_user",
+        "../native_user.tar.gz",
+    ]));
+    rejected(
+        run(&["check", "."]),
+        "published SDK cannot import toolchain package `rinzu.sqlite`",
     );
 }
 
@@ -171,7 +321,7 @@ fn published_diamond_fetches_shared_sdk_once_and_keeps_direct_visibility() {
 set -eu
 for argument do url=$argument; done
 case "$url" in
-    https://archive.example/left.tar.gz|https://archive.example/right.tar.gz|https://archive.example/values.tar.gz) ;;
+    https://archive.example/left.tar.gz|https://archive.example/right.tar.gz|https://archive.example/values.tar.gz|https://archive.example/future.tar.gz) ;;
     *) exit 2 ;;
 esac
 file=${url##*/}
@@ -208,6 +358,36 @@ cat "$RINZU_TEST_ARCHIVES/$file"
     assert_eq!(
         fs::read_to_string(fixture.path("requests")).unwrap(),
         requests
+    );
+
+    let future = archive(
+        &fixture.path("future.tar.gz"),
+        "future",
+        &format!(
+            "{}\n[requires]\ntoolchain = \"99.0.0\"\n",
+            SDK.replace("values", "future")
+        ),
+        SOURCE,
+    );
+    archive(
+        &fixture.path("parent.tar.gz"),
+        "parent",
+        &format!(
+            "{}\n[dependencies]\nfuture = {{ archive = \"https://archive.example/future.tar.gz\", integrity = \"sha256:{future}\" }}\n",
+            SDK.replace("values", "parent")
+        ),
+        SOURCE,
+    );
+    let manifest = fixture.path("app/rinzu.toml");
+    let lock = fixture.path("app/rinzu.modules.lock");
+    let previous = (fs::read(&manifest).unwrap(), fs::read(&lock).unwrap());
+    rejected(
+        fixture.cli(&["modules", "add", "parent", "../parent.tar.gz"]),
+        "Rinzu 99.0.0 or later is required (app -> parent -> future)",
+    );
+    assert_eq!(
+        (fs::read(manifest).unwrap(), fs::read(lock).unwrap()),
+        previous
     );
 }
 

@@ -88,6 +88,13 @@ impl ModulesLock {
             .map(|(index, package)| (PackageId(index), package))
     }
 
+    pub(crate) fn same_resolution(&self, other: &Self) -> bool {
+        self.packages.len() == other.packages.len()
+            && self.packages.iter().zip(&other.packages).all(|(a, b)| {
+                a.name == b.name && a.source == b.source && a.dependencies == b.dependencies
+            })
+    }
+
     pub fn target(&self, owner: PackageId, key: &str) -> Result<&LockedPackage, String> {
         self.packages
             .get(owner.0)

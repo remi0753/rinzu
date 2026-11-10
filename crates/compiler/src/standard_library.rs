@@ -333,21 +333,28 @@ pub fn write_resources(root: &Path) -> Result<(), String> {
     verify(&root)
 }
 
-pub fn resource_root() -> Result<PathBuf, String> {
+pub(crate) fn installed_resource_root() -> Result<Option<PathBuf>, String> {
     if let Some(root) = std::env::var_os("RINZU_TOOLCHAIN_ROOT") {
-        let root = PathBuf::from(root)
+        return PathBuf::from(root)
             .canonicalize()
-            .map_err(|e| format!("toolchain root: {e}"))?;
-        verify(&root)?;
-        return Ok(root);
+            .map(Some)
+            .map_err(|e| format!("toolchain root: {e}"));
     }
     let adjacent = std::env::current_exe()
+        .map_err(|e| e.to_string())?
+        .canonicalize()
         .map_err(|e| e.to_string())?
         .parent()
         .unwrap()
         .join("../share/rinzu");
     if adjacent.exists() {
-        let root = adjacent.canonicalize().map_err(|e| e.to_string())?;
+        return adjacent.canonicalize().map(Some).map_err(|e| e.to_string());
+    }
+    Ok(None)
+}
+
+pub fn resource_root() -> Result<PathBuf, String> {
+    if let Some(root) = installed_resource_root()? {
         verify(&root)?;
         return Ok(root);
     }

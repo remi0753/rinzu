@@ -1,6 +1,43 @@
 //! A relocatable toolchain snapshot. Release signing/installation remains a separate gate.
 use std::path::{Path, PathBuf};
 
+pub fn doctor(arguments: impl Iterator<Item = String>) -> Result<(), String> {
+    let arguments: Vec<_> = arguments.collect();
+    let sdk = match arguments.as_slice() {
+        [] => None,
+        [flag, name] if flag == "--sdk" => Some(rinzu_compiler::official_sdk::sdk(name)?),
+        _ => return Err("usage: rinzu doctor [--sdk <official SDK name>]".into()),
+    };
+    let target = rinzu_runtime::current_target();
+    let support = if rinzu_runtime::validate_v1_target().is_ok() {
+        "supported"
+    } else {
+        "portability-check-only"
+    };
+    println!("Rinzu {}", rinzu_compiler::compatibility::RELEASE);
+    println!("target: {target}");
+    println!("v1 runtime: {support}");
+    let root = rinzu_compiler::official_sdk::inspect_installation()?;
+    if let Some(root) = &root {
+        println!("toolchain resources: {}", root.display());
+        println!("official SDK catalog: verified");
+    } else {
+        println!("toolchain resources: embedded standard library");
+    }
+    if let Some(sdk) = sdk {
+        let root = root.ok_or("official SDKs require a matching installed toolchain bundle")?;
+        if sdk.files.keys().any(|path| path.starts_with("native")) {
+            crate::native_clang::TargetClang::resolve()?;
+        }
+        for tool in &sdk.config_tools {
+            crate::native_config::resolve(tool)
+                .map_err(|error| format!("{}: {error}", sdk.name))?;
+        }
+        println!("SDK {}: {}", sdk.name, root.join(&sdk.root).display());
+    }
+    Ok(())
+}
+
 pub fn build_inputs() -> Result<std::collections::BTreeMap<String, String>, String> {
     let fingerprint = rinzu_compiler::standard_library::fingerprint();
     if fingerprint["sourcePackageAbi"]
@@ -51,6 +88,7 @@ fn export(output: &Path) -> Result<(), String> {
     if !parent.is_dir() {
         return Err("toolchain bundle parent directory must exist".into());
     }
+    rinzu_runtime::validate_v1_target().map_err(|error| error.to_string())?;
     std::fs::create_dir(output).map_err(|e| e.to_string())?;
     let result = (|| {
         let bin = output.join("bin");
@@ -63,11 +101,18 @@ fn export(output: &Path) -> Result<(), String> {
         }
         let resources = output.join("share/rinzu");
         rinzu_compiler::standard_library::write_resources(&resources)?;
+        rinzu_compiler::official_sdk::write_resources(&resources)?;
+        let (catalog, catalog_digest) = rinzu_compiler::official_sdk::catalog_metadata()?;
         let metadata = serde_json::json!({
-            "schema": "rinzu.toolchain-bundle-v1", "toolchainVersion": env!("CARGO_PKG_VERSION"),
+            "schema": rinzu_compiler::official_sdk::BUNDLE_SCHEMA,
+            "toolchainVersion": env!("CARGO_PKG_VERSION"),
+            "sourceCommit": option_env!("RINZU_SOURCE_COMMIT"),
+            "host": rinzu_runtime::current_target(),
             "target": rinzu_compiler::standard_library::TARGET,
+            "compatibility": rinzu_compiler::standard_library::fingerprint(),
             "binary": "bin/rinzu", "binarySha256": rinzu_compiler::standard_library::sha256(&bytes),
             "resources": "share/rinzu", "registrySha256": rinzu_compiler::standard_library::sha256(&rinzu_compiler::standard_library::registry_bytes()),
+            "officialSdkCatalog": catalog, "officialSdkCatalogSha256": catalog_digest,
             "licenseInventory": "share/rinzu/license-inventory.json",
             "signedInstaller": false,
         });

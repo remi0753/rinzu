@@ -7,6 +7,7 @@ pub mod ast;
 mod ast_walk;
 mod closures;
 mod collections;
+pub mod compatibility;
 mod compilation;
 mod core;
 mod json;
@@ -35,6 +36,7 @@ mod manifest;
 mod methods;
 pub mod modules_lock;
 mod native_interface;
+pub mod official_sdk;
 mod package;
 mod package_graph;
 mod package_metadata;
@@ -84,7 +86,7 @@ pub use native_interface::{
 };
 pub use package::{
     ResolvedSdkPackage, ResolvedSourceImport, ResolvedSourceModule, SourceNativeInterface,
-    SourceSdkInterface, load_manifest_with_sources, load_resolved_manifest,
+    SourceSdkInterface, load_manifest_with_sources, load_resolved_manifest, refresh_modules_lock,
     resolve_installed_graph,
 };
 pub use package_graph::{

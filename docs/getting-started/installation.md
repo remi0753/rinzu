@@ -2,6 +2,8 @@
 
 Rinzu executes on Apple Silicon macOS (`aarch64-apple-darwin`). Building the compiler requires Rust 1.97.1. Native compilation uses Xcode Command Line Tools.
 
+When using a released toolchain bundle, verify the archive, extract it to a new directory, and add its `bin/` to PATH. Run `rinzu doctor` from that installation to check the resource catalog. The distribution includes the official SDK sources, so imports such as `import rinzu.codec;` resolve from that installation. See [Toolchain bundles](../tooling/distribution.md#export-the-toolchain).
+
 ## Prepare the toolchain
 
 Install Apple's command-line development tools:

@@ -185,7 +185,7 @@ fn package_check_rejects_an_undeclared_sdk_import() {
     .unwrap();
     fs::write(
         root.join("src/main.rinzu"),
-        "import rinzu.macos;\n\nfn main() {\n}\n",
+        "import rinzu.unregistered;\n\nfn main() {\n}\n",
     )
     .unwrap();
     let diagnostics = check_package(&root).expect_err("undeclared SDK import must fail");

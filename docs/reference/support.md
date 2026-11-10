@@ -33,7 +33,7 @@ Function values do not have Equality/Key/Transferable and can be stored in same-
 
 | Area | Boundary |
 | --- | --- |
-| Package resolution | Local source dependencies; no registry/fetch/publish service |
+| Package resolution | Local paths, locked source archives, and official SDKs from the toolchain |
 | Files and streams | Bounded native operations, explicit physical Owner cleanup |
 | HTTP | Verified HTTPS or loopback HTTP; bounded GET/POST client, no automatic redirect/retry/proxy |
 | TCP | Literal IPv4, Main ownership, bounded nonblocking operations |

@@ -53,4 +53,19 @@ See [macOS applications](../libraries/macos.md) for SDK resource paths.
 rinzu toolchain-bundle --output ./rinzu-toolchain
 ```
 
-Choose a new directory whose parent exists. The bundle contains `bin/rinzu` and `share/rinzu` resources. Keep both directories together when relocating or installing read-only. Standard package caches remain user-writable outside the installation. Additional SDK source is distributed separately.
+On macOS arm64, choose a new directory whose parent exists. The bundle contains `bin/rinzu`, `bundle.json`, and the standard resources and official SDKs under `share/rinzu`. Keep the directory together when relocating or installing read-only. Generated caches remain user-writable outside the installation.
+
+The bundled executable resolves official SDKs such as `rinzu.codec` and `rinzu.sqlite` from source imports. It checks that the installation catalog matches its release and verifies inputs for each SDK it uses. Use `rinzu doctor --sdk rinzu.sdl2` to check the installed catalog and SDL2 configuration. Native SDK builds use the local macOS toolchain.
+
+For a tagged release, build from the tagged source with the lockfile and record the source commit in the bundle.
+
+```sh
+RINZU_SOURCE_COMMIT="$(git rev-parse HEAD)" cargo build --release --locked -p rinzu-driver --bin rinzu
+release="$(./target/release/rinzu --version | cut -d ' ' -f 2)"
+bundle="rinzu-${release}-aarch64-apple-darwin"
+./target/release/rinzu toolchain-bundle --output "$bundle"
+tar -czf "$bundle.tar.gz" "$bundle"
+shasum -a 256 "$bundle.tar.gz"
+```
+
+Publish a versioned archive and its checksum. Install by verifying the download and extracting to a new directory, then select the executable in its `bin/`. Keep each release in its own directory.

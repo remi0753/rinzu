@@ -55,6 +55,8 @@ pub struct Manifest {
     pub root: PathBuf,
     pub name: String,
     pub language: String,
+    pub toolchain_version: Option<String>,
+    pub minimum_toolchain: Option<String>,
     pub kind: PackageKind,
     pub entry: PathBuf,
     pub dependencies: Vec<Dependency>,
@@ -185,11 +187,11 @@ pub fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, ManifestE
         .at_value(package, "name"));
     }
     let language = required_string(package, "language", path)?;
-    if !matches!(language.as_str(), "0.1" | "0.2" | "0.3" | "0.4" | "0.5") {
+    if crate::compatibility::version_parts::<2>(&language).is_none() {
         return Err(ManifestError::new(
             path,
-            format!("unsupported language version `{language}`"),
-            "set `language` to a supported version: 0.1, 0.2, 0.3, 0.4, or 0.5",
+            format!("invalid language version `{language}`"),
+            "use a major.minor language version such as 0.5",
         )
         .at_value(package, "language"));
     }
@@ -216,7 +218,14 @@ pub fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, ManifestE
     let allowed_sections: &[&str] = if language == "0.1" {
         &["package"]
     } else {
-        &["package", "dependencies", "exports", "native"]
+        &[
+            "package",
+            "dependencies",
+            "exports",
+            "native",
+            "toolchain",
+            "requires",
+        ]
     };
     if let Some((section, location)) = sections
         .iter()
@@ -228,7 +237,7 @@ pub fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, ManifestE
             if language == "0.1" {
                 "language 0.1 accepts only `[package]`"
             } else {
-                "use `[package]`, `[dependencies]`, `[exports]`, or `[native]`"
+                "use a supported package, dependency, native, or toolchain section"
             },
         )
         .at(location.span.clone()));
@@ -247,6 +256,25 @@ pub fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, ManifestE
         )
         .at_value(package, "kind"));
     }
+
+    let toolchain_version = sections
+        .get("toolchain")
+        .map(|section| release_version(path, section, "toolchain", "version"))
+        .transpose()?;
+    let minimum_toolchain = sections
+        .get("requires")
+        .map(|section| {
+            if kind != PackageKind::Sdk {
+                return Err(ManifestError::new(
+                    path,
+                    "`[requires]` declares an SDK's minimum toolchain version",
+                    "use `[toolchain]` to select an exact release for an application",
+                )
+                .at(section.span.clone()));
+            }
+            release_version(path, section, "requires", "toolchain")
+        })
+        .transpose()?;
 
     let mut dependencies = Vec::new();
     if let Some(section) = sections.get("dependencies") {
@@ -282,6 +310,16 @@ pub fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, ManifestE
                     "use a path relative to this package",
                 )
                 .at(entry.value.clone()));
+            }
+            if matches!(&source, DependencySource::Archive(_))
+                && crate::official_sdk::registered(dependency)
+            {
+                return Err(ManifestError::new(
+                    path,
+                    format!("{dependency} is an official SDK and cannot be supplied by an archive"),
+                    "import the installed SDK or use a local path for SDK development",
+                )
+                .at(entry.key.clone()));
             }
             dependencies.push(Dependency {
                 name: dependency.clone(),
@@ -424,12 +462,34 @@ pub fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, ManifestE
             .to_path_buf(),
         name,
         language,
+        toolchain_version,
+        minimum_toolchain,
         kind,
         entry,
         dependencies,
         exports,
         native,
     })
+}
+
+fn release_version(
+    path: &Path,
+    section: &Section,
+    section_name: &str,
+    key: &str,
+) -> Result<String, ManifestError> {
+    let entries = &section.entries;
+    reject_unknown_keys(path, section_name, entries, &[key])?;
+    let value = required_string(entries, key, path)?;
+    if crate::compatibility::version_parts::<3>(&value).is_none() {
+        return Err(ManifestError::new(
+            path,
+            format!("invalid toolchain release `{value}`"),
+            "use a major.minor.patch release number",
+        )
+        .at_value(entries, key));
+    }
+    Ok(value)
 }
 
 /// Resolve declared inputs within their owning package; path dependencies have separate roots.

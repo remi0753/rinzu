@@ -305,6 +305,8 @@ impl ReferenceIndex {
                 root: root.into(),
                 name: "cli-reference-scope".into(),
                 language: "0.5".into(),
+                toolchain_version: None,
+                minimum_toolchain: None,
                 kind: PackageKind::Application,
                 entry: PathBuf::new(),
                 dependencies: Vec::new(),

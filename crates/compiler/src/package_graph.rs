@@ -16,6 +16,11 @@ pub struct PackageId(pub(crate) usize);
 pub enum PackageSource {
     Path(PathBuf),
     Archive(ArchivePin),
+    Toolchain {
+        name: String,
+        release: String,
+        inventory_sha256: String,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -44,10 +49,23 @@ pub struct ResolvedPackage {
 pub struct ResolvedGraph {
     packages: Vec<ResolvedPackage>,
     order: Vec<PackageId>,
+    parents: Vec<Option<PackageId>>,
 }
 
 impl ResolvedGraph {
     pub const ROOT: PackageId = PackageId(0);
+
+    pub(crate) fn new(root: Manifest) -> Self {
+        Self {
+            packages: vec![ResolvedPackage {
+                location: PackageLocation::local(root.root.clone()),
+                manifest: root,
+                dependencies: BTreeMap::new(),
+            }],
+            order: Vec::new(),
+            parents: vec![None],
+        }
+    }
 
     pub fn package(&self, id: PackageId) -> &ResolvedPackage {
         &self.packages[id.0]
@@ -62,6 +80,47 @@ impl ResolvedGraph {
 
     pub fn dependency_order(&self) -> &[PackageId] {
         &self.order
+    }
+
+    pub(crate) fn dependency_path(&self, id: PackageId) -> String {
+        let mut names = Vec::new();
+        let mut current = Some(id);
+        while let Some(id) = current {
+            names.push(self.package(id).manifest.name.as_str());
+            current = self.parents[id.0];
+        }
+        names.reverse();
+        names.join(" -> ")
+    }
+
+    pub(crate) fn add_package(
+        &mut self,
+        parent: PackageId,
+        location: PackageLocation,
+        manifest: Manifest,
+    ) -> PackageId {
+        let id = PackageId(self.packages.len());
+        self.packages.push(ResolvedPackage {
+            location,
+            manifest,
+            dependencies: BTreeMap::new(),
+        });
+        self.parents.push(Some(parent));
+        id
+    }
+
+    pub(crate) fn connect(&mut self, parent: PackageId, name: String, dependency: PackageId) {
+        self.packages[parent.0]
+            .dependencies
+            .insert(name, dependency);
+    }
+
+    pub(crate) fn take_order(&mut self) -> Vec<PackageId> {
+        std::mem::take(&mut self.order)
+    }
+
+    pub(crate) fn complete(&mut self, id: PackageId) {
+        self.order.push(id);
     }
 }
 
@@ -82,28 +141,20 @@ pub fn resolve_package_graph(
     provider: &mut impl PackageProvider,
 ) -> Result<ResolvedGraph, Vec<Diagnostic>> {
     let mut timing = crate::timing::span("frontend.package-graph").detail(&root.name);
-    let location = PackageLocation::local(root.root.clone());
-    let mut identities = HashMap::from([(location.source.clone(), ResolvedGraph::ROOT)]);
-    let mut names = HashMap::new();
-    if root.kind == PackageKind::Sdk {
-        names.insert(root.name.clone(), ResolvedGraph::ROOT);
-    }
-    let mut graph = ResolvedGraph {
-        packages: vec![ResolvedPackage {
-            location,
-            manifest: root,
-            dependencies: BTreeMap::new(),
-        }],
-        order: Vec::new(),
-    };
+    let mut graph = ResolvedGraph::new(root);
     let root = ResolvedGraph::ROOT;
+    let node = graph.package(root);
+    let mut identities = HashMap::from([(node.location.source.clone(), root)]);
+    let mut names = HashMap::new();
+    if node.manifest.kind == PackageKind::Sdk {
+        names.insert(node.manifest.name.clone(), root);
+    }
     let mut pending = vec![(root, targets(root, graph.package(root), provider)?)];
-    let mut parents = vec![None];
     let mut complete = HashSet::new();
     while let Some((parent, dependencies)) = pending.last_mut() {
         let parent = *parent;
         let Some((index, location)) = dependencies.next() else {
-            graph.order.push(parent);
+            graph.complete(parent);
             complete.insert(parent);
             pending.pop();
             continue;
@@ -115,7 +166,7 @@ pub fn resolve_package_graph(
         let mut discovered = false;
         let id = if let Some(&id) = identities.get(&location.source) {
             if !complete.contains(&id) {
-                let mut route = chain(&graph, &parents, parent);
+                let mut route = graph.dependency_path(parent);
                 route.push_str(&format!(" -> {name}"));
                 return Err(vec![
                     package_diagnostic(
@@ -144,9 +195,9 @@ pub fn resolve_package_graph(
                     package_diagnostic(
                         format!(
                             "package `{name}` resolves to multiple roots: {} ({}) and {} -> {name} ({})",
-                            chain(&graph, &parents, previous),
+                            graph.dependency_path(previous),
                             graph.package(previous).location.root.display(),
-                            chain(&graph, &parents, parent),
+                            graph.dependency_path(parent),
                             location.root.display()
                         ),
                         "use one canonical package identity",
@@ -154,19 +205,14 @@ pub fn resolve_package_graph(
                     .with_path(&path),
                 ]);
             }
-            let id = PackageId(graph.packages.len());
-            identities.insert(location.source.clone(), id);
+            let source = location.source.clone();
+            let id = graph.add_package(parent, location, manifest);
+            identities.insert(source, id);
             names.insert(name.clone(), id);
-            graph.packages.push(ResolvedPackage {
-                location,
-                manifest,
-                dependencies: BTreeMap::new(),
-            });
-            parents.push(Some(parent));
             discovered = true;
             id
         };
-        graph.packages[parent.0].dependencies.insert(name, id);
+        graph.connect(parent, name, id);
         if discovered {
             pending.push((id, targets(id, graph.package(id), provider)?));
         }
@@ -219,15 +265,4 @@ fn check_name(name: &str, manifest: &Manifest) -> Result<(), Vec<Diagnostic>> {
     Err(vec![
         package_diagnostic(message, suggestion).with_path(manifest.root.join("rinzu.toml")),
     ])
-}
-
-fn chain(graph: &ResolvedGraph, parents: &[Option<PackageId>], id: PackageId) -> String {
-    let mut names = Vec::new();
-    let mut current = Some(id);
-    while let Some(id) = current {
-        names.push(graph.package(id).manifest.name.as_str());
-        current = parents[id.0];
-    }
-    names.reverse();
-    names.join(" -> ")
 }

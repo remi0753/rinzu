@@ -149,7 +149,6 @@ pub fn check_input_with_sources(
                 "file mode supports --language 0.5 only",
             ));
         }
-        let mut artifact = crate::package::check_file_with_sources(&canonical, sources)?;
         let name = canonical
             .file_stem()
             .filter(|name| !name.is_empty())
@@ -162,12 +161,15 @@ pub fn check_input_with_sources(
                 .to_owned(),
             name,
             language: "0.5".into(),
+            toolchain_version: None,
+            minimum_toolchain: None,
             kind: PackageKind::Application,
             entry: PathBuf::from(canonical.file_name().expect("canonical file has a name")),
             dependencies: Vec::new(),
             exports: PackageExports::default(),
             native: NativeManifest::default(),
         };
+        let mut artifact = crate::package::check_file_with_sources(&canonical, &metadata, sources)?;
         let mut cli_owner = metadata.clone();
         cli_owner.root = cwd.clone();
         artifact.native_inputs = native.normalize(&cli_owner)?;
@@ -178,10 +180,10 @@ pub fn check_input_with_sources(
         (CompilationMode::File, metadata, artifact, canonical)
     };
     if options.target != crate::standard_library::TARGET
-        && artifact
-            .sdk_packages
-            .iter()
-            .any(|p| crate::standard_library::SOURCE_PACKAGES.contains(&p.manifest.name.as_str()))
+        && artifact.sdk_packages.iter().any(|p| {
+            crate::standard_library::SOURCE_PACKAGES.contains(&p.manifest.name.as_str())
+                || crate::official_sdk::registered(&p.manifest.name)
+        })
     {
         return Err(input_error(
             &entry,

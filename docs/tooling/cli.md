@@ -4,7 +4,7 @@ Use `rinzu help` for the complete command list and `rinzu --version` for the too
 
 | Command | Purpose |
 | --- | --- |
-| `doctor` | Report the host target and execution support |
+| `doctor [--sdk name]` | Report the host, toolchain catalog, and selected SDK requirements |
 | `check [file or directory]` | Validate source, packages, and supplied native inputs |
 | `run [file or directory] [-- args...]` | Execute with JIT |
 | `build [file or directory] --output path` | Produce AOT output |
@@ -15,6 +15,7 @@ Use `rinzu help` for the complete command list and `rinzu --version` for the too
 | `test [package] --doc file.md` | Run explicit documentation examples |
 | `modules add <SDK name> <HTTPS URL or archive path>` | Add a source SDK and pin its dependency graph |
 | `modules sync [--offline]` | Restore the SDKs pinned in the current project's modules lock |
+| `modules relock` | Refresh declaration fingerprints with the same installed, pinned sources |
 | `lock [package]` / `lock [package] --check` | Create/update or check a package lock |
 | `api [sdk] --output file.json --markdown file.md` | Export a checked public API |
 | `dev [package] [-- args...]` | Recheck and restart an application after edits |

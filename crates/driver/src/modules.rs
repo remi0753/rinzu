@@ -12,14 +12,15 @@ use rinzu_compiler::{
     ArchiveDependency, ArchivePin, DependencySource, Diagnostic, DiagnosticCode, FileId, Manifest,
     ModulesLock, PackageId, PackageKind, PackageLocation, PackageProvider, PackageSource,
     ResolvedGraph, ResolvedPackage, SourceCache, SourceRange, SourceSnapshot, find_manifest,
-    load_manifest, load_manifest_text, load_resolved_manifest, resolve_installed_graph,
-    resolve_package_graph, set_archive_dependency, valid_archive_locator, valid_package_name,
+    load_manifest, load_manifest_text, load_resolved_manifest, refresh_modules_lock,
+    resolve_installed_graph, resolve_package_graph, set_archive_dependency, valid_archive_locator,
+    valid_package_name,
 };
 
 use archive::{Request, Store};
 use project::State;
 
-const USAGE: &str = "usage: rinzu modules add <SDK name> <HTTPS URL or archive path>\n       rinzu modules sync [--offline]";
+const USAGE: &str = "usage: rinzu modules add <SDK name> <HTTPS URL or archive path>\n       rinzu modules sync [--offline]\n       rinzu modules relock";
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 pub fn run(arguments: impl Iterator<Item = String>) -> std::result::Result<(), String> {
@@ -29,12 +30,12 @@ pub fn run(arguments: impl Iterator<Item = String>) -> std::result::Result<(), S
 fn execute(arguments: &[String]) -> Result<()> {
     let command: Vec<_> = arguments.iter().map(String::as_str).collect();
     let offline = match command.as_slice() {
-        [] | ["help" | "-h" | "--help"] | ["add" | "sync", "-h" | "--help"] => {
+        [] | ["help" | "-h" | "--help"] | ["add" | "sync" | "relock", "-h" | "--help"] => {
             println!("{USAGE}");
             return Ok(());
         }
         ["sync", "--offline"] => true,
-        ["sync"] | ["add", _, _] => false,
+        ["sync" | "relock"] | ["add", _, _] => false,
         _ => return Err(USAGE.into()),
     };
     let cwd = std::env::current_dir()?.canonicalize()?;
@@ -42,6 +43,9 @@ fn execute(arguments: &[String]) -> Result<()> {
     let project = path.parent().expect("manifest has parent");
     let state = project::snapshot(project)?;
     let root = load_manifest_text(&path, &state.manifest).map_err(manifest_error)?;
+    if command == ["relock"] {
+        return relock(project, &state, root);
+    }
     let lock = state
         .lock
         .as_ref()
@@ -60,8 +64,30 @@ fn execute(arguments: &[String]) -> Result<()> {
             root,
             lock.as_ref()
                 .ok_or("missing rinzu.modules.lock; add an SDK first")?,
+            false,
         )
     }
+}
+
+fn relock(project: &Path, state: &State, root: Manifest) -> Result<()> {
+    if state.lock.is_none() {
+        return Err("missing rinzu.modules.lock; add an SDK first".into());
+    }
+    let mut cache = SourceCache::default();
+    let mut sources = SourceSnapshot::new(&mut cache, Default::default());
+    let lock = refresh_modules_lock(root, &mut sources).map_err(diagnostics)?;
+    let mut lock = serde_json::to_string_pretty(&lock)?;
+    lock.push('\n');
+    project::update(
+        project,
+        state,
+        State {
+            manifest: state.manifest.clone(),
+            lock: Some(lock),
+        },
+    )?;
+    println!("refreshed dependency declarations");
+    Ok(())
 }
 
 fn add(
@@ -73,7 +99,10 @@ fn add(
     name: &str,
     source: &str,
 ) -> Result<()> {
-    if !valid_package_name(name) || rinzu_compiler::standard_library::registered(name) {
+    if !valid_package_name(name)
+        || rinzu_compiler::standard_library::registered(name)
+        || rinzu_compiler::official_sdk::registered(name)
+    {
         return Err(format!("invalid or reserved SDK name: {name}").into());
     }
     let locator = archive_locator(store.project, cwd, source)?;
@@ -97,7 +126,7 @@ fn add(
                 if archive_locator(store.project, &manifest.root, &archive.archive)? == locator =>
             {
                 if let Some(lock) = lock {
-                    return sync(store, &state, manifest, lock);
+                    return sync(store, &state, manifest, lock, true);
                 }
                 dependency = archive.clone();
             }
@@ -128,6 +157,7 @@ fn add(
         sources: SourceSnapshot::new(&mut cache, Default::default()),
     };
     let graph = resolve_package_graph(root.clone(), &mut provider).map_err(diagnostics)?;
+    rinzu_compiler::compatibility::validate_graph(&graph).map_err(diagnostics)?;
     let id = graph.package(ResolvedGraph::ROOT).dependencies[name];
     let PackageSource::Archive(pin) = &graph.package(id).location.source else {
         return Err("new SDK did not resolve to an archive".into());
@@ -156,7 +186,13 @@ fn add(
     Ok(())
 }
 
-fn sync(store: &Store<'_>, state: &State, root: Manifest, lock: &ModulesLock) -> Result<()> {
+fn sync(
+    store: &Store<'_>,
+    state: &State,
+    root: Manifest,
+    lock: &ModulesLock,
+    check_compatibility: bool,
+) -> Result<()> {
     let mut unique = BTreeMap::<_, Request>::new();
     for (_, package) in lock.packages() {
         if let PackageSource::Archive(pin) = &package.source {
@@ -184,7 +220,10 @@ fn sync(store: &Store<'_>, state: &State, root: Manifest, lock: &ModulesLock) ->
     }
     let mut cache = SourceCache::default();
     let mut sources = SourceSnapshot::new(&mut cache, Default::default());
-    resolve_installed_graph(root, &mut sources).map_err(diagnostics)?;
+    let graph = resolve_installed_graph(root, &mut sources).map_err(diagnostics)?;
+    if check_compatibility {
+        rinzu_compiler::compatibility::validate_graph(&graph).map_err(diagnostics)?;
+    }
     println!("synced {} SDK archive(s)", requests.len());
     Ok(())
 }

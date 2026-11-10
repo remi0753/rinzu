@@ -75,6 +75,11 @@ fn directories_current(directories: &BTreeMap<PathBuf, SourceEntries>) -> bool {
     })
 }
 
+struct VerifiedPackage {
+    files: BTreeMap<PathBuf, String>,
+    archive: bool,
+}
+
 pub struct SourceSnapshot<'a> {
     cache: &'a mut SourceCache,
     overlays: BTreeMap<PathBuf, Vec<u8>>,
@@ -84,8 +89,8 @@ pub struct SourceSnapshot<'a> {
     reads: BTreeMap<PathBuf, Vec<u8>>,
     config_reads: BTreeMap<PathBuf, Vec<u8>>,
     native_headers: BTreeSet<PathBuf>,
-    archives: BTreeMap<PathBuf, ArchiveReceipt>,
-    archive_directories: BTreeMap<PathBuf, BTreeMap<PathBuf, bool>>,
+    verified: BTreeMap<PathBuf, VerifiedPackage>,
+    verified_directories: BTreeMap<PathBuf, BTreeMap<PathBuf, bool>>,
     sources: BTreeMap<PathBuf, SourceFile>,
     pub parse_hits: usize,
     pub parse_misses: usize,
@@ -103,8 +108,8 @@ impl<'a> SourceSnapshot<'a> {
             reads: BTreeMap::new(),
             config_reads: BTreeMap::new(),
             native_headers: BTreeSet::new(),
-            archives: BTreeMap::new(),
-            archive_directories: BTreeMap::new(),
+            verified: BTreeMap::new(),
+            verified_directories: BTreeMap::new(),
             sources: BTreeMap::new(),
             parse_hits: 0,
             parse_misses: 0,
@@ -132,10 +137,10 @@ impl<'a> SourceSnapshot<'a> {
     }
 
     pub fn canonical_path(&self, path: &Path) -> io::Result<PathBuf> {
-        let archived = self.archive_for(path).is_some();
+        let verified = self.verified_package(path).is_some();
         match path.canonicalize() {
             Ok(canonical) => {
-                if archived && canonical != crate::modules_lock::lexical_path(path) {
+                if verified && canonical != crate::modules_lock::lexical_path(path) {
                     return Err(io::Error::other(
                         "verified SDK paths must not traverse symlinks",
                     ));
@@ -146,7 +151,7 @@ impl<'a> SourceSnapshot<'a> {
                     .or_insert_with(|| Some(canonical.clone()));
                 Ok(canonical)
             }
-            Err(original) if archived => Err(original),
+            Err(original) if verified => Err(original),
             Err(original) => {
                 let parent = path
                     .parent()
@@ -169,9 +174,9 @@ impl<'a> SourceSnapshot<'a> {
     }
 
     pub(crate) fn source_entries(&mut self, directory: &Path) -> io::Result<SourceEntries> {
-        if self.archive_for(directory).is_some() {
+        if self.verified_package(directory).is_some() {
             return Ok(self
-                .archive_directories
+                .verified_directories
                 .get(directory)
                 .into_iter()
                 .flatten()
@@ -189,6 +194,7 @@ impl<'a> SourceSnapshot<'a> {
 
     pub fn read_bytes(&mut self, path: &Path) -> io::Result<Vec<u8>> {
         if let Some(bytes) = self.reads.get(path) {
+            self.verify_package_bytes(path, bytes)?;
             return Ok(bytes.clone());
         }
         if let Some((_, maximum_files)) = self.limits
@@ -211,7 +217,7 @@ impl<'a> SourceSnapshot<'a> {
         {
             return Err(io::Error::other("source exceeds the editor document limit"));
         }
-        self.verify_archive_bytes(path, &bytes)?;
+        self.verify_package_bytes(path, &bytes)?;
         self.reads.insert(path.to_owned(), bytes.clone());
         Ok(bytes)
     }
@@ -220,6 +226,7 @@ impl<'a> SourceSnapshot<'a> {
     pub(crate) fn read_config(&mut self, path: &Path) -> io::Result<Vec<u8>> {
         let path = self.canonical_path(path)?;
         if let Some(bytes) = self.config_reads.get(&path) {
+            self.verify_package_bytes(&path, bytes)?;
             return Ok(bytes.clone());
         }
         if let Some((_, maximum_files)) = self.limits
@@ -238,13 +245,26 @@ impl<'a> SourceSnapshot<'a> {
                 "manifest exceeds the editor configuration limit",
             ));
         }
-        self.verify_archive_bytes(&path, &bytes)?;
+        self.verify_package_bytes(&path, &bytes)?;
         self.config_reads.insert(path, bytes.clone());
         Ok(bytes)
     }
 
     pub(crate) fn register_archive(&mut self, root: PathBuf, receipt: ArchiveReceipt) {
-        for relative in receipt.files.keys() {
+        self.register_inventory(root, receipt.files, true);
+    }
+
+    pub(crate) fn register_toolchain(&mut self, root: PathBuf, files: BTreeMap<PathBuf, String>) {
+        self.register_inventory(root, files, false);
+    }
+
+    fn register_inventory(
+        &mut self,
+        root: PathBuf,
+        files: BTreeMap<PathBuf, String>,
+        archive: bool,
+    ) {
+        for relative in files.keys() {
             let file = root.join(relative);
             for (child, directory) in file.ancestors().zip(file.ancestors().skip(1)) {
                 if !directory.starts_with(&root) {
@@ -256,37 +276,45 @@ impl<'a> SourceSnapshot<'a> {
                         .extension()
                         .is_some_and(|extension| extension == "rinzu")
                 {
-                    self.archive_directories
+                    self.verified_directories
                         .entry(directory.to_owned())
                         .or_default()
                         .insert(child.to_owned(), is_directory);
                 }
             }
         }
-        self.archives.insert(root, receipt);
+        self.verified
+            .insert(root, VerifiedPackage { files, archive });
     }
 
     pub(crate) fn is_archive(&self, root: &Path) -> bool {
-        self.archives.contains_key(root)
+        self.verified
+            .get(root)
+            .is_some_and(|package| package.archive)
     }
 
-    fn archive_for(&self, path: &Path) -> Option<(&Path, &ArchiveReceipt)> {
+    fn verified_package(&self, path: &Path) -> Option<(&Path, &VerifiedPackage)> {
         path.ancestors().find_map(|root| {
-            self.archives
+            self.verified
                 .get_key_value(root)
-                .map(|(root, receipt)| (root.as_path(), receipt))
+                .map(|(root, package)| (root.as_path(), package))
         })
     }
 
-    fn verify_archive_bytes(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
-        if let Some((root, receipt)) = self.archive_for(path) {
-            let expected = receipt
+    fn verify_package_bytes(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
+        if let Some((root, package)) = self.verified_package(path) {
+            let expected = package
                 .files
-                .get(path.strip_prefix(root).expect("archive ancestor"));
+                .get(path.strip_prefix(root).expect("verified package ancestor"));
             if !expected.is_some_and(|digest| *digest == crate::standard_library::sha256(bytes)) {
-                return Err(io::Error::other(
-                    "SDK source differs from its verified inventory; run `rinzu modules sync`",
-                ));
+                let remedy = if package.archive {
+                    "run `rinzu modules sync`"
+                } else {
+                    "restore the matching Rinzu toolchain bundle"
+                };
+                return Err(io::Error::other(format!(
+                    "SDK input differs from its verified inventory; {remedy}"
+                )));
             }
         }
         Ok(())
