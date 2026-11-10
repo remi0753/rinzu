@@ -18,6 +18,8 @@ rinzu-trace = { path = "../trace" }
 serde_json.workspace = true
 serde.workspace = true
 libc.workspace = true
+flate2 = "1.1.11"
+tar = { version = "0.4.46", default-features = false }
 object = { version = "0.40.0", default-features = false, features = ["read", "std"] }
 
 [dev-dependencies]

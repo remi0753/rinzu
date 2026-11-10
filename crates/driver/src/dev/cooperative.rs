@@ -212,6 +212,7 @@ fn add_manifest_inputs(
 ) {
     paths.insert(manifest.root.join("rinzu.toml"));
     paths.insert(manifest.root.join("rinzu.lock"));
+    paths.insert(manifest.root.join(rinzu_compiler::modules_lock::FILE));
     paths.extend(
         manifest
             .native

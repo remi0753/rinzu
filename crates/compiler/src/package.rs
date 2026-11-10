@@ -1,21 +1,25 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::ast::{
     Arguments, Block, Declaration, Export, Expression, ExpressionKind, Module, NativeMember,
     Statement, StatementKind, TypeRef, TypeRefKind,
 };
+use crate::modules_lock::{self, FILE as MODULES_LOCK};
 use crate::{
-    CompilerOptions, Diagnostic, DiagnosticCode, FileId, FrontendArtifact, Manifest, NativeImport,
-    PackageKind, SourceCache, SourceRange, SourceSnapshot, Type, check_module_with_options,
-    find_manifest, verify_module,
+    ArchiveReceipt, CompilerOptions, DependencySource, Diagnostic, DiagnosticCode, FileId,
+    FrontendArtifact, Manifest, ModulesLock, NativeImport, NativeManifest, PackageId, PackageKind,
+    PackageLocation, PackageProvider, PackageSource, ResolvedGraph, ResolvedPackage, SourceCache,
+    SourceRange, SourceSnapshot, Type, check_module_with_options, find_manifest,
+    resolve_package_graph, verify_module,
 };
 
 #[derive(Clone, Debug)]
 pub struct ResolvedSdkPackage {
     pub manifest: Manifest,
     pub native_imports: Vec<NativeImport>,
-    pub source: Option<SourceSdkInterface>,
+    pub source: Option<Arc<SourceSdkInterface>>,
 }
 
 /// Checked source/native contracts shared by applications, files and SDKs.
@@ -257,7 +261,7 @@ pub(crate) fn check_file_with_sources(
         checked,
         ir,
         sdk_packages,
-        source_interface,
+        source_interface: source_interface.map(Arc::new),
         module_graph,
         checked_inputs: sources.input_bytes(),
     })
@@ -363,11 +367,89 @@ fn check_request(
     tests: Option<&crate::PackageTestOptions>,
 ) -> Result<(Manifest, FrontendArtifact, Vec<crate::PackageTestCase>), Vec<Diagnostic>> {
     let manifest_path = find_manifest(start).map_err(|error| vec![error.into_diagnostic()])?;
-    let mut manifest = load_manifest_with_sources(&manifest_path, sources)?;
+    let manifest = read_package_manifest(&manifest_path, sources)?;
+    let graph = resolve_installed_graph(manifest, sources)?;
+    let (manifest, mut artifact, cases) = check_resolved_graph(&graph, namespace, sources, tests)?;
+    artifact.checked_inputs = sources.input_bytes();
+    Ok((manifest, artifact, cases))
+}
+
+fn check_resolved_graph(
+    graph: &ResolvedGraph,
+    namespace: &str,
+    sources: &mut SourceSnapshot<'_>,
+    tests: Option<&crate::PackageTestOptions>,
+) -> Result<(Manifest, FrontendArtifact, Vec<crate::PackageTestCase>), Vec<Diagnostic>> {
+    let mut checked = HashMap::<PackageId, (ResolvedSdkPackage, Vec<ResolvedSdkPackage>)>::new();
+    for &id in graph.dependency_order() {
+        let node = graph.package(id);
+        let children: Vec<_> = node
+            .dependencies
+            .values()
+            .map(|child| &checked[child])
+            .collect();
+        let direct: Vec<_> = children.iter().map(|(package, _)| package).collect();
+        let mut dependencies = Vec::new();
+        merge_packages(
+            &mut dependencies,
+            children.iter().flat_map(|(package, dependencies)| {
+                dependencies.iter().chain(std::iter::once(package)).cloned()
+            }),
+        )?;
+        if id == ResolvedGraph::ROOT {
+            return check_loaded(
+                node.manifest.clone(),
+                namespace,
+                dependencies,
+                &direct,
+                sources,
+                tests,
+            );
+        }
+        let (manifest, artifact, _) = check_loaded(
+            node.manifest.clone(),
+            &node.manifest.name,
+            dependencies,
+            &direct,
+            sources,
+            None,
+        )?;
+        checked.insert(
+            id,
+            (
+                ResolvedSdkPackage {
+                    manifest,
+                    native_imports: Vec::new(),
+                    source: artifact.source_interface,
+                },
+                artifact.sdk_packages,
+            ),
+        );
+    }
+    unreachable!("the resolved graph includes its root")
+}
+
+fn read_package_manifest(
+    path: &Path,
+    sources: &mut SourceSnapshot<'_>,
+) -> Result<Manifest, Vec<Diagnostic>> {
+    let mut manifest = load_manifest_with_sources(path, sources)?;
     crate::manifest::canonicalize_native_inputs_with(&mut manifest, |path| {
         sources.canonical_path(path)
     })
     .map_err(|error| vec![error.into_diagnostic()])?;
+    Ok(manifest)
+}
+
+fn check_loaded(
+    manifest: Manifest,
+    namespace: &str,
+    mut sdk_packages: Vec<ResolvedSdkPackage>,
+    direct: &[&ResolvedSdkPackage],
+    sources: &mut SourceSnapshot<'_>,
+    tests: Option<&crate::PackageTestOptions>,
+) -> Result<(Manifest, FrontendArtifact, Vec<crate::PackageTestCase>), Vec<Diagnostic>> {
+    let manifest_path = manifest.root.join("rinzu.toml");
     let _timing = crate::timing::span("frontend.package").detail(&manifest.name);
     let entry_module = module_name_from_entry(&manifest.entry).map_err(|errors| {
         errors
@@ -375,31 +457,25 @@ fn check_request(
             .map(|error| error.with_path(&manifest_path))
             .collect::<Vec<_>>()
     })?;
-    let mut sdk_packages = if manifest.language != "0.1" {
-        resolve_sdk_packages(&manifest, sources)?
-    } else {
-        Vec::new()
-    };
     // Keep the original library's source/native interface independent of test entries.
     let original_sdk = if tests.is_some() && manifest.kind == PackageKind::Sdk {
-        check_namespaced(start, namespace, sources)?
-            .1
-            .source_interface
+        check_loaded(
+            manifest.clone(),
+            namespace,
+            sdk_packages.clone(),
+            direct,
+            sources,
+            None,
+        )?
+        .1
+        .source_interface
     } else {
         None
     };
     let mut package_options = CompilerOptions::default();
-    let direct: HashSet<_> = manifest
-        .dependencies
-        .iter()
-        .map(|dependency| dependency.name.as_str())
-        .collect();
     let mut external_symbols = HashMap::new();
     let mut external_packages = HashSet::new();
-    for package in &sdk_packages {
-        if !direct.contains(package.manifest.name.as_str()) {
-            continue;
-        }
+    for package in direct {
         if let Some(source) = &package.source {
             external_packages.extend(source.modules.keys().cloned());
             for (name, symbols) in &source.modules {
@@ -643,6 +719,15 @@ fn check_request(
         &external_symbols,
         intrinsic_package,
     )?;
+    if sources.is_archive(&manifest.root) && !syntax.native_blocks.is_empty() {
+        return Err(vec![
+            package_diagnostic(
+                "published SDKs must contain only Rinzu source",
+                "remove native declarations from the published SDK",
+            )
+            .with_path(&manifest_path),
+        ]);
+    }
     // Test main is generated in memory. Keep its diagnostic label in
     // source_files, but do not require a physical `<test entry>` input receipt.
     if tests.is_some() {
@@ -843,9 +928,9 @@ fn check_request(
             checked,
             ir,
             sdk_packages,
-            source_interface,
+            source_interface: source_interface.map(Arc::new),
             module_graph,
-            checked_inputs: sources.input_bytes(),
+            checked_inputs: BTreeMap::new(),
         },
         cases,
     ))
@@ -1434,140 +1519,164 @@ fn collect_source_directory(
     Ok(())
 }
 
-fn resolve_sdk_packages(
-    root: &Manifest,
-    sources: &mut SourceSnapshot<'_>,
-) -> Result<Vec<ResolvedSdkPackage>, Vec<Diagnostic>> {
-    let mut packages = Vec::new();
-    let mut visited = HashMap::<PathBuf, String>::new();
-    let mut visiting = Vec::<PathBuf>::new();
-    resolve_dependencies(root, &mut packages, &mut visited, &mut visiting, sources)?;
-    Ok(packages)
+struct SnapshotPackages<'s, 'cache> {
+    sources: &'s mut SourceSnapshot<'cache>,
+    project: PathBuf,
+    lock: Option<ModulesLock>,
+    archive_roots: HashMap<String, PathBuf>,
 }
 
-fn resolve_dependencies(
-    parent: &Manifest,
-    packages: &mut Vec<ResolvedSdkPackage>,
-    visited: &mut HashMap<PathBuf, String>,
-    visiting: &mut Vec<PathBuf>,
+pub fn resolve_installed_graph(
+    manifest: Manifest,
     sources: &mut SourceSnapshot<'_>,
-) -> Result<(), Vec<Diagnostic>> {
-    for dependency in &parent.dependencies {
-        let root = parent.root.join(&dependency.path);
-        let canonical = sources.canonical_path(&root).map_err(|error| {
-            vec![
-                package_diagnostic(
-                    format!(
-                        "cannot resolve dependency `{}` at `{}`: {error}",
-                        dependency.name,
-                        root.display()
-                    ),
-                    "correct the path dependency or create the package directory",
-                )
-                .with_path(&root),
-            ]
-        })?;
-        if let Some(index) = visiting.iter().position(|path| path == &canonical) {
-            let cycle = visiting[index..]
-                .iter()
-                .chain(std::iter::once(&canonical))
-                .map(|path| path.display().to_string())
-                .collect::<Vec<_>>()
-                .join(" -> ");
-            return Err(vec![
-                package_diagnostic(
-                    format!("package dependency cycle: {cycle}"),
-                    "remove a path dependency so the package graph is acyclic",
-                )
-                .with_path(&canonical),
-            ]);
-        }
-        if let Some(existing) = visited.get(&canonical) {
-            if existing != &dependency.name {
-                return Err(vec![
-                    package_diagnostic(
-                        format!(
-                            "dependency path `{}` is named both `{existing}` and `{}`",
-                            canonical.display(),
-                            dependency.name
-                        ),
-                        "use the package's declared name consistently",
-                    )
-                    .with_path(&canonical),
-                ]);
-            }
-            continue;
-        }
-        let manifest_path = canonical.join("rinzu.toml");
-        let mut manifest = load_manifest_with_sources(&manifest_path, sources)?;
-        crate::manifest::canonicalize_native_inputs_with(&mut manifest, |path| {
-            sources.canonical_path(path)
-        })
-        .map_err(|error| vec![error.into_diagnostic()])?;
-        if packages.iter().any(|package| {
-            package.manifest.name == manifest.name
-                && package.manifest.root.canonicalize().ok().as_ref() != Some(&canonical)
-        }) {
-            return Err(vec![
-                package_diagnostic(
-                    format!("package `{}` resolves to multiple roots", manifest.name),
-                    "use one canonical dependency root for each package name",
-                )
-                .with_path(&manifest_path),
-            ]);
-        }
-        if manifest.name != dependency.name {
-            return Err(vec![
-                package_diagnostic(
-                    format!(
-                        "dependency key `{}` resolves to package `{}`",
-                        dependency.name, manifest.name
-                    ),
-                    "make the dependency key equal the dependency package name",
-                )
-                .with_path(&manifest_path),
-            ]);
-        }
-        if !matches!(manifest.language.as_str(), "0.2" | "0.3" | "0.4" | "0.5")
-            || manifest.kind != PackageKind::Sdk
-        {
-            return Err(vec![
-                package_diagnostic(
-                    format!(
-                        "dependency `{}` is not a supported source SDK package",
-                        manifest.name
-                    ),
-                    "set `language = \"0.5\"` and `kind = \"sdk\"` in the dependency",
-                )
-                .with_path(&manifest_path),
-            ]);
-        }
-        visiting.push(canonical.clone());
-        resolve_dependencies(&manifest, packages, visited, visiting, sources)?;
-        visiting.pop();
-        let (_, artifact) = check_namespaced(&manifest.root, &manifest.name, sources)?;
-        merge_packages(packages, artifact.sdk_packages)?;
-        let source = artifact.source_interface.expect("SDK source interface");
-        visited.insert(canonical, manifest.name.clone());
-        packages.push(ResolvedSdkPackage {
-            manifest,
-            native_imports: Vec::new(),
-            source: Some(source),
-        });
+) -> Result<ResolvedGraph, Vec<Diagnostic>> {
+    let project = manifest.root.clone();
+    let mut provider = SnapshotPackages {
+        sources,
+        project,
+        lock: None,
+        archive_roots: HashMap::new(),
+    };
+    let graph = resolve_package_graph(manifest, &mut provider)?;
+    if let Some(lock) = provider.lock
+        && lock != ModulesLock::from_graph(&graph, &graph.package(ResolvedGraph::ROOT).manifest)
+    {
+        return Err(provider_error(
+            "modules lock does not match the resolved dependency graph",
+            &provider.project.join(MODULES_LOCK),
+        ));
     }
-    Ok(())
+    Ok(graph)
+}
+
+fn provider_error(message: impl Into<String>, path: &Path) -> Vec<Diagnostic> {
+    vec![
+        package_diagnostic(message, "run `rinzu modules sync` to restore pinned SDKs")
+            .with_path(path),
+    ]
+}
+
+impl PackageProvider for SnapshotPackages<'_, '_> {
+    fn dependencies(
+        &mut self,
+        id: PackageId,
+        owner: &ResolvedPackage,
+    ) -> Result<Vec<PackageLocation>, Vec<Diagnostic>> {
+        let lock_path = self.project.join(MODULES_LOCK);
+        if self.lock.is_none()
+            && owner
+                .manifest
+                .dependencies
+                .iter()
+                .any(|dependency| matches!(dependency.source, DependencySource::Archive(_)))
+        {
+            let bytes = self.sources.read_config(&lock_path).map_err(|error| {
+                provider_error(
+                    format!(
+                        "cannot read {MODULES_LOCK}: {error}; add the SDK with `rinzu modules add`"
+                    ),
+                    &lock_path,
+                )
+            })?;
+            self.lock = Some(
+                ModulesLock::parse(&bytes).map_err(|error| provider_error(error, &lock_path))?,
+            );
+        }
+        if let Some(lock) = &self.lock {
+            lock.verify_manifest(id, &owner.manifest)
+                .map_err(|error| provider_error(error, &lock_path))?;
+        }
+        owner.manifest.dependencies.iter().map(|dependency| {
+            if matches!(owner.location.source, PackageSource::Archive(_)) {
+                modules_lock::validate_published_dependency(&dependency.source)
+                    .map_err(|error| provider_error(error, &owner.location.root.join("rinzu.toml")))?;
+            }
+            match &dependency.source {
+                DependencySource::Path(path) => {
+                    let root = owner.location.root.join(path);
+                    self.sources.canonical_path(&root).map(PackageLocation::local).map_err(|error| {
+                        vec![package_diagnostic(
+                            format!("cannot resolve dependency `{}` at `{}`: {error}", dependency.name, root.display()),
+                            "correct the path dependency or create the package directory",
+                        ).with_path(&root)]
+                    })
+                }
+                DependencySource::Archive(_) => {
+                    let pin = self.lock.as_ref().expect("archive dependencies require a lock")
+                        .archive_pin(&self.project, id, &owner.manifest, dependency)
+                        .map_err(|error| provider_error(error, &lock_path))?;
+                    let root = if let Some(root) = self.archive_roots.get(&pin.sha256) {
+                        root.clone()
+                    } else {
+                        let modules = self.project.join("modules");
+                        let root = modules_lock::archive_package_root(&modules, &pin.sha256)
+                            .map_err(|error| provider_error(format!("SDK `{}` is not available: {error}; run `rinzu modules sync`", dependency.name), &modules))?;
+                        self.archive_roots.insert(pin.sha256.clone(), root.clone());
+                        root
+                    };
+                    Ok(PackageLocation { root, source: PackageSource::Archive(pin.clone()) })
+                }
+            }
+        }).collect()
+    }
+
+    fn load(&mut self, location: &PackageLocation) -> Result<Manifest, Vec<Diagnostic>> {
+        load_resolved_manifest(location, self.sources)
+    }
+}
+
+pub fn load_resolved_manifest(
+    location: &PackageLocation,
+    sources: &mut SourceSnapshot<'_>,
+) -> Result<Manifest, Vec<Diagnostic>> {
+    let path = location.root.join("rinzu.toml");
+    let PackageSource::Archive(pin) = &location.source else {
+        return read_package_manifest(&path, sources);
+    };
+    let receipt_path = location.root.with_file_name(modules_lock::RECEIPT);
+    let metadata = std::fs::symlink_metadata(&receipt_path)
+        .map_err(|error| provider_error(error.to_string(), &receipt_path))?;
+    if !metadata.is_file() || metadata.len() > modules_lock::MAX_LOCK_BYTES {
+        return Err(provider_error(
+            "invalid SDK archive inventory",
+            &receipt_path,
+        ));
+    }
+    let bytes = sources
+        .read_config(&receipt_path)
+        .map_err(|error| provider_error(error.to_string(), &receipt_path))?;
+    let receipt =
+        ArchiveReceipt::parse(&bytes, pin).map_err(|error| provider_error(error, &receipt_path))?;
+    if std::fs::symlink_metadata(&path).map_or(true, |metadata| {
+        !metadata.is_file() || metadata.len() > 1024 * 1024
+    }) {
+        return Err(provider_error("invalid published SDK manifest", &path));
+    }
+    sources.register_archive(location.root.clone(), receipt);
+    let manifest = load_manifest_with_sources(&path, sources)?;
+    if manifest.native != NativeManifest::default() {
+        return Err(provider_error(
+            "published SDKs must contain only Rinzu source",
+            &path,
+        ));
+    }
+    if !location.root.join(&manifest.entry).is_file() {
+        return Err(provider_error("published SDK entry is missing", &path));
+    }
+    Ok(manifest)
 }
 
 fn merge_packages(
     packages: &mut Vec<ResolvedSdkPackage>,
-    incoming: Vec<ResolvedSdkPackage>,
+    incoming: impl IntoIterator<Item = ResolvedSdkPackage>,
 ) -> Result<(), Vec<Diagnostic>> {
+    let mut roots: HashMap<_, _> = packages
+        .iter()
+        .map(|package| (package.manifest.name.clone(), package.manifest.root.clone()))
+        .collect();
     for package in incoming {
-        if let Some(previous) = packages
-            .iter()
-            .find(|p| p.manifest.name == package.manifest.name)
-        {
-            if previous.manifest.root != package.manifest.root {
+        if let Some(previous) = roots.get(&package.manifest.name) {
+            if *previous != package.manifest.root {
                 return Err(vec![
                     package_diagnostic(
                         format!(
@@ -1580,6 +1689,7 @@ fn merge_packages(
                 ]);
             }
         } else {
+            roots.insert(package.manifest.name.clone(), package.manifest.root.clone());
             packages.push(package);
         }
     }
@@ -1677,7 +1787,10 @@ fn resolve_standard_imports(
     Ok(packages)
 }
 
-fn package_diagnostic(message: impl Into<String>, suggestion: impl Into<String>) -> Diagnostic {
+pub(crate) fn package_diagnostic(
+    message: impl Into<String>,
+    suggestion: impl Into<String>,
+) -> Diagnostic {
     Diagnostic::error(
         DiagnosticCode::PackageIo,
         SourceRange::empty(FileId::MANIFEST, 0),
@@ -3164,3 +3277,6 @@ fn rewrite_arguments(
         }
     }
 }
+
+#[cfg(test)]
+mod graph_tests;

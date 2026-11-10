@@ -91,7 +91,12 @@ pub fn protect_outputs(
         .map(|input| input.path.clone())
         .collect::<Vec<_>>();
     for ancestor in context.metadata.root.ancestors() {
-        for name in ["rinzu.toml", "rinzu.lock", "rinzu.api.json"] {
+        for name in [
+            "rinzu.toml",
+            "rinzu.lock",
+            "rinzu.api.json",
+            rinzu_compiler::modules_lock::FILE,
+        ] {
             protected.push(ancestor.join(name));
         }
     }

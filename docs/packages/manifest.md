@@ -17,9 +17,23 @@ entry = "src/main.rinzu"
 
 ## Dependencies
 
-Only local path dependencies are supported. A dependency key must match its package name. Its path is relative to the declaring package. Built-in modules such as `rinzu.io` must not be listed as dependencies and cannot be replaced.
+A dependency key must match its package name. A `path` dependency refers to a directory relative to the declaring package. Built-in modules such as `rinzu.io` are reserved.
 
-Declare every additional SDK directly used by your source. A dependency's private dependencies do not grant your package arbitrary import or native symbol access. There is no network registry, automatic fetch, version resolver, or package publish command.
+Declare every additional SDK directly used by your source. A dependency's private dependencies do not grant your package arbitrary import or native symbol access.
+
+### Add a source archive
+
+From your package directory, pass a public HTTPS URL or a local `.tar.gz` file to `modules add`.
+
+```sh
+rinzu modules add remi0753.test_sdk https://github.com/remi0753/testSDK/releases/download/v1.0.0/testSDK-1.0.0.tar.gz
+rinzu modules sync
+rinzu modules sync --offline
+```
+
+The archive contains one pure Rinzu SDK. Put `rinzu.toml` and `src/` at its root or inside a single enclosing directory. The command records the `archive` dependency in `rinzu.toml`, the resolved graph in `rinzu.modules.lock`, and verified source under `modules/store/sha256/`. The lock and manifest are the inputs to commit. `modules sync` restores the pinned graph, and `--offline` restores it from installed sources, the user cache, or local archives. Build and editor commands use the installed sources locally.
+
+The first addition from a GitHub Release checks the public asset digest. For an unpinned local file or other HTTPS URL, the first successful addition records the received SHA-256. Subsequent restorations enforce the pinned digest. A published SDK declares each of its direct external dependencies as an HTTPS archive with `integrity = "sha256:<digest>"`. When the current project is an SDK, `modules add` writes this integrity value for the dependency it adds. Consumers resolve the full graph from the published declarations and keep their own lock. A project's existing declaration is protected when adding a different source under the same name.
 
 ## SDK manifests
 
@@ -57,7 +71,7 @@ rinzu lock ./my-app
 rinzu lock ./my-app --check
 ```
 
-A lock pins the checked dependency graph, source/native inputs, toolchain, and platform context. Existing locks are checked before execution/build and must be refreshed explicitly after an intended change. Use the same `-L`, `-l`, object, and header inputs when generating and checking a lock.
+`rinzu.lock` pins the checked dependency graph, source/native inputs, toolchain, and platform context. Existing locks are checked before execution/build and must be refreshed explicitly after an intended change. Use the same `-L`, `-l`, object, and header inputs when generating and checking a lock. `rinzu.modules.lock` pins the portable archive selection used to restore sources.
 
 Caches live in the user's Rinzu cache directory; `RINZU_CACHE_DIR` selects a different root. Cached generated files and receipts are validated and can be rebuilt when invalid. A lock and a cache serve different purposes; neither is a remote package registry.
 

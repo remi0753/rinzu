@@ -33,8 +33,10 @@ mod ir;
 mod lexer;
 mod manifest;
 mod methods;
+pub mod modules_lock;
 mod native_interface;
 mod package;
+mod package_graph;
 mod package_metadata;
 mod package_templates;
 mod package_tests;
@@ -72,15 +74,22 @@ pub use ir::{
     proven_frame_memberships, proven_frame_roots, verify_module, virtual_bytes_options,
 };
 pub use manifest::{
-    Manifest, ManifestError, NativeManifest, PackageExports, PackageKind, PathDependency,
-    canonicalize_native_inputs, find_manifest, load_manifest,
+    ArchiveDependency, Dependency, DependencySource, Manifest, ManifestError, NativeManifest,
+    PackageExports, PackageKind, canonicalize_native_inputs, find_manifest, load_manifest,
+    load_manifest_text, set_archive_dependency, valid_archive_locator, valid_package_name,
 };
+pub use modules_lock::{ArchivePin, ArchiveReceipt, ModulesLock};
 pub use native_interface::{
     SourceAbiType, SourceNativeSignature, source_native_signatures, validate_native_declarations,
 };
 pub use package::{
     ResolvedSdkPackage, ResolvedSourceImport, ResolvedSourceModule, SourceNativeInterface,
-    SourceSdkInterface, load_manifest_with_sources,
+    SourceSdkInterface, load_manifest_with_sources, load_resolved_manifest,
+    resolve_installed_graph,
+};
+pub use package_graph::{
+    PackageId, PackageLocation, PackageProvider, PackageSource, ResolvedGraph, ResolvedPackage,
+    resolve_package_graph,
 };
 pub use package_metadata::{NativeImport, canonical_import_key, fnv1a64};
 pub use package_templates::SourceTemplateSchema;
@@ -106,7 +115,7 @@ pub struct FrontendArtifact {
     pub ir: IrModule,
     pub sdk_packages: Vec<ResolvedSdkPackage>,
     /// Root owner's checked interface; application presence does not make it an SDK.
-    pub source_interface: Option<package::SourceNativeInterface>,
+    pub source_interface: Option<std::sync::Arc<package::SourceNativeInterface>>,
     pub module_graph: Vec<ResolvedSourceModule>,
     /// Disk execution must still match this frontend's source/configuration snapshot.
     pub checked_inputs: std::collections::BTreeMap<std::path::PathBuf, Vec<u8>>,

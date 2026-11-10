@@ -13,6 +13,8 @@ Use `rinzu help` for the complete command list and `rinzu --version` for the too
 | `test [package]` | Execute the package's main |
 | `test [package] --unit` | Discover and run test functions |
 | `test [package] --doc file.md` | Run explicit documentation examples |
+| `modules add <SDK name> <HTTPS URL or archive path>` | Add a source SDK and pin its dependency graph |
+| `modules sync [--offline]` | Restore the SDKs pinned in the current project's modules lock |
 | `lock [package]` / `lock [package] --check` | Create/update or check a package lock |
 | `api [sdk] --output file.json --markdown file.md` | Export a checked public API |
 | `dev [package] [-- args...]` | Recheck and restart an application after edits |

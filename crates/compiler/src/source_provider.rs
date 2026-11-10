@@ -5,7 +5,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::{Diagnostic, FileId, Module, SourceFile};
+use crate::{ArchiveReceipt, Diagnostic, FileId, Module, SourceFile};
 
 type ParseResult = Result<Module, Vec<Diagnostic>>;
 type CachedParse = (Vec<u8>, ParseResult);
@@ -84,6 +84,8 @@ pub struct SourceSnapshot<'a> {
     reads: BTreeMap<PathBuf, Vec<u8>>,
     config_reads: BTreeMap<PathBuf, Vec<u8>>,
     native_headers: BTreeSet<PathBuf>,
+    archives: BTreeMap<PathBuf, ArchiveReceipt>,
+    archive_directories: BTreeMap<PathBuf, BTreeMap<PathBuf, bool>>,
     sources: BTreeMap<PathBuf, SourceFile>,
     pub parse_hits: usize,
     pub parse_misses: usize,
@@ -101,6 +103,8 @@ impl<'a> SourceSnapshot<'a> {
             reads: BTreeMap::new(),
             config_reads: BTreeMap::new(),
             native_headers: BTreeSet::new(),
+            archives: BTreeMap::new(),
+            archive_directories: BTreeMap::new(),
             sources: BTreeMap::new(),
             parse_hits: 0,
             parse_misses: 0,
@@ -128,14 +132,21 @@ impl<'a> SourceSnapshot<'a> {
     }
 
     pub fn canonical_path(&self, path: &Path) -> io::Result<PathBuf> {
+        let archived = self.archive_for(path).is_some();
         match path.canonicalize() {
             Ok(canonical) => {
+                if archived && canonical != crate::modules_lock::lexical_path(path) {
+                    return Err(io::Error::other(
+                        "verified SDK paths must not traverse symlinks",
+                    ));
+                }
                 self.resolved_paths
                     .borrow_mut()
                     .entry(path.to_owned())
                     .or_insert_with(|| Some(canonical.clone()));
                 Ok(canonical)
             }
+            Err(original) if archived => Err(original),
             Err(original) => {
                 let parent = path
                     .parent()
@@ -158,6 +169,15 @@ impl<'a> SourceSnapshot<'a> {
     }
 
     pub(crate) fn source_entries(&mut self, directory: &Path) -> io::Result<SourceEntries> {
+        if self.archive_for(directory).is_some() {
+            return Ok(self
+                .archive_directories
+                .get(directory)
+                .into_iter()
+                .flatten()
+                .map(|(path, directory)| (path.clone(), *directory))
+                .collect());
+        }
         let entries = source_entries(directory)?;
         if self.editor_file.is_some() {
             self.source_directories
@@ -191,6 +211,7 @@ impl<'a> SourceSnapshot<'a> {
         {
             return Err(io::Error::other("source exceeds the editor document limit"));
         }
+        self.verify_archive_bytes(path, &bytes)?;
         self.reads.insert(path.to_owned(), bytes.clone());
         Ok(bytes)
     }
@@ -217,8 +238,58 @@ impl<'a> SourceSnapshot<'a> {
                 "manifest exceeds the editor configuration limit",
             ));
         }
+        self.verify_archive_bytes(&path, &bytes)?;
         self.config_reads.insert(path, bytes.clone());
         Ok(bytes)
+    }
+
+    pub(crate) fn register_archive(&mut self, root: PathBuf, receipt: ArchiveReceipt) {
+        for relative in receipt.files.keys() {
+            let file = root.join(relative);
+            for (child, directory) in file.ancestors().zip(file.ancestors().skip(1)) {
+                if !directory.starts_with(&root) {
+                    break;
+                }
+                let is_directory = child != file;
+                if is_directory
+                    || child
+                        .extension()
+                        .is_some_and(|extension| extension == "rinzu")
+                {
+                    self.archive_directories
+                        .entry(directory.to_owned())
+                        .or_default()
+                        .insert(child.to_owned(), is_directory);
+                }
+            }
+        }
+        self.archives.insert(root, receipt);
+    }
+
+    pub(crate) fn is_archive(&self, root: &Path) -> bool {
+        self.archives.contains_key(root)
+    }
+
+    fn archive_for(&self, path: &Path) -> Option<(&Path, &ArchiveReceipt)> {
+        path.ancestors().find_map(|root| {
+            self.archives
+                .get_key_value(root)
+                .map(|(root, receipt)| (root.as_path(), receipt))
+        })
+    }
+
+    fn verify_archive_bytes(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
+        if let Some((root, receipt)) = self.archive_for(path) {
+            let expected = receipt
+                .files
+                .get(path.strip_prefix(root).expect("archive ancestor"));
+            if !expected.is_some_and(|digest| *digest == crate::standard_library::sha256(bytes)) {
+                return Err(io::Error::other(
+                    "SDK source differs from its verified inventory; run `rinzu modules sync`",
+                ));
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn read_native_header(&mut self, path: &Path) -> io::Result<Vec<u8>> {

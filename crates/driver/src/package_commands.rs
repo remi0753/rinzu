@@ -25,7 +25,7 @@ struct ManifestPlan {
     kind: String,
     entry: PathBuf,
     exports: Vec<String>,
-    dependencies: BTreeMap<String, PathBuf>,
+    dependencies: BTreeMap<String, rinzu_compiler::DependencySource>,
     native: BTreeMap<String, Vec<String>>,
 }
 
@@ -45,7 +45,7 @@ fn plan(manifest: &Manifest) -> ManifestPlan {
         dependencies: manifest
             .dependencies
             .iter()
-            .map(|d| (d.name.clone(), d.path.clone()))
+            .map(|d| (d.name.clone(), d.source.clone()))
             .collect(),
         native: BTreeMap::from([
             ("sources".into(), paths(&native.sources)),

@@ -89,12 +89,16 @@ struct BuildResponse {
 pub(crate) struct TemporaryDirectory(pub PathBuf);
 impl TemporaryDirectory {
     pub fn new(label: &str) -> Result<Self, String> {
+        Self::in_directory(&std::env::temp_dir(), label)
+    }
+
+    pub fn in_directory(parent: &Path, label: &str) -> Result<Self, String> {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|error| error.to_string())?
             .as_nanos();
-        let path = std::env::temp_dir().join(format!(
+        let path = parent.join(format!(
             "rinzu-{label}-{}-{nonce}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
@@ -107,7 +111,7 @@ impl TemporaryDirectory {
         }
         builder
             .create(&path)
-            .map_err(|error| format!("create verification directory: {error}"))?;
+            .map_err(|error| format!("create temporary directory {}: {error}", path.display()))?;
         Ok(Self(path))
     }
 }

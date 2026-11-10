@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 use crate::{Diagnostic, DiagnosticCode, FileId, SourceFile, SourceRange};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -10,10 +12,25 @@ pub enum PackageKind {
     Sdk,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PathDependency {
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct Dependency {
     pub name: String,
-    pub path: PathBuf,
+    pub source: DependencySource,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DependencySource {
+    Path(PathBuf),
+    Archive(ArchiveDependency),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArchiveDependency {
+    pub archive: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -40,7 +57,7 @@ pub struct Manifest {
     pub language: String,
     pub kind: PackageKind,
     pub entry: PathBuf,
-    pub dependencies: Vec<PathDependency>,
+    pub dependencies: Vec<Dependency>,
     pub exports: PackageExports,
     pub native: NativeManifest,
 }
@@ -142,10 +159,11 @@ pub fn load_manifest(path: &Path) -> Result<Manifest, ManifestError> {
             "make the manifest readable",
         )
     })?;
-    load_manifest_text(path, text.strip_prefix('\u{feff}').unwrap_or(&text))
+    load_manifest_text(path, &text)
 }
 
-pub(crate) fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, ManifestError> {
+pub fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, ManifestError> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let sections = parse_sections(path, text)?;
     let package = &sections
         .get("package")
@@ -249,15 +267,15 @@ pub(crate) fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, Ma
                 )
                 .at(entry.key.clone()));
             }
-            let dependency_path = inline_path(&entry.text).map_err(|message| {
+            let source = dependency_source(&entry.text).map_err(|message| {
                 ManifestError::new(
                     path,
                     format!("dependency `{dependency}` {message}"),
-                    "write `{ path = \"../sdk/package\" }`",
+                    "use `{ path = \"../sdk\" }` or `{ archive = \"https://.../sdk.tar.gz\" }`",
                 )
                 .at(entry.value.clone())
             })?;
-            if dependency_path.is_absolute() {
+            if matches!(&source, DependencySource::Path(path) if path.is_absolute()) {
                 return Err(ManifestError::new(
                     path,
                     format!("dependency `{dependency}` path must be relative"),
@@ -265,9 +283,9 @@ pub(crate) fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, Ma
                 )
                 .at(entry.value.clone()));
             }
-            dependencies.push(PathDependency {
+            dependencies.push(Dependency {
                 name: dependency.clone(),
-                path: dependency_path,
+                source,
             });
         }
     }
@@ -651,20 +669,147 @@ fn optional_array(
         .transpose()
 }
 
-fn inline_path(value: &str) -> Result<PathBuf, &'static str> {
-    let value = value.trim();
-    let inner = value
+fn dependency_source(value: &str) -> Result<DependencySource, &'static str> {
+    let mut remaining = value
+        .trim()
         .strip_prefix('{')
         .and_then(|value| value.strip_suffix('}'))
         .ok_or("must be an inline table")?
         .trim();
-    let (key, value) = inner.split_once('=').ok_or("must contain a `path` key")?;
-    if key.trim() != "path" {
-        return Err("accepts only a `path` key");
+    let mut path = None;
+    let mut archive = None;
+    let mut integrity = None;
+    loop {
+        let (key, value) = remaining
+            .split_once('=')
+            .ok_or("must contain key/value pairs")?;
+        let value = value.trim_start();
+        let end = value
+            .strip_prefix('"')
+            .and_then(|text| text.find('"'))
+            .map(|index| index + 2)
+            .ok_or("values must be quoted strings")?;
+        let field = match key.trim() {
+            "path" => &mut path,
+            "archive" => &mut archive,
+            "integrity" => &mut integrity,
+            _ => return Err("accepts only `path`, `archive`, and `integrity` keys"),
+        };
+        let value_text = unquote(&value[..end]).ok_or("values must be quoted strings")?;
+        if field.replace(value_text).is_some() {
+            return Err("contains a duplicate key");
+        }
+        let tail = value[end..].trim_start();
+        if tail.is_empty() {
+            break;
+        }
+        remaining = tail
+            .strip_prefix(',')
+            .ok_or("must separate fields with a comma")?
+            .trim_start();
     }
-    unquote(value.trim())
-        .map(PathBuf::from)
-        .ok_or("path must be a quoted string")
+    match (path, archive, integrity) {
+        (Some(path), None, None) => Ok(DependencySource::Path(PathBuf::from(path))),
+        (None, Some(archive), integrity) if valid_archive_locator(&archive) => {
+            let sha256 = integrity
+                .map(|value| {
+                    value
+                        .strip_prefix("sha256:")
+                        .filter(|digest| {
+                            digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit())
+                        })
+                        .map(str::to_ascii_lowercase)
+                        .ok_or("integrity must be `sha256:` followed by 64 hexadecimal digits")
+                })
+                .transpose()?;
+            Ok(DependencySource::Archive(ArchiveDependency {
+                archive,
+                sha256,
+            }))
+        }
+        (None, Some(_), _) => Err("archive must be an HTTPS URL or a relative archive path"),
+        _ => Err("requires either `path` or `archive`; `integrity` applies to archives"),
+    }
+}
+
+pub fn valid_archive_locator(locator: &str) -> bool {
+    if locator.is_empty()
+        || locator
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '"' | '\\'))
+    {
+        return false;
+    }
+    if let Some(url) = locator.strip_prefix("https://") {
+        let authority = url.split(['/', '?', '#']).next().unwrap_or_default();
+        return !authority.is_empty()
+            && !authority.contains('@')
+            && !url.chars().any(char::is_whitespace);
+    }
+    !locator.contains("://") && Path::new(locator).is_relative()
+}
+
+/// Edit the dependency entry using the same grammar as the compiler.
+pub fn set_archive_dependency(
+    path: &Path,
+    original: &str,
+    name: &str,
+    dependency: &ArchiveDependency,
+) -> Result<String, ManifestError> {
+    if !valid_package_name(name) || !valid_archive_locator(&dependency.archive) {
+        return Err(ManifestError::new(
+            path,
+            "invalid SDK name or archive location",
+            "use a package name and an HTTPS URL or relative archive path",
+        ));
+    }
+    let bom = "\u{feff}";
+    let text = original.strip_prefix(bom).unwrap_or(original);
+    let sections = parse_sections(path, text)?;
+    let integrity = dependency
+        .sha256
+        .as_ref()
+        .map_or_else(String::new, |digest| {
+            format!(", integrity = \"sha256:{digest}\"")
+        });
+    let value = format!("{{ archive = \"{}\"{integrity} }}", dependency.archive);
+    let mut updated = text.to_owned();
+    if let Some(entry) = sections
+        .get("dependencies")
+        .and_then(|section| section.entries.get(name))
+    {
+        updated.replace_range(entry.value.clone(), &value);
+    } else {
+        let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+        let line = format!("\"{name}\" = {value}{newline}");
+        if let Some(section) = sections.get("dependencies") {
+            let end = section
+                .entries
+                .values()
+                .map(|entry| entry.value.end)
+                .max()
+                .unwrap_or(section.span.end);
+            if let Some(next) = text[end..].find('\n') {
+                updated.insert_str(end + next + 1, &line);
+            } else {
+                updated.push_str(newline);
+                updated.push_str(&line);
+            }
+        } else {
+            if !updated.ends_with('\n') {
+                updated.push_str(newline);
+            }
+            updated.push_str(newline);
+            updated.push_str("[dependencies]");
+            updated.push_str(newline);
+            updated.push_str(&line);
+        }
+    }
+    load_manifest_text(path, &updated)?;
+    if original.starts_with(bom) {
+        updated.insert_str(0, bom);
+    }
+    Ok(updated)
 }
 
 fn unquote(value: &str) -> Option<String> {
@@ -707,7 +852,7 @@ fn reject_unknown_keys(
     Ok(())
 }
 
-fn valid_package_name(name: &str) -> bool {
+pub fn valid_package_name(name: &str) -> bool {
     !name.is_empty() && name.split('.').all(valid_name_segment)
 }
 

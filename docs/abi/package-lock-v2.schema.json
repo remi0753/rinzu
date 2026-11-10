@@ -72,7 +72,18 @@
         "dependencies": {
           "type": "object",
           "additionalProperties": {
-            "type": "string"
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["archive"],
+                "properties": {
+                  "archive": { "type": "string" },
+                  "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                }
+              }
+            ]
           }
         },
         "native": {

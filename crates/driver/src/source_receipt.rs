@@ -372,7 +372,7 @@ pub fn fingerprint(
             "privateRuntime": rinzu_codegen::BASELINE_RUNTIME_ABI_REVISION,
             "sourcePackage": [rinzu_abi::SOURCE_PACKAGE_MAJOR, rinzu_abi::SOURCE_PACKAGE_MINOR],
             "nativeDataContract": rinzu_abi::NATIVE_DATA_CONTRACT_VERSION,
-            "manifest": {"exports": manifest.exports.modules, "dependencies": manifest.dependencies.iter().map(|dependency| (&dependency.name, &dependency.path)).collect::<Vec<_>>()},
+            "manifest": {"exports": manifest.exports.modules, "dependencies": manifest.dependencies.iter().map(|dependency| (&dependency.name, &dependency.source)).collect::<Vec<_>>()},
         "checked": checked_sources,
         "scopeFiles": scope_files,
             "target": target, "graph": nodes.into_values().collect::<Vec<_>>(),
