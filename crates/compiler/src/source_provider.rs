@@ -5,7 +5,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::{ArchiveReceipt, Diagnostic, FileId, Module, SourceFile};
+use crate::{
+    ArchiveReceipt, CheckedModule, CompilerOptions, Diagnostic, FileId, Module, SourceFile,
+};
 
 type ParseResult = Result<Module, Vec<Diagnostic>>;
 type CachedParse = (Vec<u8>, ParseResult);
@@ -85,6 +87,7 @@ pub struct SourceSnapshot<'a> {
     overlays: BTreeMap<PathBuf, Vec<u8>>,
     resolved_paths: RefCell<BTreeMap<PathBuf, Option<PathBuf>>>,
     editor_file: Option<PathBuf>,
+    hover_only: bool,
     source_directories: BTreeMap<PathBuf, SourceEntries>,
     reads: BTreeMap<PathBuf, Vec<u8>>,
     config_reads: BTreeMap<PathBuf, Vec<u8>>,
@@ -104,6 +107,7 @@ impl<'a> SourceSnapshot<'a> {
             overlays,
             resolved_paths: RefCell::new(BTreeMap::new()),
             editor_file: None,
+            hover_only: false,
             source_directories: BTreeMap::new(),
             reads: BTreeMap::new(),
             config_reads: BTreeMap::new(),
@@ -119,6 +123,22 @@ impl<'a> SourceSnapshot<'a> {
 
     pub fn set_editor_file(&mut self, path: PathBuf) {
         self.editor_file = Some(path);
+        self.hover_only = false;
+    }
+
+    /// Collect checked hover types and Error bounds without the separate
+    /// observation validation pass. Use this snapshot only for editor hover.
+    pub fn set_editor_hover_file(&mut self, path: PathBuf) {
+        self.editor_file = Some(path);
+        self.hover_only = true;
+    }
+
+    pub fn check_module(
+        &self,
+        module: &Module,
+        options: &CompilerOptions,
+    ) -> Result<CheckedModule, Vec<Diagnostic>> {
+        crate::sema::check_module_with_validation(module, options, !self.hover_only)
     }
 
     pub(crate) fn editor_file(&self) -> Option<FileId> {

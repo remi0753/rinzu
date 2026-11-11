@@ -63,7 +63,7 @@ cargo build -p rinzu-driver --bin rinzu
 python3 tests/integration/test_vscode_editor.py
 ```
 
-The optional hover method accepts the same document version and UTF-16 position as definition. Its result includes a token range, checked or syntax resolution, and any available definition and contract locations. Each checked effect gives the phase, the basis, and a none, finite, open, or unknown bound. Consecutive requests in a verified snapshot reuse a bounded index.
+The optional hover method accepts the same document version and UTF-16 position as definition. Its result includes a token range, checked or syntax resolution, and any available definition and contract locations. Each checked effect gives the phase, the basis, and a none, finite, open, or unknown bound. Consecutive requests in a verified snapshot reuse a bounded index. The extension sends hover requests to a separate process so type checking and Error inference can answer while diagnostics verify Future observation. Protocol clients can also prepare the hover index during a full diagnostics request with `prepareHover: true`.
 
 This is a local development extension, not an automatically installed Marketplace package. The editor service is a versioned JSON-lines protocol; it is not a claim of full LSP compatibility. It supports one folder/service and file documents. Native provider/header/receipt validation still requires CLI check/build with actual inputs.
 

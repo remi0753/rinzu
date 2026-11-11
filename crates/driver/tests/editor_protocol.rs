@@ -1057,6 +1057,70 @@ fn hover_point(text: &str, marker: &str, advance: usize) -> Value {
 }
 
 #[test]
+fn diagnostics_can_prepare_hover_for_the_current_document_version() {
+    let fixture = Fixture::new();
+    let text = "fn main() { let value = 42; }\n";
+    let path = fixture.file("main.rinzu", text);
+    let other_text = "fn helper() {}\n";
+    let other = fixture.file("other.rinzu", other_text);
+    let mut client = Client::new(None);
+    client.open(&path, 1, text);
+    client.open(&other, 1, other_text);
+    let diagnostics = client.ok(
+        "diagnostics",
+        json!({"path":path,"version":1,"prepareHover":true}),
+    );
+    assert_eq!(diagnostics["result"]["diagnostics"], json!([]));
+    client.ok("diagnostics", json!({"path":other,"version":1}));
+
+    let hover = client.query("hover", &path, 1, hover_point(text, "value", 0));
+    assert_eq!(hover["result"]["hoverCache"], "hit");
+    assert_eq!(hover["result"]["hover"]["valueType"], "Int");
+
+    let edited = text.replace("42", "\"updated\"");
+    client.ok("change", json!({"path":path,"version":2,"text":edited}));
+    let hover = client.query("hover", &path, 2, hover_point(&edited, "value", 0));
+    assert_eq!(hover["result"]["hoverCache"], "miss");
+    assert_eq!(hover["result"]["hover"]["valueType"], "String");
+    client.shutdown();
+}
+
+#[test]
+fn hover_can_show_checked_types_before_future_observation_is_validated() {
+    let fixture = Fixture::new();
+    fixture.package();
+    let text = r#"
+error Failed {}
+async fn fail() -> Int { throw Failed(message: "failure"); }
+async fn main() { let abandoned = fail(); let value = 42; }
+"#;
+    let path = fixture.file("src/main.rinzu", text);
+    let mut client = Client::new(None);
+    client.open(&path, 1, text);
+    let point = hover_point(text, "value", 0);
+
+    let hover = client.query("hover", &path, 1, point.clone());
+    assert_eq!(hover["result"]["hover"]["resolution"], "checked");
+    assert_eq!(hover["result"]["hover"]["valueType"], "Int");
+
+    let diagnostics = client.ok(
+        "diagnostics",
+        json!({"path":path,"version":1,"prepareHover":true}),
+    );
+    assert!(
+        diagnostics["result"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|diagnostic| diagnostic["code"] == "RZ0406"),
+        "{diagnostics:#?}"
+    );
+    let hover = client.query("hover", &path, 1, point);
+    assert_eq!(hover["result"]["hover"]["valueType"], "Int");
+    client.shutdown();
+}
+
+#[test]
 fn hover_shows_sdk_aliases_and_await_flow_from_the_current_snapshot() {
     let fixture = Fixture::new();
     fixture.file("rinzu.toml", "[package]\nname=\"hover_app\"\nlanguage=\"0.5\"\n[dependencies]\n\"example.callbacks\"={path=\"callbacks\"}\n");

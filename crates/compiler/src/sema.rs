@@ -407,6 +407,14 @@ pub fn check_module_with_options(
     module: &Module,
     options: &CompilerOptions,
 ) -> Result<CheckedModule, Vec<Diagnostic>> {
+    check_module_with_validation(module, options, true)
+}
+
+pub(crate) fn check_module_with_validation(
+    module: &Module,
+    options: &CompilerOptions,
+    check_responsibility: bool,
+) -> Result<CheckedModule, Vec<Diagnostic>> {
     let _timing = crate::timing::span("frontend.check");
     let mut module = module.clone();
     crate::package::link_builtin_imports(&mut module)?;
@@ -470,8 +478,12 @@ pub fn check_module_with_options(
     let mut editor_effects = options
         .editor_file
         .map(crate::error_effects::EditorEffects::new);
-    let summaries =
-        crate::error_effects::analyze(&checked, !options.is_library, editor_effects.as_mut())?;
+    let summaries = crate::error_effects::analyze(
+        &checked,
+        !options.is_library,
+        editor_effects.as_mut(),
+        check_responsibility,
+    )?;
     checked.editor_effects = editor_effects;
     for function in &mut checked.functions {
         function.error_types =

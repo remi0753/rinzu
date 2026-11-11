@@ -328,6 +328,7 @@ pub(crate) fn analyze(
     checked: &CheckedModule,
     entry: bool,
     mut editor_effects: Option<&mut EditorEffects>,
+    check_responsibility: bool,
 ) -> Result<BTreeMap<String, Summary>, Vec<Diagnostic>> {
     let _timing = crate::timing::span("frontend.effects");
     let functions = functions_by_name(checked);
@@ -349,12 +350,15 @@ pub(crate) fn analyze(
         }
     }
     if failures.is_empty() {
-        let diagnostics = responsibility::validate(checked, &summaries, &graph, bound, entry);
-        return if diagnostics.is_empty() {
-            Ok(summaries)
-        } else {
-            Err(diagnostics)
-        };
+        // Observation validation consumes these summaries without changing the
+        // checked types or Error bounds. Hover can use them before diagnostics finish.
+        if check_responsibility {
+            let diagnostics = responsibility::validate(checked, &summaries, &graph, bound, entry);
+            if !diagnostics.is_empty() {
+                return Err(diagnostics);
+            }
+        }
+        return Ok(summaries);
     }
 
     let mut diagnostics =

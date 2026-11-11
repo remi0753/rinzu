@@ -11,8 +11,7 @@ use crate::{
     ArchiveReceipt, CompilerOptions, DependencySource, Diagnostic, DiagnosticCode, FileId,
     FrontendArtifact, Manifest, ModulesLock, NativeImport, NativeManifest, PackageId, PackageKind,
     PackageLocation, PackageProvider, PackageSource, ResolvedGraph, ResolvedPackage, SourceCache,
-    SourceRange, SourceSnapshot, Type, check_module_with_options, find_manifest,
-    resolve_package_graph, verify_module,
+    SourceRange, SourceSnapshot, Type, find_manifest, resolve_package_graph, verify_module,
 };
 
 mod toolchain;
@@ -219,7 +218,8 @@ pub(crate) fn check_file_with_sources(
     }
     let sema_timing =
         crate::timing::span("frontend.sema").detail(path.to_str().unwrap_or("<file>"));
-    let checked = check_module_with_options(&syntax, &options)
+    let checked = sources
+        .check_module(&syntax, &options)
         .map_err(|errors| import_context(errors, &module_graph))?;
     drop(sema_timing);
     let lower_timing =
@@ -833,7 +833,8 @@ fn check_loaded(
         }
     }
     let sema_timing = crate::timing::span("frontend.sema").detail(&manifest.name);
-    let checked = check_module_with_options(&syntax, &options)
+    let checked = sources
+        .check_module(&syntax, &options)
         .map_err(|errors| import_context(errors, &module_graph))?;
     drop(sema_timing);
     let lower_timing = crate::timing::span("frontend.lower").detail(&manifest.name);

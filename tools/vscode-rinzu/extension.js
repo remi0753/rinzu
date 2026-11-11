@@ -141,6 +141,7 @@ class SourceClient {
   invalidate(disk = false, filenames = [], structural = false) {
     ++this.epoch;
     this.diskDirty ||= disk;
+    if (!this.diagnostics) return;
     this.scopeVersions.clear();
     if (!this.scoped) {
       this.diagnostics.clear();
@@ -270,7 +271,11 @@ class SourceClient {
   async hover(document, position, token) {
     if (token?.isCancellationRequested || document.isClosed) return undefined;
     this.hoverCapability ??= this.ready.then(response => response || this.raw('initialize'))
-      .then(response => response.result.methods?.includes('hover') === true);
+      .then(response => response.result.methods?.includes('hover') === true)
+      .catch(error => {
+        this.hoverCapability = undefined;
+        throw error;
+      });
     if (!await this.hoverCapability || token?.isCancellationRequested || document.isClosed) return undefined;
     let pending = this.hoverRequests.get(document);
     if (!pending) {
@@ -367,9 +372,12 @@ let active;
 function activate(context) {
   const output = vscode.window.createOutputChannel('Rinzu');
   const diagnostics = vscode.languages.createDiagnosticCollection('rinzu');
-  const client = new SourceClient(output, diagnostics); active = client;
+  const client = new SourceClient(output, diagnostics);
+  let hoverClient;
   const selector = { language: 'rinzu', scheme: 'file' };
   let timer;
+  const services = { dispose() { clearTimeout(timer); hoverClient?.dispose(); client.dispose(); } };
+  active = services;
   const report = error => { if (error.code !== 'ContentModified') output.appendLine(error.stack || error.message); };
   let checkTail = Promise.resolve();
   const checkOpen = () => {
@@ -380,10 +388,13 @@ function activate(context) {
     clearTimeout(timer);
     timer = setTimeout(checkOpen, 180);
   };
-  const changed = (disk, files, structural) => { client.invalidate(disk, files, structural); schedule(); };
+  const invalidate = (disk, files, structural) => {
+    client.invalidate(disk, files, structural);
+    hoverClient?.invalidate(disk);
+  };
+  const changed = (disk, files, structural) => { invalidate(disk, files, structural); schedule(); };
   const safe = async (operation, fallback) => { try { return await operation(); } catch (error) { report(error); return fallback; } };
-  context.subscriptions.push(output, diagnostics, client,
-    { dispose() { clearTimeout(timer); } },
+  context.subscriptions.push(output, diagnostics, services,
     vscode.workspace.onDidOpenTextDocument(document => { if (isSource(document)) changed(false, [document.uri.fsPath], document.isDirty); }),
     vscode.workspace.onDidChangeTextDocument(event => { if (isSource(event.document) && event.contentChanges.length) changed(false, [event.document.uri.fsPath], !fs.existsSync(event.document.uri.fsPath)); }),
     vscode.workspace.onDidCloseTextDocument(document => { if (isSource(document)) changed(false, [document.uri.fsPath], !fs.existsSync(document.uri.fsPath)); }),
@@ -391,10 +402,13 @@ function activate(context) {
     vscode.workspace.onDidRenameFiles(event => changed(true, event.files.flatMap(file => [file.oldUri.fsPath, file.newUri.fsPath]), true)),
     vscode.window.onDidChangeActiveTextEditor(editor => { if (editor && isSource(editor.document)) schedule(); }),
     vscode.languages.registerHoverProvider(selector, { provideHover: (document, position, token) => safe(async () => {
-      const epoch = client.epoch;
+      if (token.isCancellationRequested || document.isClosed) return undefined;
+      // A full diagnostics request can occupy the source service for seconds.
+      const source = hoverClient ??= new SourceClient(output);
+      const epoch = source.epoch;
       const version = document.version;
-      const hover = await client.hover(document, position, token);
-      if (token.isCancellationRequested || document.isClosed || document.version !== version || client.epoch !== epoch) return undefined;
+      const hover = await source.hover(document, position, token);
+      if (token.isCancellationRequested || document.isClosed || document.version !== version || source.epoch !== epoch) return undefined;
       return renderHover(hover);
     }, undefined) }),
     vscode.languages.registerDefinitionProvider(selector, { provideDefinition: (document, position, token) => safe(async () => locations((await client.query('definition', document, { position }, token)).result.locations), []) }),
@@ -414,7 +428,7 @@ function activate(context) {
       return response.result.edits.map(edit => vscode.TextEdit.replace(range(edit.range), edit.newText));
     }, []) }),
     vscode.commands.registerCommand('rinzu.refresh', async () => {
-      client.invalidate(true);
+      invalidate(true);
       return checkOpen();
     }),
     vscode.commands.registerCommand('rinzu.organizeImports', async () => {

@@ -60,6 +60,10 @@ undocumented_unsafe_blocks = "deny"
 [profile.dev.package.sha2]
 opt-level = 3
 
+# The VS Code extension normally uses the dev driver for interactive checks.
+[profile.dev.package.rinzu-compiler]
+opt-level = 1
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

@@ -32,6 +32,15 @@ struct Session {
     generation: u64,
     shutdown: bool,
 }
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AnalysisKind {
+    Diagnostics,
+    DiagnosticsWithHover,
+    Navigation,
+    Hover,
+}
+
 struct Failure {
     code: &'static str,
     message: String,
@@ -312,10 +321,25 @@ impl Session {
             "diagnostics" | "definition" | "references" | "completion" | "format"
             | "organizeImports" => {
                 let path = self.current(params)?;
-                let analysis = self.analyze(&path, method == "diagnostics", false)?;
+                let diagnostics_only = method == "diagnostics";
+                let prepare_hover = diagnostics_only
+                    && params.get("prepareHover").and_then(Value::as_bool) == Some(true);
+                let manifest = prepare_hover.then(|| self.manifest(&path));
+                let kind = if prepare_hover {
+                    AnalysisKind::DiagnosticsWithHover
+                } else if diagnostics_only {
+                    AnalysisKind::Diagnostics
+                } else {
+                    AnalysisKind::Navigation
+                };
+                let mut analysis = self.analyze(&path, kind)?;
                 let mut result = json!({"syntaxOnly":analysis.syntax_only,"stale":analysis.stale,
                     "inputs":analysis.receipts,"parseCache":{"hits":analysis.hits,"misses":analysis.misses}});
-                if analysis.stale {
+                if analysis.stale
+                    || manifest
+                        .as_ref()
+                        .is_some_and(|before| self.manifest(&path) != *before)
+                {
                     return Err(fail(
                         "ContentModified",
                         "disk inputs changed during analysis; refresh and retry",
@@ -327,9 +351,13 @@ impl Session {
                     .ok_or_else(|| fail("AnalysisUnavailable", "document could not be decoded"))?;
                 match method {
                     "diagnostics" => {
-                        result["diagnostics"] = Value::Array(analysis.diagnostics);
+                        result["diagnostics"] =
+                            Value::Array(std::mem::take(&mut analysis.diagnostics));
                         result["omittedDiagnostics"] = json!(analysis.omitted);
                         result["diagnosticScopes"] = json!(analysis.scopes);
+                        if let Some(manifest) = manifest {
+                            self.hover_cache = analysis.into_hover_cache(path, manifest);
+                        }
                     }
                     "definition" | "references" | "completion" => {
                         let point = source_point(file, position(params)?)?;
@@ -449,7 +477,6 @@ impl Session {
                     }
                     _ => unreachable!(),
                 }
-                // Keep no typed result/index from an earlier request or version.
                 Ok(result)
             }
             _ => Err(fail("MethodNotFound", format!("unknown method {method}"))),
@@ -500,7 +527,7 @@ impl Session {
                 "inputs":cache.receipts,"parseCache":{"hits":0,"misses":0},"hoverCache":"hit"}));
         }
         self.hover_cache = None;
-        let analysis = self.analyze(&path, false, true)?;
+        let analysis = self.analyze(&path, AnalysisKind::Hover)?;
         if analysis.stale || self.manifest(&path) != manifest {
             return Err(fail(
                 "ContentModified",
@@ -522,12 +549,12 @@ impl Session {
         Ok(result)
     }
 
-    fn analyze(
-        &mut self,
-        path: &Path,
-        diagnostics_only: bool,
-        hover_requested: bool,
-    ) -> Result<Analysis> {
+    fn analyze(&mut self, path: &Path, kind: AnalysisKind) -> Result<Analysis> {
+        let diagnostics_only = kind == AnalysisKind::Diagnostics;
+        let hover_requested = matches!(
+            kind,
+            AnalysisKind::Hover | AnalysisKind::DiagnosticsWithHover
+        );
         let overlays = self
             .buffers
             .iter()
@@ -543,8 +570,10 @@ impl Session {
         let manifest = self.manifest(path);
         let mut snapshot = SourceSnapshot::new(&mut self.cache, overlays);
         snapshot.set_limits(DOCUMENT_BYTES + 3, SNAPSHOT_FILES);
-        if hover_requested {
-            snapshot.set_editor_file(path.to_owned());
+        match kind {
+            AnalysisKind::Hover => snapshot.set_editor_hover_file(path.to_owned()),
+            AnalysisKind::DiagnosticsWithHover => snapshot.set_editor_file(path.to_owned()),
+            _ => {}
         }
         let mut errors = Vec::new();
         let mut scopes = Vec::new();
@@ -605,7 +634,7 @@ impl Session {
                 .source(path, bytes)
                 .map_err(|_| fail("AnalysisUnavailable", "open buffer is not UTF-8"))?;
             match snapshot.parse(&file) {
-                Ok(module) => match rinzu_compiler::check_module_with_options(
+                Ok(module) => match snapshot.check_module(
                     &module,
                     &CompilerOptions {
                         is_library: true,

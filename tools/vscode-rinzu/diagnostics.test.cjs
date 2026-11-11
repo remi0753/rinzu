@@ -263,3 +263,39 @@ test('hover does not query an older driver that lacks the capability', async t =
   client.query = () => assert.fail('unsupported hover was sent');
   assert.equal(await client.hover(open('main.rinzu'), { line: 0, character: 0 }), undefined);
 });
+
+test('checks the active buffer before other buffers without building a hover index', async t => {
+  const { client, open, response, scope } = fixture(t);
+  const background = open('background.rinzu');
+  const active = open('active.rinzu');
+  const requests = [];
+  client.query = async (method, document, params) => {
+    assert.equal(method, 'diagnostics');
+    assert.equal(params, undefined);
+    requests.push(document);
+    const name = path.basename(document.uri.fsPath);
+    return response([scope(name, [], 'file')], [], [document.uri.fsPath]);
+  };
+  await client.checkOpen(active, assert.fail);
+  assert.deepEqual(requests, [active, background]);
+});
+
+test('hover retries capability discovery after a transient timeout', async t => {
+  const { client, open, response } = fixture(t);
+  const document = open('main.rinzu');
+  const position = { line: 0, character: 0 };
+  let probes = 0;
+  client.raw = async method => {
+    assert.equal(method, 'initialize');
+    if (++probes === 1) throw new Error('Rinzu editor request timed out');
+    return { result: { methods: ['hover'] } };
+  };
+  client.query = async () => {
+    const reply = response([], [], []);
+    reply.result.hover = { label: 'value' };
+    return reply;
+  };
+  await assert.rejects(client.hover(document, position), /timed out/);
+  assert.equal((await client.hover(document, position)).label, 'value');
+  assert.equal(probes, 2);
+});

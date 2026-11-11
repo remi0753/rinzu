@@ -948,12 +948,20 @@ impl State {
         current
     }
     fn condition(&self, guards: &language::Guards) -> Option<Self> {
+        if guards.is_empty() {
+            return Some(self.clone());
+        }
+        let guards = language::merge_guards(&self.guards, guards)?;
         let mut next = self.clone();
-        next.guards = language::merge_guards(&self.guards, guards)?;
+        next.guards = guards;
         Some(next)
     }
     fn join(&mut self, other: &Self) {
         self.trace.intersect(&other.trace);
+        // Evidence is excluded from State equality and has already been merged.
+        if self == other {
+            return;
+        }
         for (handler, words) in &other.caught {
             self.caught
                 .entry(*handler)
