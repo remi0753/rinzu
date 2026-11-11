@@ -4,6 +4,6 @@ language="0.5"
 kind="sdk"
 entry="src/httpcodec.rinzu"
 [native]
-sources=["native/request_line.c"]
-headers=["native/request_line.h"]
+sources=["native/request_line.c","native/request_decoder.c"]
+headers=["native/request_line.h","native/request_decoder.h"]
 include-dirs=["native"]

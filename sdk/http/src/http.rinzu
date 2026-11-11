@@ -1,5 +1,6 @@
 import rinzu.bytes as bytesApi;
 import rinzu.error as err;
+import rinzu.list as listApi;
 import rinzu.native as bridge;
 import rinzu.string as textApi;
 
@@ -21,6 +22,17 @@ native {
     fn rawRequest(client: Client, url: String, body: ByteArray, length: CSize, post: CBool, timeout: Int)
         -> CInt symbol "rinzu_http_request";
 
+    fn rawSend(
+        client: Client,
+        method: String,
+        url: String,
+        headers: ByteArray,
+        headerLength: CSize,
+        body: ByteArray,
+        length: CSize,
+        timeout: Int
+    ) -> CInt symbol "rinzu_http_send";
+
     fn rawClose(client: Client) -> CInt symbol "rinzu_http_close";
 
     fn rawCompletion(client: Client) -> Completion symbol "rinzu_http_completion";
@@ -29,11 +41,11 @@ native {
 
     fn rawResponseStatus(client: Client) -> Int symbol "rinzu_http_response_status";
 
-    fn rawLength(client: Client) -> Int symbol "rinzu_http_length";
-
     fn rawSent(client: Client) -> Int symbol "rinzu_http_sent";
 
-    fn rawBytes(client: Client) -> Bytes(65536) symbol "rinzu_http_bytes";
+    fn rawBytes(client: Client) -> ByteArray symbol "rinzu_http_bytes";
+
+    fn rawHeaders(client: Client) -> ByteArray symbol "rinzu_http_headers";
 
     fn rawCancel(client: Client) -> Unit symbol "rinzu_http_cancel";
 
@@ -49,6 +61,60 @@ native {
 class Response {
     const status: Int,
     const body: ByteArray
+}
+
+class Header {
+    const name: String,
+    const value: ByteArray
+}
+
+class PreparedHeaders {
+    private const packed: ByteArray,
+
+    fn create(headers: List<Header>) -> PreparedHeaders {
+        return PreparedHeaders(packed: packHeaders(headers));
+    }
+
+    fn send(self: PreparedHeaders, client: Client, method: String, url: String, body: ByteArray, timeoutMillis: Int)
+        -> Future<ResponseWithHeaders> {
+        return sending(client, method, url, HeaderInput.Packed(data: self.packed), body, timeoutMillis);
+    }
+}
+
+enum HeaderInput {
+    Fields(headers: List<Header>),
+    Packed(data: ByteArray)
+}
+
+class ResponseWithHeaders {
+    const status: Int,
+    const body: ByteArray,
+    const headers: List<Header>,
+
+    fn header(self: ResponseWithHeaders, name: String) -> Option<ByteArray> {
+        let key = textApi.decodeUtf8(bytesApi.lowerAscii(textApi.encodeUtf8(name)));
+        for field in self.headers {
+            if field.name == key {
+                return Option<ByteArray>.Some(value: field.value);
+            }
+        }
+        return Option<ByteArray>.None();
+    }
+
+    fn headerText(self: ResponseWithHeaders, name: String) -> Option<String> {
+        switch self.header(name) {
+            case Option.Some(value): {
+                return Option<String>.Some(value: textApi.decodeUtf8(value));
+            }
+            case Option.None: {
+                return Option<String>.None();
+            }
+        }
+    }
+}
+
+fn header(name: String, value: String) -> Header {
+    return Header(name: name, value: textApi.encodeUtf8(value));
 }
 
 error HttpFailure {
@@ -72,58 +138,184 @@ fn problem(status: Int) -> Error {
     }
 }
 
-fn failed(status: Int) -> Response {
-    throw requestFailure(problem(status), 0, bytesApi.from(b""), 0);
-}
-
-async fn wait(client: Client) {
-    await bridge.completed(rawCompletion(client));
+fn failed(status: Int) -> HttpFailure {
+    return requestFailure(problem(status), 0, bytesApi.from(b""), 0);
 }
 
 async fn settle(client: Client) {
     rawCancel(client);
-    await wait(client);
+    await bridge.completed(rawCompletion(client));
     rawFinish(client);
 }
 
-async fn request(client: Client, url: String, body: ByteArray, post: Bool, timeoutMillis: Int) -> Response {
-    switch textApi.find(url, "\u{0}", 0) {
+fn checkText(value: String) {
+    switch textApi.find(value, "\u{0}", 0) {
         case Option.Some(index): {
-            return failed(-7304);
+            throw failed(-7304);
         }
         case Option.None: {}
     }
+}
+
+fn checkClient(client: Client, url: String) {
+    checkText(url);
     let ready = Int(rawReady(client));
     if ready != 0 {
-        return failed(ready);
+        throw failed(ready);
     }
+}
+
+fn responseBody(client: Client) -> ByteArray {
+    let status = Int(rawStatus(client));
+    let data = rawBytes(client);
+    if status != 0 {
+        throw requestFailure(problem(status), rawResponseStatus(client), data, rawSent(client));
+    }
+    return data;
+}
+
+async fn request(client: Client, url: String, body: ByteArray, post: Bool, timeoutMillis: Int) -> Response {
+    checkClient(client, url);
+    var completed = false;
     try {
         let started = Int(rawRequest(client, url, body, bytesApi.byteLength(body), post, timeoutMillis));
         if started != 0 {
-            return failed(started);
+            throw failed(started);
         }
-        await wait(client);
-        let all = bytesApi.from(rawBytes(client));
-        switch bytesApi.slice(all, 0, rawLength(client)) {
-            case Option.None: {
-                return failed(-7304);
-            }
-            case Option.Some(data): {
-                let status = Int(rawStatus(client));
-                let responseStatus = rawResponseStatus(client);
-                if status != 0 {
-                    throw requestFailure(problem(status), responseStatus, data, rawSent(client));
-                }
-                return (Response(status: responseStatus, body: data));
-            }
-        }
+        await bridge.completed(rawCompletion(client));
+        completed = true;
+        let data = responseBody(client);
+        return Response(status: rawResponseStatus(client), body: data);
     }
     finally {
-        if rawBusy(client) {
+        if completed {
+            rawFinish(client);
+        }
+        else if rawBusy(client) {
             await settle(client);
         }
     }
-    return failed(-7304);
+    throw failed(-7304);
+}
+
+fn packHeaders(headers: List<Header>) -> ByteArray {
+    if listApi.length(headers) > 64 {
+        throw failed(-7304);
+    }
+    let token = bytesApi.from(b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$%&'*+-.^_`|~");
+    let prohibited = bytesApi.from(
+        b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f"
+    );
+    let colon = bytesApi.from(b":");
+    let endLine = bytesApi.from(b"\r\n");
+    var parts: List<ByteArray> = [];
+    var length = 0;
+    for field in headers {
+        let name = textApi.encodeUtf8(field.name);
+        let nameLength = bytesApi.length(name);
+        let valueLength = bytesApi.length(field.value);
+        if nameLength < 1
+            || nameLength > 128
+            || valueLength > 32768 - length - nameLength - 3
+            || !bytesApi.allIn(name, token)
+            || bytesApi.containsAny(field.value, prohibited) {
+            throw failed(-7304);
+        }
+        parts = listApi.append(parts, bytesApi.concatAll([name, colon, field.value, endLine]));
+        length = length + nameLength + valueLength + 3;
+    }
+    return bytesApi.concatAll(parts);
+}
+
+fn delimiter(data: ByteArray, zero: ByteArray, start: Int) -> Int {
+    switch bytesApi.findAny(data, zero, start) {
+        case Option.Some(index): {
+            return index;
+        }
+        case Option.None: {
+            throw failed(-7304);
+        }
+    }
+}
+
+fn fieldBytes(data: ByteArray, start: Int, end: Int) -> ByteArray {
+    switch bytesApi.slice(data, start, end) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            throw failed(-7304);
+        }
+    }
+}
+
+fn unpackHeaders(data: ByteArray) -> List<Header> {
+    var headers: List<Header> = [];
+    var start = 0;
+    let zero = bytesApi.from(b"\x00");
+    while start < bytesApi.length(data) {
+        let colon = delimiter(data, zero, start);
+        let end = delimiter(data, zero, colon + 1);
+        let name = textApi.decodeUtf8(fieldBytes(data, start, colon));
+        headers = listApi.append(headers, Header(name: name, value: fieldBytes(data, colon + 1, end)));
+        start = end + 1;
+    }
+    return headers;
+}
+
+fn packedHeaders(input: HeaderInput) -> ByteArray {
+    switch input {
+        case HeaderInput.Fields(headers): {
+            return packHeaders(headers);
+        }
+        case HeaderInput.Packed(data): {
+            return data;
+        }
+    }
+}
+
+fn send(client: Client, method: String, url: String, headers: List<Header>, body: ByteArray, timeoutMillis: Int)
+    -> Future<ResponseWithHeaders> {
+    return sending(client, method, url, HeaderInput.Fields(headers: headers), body, timeoutMillis);
+}
+
+async fn sending(client: Client, method: String, url: String, headers: HeaderInput, body: ByteArray, timeoutMillis: Int)
+    -> ResponseWithHeaders {
+    checkClient(client, url);
+    checkText(method);
+    let packed = packedHeaders(headers);
+    var completed = false;
+    try {
+        let started = Int(
+            rawSend(
+                client,
+                method,
+                url,
+                packed,
+                bytesApi.byteLength(packed),
+                body,
+                bytesApi.byteLength(body),
+                timeoutMillis
+            )
+        );
+        if started != 0 {
+            throw failed(started);
+        }
+        await bridge.completed(rawCompletion(client));
+        completed = true;
+        let data = responseBody(client);
+        let fields = unpackHeaders(rawHeaders(client));
+        return ResponseWithHeaders(status: rawResponseStatus(client), body: data, headers: fields);
+    }
+    finally {
+        if completed {
+            rawFinish(client);
+        }
+        else if rawBusy(client) {
+            await settle(client);
+        }
+    }
+    throw failed(-7304);
 }
 
 async fn close(client: Client) -> Int {
@@ -131,16 +323,21 @@ async fn close(client: Client) -> Int {
     if ready != 0 {
         throw problem(ready);
     }
+    var completed = false;
     try {
         let started = Int(rawClose(client));
         if started != 0 {
             throw problem(started);
         }
-        await wait(client);
+        await bridge.completed(rawCompletion(client));
+        completed = true;
         return bridge.checkStatus(Int(rawStatus(client)), "http.close");
     }
     finally {
-        if rawBusy(client) {
+        if completed {
+            rawFinish(client);
+        }
+        else if rawBusy(client) {
             await settle(client);
         }
     }
@@ -169,9 +366,14 @@ export closeOwnerClients;
 export Client;
 export newClient;
 export Response;
+export Header;
+export PreparedHeaders;
+export ResponseWithHeaders;
 export HttpFailure;
 export HttpFailureData;
 export request;
+export header;
+export send;
 export close;
 export liveClients;
 export liveBuffers;

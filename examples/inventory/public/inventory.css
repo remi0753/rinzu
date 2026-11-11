@@ -1,0 +1,119 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #102a2e;
+  background: #f2f6f6;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  max-width: 56rem;
+  margin: auto;
+  padding: 2.5rem 1.25rem;
+}
+
+h1 {
+  margin-top: 0;
+  font-size: clamp(1.5rem, 3.5vw, 2.2rem);
+}
+
+h2 {
+  margin-top: 0;
+  font-size: 1.15rem;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(12rem, 2fr) minmax(0, 3fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+section {
+  padding: 1.25rem;
+  border: 1px solid #cddcdd;
+  border-radius: 0.65rem;
+  background: #fff;
+}
+
+#catalog {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+button,
+input {
+  box-sizing: border-box;
+  border: 1px solid #759697;
+  border-radius: 0.35rem;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+}
+
+button {
+  color: #fff;
+  background: #11575a;
+  cursor: pointer;
+}
+
+#catalog button {
+  width: 100%;
+  color: inherit;
+  background: #f2f6f6;
+  text-align: left;
+}
+
+#catalog button[aria-pressed="true"] {
+  border-color: #11575a;
+  background: #d7ebeb;
+}
+
+.fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+#token {
+  flex: 1;
+  min-width: 10rem;
+}
+
+#quantity {
+  width: 6rem;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.6rem 1rem;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+dt {
+  font-weight: 600;
+}
+
+dd {
+  margin: 0;
+}
+
+output {
+  display: block;
+  margin-top: 0.65rem;
+}
+
+@media (max-width: 40rem) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+}

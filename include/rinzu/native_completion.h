@@ -82,13 +82,19 @@ rinzu_native_completion_transfer_result(const rinzu_native_completion_t *complet
 /* The exchange is the producer's LAST carrier access and the v2 physical
    publication. A consumer may retire/reuse the carrier immediately afterward.
    Capture the target from that exchange, then use only its retained reference.
+   The caller owns any returned reference and must release it once after
+   notifying, or merge the wake with an already retained target in its domain.
    base.done is diagnostic for v2; it never authorizes physical retirement. */
-static inline void rinzu_native_completion_v2_publish(rinzu_native_completion_v2_t *completion) {
+static inline rinzu_native_completion_wake_t *
+rinzu_native_completion_v2_publish_target(rinzu_native_completion_v2_t *completion) {
   atomic_store_explicit(&completion->base.done, 1, memory_order_release);
   uintptr_t before = atomic_exchange_explicit(&completion->notification,
                                               RINZU_NATIVE_COMPLETION_DONE, memory_order_acq_rel);
-  if (before > RINZU_NATIVE_COMPLETION_DONE) {
-    rinzu_native_completion_wake_t *target = (rinzu_native_completion_wake_t *)before;
+  return before > RINZU_NATIVE_COMPLETION_DONE ? (rinzu_native_completion_wake_t *)before : NULL;
+}
+static inline void rinzu_native_completion_v2_publish(rinzu_native_completion_v2_t *completion) {
+  rinzu_native_completion_wake_t *target = rinzu_native_completion_v2_publish_target(completion);
+  if (target) {
     target->notify(target);
     target->release(target);
   }

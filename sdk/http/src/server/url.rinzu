@@ -1,0 +1,144 @@
+import rinzu.bytes as bytesApi;
+import rinzu.string as stringApi;
+
+// Owned values only. No pointer/view survives an await.
+error InputError {
+    payload: Int
+}
+
+fn invalid(message: String) -> InputError {
+    return InputError(message: message, payload: 400);
+}
+
+fn find(value: String, needle: String, start: Int) -> Int {
+    switch stringApi.find(value, needle, start) {
+        case Option.Some(position): {
+            return position;
+        }
+        case Option.None: {
+            return -1;
+        }
+    }
+}
+
+fn slice(value: String, start: Int, end: Int) -> String {
+    switch stringApi.slice(value, start, end) {
+        case Option.Some(part): {
+            return part;
+        }
+        case Option.None: {
+            throw invalid("invalid URL range");
+        }
+    }
+}
+
+fn byte(data: ByteArray, index: Int) -> Int {
+    switch bytesApi.get(data, index) {
+        case Option.Some(value): {
+            return Int(value);
+        }
+        case Option.None: {
+            throw invalid("truncated URL escape");
+        }
+    }
+}
+
+fn hex(value: Int) -> Int {
+    if value >= 48 && value <= 57 {
+        return value - 48;
+    }
+    if value >= 65 && value <= 70 {
+        return value - 55;
+    }
+    if value >= 97 && value <= 102 {
+        return value - 87;
+    }
+    throw invalid("invalid URL escape");
+}
+
+fn escapeMembers(plus: Bool) -> ByteArray {
+    if plus {
+        return bytesApi.from(b"%+");
+    }
+    return bytesApi.from(b"%");
+}
+
+fn decode(value: String, plus: Bool, path: Bool) -> String {
+    if find(value, "%", 0) < 0 && (!plus || find(value, "+", 0) < 0) {
+        return value;
+    }
+    let input = stringApi.encodeUtf8(value);
+    let length = bytesApi.length(input);
+    var output = bytesApi.from(b"");
+    var members = output;
+    var membersReady = false;
+    var ordinary = 0;
+    var index = 0;
+    var run = 0;
+    while index < length {
+        let current = byte(input, index);
+        if current == 37 || (plus && current == 43) {
+            switch bytesApi.slice(input, run, index) {
+                case Option.Some(part): {
+                    output = bytesApi.concat(output, part);
+                }
+                case Option.None: {
+                    throw invalid("invalid URL range");
+                }
+            }
+            var decoded = 32;
+            if current == 37 {
+                decoded = hex(byte(input, index + 1)) * 16 + hex(byte(input, index + 2));
+                index = index + 2;
+            }
+            if decoded == 0 || (path && (decoded == 47 || decoded == 92)) {
+                throw invalid("encoded path separator or NUL");
+            }
+            output = bytesApi.concat(output, bytesApi.from([CUInt8(decoded)]));
+            run = index + 1;
+            ordinary = 0;
+        }
+        else {
+            ordinary = ordinary + 1;
+            // Keep dense escapes and short runs on the cheap byte path. A
+            // longer unchanged run can be skipped by one native search.
+            if ordinary >= 8 && length - index > 8 {
+                if !membersReady {
+                    members = escapeMembers(plus);
+                    membersReady = true;
+                }
+                switch bytesApi.findAny(input, members, index + 1) {
+                    case Option.Some(next): {
+                        index = next;
+                    }
+                    case Option.None: {
+                        index = length;
+                    }
+                }
+                ordinary = 0;
+                continue;
+            }
+        }
+        index = index + 1;
+    }
+    switch bytesApi.slice(input, run, length) {
+        case Option.Some(part): {
+            output = bytesApi.concat(output, part);
+        }
+        case Option.None: {
+            throw invalid("invalid URL range");
+        }
+    }
+    try {
+        return stringApi.decodeUtf8(output);
+    }
+    catch problems {
+        throw invalid("invalid URL UTF-8");
+    }
+}
+
+export InputError;
+export invalid;
+export find;
+export slice;
+export decode;

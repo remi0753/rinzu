@@ -1,6 +1,7 @@
 /* Bounded macOS TCP transport. Source wrapper/standard registry: M5.12-8. */
 #include "rinzu_socket.h"
 #include "rinzu/native_completion.h"
+#include "rinzu/native_read_view.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -29,8 +30,13 @@ enum Kind { LISTEN, CONNECT, ACCEPT, READ, WRITE, HALF, CLOSE };
    candidate: its complete ID must match before any other field is read. */
 #define TOKEN_SLOT_BITS 10
 #define TOKEN_SLOT_MASK ((((uintptr_t)1) << TOKEN_SLOT_BITS) - 1)
-_Static_assert(HANDLES <= TOKEN_SLOT_MASK && OPS <= TOKEN_SLOT_MASK,
+_Static_assert(HANDLES <= TOKEN_SLOT_MASK && OPS < TOKEN_SLOT_MASK,
                "socket tables must fit the token slot bits");
+struct ReadyRead {
+  uintptr_t id;
+  struct Handle *stream;
+  rinzu_native_byte_array_t bytes;
+};
 /* Entries are protected by lock and remain stable until all of an Owner's
    handles and operations have been released. Reactor cleanup must not retain
    pointers into an Owner thread's TLS. Every production operation holds a
@@ -38,6 +44,7 @@ _Static_assert(HANDLES <= TOKEN_SLOT_MASK && OPS <= TOKEN_SLOT_MASK,
 struct Owner {
   pthread_t thread;
   size_t handles, operations, data_operations, bytes;
+  struct ReadyRead read;
 };
 struct Handle {
   uintptr_t id;
@@ -55,14 +62,16 @@ struct Operation {
   struct Owner *account;
   enum Kind kind;
   struct Handle *handle, *value;
+  struct Operation *previous_read;
   struct sockaddr_in address;
   bool ready, attempt, all, ack, registered;
   int backlog;
-  /* Pending READs use the recv limit. Publication ends that lifetime and
-     starts the initialized prefix watermark; ready READs never recv again. */
+  /* Pending READs use the recv limit; ready READs use the initialized prefix
+     watermark. WRITE buffers start at the prefix sent before reservation. */
   union {
     size_t maximum;
     size_t initialized;
+    size_t sent_prefix;
   };
   int32_t status;
   union {
@@ -83,13 +92,26 @@ _Static_assert(offsetof(struct Operation, completion_result) ==
 static struct Handle handles[HANDLES];
 static struct Operation operations[OPS];
 static struct Owner owners[HANDLES];
-static size_t handle_count, operation_count;
+static size_t handle_count, operation_count, data_count;
 static uint64_t pending_operations[OP_WORDS], closing_handles[HANDLE_WORDS];
 static size_t pending_count;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t worker;
 static int queue_fd = -1;
 static bool running, stopping, wake_pending, worker_data_io;
+/* Held from bounded poll selection until the reactor regains lock. */
+static bool polling_with_timeout;
+/* Only the reactor thread installs a batch. A synchronous Owner publication
+   uses the immediate notification path even when a reactor syscall unlocks. */
+struct CompletionWakeBatch {
+  rinzu_native_completion_wake_t *target;
+};
+static _Thread_local struct CompletionWakeBatch *completion_batch;
+/* Completed reads are immutable until the Owner ends the scope. A consumer
+   on a different thread only sees that thread's own active scopes. */
+static _Thread_local struct Operation *active_read;
+static _Thread_local struct ReadyRead *active_ready_read;
+static _Thread_local rinzu_native_byte_array_t read_slice;
 static uintptr_t next_id = 1;
 static size_t buffers, buffer_bytes, peak_buffer_bytes, partial_writes, event_count, stale_events;
 static size_t allocations, copied_bytes, read_calls, write_calls, received_bytes, sent_bytes;
@@ -236,6 +258,14 @@ static void unregister(struct Operation *op) {
     fatal();
   op->registered = false;
 }
+static void flush_completion_wake(struct CompletionWakeBatch *batch) {
+  rinzu_native_completion_wake_t *target = batch->target;
+  batch->target = NULL;
+  if (target) {
+    target->notify(target);
+    target->release(target);
+  }
+}
 static void publish(struct Operation *op, int32_t status) {
   unregister(op);
   op->status = status;
@@ -248,7 +278,22 @@ static void publish(struct Operation *op, int32_t status) {
   op->ready = true;
   bitmap_remove(pending_operations, (op->id & TOKEN_SLOT_MASK) - 1);
   --pending_count;
-  rinzu_native_completion_v2_publish(&op->completion);
+  rinzu_native_completion_wake_t *target =
+      rinzu_native_completion_v2_publish_target(&op->completion);
+  if (!target)
+    return;
+  struct CompletionWakeBatch *batch = completion_batch;
+  if (!batch) {
+    target->notify(target);
+    target->release(target);
+  } else if (target == batch->target) {
+    target->release(target);
+  } else {
+    /* Each target wakes a whole notification domain. Retain one reference
+       across the pass, and notify the previous domain before switching. */
+    flush_completion_wake(batch);
+    batch->target = target;
+  }
 }
 static void arm(struct Operation *op) {
   struct kevent event;
@@ -307,7 +352,7 @@ static ssize_t data_io(struct Operation *op, bool writing, bool owner) {
   uintptr_t id = op->id, handle_id = h->id;
   int fd = h->fd;
   uint8_t *allocation = op->buffer;
-  uint8_t *buffer = allocation + (writing ? op->length : 0);
+  uint8_t *buffer = allocation + (writing ? op->length - op->sent_prefix : 0);
   size_t count = writing ? op->capacity - op->length : op->maximum;
   if (owner) {
     if (worker_data_io)
@@ -548,8 +593,20 @@ static void advance_range(size_t start, size_t end, struct Budget *budget) {
 }
 static void *drive(void *unused) {
   (void)unused;
+  struct CompletionWakeBatch completions = {0};
+  completion_batch = &completions;
+  struct kevent events[64];
+  int count = -1;
+  pthread_mutex_lock(&lock);
   for (;;) {
-    pthread_mutex_lock(&lock);
+    polling_with_timeout = false;
+    if (count >= 0) {
+      ++kevent_calls;
+      if (!count)
+        ++poll_timeouts;
+      for (int i = 0; i < count; ++i)
+        observe_event(&events[i]);
+    }
     for (size_t i = bitmap_next(closing_handles, 0, HANDLES); i < HANDLES;
          i = bitmap_next(closing_handles, i + 1, HANDLES)) {
       bitmap_remove(closing_handles, i);
@@ -566,25 +623,18 @@ static void *drive(void *unused) {
            i = bitmap_next(pending_operations, i + 1, OPS))
         runnable = operations[i].attempt;
     bool stop = stopping;
+    polling_with_timeout = pending && !stop;
     pthread_mutex_unlock(&lock);
+    flush_completion_wake(&completions);
     if (stop)
       break;
-    struct kevent events[64];
     struct timespec timeout = {0, runnable ? 0 : 10000000};
-    int n = kevent(queue_fd, NULL, 0, events, 64, pending ? &timeout : NULL);
-    if (n < 0) {
-      if (errno == EINTR)
-        continue;
+    count = kevent(queue_fd, NULL, 0, events, 64, pending ? &timeout : NULL);
+    if (count < 0 && errno != EINTR)
       fatal();
-    }
     pthread_mutex_lock(&lock);
-    ++kevent_calls;
-    if (!n)
-      ++poll_timeouts;
-    for (int i = 0; i < n; ++i)
-      observe_event(&events[i]);
-    pthread_mutex_unlock(&lock);
   }
+  completion_batch = NULL;
   return NULL;
 }
 static void wake(void) {
@@ -617,14 +667,18 @@ static void start(void) {
   running = true;
   stopping = false;
   wake_pending = false;
+  polling_with_timeout = false;
   if (pthread_create(&worker, NULL, drive, NULL))
     fatal();
+}
+static bool data_credit(const struct Owner *account) {
+  return !stopping && account->data_operations < OWNER_OPS && data_count < DATA_OPS;
 }
 static struct Operation *reserve(enum Kind kind, struct Handle *h) {
   if (stopping)
     return NULL;
   struct Owner *account = h ? h->account : owner_account();
-  if (!account || (kind != CLOSE && account->data_operations >= OWNER_OPS))
+  if (!account || (kind != CLOSE && !data_credit(account)))
     return NULL;
   size_t first = 0, end = DATA_OPS;
   if (kind == CLOSE) {
@@ -649,6 +703,7 @@ static struct Operation *reserve(enum Kind kind, struct Handle *h) {
       op->attempt = true;
       ++account->operations;
       account->data_operations += kind != CLOSE;
+      data_count += kind != CLOSE;
       ++operation_count;
       bitmap_add(pending_operations, i);
       ++pending_count;
@@ -727,8 +782,95 @@ int64_t rinzu_socket_connect(const char *host, int32_t port, int64_t timeout) {
 #ifndef RINZU_SOCKET_OWNER_READ_ALLOWED
 #define RINZU_SOCKET_OWNER_READ_ALLOWED() true
 #endif
+struct InlineAttempt {
+  size_t length;
+  int64_t deadline;
+  int32_t error;
+};
+/* The SDK lock covers both the direct send and any pending admission. Only
+   the caller owns data, and the worker cannot be in an unlocked I/O syscall. */
+static bool try_write(struct Handle *h, const uint8_t *data, size_t size, bool all, int64_t timeout,
+                      struct InlineAttempt *attempt) {
+  if (timeout) {
+    attempt->deadline = monotonic() + timeout;
+    if (monotonic() >= attempt->deadline) {
+      attempt->error = RINZU_SOCKET_DEADLINE;
+      return false;
+    }
+  }
+  if (!size)
+    return true;
+  ++write_calls;
+  ssize_t n = send(h->fd, data, size, 0);
+  if (n > 0) {
+    attempt->length = (size_t)n;
+    sent_bytes += (size_t)n;
+    if ((size_t)n < size)
+      ++partial_writes;
+    return !all || (size_t)n == size;
+  }
+  if (!n)
+    attempt->error = RINZU_SOCKET_NO_PROGRESS;
+  else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+    attempt->error = failure();
+  return false;
+}
+static bool try_read(struct Handle *h, uint8_t *buffer, size_t size, int64_t timeout,
+                     struct InlineAttempt *attempt) {
+  if (timeout) {
+    attempt->deadline = monotonic() + timeout;
+    if (monotonic() >= attempt->deadline) {
+      attempt->error = RINZU_SOCKET_DEADLINE;
+      return false;
+    }
+  }
+  if (h->eof)
+    return true;
+  ++read_calls;
+  ssize_t n = recv(h->fd, buffer, size, 0);
+  if (n >= 0) {
+    attempt->length = (size_t)n;
+    received_bytes += (size_t)n;
+    h->eof = n == 0;
+    return true;
+  }
+  if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+    attempt->error = failure();
+  return false;
+}
+static void account_buffer(struct Owner *owner, size_t capacity) {
+  ++buffers;
+  ++allocations;
+  buffer_bytes += capacity;
+  owner->bytes += capacity;
+  if (buffer_bytes > peak_buffer_bytes)
+    peak_buffer_bytes = buffer_bytes;
+}
+static void free_buffer(struct Owner *owner, uint8_t *buffer, size_t capacity) {
+  free(buffer);
+  --buffers;
+  buffer_bytes -= capacity;
+  owner->bytes -= capacity;
+}
+/* No await can occur while this receipt is active. Hold the same credits and
+   stream reference as a reserved read, without a pending slot or carrier. */
+static int64_t ready_read(struct Handle *h, uint8_t *buffer, size_t length) {
+  struct Owner *owner = h->account;
+  if (active_ready_read || owner->read.id)
+    fatal();
+  uintptr_t id = identity(TOKEN_SLOT_MASK - 1);
+  owner->read = (struct ReadyRead){id, h, {buffer, length}};
+  active_ready_read = &owner->read;
+  ++owner->operations;
+  ++owner->data_operations;
+  ++operation_count;
+  ++data_count;
+  ++h->reads;
+  ++h->refs;
+  return (int64_t)id;
+}
 static int64_t begin(enum Kind kind, void *token, const uint8_t *data, size_t size, bool all,
-                     int64_t timeout) {
+                     int64_t timeout, bool direct) {
   pthread_mutex_lock(&lock);
   struct Handle *h = handle(token);
   int status = check(h, kind == ACCEPT);
@@ -745,6 +887,29 @@ static int64_t begin(enum Kind kind, void *token, const uint8_t *data, size_t si
   if (!status && capacity &&
       (buffer_bytes > BUFFER_LIMIT - capacity || h->account->bytes > OWNER_BUFFER_LIMIT - capacity))
     status = -7505;
+  struct InlineAttempt attempt = {0};
+  uint8_t *read_buffer = NULL;
+  bool attempted = !status && direct && !worker_data_io && (kind == WRITE || !active_ready_read);
+  if (attempted) {
+    /* Check credit before touching the stream. The lock preserves the
+       checked credit if the syscall needs a pending operation. */
+    if (!data_credit(h->account))
+      status = -7505;
+    else if (kind == READ) {
+      read_buffer = malloc(capacity);
+      if (!read_buffer)
+        _Exit(70);
+      account_buffer(h->account, capacity);
+      if (try_read(h, read_buffer, size, timeout, &attempt)) {
+        int64_t id = ready_read(h, read_buffer, attempt.length);
+        pthread_mutex_unlock(&lock);
+        return id;
+      }
+    } else if (try_write(h, data, size, all, timeout, &attempt)) {
+      pthread_mutex_unlock(&lock);
+      return RINZU_SOCKET_WRITE_READY_BASE - (int64_t)attempt.length;
+    }
+  }
   struct Handle *value = NULL;
   if (!status && kind == ACCEPT) {
     value = reserve_handle();
@@ -752,8 +917,12 @@ static int64_t begin(enum Kind kind, void *token, const uint8_t *data, size_t si
       status = -7505;
   }
   struct Operation *op = status ? NULL : reserve(kind, h);
-  if (!status && !op)
+  if (!status && !op) {
+    /* The lock preserved the checked credit through the first syscall. */
+    if (attempted)
+      fatal();
     status = -7505;
+  }
   if (status) {
     if (value)
       discard_handle(value);
@@ -763,58 +932,115 @@ static int64_t begin(enum Kind kind, void *token, const uint8_t *data, size_t si
   op->value = value;
   if (value)
     ++value->refs;
-  if (capacity) {
-    op->buffer = kind == READ ? malloc(capacity) : calloc(capacity, 1);
-    if (!op->buffer)
-      _Exit(70);
+  if (read_buffer || (capacity && !attempt.error)) {
     op->capacity = capacity;
-    op->maximum = size;
-    ++buffers;
-    ++allocations;
-    buffer_bytes += capacity;
-    op->account->bytes += capacity;
-    if (buffer_bytes > peak_buffer_bytes)
-      peak_buffer_bytes = buffer_bytes;
+    size_t retained = capacity - attempt.length;
+    if (read_buffer) {
+      op->buffer = read_buffer;
+    } else {
+      op->buffer = kind == READ ? malloc(retained) : calloc(retained, 1);
+      if (!op->buffer)
+        _Exit(70);
+      account_buffer(op->account, capacity);
+    }
     if (kind == WRITE) {
-      memcpy(op->buffer, data, size);
-      copied_bytes += size;
+      op->sent_prefix = attempt.length;
+      /* Charge the original write size until finish, including for partial
+         sends, to preserve the existing admission budget. */
+      memcpy(op->buffer, data + attempt.length, retained);
+      copied_bytes += retained;
+    } else {
+      op->maximum = size;
     }
   }
   if (timeout)
-    op->deadline = monotonic() + timeout;
+    op->deadline = attempted ? attempt.deadline : monotonic() + timeout;
   op->all = all;
   if (kind == CLOSE)
     request_close(h);
   int64_t id = (int64_t)op->id;
   bool pending = true;
-  if (!worker_data_io && ((kind == WRITE && RINZU_SOCKET_OWNER_WRITE_ALLOWED()) ||
-                          (kind == READ && RINZU_SOCKET_OWNER_READ_ALLOWED()))) {
-    struct Budget budget = {.calls = 63};
-    advance(op, &budget, true);
+  if (attempted || (!worker_data_io && ((kind == WRITE && RINZU_SOCKET_OWNER_WRITE_ALLOWED()) ||
+                                        (kind == READ && RINZU_SOCKET_OWNER_READ_ALLOWED())))) {
+    if (attempted) {
+      op->length = attempt.length;
+      op->attempt = false;
+      if (attempt.error) {
+        publish(op, attempt.error);
+        close_handle(h);
+      } else {
+        arm(op);
+      }
+    } else {
+      struct Budget budget = {.calls = 63};
+      advance(op, &budget, true);
+    }
     /* Publication ends carrier access. The saved ID selects only its pending
        bitmap bit while lock still excludes physical finish/reuse. */
     size_t slot = ((uintptr_t)id & TOKEN_SLOT_MASK) - 1;
     pending = (pending_operations[slot / 64] >> (slot % 64)) & 1;
   }
-  if (pending)
+  /* A registered operation will be reported by kqueue. An already bounded
+     poll also covers deadline and cancellation checks when it stays idle.
+     Runnable work and the transition from an indefinite poll still need a wake. */
+  if (pending && (!op->registered || !polling_with_timeout))
     wake();
   pthread_mutex_unlock(&lock);
   return id;
 }
 int64_t rinzu_socket_accept(void *h, int64_t timeout) {
-  return begin(ACCEPT, h, NULL, 0, false, timeout);
+  return begin(ACCEPT, h, NULL, 0, false, timeout, false);
 }
 int64_t rinzu_socket_read(void *h, int64_t size, int64_t timeout) {
-  return begin(READ, h, NULL, (size_t)size, false, timeout);
+  return begin(READ, h, NULL, (size_t)size, false, timeout, false);
+}
+int64_t rinzu_socket_read_start(void *h, int64_t size, int64_t timeout) {
+  return begin(READ, h, NULL, (size_t)size, false, timeout, true);
 }
 int64_t rinzu_socket_write(void *h, const uint8_t *data, size_t size, bool all, int64_t timeout) {
-  return begin(WRITE, h, data, size, all, timeout);
+  return begin(WRITE, h, data, size, all, timeout, false);
+}
+int64_t rinzu_socket_write_start(void *h, const uint8_t *data, size_t size, bool all,
+                                 int64_t timeout) {
+  return begin(WRITE, h, data, size, all, timeout, true);
+}
+int64_t rinzu_socket_try_write(void *token, const uint8_t *data, size_t size) {
+  pthread_mutex_lock(&lock);
+  struct Handle *h = handle(token);
+  int status = check(h, false);
+  if (!status && occupied(h, WRITE))
+    status = RINZU_SOCKET_BUSY;
+  if (!status && h->send_closed)
+    status = RINZU_SOCKET_SEND_CLOSED;
+  if (!status && size > CHUNK)
+    status = RINZU_SOCKET_ARGUMENT;
+  struct InlineAttempt attempt = {0};
+  if (!status && !worker_data_io) {
+    try_write(h, data, size, false, 0, &attempt);
+    if (attempt.error)
+      close_handle(h);
+  }
+  pthread_mutex_unlock(&lock);
+  if (status)
+    return status;
+  if (attempt.error)
+    return attempt.error;
+  return RINZU_SOCKET_WRITE_READY_BASE - (int64_t)attempt.length;
+}
+void *rinzu_socket_write_ready(void) {
+  /* Already published, so a waiter never takes the notification slot.
+     Cancellation may set base.cancelled, which has no producer to notify. */
+  static rinzu_native_completion_v2_t ready = {
+      .base = {.version = 2, .size = sizeof(rinzu_native_completion_v2_t), .done = 1},
+      .notification = RINZU_NATIVE_COMPLETION_DONE,
+  };
+  return &ready;
 }
 int64_t rinzu_socket_shutdown(void *h) {
-  return begin(HALF, h, NULL, 0, false, 0);
+  return begin(HALF, h, NULL, 0, false, 0, false);
 }
 int64_t rinzu_socket_close(void *h) {
-  return begin(CLOSE, h, NULL, 0, false, 0);
+  return begin(CLOSE, h, NULL, 0, false, 0, false);
 }
 int64_t rinzu_socket_close_listener(void *h) {
   return rinzu_socket_close(h);
@@ -854,7 +1080,76 @@ void *rinzu_socket_transfer_completion(int64_t id) {
   return p;
 }
 const rinzu_native_byte_array_t *rinzu_socket_bytes_view_id(int64_t id) {
+  if (((uintptr_t)id & TOKEN_SLOT_MASK) == TOKEN_SLOT_MASK) {
+    struct ReadyRead *ready = active_ready_read;
+    if (!ready || ready->id != (uintptr_t)id)
+      fatal();
+    pthread_mutex_lock(&lock);
+    copied_bytes += ready->bytes.length;
+    pthread_mutex_unlock(&lock);
+    return &ready->bytes;
+  }
   return rinzu_socket_bytes_view((void *)(uintptr_t)id);
+}
+static const rinzu_native_byte_array_t *read_access(void *view) {
+  if (active_ready_read && active_ready_read->id == (uintptr_t)view)
+    return &active_ready_read->bytes;
+  for (const struct Operation *op = active_read; op; op = op->previous_read)
+    if (op->id == (uintptr_t)view)
+      return &op->bytes;
+  return NULL;
+}
+void *rinzu_socket_borrow_read(int64_t id) {
+  if (((uintptr_t)id & TOKEN_SLOT_MASK) == TOKEN_SLOT_MASK) {
+    if (!active_ready_read || active_ready_read->id != (uintptr_t)id)
+      fatal();
+    return (void *)(uintptr_t)id;
+  }
+  pthread_mutex_lock(&lock);
+  struct Operation *op = owned((void *)(uintptr_t)id);
+  if (op->kind != READ || !op->ready || op->ack || op->status || !op->buffer ||
+      op->length > op->initialized || op->length > op->capacity)
+    fatal();
+  op->ack = true;
+  op->previous_read = active_read;
+  active_read = op;
+  pthread_mutex_unlock(&lock);
+  return (void *)(uintptr_t)id;
+}
+void *rinzu_socket_read_access(void) {
+  return (void *)(rinzu_native_read_access_t)read_access;
+}
+int64_t rinzu_socket_read_length(void *view) {
+  const rinzu_native_byte_array_t *read = read_access(view);
+  return read ? (int64_t)read->length : -1;
+}
+int64_t rinzu_socket_read_byte(void *view, int64_t index) {
+  const rinzu_native_byte_array_t *read = read_access(view);
+  return read && index >= 0 && (uint64_t)index < read->length ? read->data[index] : -1;
+}
+int64_t rinzu_socket_find_read_byte(void *view, int64_t byte, int64_t start, int64_t end) {
+  const rinzu_native_byte_array_t *read = read_access(view);
+  if (!read || byte < 0 || byte > UINT8_MAX || start < 0 || end < start ||
+      (uint64_t)end > read->length)
+    return -2;
+  const uint8_t *match = memchr(read->data + start, (int)byte, (size_t)(end - start));
+  return match ? (int64_t)(match - read->data) : -1;
+}
+const rinzu_native_byte_array_t *rinzu_socket_copy_read(void *view, int64_t start, int64_t end) {
+  const rinzu_native_byte_array_t *read = read_access(view);
+  if (!read || start < 0 || end < start || (uint64_t)end > read->length)
+    return NULL;
+  read_slice = (rinzu_native_byte_array_t){read->data + start, (size_t)(end - start)};
+  pthread_mutex_lock(&lock);
+  copied_bytes += read_slice.length;
+  pthread_mutex_unlock(&lock);
+  return &read_slice;
+}
+void rinzu_socket_end_read(int64_t id) {
+  if (!active_read || active_read->id != (uintptr_t)id)
+    fatal();
+  active_read = active_read->previous_read;
+  rinzu_socket_finish_id(id);
 }
 void rinzu_socket_ack_id(int64_t id) {
   rinzu_socket_ack((void *)(uintptr_t)id);
@@ -983,19 +1278,56 @@ void rinzu_socket_cancel(void *token) {
   }
   pthread_mutex_unlock(&lock);
 }
+/* Enter and return with the SDK lock held. */
+static void stop_if_idle(void) {
+  if (handle_count || operation_count)
+    return;
+  stopping = true;
+  wake();
+  pthread_mutex_unlock(&lock);
+  if (pthread_join(worker, NULL))
+    fatal();
+  pthread_mutex_lock(&lock);
+  (void)close(queue_fd);
+  queue_fd = -1;
+  running = stopping = false;
+}
+void rinzu_socket_end_ready_read(int64_t id, bool delivered) {
+  struct ReadyRead *ready = active_ready_read;
+  if (!ready || ready->id != (uintptr_t)id)
+    fatal();
+  pthread_mutex_lock(&lock);
+  struct Handle *h = ready->stream;
+  struct Owner *owner = h->account;
+  if (!delivered) {
+    /* A control poll may interrupt the Source task after recv and before its
+       consumer has observed the bytes. The stream must not skip that prefix. */
+    request_close(h);
+    wake();
+  }
+  active_ready_read = NULL;
+  free_buffer(owner, ready->bytes.data, CHUNK);
+  *ready = (struct ReadyRead){0};
+  --owner->operations;
+  --owner->data_operations;
+  --operation_count;
+  --data_count;
+  --h->refs;
+  --h->reads;
+  release_handle(h);
+  stop_if_idle();
+  pthread_mutex_unlock(&lock);
+}
 void rinzu_socket_finish(void *token) {
   pthread_mutex_lock(&lock);
   struct Operation *op = owned(token);
-  if (!op->ready)
+  if (!op->ready || (op->kind == READ && read_access(token)))
     fatal();
-  if (op->buffer) {
-    free(op->buffer);
-    --buffers;
-    buffer_bytes -= op->capacity;
-    op->account->bytes -= op->capacity;
-  }
+  if (op->buffer)
+    free_buffer(op->account, op->buffer, op->capacity);
   --op->account->operations;
   op->account->data_operations -= op->kind != CLOSE;
+  data_count -= op->kind != CLOSE;
   struct Handle *h = op->handle, *v = op->value;
   if (v && v != h) {
     if (op->status)
@@ -1014,17 +1346,7 @@ void rinzu_socket_finish(void *token) {
   op->id = 0;
   op->account = NULL;
   --operation_count;
-  if (!handle_count && !operation_count) {
-    stopping = true;
-    wake();
-    pthread_mutex_unlock(&lock);
-    if (pthread_join(worker, NULL))
-      fatal();
-    pthread_mutex_lock(&lock);
-    (void)close(queue_fd);
-    queue_fd = -1;
-    running = stopping = false;
-  }
+  stop_if_idle();
   pthread_mutex_unlock(&lock);
 }
 int64_t rinzu_socket_port(void *token) {
@@ -1210,13 +1532,10 @@ int64_t rinzu_socket_stat(int32_t statistic) {
     value = operation_count - pending_count;
     break;
   case RINZU_SOCKET_DATA_OPERATIONS:
+    value = data_count;
+    break;
   case RINZU_SOCKET_CONTROL_OPERATIONS:
-    for (size_t i = 0; i < OPS; ++i)
-      if (operations[i].id) {
-        if ((statistic == RINZU_SOCKET_DATA_OPERATIONS && i < DATA_OPS) ||
-            (statistic == RINZU_SOCKET_CONTROL_OPERATIONS && i >= DATA_OPS))
-          ++value;
-      }
+    value = operation_count - data_count;
     break;
   case RINZU_SOCKET_BUFFERS:
     value = buffers;

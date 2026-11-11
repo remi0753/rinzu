@@ -1,8 +1,55 @@
 import rinzu.bytes as bytesApi;
+import rinzu.error as err;
+import rinzu.list as listApi;
+import rinzu.socket as socket;
 import rinzu.string as textApi;
 
 native {
+    opaque DecoderState;
+
+    record RzHttpFrame {
+        headOffset: Int,
+        methodEnd: Int,
+        targetEnd: Int,
+        fieldCount: Int,
+        bodyOffset: Int,
+        bodyLength: Int,
+        headVersion: Int,
+        closing: CBool
+    }
+
+    record RzHttpFieldSpan {
+        nameStart: Int,
+        nameEnd: Int,
+        valueStart: Int,
+        valueEnd: Int
+    }
+
     fn rawLineEnd(data: ByteArray, length: CSize) -> Int symbol "rinzu_httpcodec_request_line_end";
+
+    fn rawDecoder(cacheBytes: Int) -> DecoderState symbol "rinzu_httpcodec_decoder";
+
+    fn rawClose(state: DecoderState) -> Unit symbol "rinzu_httpcodec_close";
+
+    fn rawFeed(state: DecoderState, data: ByteArray, length: CSize, start: Int, ownedHead: Int)
+        -> Int symbol "rinzu_httpcodec_feed";
+
+    fn rawFeedRead(state: DecoderState, access: socket.ReadAccess, view: socket.ReadView, start: Int, ownedHead: Int)
+        -> Int symbol "rinzu_httpcodec_feed_read";
+
+    fn rawEnd(state: DecoderState) -> Int symbol "rinzu_httpcodec_end";
+
+    fn rawFrame(state: DecoderState) -> RzHttpFrame symbol "rinzu_httpcodec_frame";
+
+    fn rawField(state: DecoderState, index: Int) -> RzHttpFieldSpan symbol "rinzu_httpcodec_field";
+
+    fn rawReadText(access: socket.ReadAccess, view: socket.ReadView, start: Int, end: Int, lower: CBool)
+        -> String symbol "rinzu_httpcodec_read_text";
+
+    fn rawStoredText(state: DecoderState, start: Int, end: Int, lower: CBool)
+        -> String symbol "rinzu_httpcodec_stored_text";
+
+    fn rawStoredBody(state: DecoderState) -> ByteArray symbol "rinzu_httpcodec_stored_body";
 }
 
 class RequestLine {
@@ -42,6 +89,202 @@ fn requestLine(data: ByteArray) -> RequestLine {
     return RequestLine(method: text(data, 0, first), target: text(data, first + 1, bytesApi.length(data) - 9));
 }
 
+class Header {
+    const name: String,
+    const value: String
+}
+
+class RequestHead {
+    const method: String,
+    const target: String,
+    const headers: List<Header>,
+    const closing: Bool,
+    const version: Int
+}
+
+class RequestFrame {
+    const end: Int,
+    const head: RequestHead,
+    const body: ByteArray
+}
+
+let reusedEmpty: Int = -1024;
+
+fn emptyHead() -> RequestHead {
+    return RequestHead(method: "", target: "", headers: [], closing: false, version: 0);
+}
+
+error InvalidRequest {
+    payload: Int
+}
+
+enum Input {
+    Owned(data: ByteArray),
+    Borrowed(view: socket.ReadView)
+}
+
+fn inputError() -> Error {
+    return err.create(7801, "HTTP decoder input range or expired read view");
+}
+
+fn checked(result: Int) {
+    if result == -1 {
+        throw inputError();
+    }
+    if result < 0 {
+        throw InvalidRequest(message: "invalid HTTP request", payload: -result);
+    }
+}
+
+fn slice(data: ByteArray, start: Int, end: Int) -> ByteArray {
+    switch bytesApi.slice(data, start, end) {
+        case Option.Some(part): {
+            return part;
+        }
+        case Option.None: {
+            throw inputError();
+        }
+    }
+}
+
+class Decoder {
+    private const state: DecoderState,
+    private const access: socket.ReadAccess,
+    private closed: Bool,
+    private cached: RequestHead
+
+    fn create() -> Decoder {
+        return Decoder.withHeadCache(0);
+    }
+
+    fn withHeadCache(bytes: Int) -> Decoder {
+        if bytes < 0 || bytes > 4096 {
+            throw err.create(7801, "HTTP decoder head cache size");
+        }
+        let access = socket.readAccess();
+        return Decoder(state: rawDecoder(bytes), access: access, closed: false, cached: emptyHead());
+    }
+
+    fn close(self: Decoder) {
+        if !self.closed {
+            self.closed = true;
+            rawClose(self.state);
+            self.cached = emptyHead();
+        }
+    }
+
+    private fn checkOpen(self: Decoder) {
+        if self.closed {
+            throw err.create(7801, "HTTP decoder is closed");
+        }
+    }
+
+    fn feed(self: Decoder, data: ByteArray, start: Int) -> Option<RequestFrame> {
+        self.checkOpen();
+        let result = rawFeed(self.state, data, bytesApi.byteLength(data), start, self.cached.version);
+        return self.decoded(Input.Owned(data: data), result);
+    }
+
+    fn feedRead(self: Decoder, view: socket.ReadView, start: Int) -> Option<RequestFrame> {
+        self.checkOpen();
+        let result = rawFeedRead(self.state, self.access, view, start, self.cached.version);
+        return self.decoded(Input.Borrowed(view: view), result);
+    }
+
+    fn end(self: Decoder) {
+        self.checkOpen();
+        checked(rawEnd(self.state));
+    }
+
+    private fn fieldText(self: Decoder, input: Input, offset: Int, start: Int, end: Int, lower: Bool) -> String {
+        if start == end {
+            return "";
+        }
+        if offset < 0 {
+            return rawStoredText(self.state, start, end, lower);
+        }
+        switch input {
+            case Input.Borrowed(view): {
+                return rawReadText(self.access, view, offset + start, offset + end, lower);
+            }
+            case Input.Owned(data): {
+                let part = slice(data, offset + start, offset + end);
+                if lower {
+                    return textApi.decodeUtf8(bytesApi.lowerAscii(part));
+                }
+                return textApi.decodeUtf8(part);
+            }
+        }
+    }
+
+    private fn body(self: Decoder, input: Input, frame: RzHttpFrame) -> ByteArray {
+        if frame.bodyLength == 0 {
+            return bytesApi.from(b"");
+        }
+        let start = frame.bodyOffset;
+        if start < 0 {
+            return rawStoredBody(self.state);
+        }
+        switch input {
+            case Input.Borrowed(view): {
+                return socket.copyRead(view, start, start + frame.bodyLength);
+            }
+            case Input.Owned(data): {
+                return slice(data, start, start + frame.bodyLength);
+            }
+        }
+    }
+
+    private fn head(self: Decoder, input: Input, frame: RzHttpFrame) -> RequestHead {
+        let previous = self.cached;
+        if frame.headVersion != 0 && previous.version == frame.headVersion {
+            return previous;
+        }
+        let offset = frame.headOffset;
+        var headers: List<Header> = [];
+        var index = 0;
+        while index < frame.fieldCount {
+            let field = rawField(self.state, index);
+            let name = self.fieldText(input, offset, field.nameStart, field.nameEnd, true);
+            let value = self.fieldText(input, offset, field.valueStart, field.valueEnd, false);
+            headers = listApi.append(headers, Header(name: name, value: value));
+            index = index + 1;
+        }
+        let head = RequestHead(
+            method: self.fieldText(input, offset, 0, frame.methodEnd, false),
+            target: self.fieldText(input, offset, frame.methodEnd + 1, frame.targetEnd, false),
+            headers: headers,
+            closing: frame.closing,
+            version: frame.headVersion
+        );
+        if frame.headVersion != 0 {
+            self.cached = head;
+        }
+        return head;
+    }
+
+    private fn decoded(self: Decoder, input: Input, result: Int) -> Option<RequestFrame> {
+        if result < reusedEmpty {
+            return Option<RequestFrame>.Some(
+                value: RequestFrame(end: reusedEmpty - result, head: self.cached, body: bytesApi.from(b""))
+            );
+        }
+        if result <= 0 {
+            checked(result);
+            return Option<RequestFrame>.None();
+        }
+        let frame = rawFrame(self.state);
+        return Option<RequestFrame>.Some(
+            value: RequestFrame(end: result, head: self.head(input, frame), body: self.body(input, frame))
+        );
+    }
+}
+
 export RequestLine;
 export InvalidRequestLine;
 export requestLine;
+export Header;
+export RequestHead;
+export RequestFrame;
+export InvalidRequest;
+export Decoder;

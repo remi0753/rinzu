@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>在庫ダッシュボード</title>
+    <link rel="stylesheet" href="/assets/inventory.css">
+    <script src="/assets/inventory.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <h1>在庫ダッシュボード</h1>
+      <div class="workspace">
+        <section aria-labelledby="catalog-heading">
+          <h2 id="catalog-heading">商品一覧</h2>
+          <ul id="catalog"></ul>
+        </section>
+        <section aria-labelledby="item-heading">
+          <h2 id="item-heading">商品詳細</h2>
+          <form id="access">
+            <label for="token">在庫 API トークン</label>
+            <div class="fields">
+              <input id="token" type="password" minlength="20" maxlength="128" autocomplete="off" required>
+              <button type="submit">詳細を取得</button>
+            </div>
+          </form>
+          <p id="status" role="status"></p>
+          <dl id="details" hidden>
+            <dt>商品名</dt>
+            <dd id="name"></dd>
+            <dt>説明</dt>
+            <dd id="description"></dd>
+            <dt>単価</dt>
+            <dd id="price"></dd>
+            <dt>在庫</dt>
+            <dd id="stock"></dd>
+          </dl>
+          <form id="quote" hidden>
+            <label for="quantity">数量</label>
+            <div class="fields">
+              <input id="quantity" type="number" min="1" max="100" value="1" required>
+              <button type="submit">見積もり</button>
+            </div>
+            <output id="total" for="quantity"></output>
+          </form>
+        </section>
+      </div>
+    </main>
+  </body>
+</html>

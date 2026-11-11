@@ -17,6 +17,7 @@ The toolchain bundles the following modules. Import them directly in either a st
 | `rinzu.testing` | Assertions | [Testing](../tooling/testing.md) |
 | `rinzu.shutdown` | Signal registration and cooperative shutdown | [Async](../language/async.md) |
 | `rinzu.http` | Bounded HTTP/HTTPS client | [Networking](networking.md) |
+| `rinzu.http.server` | HTTP route registration and dispatch | [Networking](networking.md#http-application-dispatch) |
 | `rinzu.socket` | Nonblocking TCP listener and stream | [Networking](networking.md) |
 | `rinzu.httpcodec` | Request-line scanning for HTTP-oriented code | [Source API](../../sdk/httpcodec/src/httpcodec.rinzu) |
 

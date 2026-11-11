@@ -1,0 +1,451 @@
+import rinzu.bytes as bytes;
+import rinzu.error as errors;
+import rinzu.http as client;
+import rinzu.http.server as http;
+import rinzu.io as io;
+import rinzu.json as json;
+import rinzu.list as list;
+import rinzu.map as map;
+import rinzu.process as process;
+import rinzu.shutdown as shutdown;
+import rinzu.stdio as stdio;
+import rinzu.string as string;
+
+type Item = {
+    sku: String,
+    name: String,
+    category: String,
+    description: String,
+    priceCents: Int,
+    available: Int,
+    warehouse: String
+};
+
+type Quote = { quantity: Int };
+
+type StockLookup = { sku: String };
+
+type Stock = {
+    sku: String,
+    available: Int,
+    warehouse: String
+};
+
+class Catalog {
+    const items: List<Item>,
+    const bySku: Map<String, Item>
+}
+
+class ClientSlot {
+    const client: client.Client,
+    busy: Bool
+}
+
+class Warehouse {
+    const endpoint: String,
+    const headers: client.PreparedHeaders,
+    const slots: List<ClientSlot>
+}
+
+async fn loadCatalog(root: String) -> Catalog {
+    let data = await io.readBytes(f"{root}/data/catalog.json", 65536);
+    let items: List<Item> = json.parseWithTy(data);
+    var bySku: Map<String, Item> = {};
+    for item in items {
+        if item.sku == ""
+            || !bytes.allIn(string.encodeUtf8(item.sku), bytes.from(b"abcdefghijklmnopqrstuvwxyz0123456789-"))
+            || item.priceCents < 0
+            || item.priceCents > 100000000
+            || item.available < 0 {
+            throw errors.create(9001, "invalid catalog entry");
+        }
+        bySku = map.insert(bySku, item.sku, item);
+    }
+    if list.length(items) == 0 || map.length(bySku) != list.length(items) {
+        throw errors.create(9001, "catalog needs unique items");
+    }
+    return Catalog(items: items, bySku: bySku);
+}
+
+fn bearer() -> String {
+    let token = process.setting("INVENTORY_TOKEN", "");
+    if string.length(token) < 20
+        || string.length(token) > 128
+        || !bytes.allIn(
+            string.encodeUtf8(token),
+            bytes.from(b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+        ) {
+        throw errors.create(9002, "set INVENTORY_TOKEN to a 20–128 character URL-safe token");
+    }
+    return f"Bearer {token}";
+}
+
+fn authenticated(input: http.Request, credential: String) -> Bool {
+    var count = 0;
+    var matches = false;
+    for header in input.headers {
+        if header.name == "authorization" {
+            count = count + 1;
+            matches = header.value == credential;
+        }
+    }
+    return count == 1 && matches;
+}
+
+fn requireToken(credential: String) -> http.SyncMiddleware {
+    return fn (input: http.Request) -> Option<http.Response> {
+        if !authenticated(input, credential) {
+            let denied = errorResponse(401, "An inventory token is required");
+            return Option<http.Response>.Some(
+                value: denied.withHeader("www-authenticate", "Bearer realm=\"inventory\"")
+            );
+        }
+        return Option<http.Response>.None();
+    };
+}
+
+fn jsonResponse(status: Int, value: json.Value) -> http.Response {
+    return http.Response(
+        status: status,
+        contentType: "application/json",
+        headers: [http.Header(name: "cache-control", value: "no-store")],
+        body: json.encode(value)
+    );
+}
+
+fn errorResponse(status: Int, message: String) -> http.Response {
+    return jsonResponse(
+        status,
+        json.object(
+            {
+                "error": json.text(message)
+            }
+        )
+    );
+}
+
+fn itemSummary(item: Item) -> json.Value {
+    return json.object(
+        {
+            "sku": json.text(item.sku), "name": json.text(item.name), "category": json.text(item.category)
+        }
+    );
+}
+
+fn listing(catalog: Catalog, input: http.Request) -> http.Response {
+    let limit = input.queryInt("limit", 8);
+    if limit < 1 || limit > 16 {
+        return errorResponse(400, "limit must be between 1 and 16");
+    }
+    var rows: List<json.Value> = [];
+    for item in catalog.items {
+        if list.length(rows) >= limit {
+            break;
+        }
+        rows = list.append(rows, itemSummary(item));
+    }
+    return jsonResponse(
+        200,
+        json.object(
+            {
+                "items": json.array(rows)
+            }
+        )
+    );
+}
+
+fn details(catalog: Catalog, input: http.Request) -> http.Response {
+    switch map.get(catalog.bySku, input.param("sku")) {
+        case Option.Some(item): {
+            return jsonResponse(
+                200,
+                json.object(
+                    {
+                        "sku": json.text(item.sku), "name": json.text(item.name), "description": json.text(
+                            item.description
+                        ), "priceCents": json.intValue(item.priceCents)
+                    }
+                )
+            );
+        }
+        case Option.None: {
+            return errorResponse(404, "Unknown SKU");
+        }
+    }
+}
+
+fn isJson(input: http.Request) -> Bool {
+    switch input.header("content-type") {
+        case Option.Some(value): {
+            return value == "application/json" || value == "application/json; charset=utf-8";
+        }
+        case Option.None: {
+            return false;
+        }
+    }
+}
+
+fn quote(catalog: Catalog, input: http.Request) -> http.Response {
+    if !isJson(input) {
+        return errorResponse(415, "Send application/json");
+    }
+    switch map.get(catalog.bySku, input.param("sku")) {
+        case Option.Some(item): {
+            var quantity = 0;
+            try {
+                let data: Quote = json.parseWithTy(input.body);
+                quantity = data.quantity;
+            }
+            catch invalid {
+                return errorResponse(400, "Send a JSON object with an integer quantity");
+            }
+            if quantity < 1 || quantity > 100 {
+                return errorResponse(400, "quantity must be between 1 and 100");
+            }
+            return jsonResponse(
+                200,
+                json.object(
+                    {
+                        "sku": json.text(item.sku), "quantity": json.intValue(quantity), "totalCents": json.intValue(
+                            quantity * item.priceCents
+                        )
+                    }
+                )
+            );
+        }
+        case Option.None: {
+            return errorResponse(404, "Unknown SKU");
+        }
+    }
+}
+
+fn take(warehouse: Warehouse) -> Option<ClientSlot> {
+    for slot in warehouse.slots {
+        if !slot.busy {
+            slot.busy = true;
+            return Option<ClientSlot>.Some(value: slot);
+        }
+    }
+    return Option<ClientSlot>.None();
+}
+
+async fn stock(catalog: Catalog, warehouse: Warehouse, input: http.Request) -> http.Response {
+    switch map.get(catalog.bySku, input.param("sku")) {
+        case Option.Some(item): {
+            switch take(warehouse) {
+                case Option.Some(slot): {
+                    try {
+                        let body = json.encode(
+                            json.object(
+                                {
+                                    "sku": json.text(item.sku)
+                                }
+                            )
+                        );
+                        let prepared = warehouse.headers;
+                        let upstream = await prepared.send(slot.client, "POST", warehouse.endpoint, body, 1500);
+                        if upstream.status != 200 {
+                            return errorResponse(502, "Warehouse returned an unexpected status");
+                        }
+                        if upstream.headerText("Content-Type") != Option<String>.Some(value: "application/json") {
+                            return errorResponse(502, "Warehouse returned an unexpected content type");
+                        }
+                        let value: Stock = json.parseWithTy(upstream.body);
+                        if value.sku != item.sku || value.available < 0 {
+                            return errorResponse(502, "Warehouse returned invalid stock");
+                        }
+                        return stockResponse(value.sku, value.available, value.warehouse);
+                    }
+                    catch problems {
+                        return errorResponse(502, "Warehouse request failed");
+                    }
+                    finally {
+                        slot.busy = false;
+                    }
+                }
+                case Option.None: {
+                    let busy = errorResponse(503, "Warehouse request capacity reached");
+                    return busy.withHeader("retry-after", "1");
+                }
+            }
+        }
+        case Option.None: {
+            return errorResponse(404, "Unknown SKU");
+        }
+    }
+}
+
+fn stockResponse(sku: String, available: Int, warehouse: String) -> http.Response {
+    return jsonResponse(
+        200,
+        json.object(
+            {
+                "sku": json.text(sku), "available": json.intValue(available), "warehouse": json.text(warehouse)
+            }
+        )
+    );
+}
+
+fn warehouseApp(catalog: Catalog, credential: String) -> http.Compiled {
+    let app = http.application();
+    app.useSync(requireToken(credential));
+    app.postSync(
+        "/stock",
+        fn (input: http.Request) -> http.Response {
+            if !isJson(input) {
+                return errorResponse(415, "Send application/json");
+            }
+            try {
+                let lookup: StockLookup = json.parseWithTy(input.body);
+                switch map.get(catalog.bySku, lookup.sku) {
+                    case Option.Some(item): {
+                        return stockResponse(item.sku, item.available, item.warehouse);
+                    }
+                    case Option.None: {
+                        return errorResponse(404, "Unknown SKU");
+                    }
+                }
+            }
+            catch invalid {
+                return errorResponse(400, "Send a JSON object with a SKU");
+            }
+        }
+    );
+    return app.compile();
+}
+
+async fn asset(path: String, contentType: String, cache: String) -> http.Response {
+    let payload = await io.readBytes(path, 65536);
+    return http.Response(
+        status: 200,
+        contentType: contentType,
+        headers: [http.Header(name: "cache-control", value: cache)],
+        body: payload
+    );
+}
+
+async fn webApp(root: String, catalog: Catalog, credential: String, warehouse: Warehouse) -> http.Compiled {
+    let page = await asset(f"{root}/public/index.html", "text/html; charset=utf-8", "no-cache");
+    let css = await asset(f"{root}/public/inventory.css", "text/css; charset=utf-8", "public, max-age=60");
+    let script = await asset(f"{root}/public/inventory.js", "text/javascript; charset=utf-8", "public, max-age=60");
+    let app = http.application();
+    app.getSync(
+        "/",
+        fn (input: http.Request) -> http.Response {
+            return page;
+        }
+    );
+    app.getSync(
+        "/assets/inventory.css",
+        fn (input: http.Request) -> http.Response {
+            return css;
+        }
+    );
+    app.getSync(
+        "/assets/inventory.js",
+        fn (input: http.Request) -> http.Response {
+            return script;
+        }
+    );
+    let api = app.group("/api");
+    api.onError(
+        async fn (input: http.Request, problems: List<Error>) -> http.Response {
+            for problem in problems {
+                if problem is http.InputError {
+                    return errorResponse(problem.payload, "Invalid request parameters");
+                }
+            }
+            return errorResponse(500, "Internal server error");
+        }
+    );
+    api.getSync(
+        "/catalog",
+        fn (input: http.Request) -> http.Response {
+            return listing(catalog, input);
+        }
+    );
+    let privateApi = api.group("/items");
+    privateApi.useSync(requireToken(credential));
+    privateApi.getSync(
+        "/:sku",
+        fn (input: http.Request) -> http.Response {
+            return details(catalog, input);
+        }
+    );
+    privateApi.postSync(
+        "/:sku/quote",
+        fn (input: http.Request) -> http.Response {
+            return quote(catalog, input);
+        }
+    );
+    privateApi.get(
+        "/:sku/stock",
+        fn (input: http.Request) -> Future<http.Response> {
+            return stock(catalog, warehouse, input);
+        }
+    );
+    return app.compile();
+}
+
+async fn serve(application: http.Compiled, port: Int) {
+    let enabled = shutdown.enableSignals();
+    try {
+        let server = await http.Server.listen(application, "127.0.0.1", port, http.defaultServerOptions());
+        try {
+            stdio.writeLine(f"Listening on http://127.0.0.1:{server.port}");
+            await server.serveUntil(
+                fn () -> Bool {
+                    return shutdown.signalRequested() != CInt(0);
+                }
+            );
+        }
+        finally {
+            await server.close();
+        }
+    }
+    finally {
+        let disabled = shutdown.disableSignals();
+    }
+}
+
+async fn main() {
+    try {
+        let root = process.setting("INVENTORY_ROOT", ".");
+        let role = process.setting("INVENTORY_ROLE", "web");
+        let catalog = await loadCatalog(root);
+        let credential = bearer();
+        if role == "warehouse" {
+            await serve(warehouseApp(catalog, credential), process.integer("INVENTORY_PORT", 8081, 0, 65535));
+            return;
+        }
+        if role != "web" {
+            throw errors.create(9003, "INVENTORY_ROLE must be web or warehouse");
+        }
+        let upstreamPort = process.integer("INVENTORY_WAREHOUSE_PORT", 8081, 1, 65535);
+        var slots: List<ClientSlot> = [];
+        try {
+            while list.length(slots) < 16 {
+                slots = list.append(slots, ClientSlot(client: client.newClient(), busy: false));
+            }
+            let warehouse = Warehouse(
+                endpoint: f"http://127.0.0.1:{upstreamPort}/stock",
+                headers: client.PreparedHeaders.create(
+                    [client.header("Authorization", credential), client.header("Content-Type", "application/json")]
+                ),
+                slots: slots
+            );
+            let app = await webApp(root, catalog, credential, warehouse);
+            await serve(app, process.integer("INVENTORY_PORT", 8080, 0, 65535));
+        }
+        finally {
+            let closed = await client.closeOwnerClients();
+        }
+    }
+    catch problems {
+        let failed = process.setExitStatus(1);
+        try {
+            let reported = process.writeErrorLine(f"{problems}");
+        }
+        catch reportingFailed {}
+    }
+}

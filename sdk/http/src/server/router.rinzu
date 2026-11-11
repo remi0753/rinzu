@@ -1,0 +1,437 @@
+import rinzu.list as listApi;
+import rinzu.map as mapApi;
+import rinzu.string as stringApi;
+import "url.rinzu" as url;
+
+error ConfigurationError {}
+
+class Span {
+    const start: Int,
+    const end: Int
+}
+
+class Match {
+    const endpoint: Int,
+    const values: List<Span>
+}
+
+class Node {
+    edges: Map<String, Node>,
+    parameter: Option<Node>,
+    endpoint: Int,
+    wildcard: Int
+}
+
+class Router {
+    roots: Map<String, Node>
+}
+
+class Search {
+    remaining: Int
+}
+
+fn node() -> Node {
+    return Node(edges: {}, parameter: Option<Node>.None(), endpoint: -1, wildcard: -1);
+}
+
+fn router() -> Router {
+    return Router(roots: {});
+}
+
+fn method(value: String) -> Bool {
+    return value == "GET"
+        || value == "HEAD"
+        || value == "POST"
+        || value == "PUT"
+        || value == "PATCH"
+        || value == "DELETE"
+        || value == "OPTIONS";
+}
+
+fn partName(value: String) -> Bool {
+    if stringApi.length(value) == 0 {
+        return false;
+    }
+    var index = 0;
+    while index < stringApi.length(value) {
+        let part = url.slice(value, index, index + 1);
+        if url.find("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789", part, 0) < 0 {
+            return false;
+        }
+        index = index + 1;
+    }
+    return true;
+}
+
+fn add(target: Router, verb: String, path: String, endpoint: Int) -> List<String> {
+    if !method(verb)
+        || stringApi.length(path) < 1
+        || stringApi.length(path) > 1024
+        || url.slice(path, 0, 1) != "/"
+        || url.find(path, "?", 0) >= 0
+        || url.find(path, "%", 0) >= 0
+        || url.find(path, "#", 0) >= 0 {
+        throw ConfigurationError(message: "invalid method or route pattern");
+    }
+    var current = node();
+    switch mapApi.get(target.roots, verb) {
+        case Option.Some(root): {
+            current = root;
+        }
+        case Option.None: {
+            target.roots = mapApi.insert(target.roots, verb, current);
+        }
+    }
+    var names: List<String> = [];
+    var start = 1;
+    var depth = 0;
+    if path == "/" {
+        start = 2;
+    }
+    while start <= stringApi.length(path) {
+        depth = depth + 1;
+        if depth > 64 {
+            throw ConfigurationError(message: "too many route segments");
+        }
+        var end = url.find(path, "/", start);
+        if end < 0 {
+            end = stringApi.length(path);
+        }
+        let segment = url.slice(path, start, end);
+        var marker = "";
+        if segment != "" {
+            marker = url.slice(segment, 0, 1);
+        }
+        if marker == ":" || marker == "*" {
+            let name = url.slice(segment, 1, stringApi.length(segment));
+            if !partName(name) {
+                throw ConfigurationError(message: "invalid parameter name");
+            }
+            var index = 0;
+            while index < listApi.length(names) {
+                switch listApi.get(names, index) {
+                    case Option.Some(previous): {
+                        if previous == name {
+                            throw ConfigurationError(message: "duplicate parameter name");
+                        }
+                    }
+                    case Option.None: {}
+                }
+                index = index + 1;
+            }
+            names = listApi.append(names, name);
+            if marker == "*" {
+                if end != stringApi.length(path) || current.wildcard >= 0 {
+                    throw ConfigurationError(message: "duplicate or nonterminal wildcard");
+                }
+                current.wildcard = endpoint;
+                return names;
+            }
+            switch current.parameter {
+                case Option.Some(child): {
+                    current = child;
+                }
+                case Option.None: {
+                    let child = node();
+                    current.parameter = Option<Node>.Some(value: child);
+                    current = child;
+                }
+            }
+        }
+        else {
+            switch mapApi.get(current.edges, segment) {
+                case Option.Some(child): {
+                    current = child;
+                }
+                case Option.None: {
+                    let child = node();
+                    current.edges = mapApi.insert(current.edges, segment, child);
+                    current = child;
+                }
+            }
+        }
+        start = end + 1;
+    }
+    if current.endpoint >= 0 {
+        throw ConfigurationError(message: "duplicate route structure");
+    }
+    current.endpoint = endpoint;
+    return names;
+}
+
+fn visit(target: Router, current: Node, path: String, start: Int, values: List<Span>, search: Search) -> Option<Match> {
+    search.remaining = search.remaining - 1;
+    if search.remaining < 0 {
+        throw url.invalid("route search budget exceeded");
+    }
+    if start > stringApi.length(path) {
+        if current.endpoint >= 0 {
+            return Option<Match>.Some(value: Match(endpoint: current.endpoint, values: values));
+        }
+    }
+    else {
+        var end = url.find(path, "/", start);
+        if end < 0 {
+            end = stringApi.length(path);
+        }
+        let segment = url.slice(path, start, end);
+        switch mapApi.get(current.edges, segment) {
+            case Option.Some(child): {
+                switch visit(target, child, path, end + 1, values, search) {
+                    case Option.Some(found): {
+                        return Option<Match>.Some(value: found);
+                    }
+                    case Option.None: {}
+                }
+            }
+            case Option.None: {}
+        }
+        if end > start {
+            switch current.parameter {
+                case Option.Some(child): {
+                    let captured = listApi.append(values, Span(start: start, end: end));
+                    switch visit(target, child, path, end + 1, captured, search) {
+                        case Option.Some(found): {
+                            return Option<Match>.Some(value: found);
+                        }
+                        case Option.None: {}
+                    }
+                }
+                case Option.None: {}
+            }
+        }
+    }
+    if current.wildcard >= 0 {
+        var position = start;
+        if position > stringApi.length(path) {
+            position = stringApi.length(path);
+        }
+        return Option<Match>.Some(
+            value: Match(
+                endpoint: current.wildcard,
+                values: listApi.append(values, Span(start: position, end: stringApi.length(path)))
+            )
+        );
+    }
+    return Option<Match>.None();
+}
+
+fn finish(current: Node, values: List<Span>, start: Int, length: Int) -> Option<Match> {
+    if start > length && current.endpoint >= 0 {
+        return Option<Match>.Some(value: Match(endpoint: current.endpoint, values: values));
+    }
+    if current.wildcard >= 0 {
+        var position = start;
+        if position > length {
+            position = length;
+        }
+        return Option<Match>.Some(
+            value: Match(endpoint: current.wildcard, values: listApi.append(values, Span(start: position, end: length)))
+        );
+    }
+    return Option<Match>.None();
+}
+
+fn terminal(target: Router, current: Node, values: List<Span>, remaining: Int, length: Int) -> Option<Match> {
+    if remaining < 0 {
+        throw url.invalid("route search budget exceeded");
+    }
+    if current.endpoint >= 0 {
+        return Option<Match>.Some(value: Match(endpoint: current.endpoint, values: values));
+    }
+    if current.wildcard >= 0 {
+        return Option<Match>.Some(
+            value: Match(endpoint: current.wildcard, values: listApi.append(values, Span(start: length, end: length)))
+        );
+    }
+    return Option<Match>.None();
+}
+
+// This node is already entered and its literal edge is already read. Start
+// at the selected child, preserving the shared budget and fallback order.
+fn branches(
+    target: Router,
+    current: Node,
+    child: Node,
+    path: String,
+    start: Int,
+    end: Int,
+    values: List<Span>,
+    childValues: List<Span>,
+    remaining: Int,
+    afterLiteral: Bool
+) -> Option<Match> {
+    let search = Search(remaining: remaining);
+    switch visit(target, child, path, end + 1, childValues, search) {
+        case Option.Some(found): {
+            return Option<Match>.Some(value: found);
+        }
+        case Option.None: {}
+    }
+    if afterLiteral && end > start {
+        switch current.parameter {
+            case Option.Some(next): {
+                let captured = listApi.append(values, Span(start: start, end: end));
+                switch visit(target, next, path, end + 1, captured, search) {
+                    case Option.Some(found): {
+                        return Option<Match>.Some(value: found);
+                    }
+                    case Option.None: {}
+                }
+            }
+            case Option.None: {}
+        }
+    }
+    let length = stringApi.length(path);
+    if start > length && current.endpoint >= 0 {
+        return Option<Match>.Some(value: Match(endpoint: current.endpoint, values: values));
+    }
+    if current.wildcard >= 0 {
+        var position = start;
+        if position > length {
+            position = length;
+        }
+        return Option<Match>.Some(
+            value: Match(endpoint: current.wildcard, values: listApi.append(values, Span(start: position, end: length)))
+        );
+    }
+    return Option<Match>.None();
+}
+
+fn lookup(target: Router, verb: String, path: String) -> Option<Match> {
+    switch mapApi.get(target.roots, verb) {
+        case Option.Some(root): {
+            var start = 1;
+            if path == "/" {
+                start = 2;
+            }
+            let length = stringApi.length(path);
+            var current = root;
+            var values: List<Span> = [];
+            var remaining = 512;
+            while true {
+                remaining = remaining - 1;
+                if remaining < 0 {
+                    throw url.invalid("route search budget exceeded");
+                }
+                if start > length {
+                    return finish(current, values, start, length);
+                }
+                var end = url.find(path, "/", start);
+                if end < 0 {
+                    end = length;
+                }
+                let segment = url.slice(path, start, end);
+                switch mapApi.get(current.edges, segment) {
+                    case Option.Some(child): {
+                        if end == length {
+                            remaining = remaining - 1;
+                            let result = terminal(target, child, values, remaining, length);
+                            switch result {
+                                case Option.Some(found): {
+                                    return result;
+                                }
+                                case Option.None: {}
+                            }
+                        }
+                        else {
+                            return branches(target, current, child, path, start, end, values, values, remaining, true);
+                        }
+                    }
+                    case Option.None: {}
+                }
+                if end > start {
+                    switch current.parameter {
+                        case Option.Some(child): {
+                            let captured = listApi.append(values, Span(start: start, end: end));
+                            if end == length {
+                                remaining = remaining - 1;
+                                let result = terminal(target, child, captured, remaining, length);
+                                switch result {
+                                    case Option.Some(found): {
+                                        return result;
+                                    }
+                                    case Option.None: {}
+                                }
+                            }
+                            else {
+                                if current.wildcard < 0 {
+                                    current = child;
+                                    start = end + 1;
+                                    values = captured;
+                                    continue;
+                                }
+                                return branches(
+                                    target,
+                                    current,
+                                    child,
+                                    path,
+                                    start,
+                                    end,
+                                    values,
+                                    captured,
+                                    remaining,
+                                    false
+                                );
+                            }
+                        }
+                        case Option.None: {}
+                    }
+                }
+                return finish(current, values, start, length);
+            }
+            return Option<Match>.None();
+        }
+        case Option.None: {
+            return Option<Match>.None();
+        }
+    }
+}
+
+fn allowed(target: Router, path: String) -> String {
+    let methods = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
+    var result = "";
+    var index = 0;
+    var get = false;
+    while index < listApi.length(methods) {
+        switch listApi.get(methods, index) {
+            case Option.Some(verb): {
+                var present = false;
+                switch lookup(target, verb, path) {
+                    case Option.Some(found): {
+                        present = true;
+                    }
+                    case Option.None: {}
+                }
+                if verb == "GET" {
+                    get = present;
+                }
+                if verb == "HEAD" && get {
+                    present = true;
+                }
+                if verb == "OPTIONS" && result != "" {
+                    present = true;
+                }
+                if present {
+                    if result != "" {
+                        result = f"{result}, ";
+                    }
+                    result = f"{result}{verb}";
+                }
+            }
+            case Option.None: {}
+        }
+        index = index + 1;
+    }
+    return result;
+}
+
+export ConfigurationError;
+export Span;
+export Match;
+export Router;
+export router;
+export add;
+export lookup;
+export allowed;
+export Node;

@@ -14,6 +14,10 @@ native {
 
     opaque Completion;
 
+    opaque ReadAccess;
+
+    opaque ReadView;
+
     fn rawAddress(host: String, port: CInt) -> CInt symbol "rinzu_socket_address_status";
 
     fn rawListen(host: String, port: CInt, backlog: CInt) -> Int symbol "rinzu_socket_listen";
@@ -22,10 +26,16 @@ native {
 
     fn rawAccept(listener: Listener, milliseconds: Int) -> Int symbol "rinzu_socket_accept";
 
-    fn rawRead(stream: TcpStream, maximum: Int, milliseconds: Int) -> Int symbol "rinzu_socket_read";
+    fn rawRead(stream: TcpStream, maximum: Int, milliseconds: Int) -> Int symbol "rinzu_socket_read_start";
+
+    fn rawEndReadyRead(id: Int, delivered: CBool) -> Unit symbol "rinzu_socket_end_ready_read";
 
     fn rawWrite(stream: TcpStream, data: ByteArray, length: CSize, all: CBool, milliseconds: Int)
-        -> Int symbol "rinzu_socket_write";
+        -> Int symbol "rinzu_socket_write_start";
+
+    fn rawTryWrite(stream: TcpStream, data: ByteArray, length: CSize) -> Int symbol "rinzu_socket_try_write";
+
+    fn rawWriteReady() -> Completion symbol "rinzu_socket_write_ready";
 
     fn rawShutdown(stream: TcpStream) -> Int symbol "rinzu_socket_shutdown";
 
@@ -40,6 +50,20 @@ native {
     fn rawTransferCompletion(id: Int) -> Completion symbol "rinzu_socket_transfer_completion";
 
     fn rawBytesViewId(id: Int) -> ByteArray symbol "rinzu_socket_bytes_view_id";
+
+    fn rawBorrowRead(id: Int) -> ReadView symbol "rinzu_socket_borrow_read";
+
+    fn rawReadLength(view: ReadView) -> Int symbol "rinzu_socket_read_length";
+
+    fn rawReadByte(view: ReadView, index: Int) -> Int symbol "rinzu_socket_read_byte";
+
+    fn rawFindReadByte(view: ReadView, byte: Int, start: Int, end: Int) -> Int symbol "rinzu_socket_find_read_byte";
+
+    fn rawCopyRead(view: ReadView, start: Int, end: Int) -> ByteArray symbol "rinzu_socket_copy_read";
+
+    fn readAccess() -> ReadAccess symbol "rinzu_socket_read_access";
+
+    fn rawEndRead(id: Int) -> Unit symbol "rinzu_socket_end_read";
 
     fn rawAckId(id: Int) -> Unit symbol "rinzu_socket_ack_id";
 
@@ -261,7 +285,15 @@ async fn receiving(stream: TcpStream, maximum: Int, milliseconds: Int) -> ReadCh
         throw problem(id, "socket.read");
     }
     var acknowledged = false;
+    // The unused slot in the low bits identifies a synchronous read lease.
+    let ready = id % 1024 == 1023;
     try {
+        if ready {
+            let readyBytes = rawBytesViewId(id);
+            let chunk = ReadChunk(data: readyBytes, eof: bytesApi.length(readyBytes) == 0);
+            acknowledged = true;
+            return chunk;
+        }
         let result = await bridge.transferred(rawTransferCompletion(id));
         try {
             // The low 17 bits are length; subtract before signed division so
@@ -282,10 +314,15 @@ async fn receiving(stream: TcpStream, maximum: Int, milliseconds: Int) -> ReadCh
     finally {
         // Ack follows the physical completion await. Only an interrupted or
         // otherwise unacknowledged operation still needs cancel and drain.
-        if !acknowledged {
-            await settleTransfer(id);
+        if ready {
+            rawEndReadyRead(id, acknowledged);
         }
-        rawFinishId(id);
+        else {
+            if !acknowledged {
+                await settleTransfer(id);
+            }
+            rawFinishId(id);
+        }
     }
     throw problem(-7504, "socket.read");
 }
@@ -301,9 +338,116 @@ async fn readWithTimeout(stream: TcpStream, maximum: Int, milliseconds: Int) -> 
     return await receiving(stream, maximum, milliseconds);
 }
 
+async fn readingView<T>(stream: TcpStream, maximum: Int, milliseconds: Int, timed: Bool, consume: fn (ReadView) -> T)
+    -> T {
+    if timed && !validTimeout(milliseconds) {
+        throw problem(-7504, "socket.deadline");
+    }
+    let id = rawRead(stream, maximum, milliseconds);
+    if id < 0 {
+        throw problem(id, "socket.read");
+    }
+    var acknowledged = false;
+    var borrowed = false;
+    let ready = id % 1024 == 1023;
+    try {
+        if ready {
+            try {
+                let value = consume(rawBorrowRead(id));
+                acknowledged = true;
+                return value;
+            }
+            catch errors {
+                acknowledged = true;
+                rethrow errors;
+            }
+        }
+        let result = await bridge.transferred(rawTransferCompletion(id));
+        let length = num.bitAnd(result, 131071);
+        if result != length {
+            rawAckId(id);
+            acknowledged = true;
+            let status = bridge.checkStatus((result - length) / 131072, "socket.read");
+        }
+        let view = rawBorrowRead(id);
+        borrowed = true;
+        return consume(view);
+    }
+    finally {
+        if ready {
+            rawEndReadyRead(id, acknowledged);
+        }
+        else if borrowed {
+            rawEndRead(id);
+        }
+        else {
+            if !acknowledged {
+                await settleTransfer(id);
+            }
+            rawFinishId(id);
+        }
+    }
+    throw problem(-7504, "socket.read");
+}
+
+fn withRead<T>(stream: TcpStream, maximum: Int, consume: fn (ReadView) -> T) -> Future<T> {
+    return readingView(stream, maximum, 0, false, consume);
+}
+
+fn withReadTimeout<T>(stream: TcpStream, maximum: Int, milliseconds: Int, consume: fn (ReadView) -> T) -> Future<T> {
+    return readingView(stream, maximum, milliseconds, true, consume);
+}
+
+fn readLength(view: ReadView) -> Int {
+    let length = rawReadLength(view);
+    if length < 0 {
+        throw problem(-7504, "socket.readView");
+    }
+    return length;
+}
+
+fn readByte(view: ReadView, index: Int) -> Int {
+    let byte = rawReadByte(view, index);
+    if byte < 0 {
+        throw problem(-7504, "socket.readView");
+    }
+    return byte;
+}
+
+fn findReadByte(view: ReadView, byte: Int, start: Int, end: Int) -> Option<Int> {
+    let index = rawFindReadByte(view, byte, start, end);
+    if index == -2 {
+        throw problem(-7504, "socket.readView");
+    }
+    if index == -1 {
+        return Option<Int>.None();
+    }
+    return Option<Int>.Some(value: index);
+}
+
+fn copyRead(view: ReadView, start: Int, end: Int) -> ByteArray {
+    return rawCopyRead(view, start, end);
+}
+
+fn tryWrite(stream: TcpStream, data: ByteArray) -> Int {
+    let result = rawTryWrite(stream, data, bytesApi.byteLength(data));
+    if result <= -65536 {
+        return -65536 - result;
+    }
+    throw writeFailure(problem(result, "socket.write"), 0);
+}
+
 async fn send(stream: TcpStream, data: ByteArray, all: Bool, milliseconds: Int) -> Int {
     let id = rawWrite(stream, data, bytesApi.byteLength(data), all, milliseconds);
     if id < 0 {
+        // A ready receipt is below the admission status range. Positive
+        // operation IDs always enter the completion and cleanup path.
+        if id <= -65536 {
+            // Keep the completion turn even when there is no operation to
+            // wait for. A peer can already be preparing its next request.
+            await bridge.completed(rawWriteReady());
+            return -65536 - id;
+        }
         throw writeFailure(problem(id, "socket.write"), 0);
     }
     var acknowledged = false;
@@ -460,6 +604,8 @@ export Address;
 export Listener;
 export TcpStream;
 export ReadChunk;
+export ReadAccess;
+export ReadView;
 export WriteFailure;
 export WriteFailureData;
 export Statistics;
@@ -472,6 +618,14 @@ export accept;
 export acceptWithTimeout;
 export read;
 export readWithTimeout;
+export withRead;
+export withReadTimeout;
+export readLength;
+export readByte;
+export findReadByte;
+export copyRead;
+export readAccess;
+export tryWrite;
 export write;
 export writeWithTimeout;
 export writeAll;

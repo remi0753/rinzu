@@ -1,0 +1,74 @@
+[
+  {
+    "sku": "cable-1m",
+    "name": "USB-C ケーブル 1 m",
+    "category": "ケーブル",
+    "description": "作業机での充電とデータ転送用。両端が USB-C です。",
+    "priceCents": 1290,
+    "available": 82,
+    "warehouse": "東京"
+  },
+  {
+    "sku": "hub-4",
+    "name": "USB-C ハブ 4 ポート",
+    "category": "周辺機器",
+    "description": "ノート PC に外付け機器を接続するための USB-C ハブです。",
+    "priceCents": 3690,
+    "available": 31,
+    "warehouse": "横浜"
+  },
+  {
+    "sku": "stand-al",
+    "name": "アルミ製 PC スタンド",
+    "category": "デスク",
+    "description": "外付けキーボードを使うときに画面の位置を上げられます。",
+    "priceCents": 4290,
+    "available": 18,
+    "warehouse": "東京"
+  },
+  {
+    "sku": "mat-desk",
+    "name": "デスクマット",
+    "category": "デスク",
+    "description": "キーボードとマウスを置ける布張りのマットです。",
+    "priceCents": 2490,
+    "available": 45,
+    "warehouse": "名古屋"
+  },
+  {
+    "sku": "adapter-65w",
+    "name": "USB-C 充電器 65 W",
+    "category": "電源",
+    "description": "持ち運び用の USB-C PD 充電器です。",
+    "priceCents": 5490,
+    "available": 26,
+    "warehouse": "横浜"
+  },
+  {
+    "sku": "pouch-small",
+    "name": "アクセサリーポーチ",
+    "category": "収納",
+    "description": "短いケーブルや変換アダプターをまとめられます。",
+    "priceCents": 1590,
+    "available": 56,
+    "warehouse": "名古屋"
+  },
+  {
+    "sku": "clip-set",
+    "name": "ケーブルクリップ 6 個",
+    "category": "ケーブル",
+    "description": "机の縁でケーブルの位置を固定する粘着式クリップです。",
+    "priceCents": 890,
+    "available": 0,
+    "warehouse": "東京"
+  },
+  {
+    "sku": "light-bar",
+    "name": "モニターライト",
+    "category": "デスク",
+    "description": "画面の上に取り付けて手元を照らす調光ライトです。",
+    "priceCents": 6790,
+    "available": 12,
+    "warehouse": "横浜"
+  }
+]

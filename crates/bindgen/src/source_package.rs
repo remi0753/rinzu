@@ -678,7 +678,9 @@ impl SourceInterface {
                     _ => false,
                 }
             {
-                return Err("invalid canonical source type schema".into());
+                return Err(format!(
+                    "invalid canonical source type schema for {identity}"
+                ));
             }
         }
         for (identity, schema) in &self.source_templates {

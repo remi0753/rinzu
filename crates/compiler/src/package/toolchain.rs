@@ -122,8 +122,8 @@ impl CheckGraph {
                         continue;
                     }
                     extra.name
-                } else if standard_library::SOURCE_PACKAGES.contains(&name.as_str()) {
-                    &name
+                } else if let Some(package) = standard_library::source_package(&name) {
+                    package
                 } else {
                     continue;
                 };
@@ -347,7 +347,7 @@ pub(super) fn import_names() -> Result<impl Iterator<Item = &'static str>, Vec<D
             "use a matching Rinzu toolchain bundle",
         )]
     })?;
-    Ok(standard_library::names().chain(official))
+    Ok(standard_library::module_names().chain(official))
 }
 
 fn import_error(range: SourceRange, message: impl Into<String>) -> Vec<Diagnostic> {

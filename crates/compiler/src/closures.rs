@@ -245,6 +245,12 @@ impl Converter<'_> {
             range: self.range(),
         }
     }
+
+    fn capture_field(index: usize) -> String {
+        // Capture names can be compiler-internal bindings. The environment
+        // schema is serialized by SDK builds, so use stable field identifiers.
+        format!("capture{index}")
+    }
     fn name(&mut self, path: Vec<String>) -> Expression {
         self.expression(ExpressionKind::Name(path))
     }
@@ -313,11 +319,10 @@ impl Converter<'_> {
             .position(|v| v.target == target && v.captures.len() == captures.len())
             .expect("closed capture descriptor");
         let variant = &shape.variants[index];
-        let fields = variant
-            .captures
-            .iter()
-            .zip(captures)
-            .map(|((name, _), e)| (name.clone(), e, self.range()))
+        let fields = captures
+            .into_iter()
+            .enumerate()
+            .map(|(index, expression)| (Self::capture_field(index), expression, self.range()))
             .collect();
         let environment = self.expression(ExpressionKind::Call {
             target: vec![shape.environment.clone(), format!("V{index}")],
@@ -353,7 +358,8 @@ impl Converter<'_> {
                     fields: v
                         .captures
                         .iter()
-                        .map(|(n, t)| self.field(n.clone(), t))
+                        .enumerate()
+                        .map(|(index, (_, ty))| self.field(Self::capture_field(index), ty))
                         .collect(),
                     range: self.range(),
                 })

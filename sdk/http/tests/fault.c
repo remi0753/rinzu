@@ -26,7 +26,7 @@ static CURLcode controlled_perform(CURL *easy) {
 #include "../native/src/http.c"
 #undef curl_easy_perform
 static void wait_done(struct Client *c) {
-  while (!atomic_load_explicit(&c->completion.done, memory_order_acquire)) {
+  while (!rinzu_native_completion_is_done(&c->completion.base)) {
     struct timespec t = {.tv_nsec = 1000000};
     nanosleep(&t, NULL);
   }
@@ -58,7 +58,7 @@ int main(int argc, char **argv) {
   assert(rinzu_http_busy(c) && rinzu_http_ready(c) == RINZU_HTTP_BUSY);
   wait_done(c);
   assert(rinzu_http_status(c) == 0);
-  assert(rinzu_http_length(c) == 8192);
+  assert(rinzu_http_bytes(c)->length == 8192);
   rinzu_http_finish(c);
   assert(curl_easy_setopt(c->easy, CURLOPT_CAINFO, argv[3]) == CURLE_OK);
   assert(rinzu_http_request(c, argv[2], NULL, 0, false, 2000) == 0);
@@ -93,7 +93,7 @@ int main(int argc, char **argv) {
   assert(rinzu_http_live_buffers() == 34);
   rinzu_http_cancel(clients[0]);
   assert(rinzu_http_close(clients[0]) == RINZU_HTTP_BUSY);
-  assert(!atomic_load_explicit(&clients[0]->completion.done, memory_order_acquire));
+  assert(!rinzu_native_completion_is_done(&clients[0]->completion.base));
   for (unsigned i = 1; i < 34; i++)
     rinzu_http_cancel(clients[i]);
   pthread_mutex_lock(&gate);

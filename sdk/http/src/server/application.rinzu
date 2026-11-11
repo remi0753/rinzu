@@ -1,0 +1,1011 @@
+import rinzu.bytes as bytesApi;
+import rinzu.list as listApi;
+import rinzu.number as numberApi;
+import rinzu.string as stringApi;
+import "url.rinzu" as url;
+import "router.rinzu" as route;
+
+class Header {
+    const name: String,
+    const value: String
+}
+
+class Query {
+    const key: String,
+    const value: String
+}
+
+class Request {
+    const method: String,
+    const target: String,
+    const path: String,
+    const rawQuery: String,
+    const headers: List<Header>,
+    const body: ByteArray,
+    names: List<String>,
+    values: List<route.Span>,
+    queryCache: Option<List<Query>>,
+    textCache: Option<String>,
+    dispatched: Bool,
+
+    fn param(self: Request, name: String) -> String {
+        var index = 0;
+        while index < listApi.length(self.names) {
+            switch listApi.get(self.names, index) {
+                case Option.Some(key): {
+                    if key == name {
+                        switch listApi.get(self.values, index) {
+                            case Option.Some(span): {
+                                return url.slice(self.path, span.start, span.end);
+                            }
+                            case Option.None: {}
+                        }
+                    }
+                }
+                case Option.None: {}
+            }
+            index = index + 1;
+        }
+        throw route.ConfigurationError(message: "unknown path parameter");
+    }
+
+    fn queryAll(self: Request, name: String) -> List<String> {
+        let items = queryItems(self);
+        var result: List<String> = [];
+        var index = 0;
+        while index < listApi.length(items) {
+            switch listApi.get(items, index) {
+                case Option.Some(item): {
+                    if item.key == name {
+                        result = listApi.append(result, item.value);
+                    }
+                }
+                case Option.None: {}
+            }
+            index = index + 1;
+        }
+        return result;
+    }
+
+    fn query(self: Request, name: String) -> Option<String> {
+        let items = queryItems(self);
+        var index = 0;
+        while index < listApi.length(items) {
+            switch listApi.get(items, index) {
+                case Option.Some(item): {
+                    if item.key == name {
+                        return Option<String>.Some(value: item.value);
+                    }
+                }
+                case Option.None: {}
+            }
+            index = index + 1;
+        }
+        return Option<String>.None();
+    }
+
+    fn queryInt(self: Request, name: String, defaultValue: Int) -> Int {
+        let items = self.queryAll(name);
+        if listApi.length(items) == 0 {
+            return defaultValue;
+        }
+        if listApi.length(items) != 1 {
+            throw url.invalid("duplicate integer query");
+        }
+        switch listApi.get(items, 0) {
+            case Option.Some(value): {
+                try {
+                    return numberApi.parseInt(value);
+                }
+                catch problems {
+                    throw url.invalid("invalid integer query");
+                }
+            }
+            case Option.None: {
+                throw url.invalid("missing integer query");
+            }
+        }
+    }
+
+    fn header(self: Request, name: String) -> Option<String> {
+        var index = 0;
+        while index < listApi.length(self.headers) {
+            switch listApi.get(self.headers, index) {
+                case Option.Some(item): {
+                    if item.name == name {
+                        return Option<String>.Some(value: item.value);
+                    }
+                }
+                case Option.None: {}
+            }
+            index = index + 1;
+        }
+        return Option<String>.None();
+    }
+
+    fn text(self: Request) -> String {
+        switch self.textCache {
+            case Option.Some(value): {
+                return value;
+            }
+            case Option.None: {}
+        }
+        try {
+            let value = stringApi.decodeUtf8(self.body);
+            self.textCache = Option<String>.Some(value: value);
+            return value;
+        }
+        catch problems {
+            throw url.invalid("body is not UTF-8");
+        }
+    }
+}
+
+class Response {
+    const status: Int,
+    const contentType: String,
+    const headers: List<Header>,
+    const body: ByteArray,
+
+    fn withHeader(self: Response, name: String, value: String) -> Response {
+        validateHeader(name, value);
+        return Response(
+            status: self.status,
+            contentType: self.contentType,
+            headers: listApi.append(self.headers, Header(name: name, value: value)),
+            body: self.body
+        );
+    }
+}
+
+type SyncHandler = fn (Request) -> Response;
+
+type Handler = fn (Request) -> Future<Response>;
+
+type SyncMiddleware = fn (Request) -> Option<Response>;
+
+enum RouteHandler {
+    Sync(apply: SyncHandler),
+    Async(apply: Handler),
+    Filtered(filters: List<SyncMiddleware>, apply: Handler)
+}
+
+type Middleware = fn (Request, Next) -> Future<Response>;
+
+type ErrorHandler = fn (Request, List<Error>) -> Future<Response>;
+
+class Layer {
+    const apply: Middleware
+}
+
+enum MiddlewareLayer {
+    Sync(apply: SyncMiddleware),
+    Async(layer: Layer)
+}
+
+class ErrorPolicy {
+    const apply: ErrorHandler
+}
+
+class Pipeline {
+    const handler: RouteHandler,
+    const errors: ErrorPolicy
+}
+
+class Scope {
+    parent: Option<Scope>,
+    const prefix: String,
+    layers: List<MiddlewareLayer>,
+    errors: Option<ErrorPolicy>,
+    flat: List<MiddlewareLayer>,
+    policy: ErrorPolicy
+}
+
+class Endpoint {
+    const method: String,
+    const path: String,
+    const names: List<String>,
+    const handler: RouteHandler,
+    const scope: Scope,
+    pipeline: Option<Pipeline>
+}
+
+class Registry {
+    const router: route.Router,
+    endpoints: List<Endpoint>,
+    scopes: List<Scope>,
+    sealed: Bool
+}
+
+class Next {
+    const request: Request,
+    const handler: Handler,
+    used: Bool,
+    active: Bool,
+
+    async fn run(self: Next) -> Response {
+        if !self.active || self.used {
+            throw route.ConfigurationError(message: "Next may run once during its middleware");
+        }
+        self.used = true;
+        return await self.handler(self.request);
+    }
+}
+
+class Application {
+    const registry: Registry,
+    const scope: Scope,
+
+    fn on(self: Application, method: String, path: String, handler: Handler) {
+        self.onAsync(method, path, handler);
+    }
+
+    fn onAsync(self: Application, method: String, path: String, handler: Handler) {
+        self.register(method, path, RouteHandler.Async(apply: handler));
+    }
+
+    fn onSync(self: Application, method: String, path: String, handler: SyncHandler) {
+        self.register(method, path, RouteHandler.Sync(apply: handler));
+    }
+
+    private fn register(self: Application, method: String, path: String, handler: RouteHandler) {
+        mutable(self);
+        let full = joined(self.scope.prefix, path);
+        let names = route.add(self.registry.router, method, full, listApi.length(self.registry.endpoints));
+        self.registry.endpoints = listApi.append(
+            self.registry.endpoints,
+            Endpoint(
+                method: method,
+                path: full,
+                names: names,
+                handler: handler,
+                scope: self.scope,
+                pipeline: Option<Pipeline>.None()
+            )
+        );
+    }
+
+    fn get(self: Application, path: String, handler: Handler) {
+        self.on("GET", path, handler);
+    }
+
+    fn post(self: Application, path: String, handler: Handler) {
+        self.on("POST", path, handler);
+    }
+
+    fn getSync(self: Application, path: String, handler: SyncHandler) {
+        self.onSync("GET", path, handler);
+    }
+
+    fn postSync(self: Application, path: String, handler: SyncHandler) {
+        self.onSync("POST", path, handler);
+    }
+
+    fn use(self: Application, middleware: Middleware) {
+        self.addLayer(MiddlewareLayer.Async(layer: Layer(apply: middleware)));
+    }
+
+    fn useSync(self: Application, middleware: SyncMiddleware) {
+        self.addLayer(MiddlewareLayer.Sync(apply: middleware));
+    }
+
+    private fn addLayer(self: Application, layer: MiddlewareLayer) {
+        mutable(self);
+        if listApi.length(self.scope.layers) >= 32 {
+            throw route.ConfigurationError(message: "too many middleware in a scope");
+        }
+        self.scope.layers = listApi.append(self.scope.layers, layer);
+    }
+
+    fn onError(self: Application, handler: ErrorHandler) {
+        mutable(self);
+        self.scope.errors = Option<ErrorPolicy>.Some(value: ErrorPolicy(apply: handler));
+    }
+
+    fn group(self: Application, prefix: String) -> Application {
+        mutable(self);
+        let full = joined(self.scope.prefix, prefix);
+        let childScope = Scope(
+            parent: Option<Scope>.Some(value: self.scope),
+            prefix: full,
+            layers: [],
+            errors: Option<ErrorPolicy>.None(),
+            flat: [],
+            policy: ErrorPolicy(apply: defaultError)
+        );
+        self.registry.scopes = listApi.append(self.registry.scopes, childScope);
+        return Application(registry: self.registry, scope: childScope);
+    }
+
+    fn mount(self: Application, prefix: String, child: Application) {
+        mutable(self);
+        mutable(child);
+        switch child.scope.parent {
+            case Option.Some(parent): {
+                throw route.ConfigurationError(message: "mount requires an application root");
+            }
+            case Option.None: {}
+        }
+        let full = joined(self.scope.prefix, prefix);
+        // Seal before attaching scopes: mounting the same registry cannot cycle it.
+        child.registry.sealed = true;
+        mutable(self);
+        var index = 0;
+        while index < listApi.length(child.registry.endpoints) {
+            switch listApi.get(child.registry.endpoints, index) {
+                case Option.Some(endpoint): {
+                    let path = joined(full, endpoint.path);
+                    let names = route.add(
+                        self.registry.router,
+                        endpoint.method,
+                        path,
+                        listApi.length(self.registry.endpoints)
+                    );
+                    self.registry.endpoints = listApi.append(
+                        self.registry.endpoints,
+                        Endpoint(
+                            method: endpoint.method,
+                            path: path,
+                            names: names,
+                            handler: endpoint.handler,
+                            scope: endpoint.scope,
+                            pipeline: Option<Pipeline>.None()
+                        )
+                    );
+                }
+                case Option.None: {}
+            }
+            index = index + 1;
+        }
+        child.scope.parent = Option<Scope>.Some(value: self.scope);
+        var scopeIndex = 0;
+        while scopeIndex < listApi.length(child.registry.scopes) {
+            switch listApi.get(child.registry.scopes, scopeIndex) {
+                case Option.Some(childScope): {
+                    self.registry.scopes = listApi.append(self.registry.scopes, childScope);
+                }
+                case Option.None: {}
+            }
+            scopeIndex = scopeIndex + 1;
+        }
+    }
+
+    fn compile(self: Application) -> Compiled {
+        mutable(self);
+        switch self.scope.parent {
+            case Option.Some(parent): {
+                throw route.ConfigurationError(message: "compile requires an application root");
+            }
+            case Option.None: {}
+        }
+        // Scopes were registered parent-before-child. Flatten each once;
+        // endpoints then read the completed scope instead of walking parents.
+        var scopeIndex = 0;
+        while scopeIndex < listApi.length(self.registry.scopes) {
+            switch listApi.get(self.registry.scopes, scopeIndex) {
+                case Option.Some(scope): {
+                    flatten(scope);
+                }
+                case Option.None: {}
+            }
+            scopeIndex = scopeIndex + 1;
+        }
+        var index = 0;
+        while index < listApi.length(self.registry.endpoints) {
+            switch listApi.get(self.registry.endpoints, index) {
+                case Option.Some(endpoint): {
+                    endpoint.pipeline = Option<Pipeline>.Some(value: pipeline(endpoint));
+                }
+                case Option.None: {}
+            }
+            index = index + 1;
+        }
+        self.registry.sealed = true;
+        return Compiled(registry: self.registry);
+    }
+}
+
+class Compiled {
+    const registry: Registry,
+
+    fn inject(self: Compiled, method: String, target: String) -> Future<Response> {
+        return self.injectBody(method, target, bytesApi.from(b""));
+    }
+
+    async fn injectBody(self: Compiled, method: String, target: String, body: ByteArray) -> Response {
+        try {
+            return await self.handle(request(method, target, [], body));
+        }
+        catch problems {
+            return text(400, "Bad Request");
+        }
+    }
+
+    fn dispatch(self: Compiled, input: Request) -> Dispatch {
+        try {
+            switch select(self.registry, input) {
+                case Option.Some(chain): {
+                    try {
+                        switch chain.handler {
+                            case RouteHandler.Sync(handler): {
+                                return Dispatch.Ready(response: checked(handler(input)));
+                            }
+                            case RouteHandler.Filtered(filters, handler): {
+                                switch firstResponse(filters, input) {
+                                    case Option.Some(response): {
+                                        return Dispatch.Ready(response: checked(response));
+                                    }
+                                    case Option.None: {}
+                                }
+                            }
+                            case RouteHandler.Async(handler): {}
+                        }
+                        return pendingDispatch(self.registry, input, chain, Option<List<Error>>.None());
+                    }
+                    catch problems {
+                        return pendingDispatch(self.registry, input, chain, Option<List<Error>>.Some(value: problems));
+                    }
+                }
+                case Option.None: {
+                    return Dispatch.Ready(response: unmatched(self.registry, input));
+                }
+            }
+        }
+        catch problems {
+            return Dispatch.Ready(response: text(500, "Internal Server Error"));
+        }
+        return Dispatch.Ready(response: text(500, "Internal Server Error"));
+    }
+
+    fn handle(self: Compiled, input: Request) -> Future<Response> {
+        return execute(self.registry, input, Option<PendingDispatch>.None());
+    }
+}
+
+enum Dispatch {
+    Ready(response: Response),
+    Pending(work: PendingDispatch)
+}
+
+fn pendingDispatch(registry: Registry, input: Request, chain: Pipeline, failure: Option<List<Error>>) -> Dispatch {
+    return Dispatch.Pending(
+        work: PendingDispatch(registry: registry, input: input, chain: chain, failure: failure, started: false)
+    );
+}
+
+class PendingDispatch {
+    const registry: Registry,
+    const input: Request,
+    const chain: Pipeline,
+    const failure: Option<List<Error>>,
+    started: Bool,
+
+    fn run(self: PendingDispatch) -> Future<Response> {
+        return execute(self.registry, self.input, Option<PendingDispatch>.Some(value: self));
+    }
+}
+
+fn select(registry: Registry, input: Request) throws(route.ConfigurationError, url.InputError, listApi.LengthOverflow)
+    -> Option<Pipeline> {
+    if input.dispatched {
+        throw route.ConfigurationError(message: "Request is dispatched once");
+    }
+    input.dispatched = true;
+    var found = route.lookup(registry.router, input.method, input.path);
+    if input.method == "HEAD" {
+        switch found {
+            case Option.Some(value): {}
+            case Option.None: {
+                found = route.lookup(registry.router, "GET", input.path);
+            }
+        }
+    }
+    switch found {
+        case Option.Some(match): {
+            switch listApi.get(registry.endpoints, match.endpoint) {
+                case Option.Some(endpoint): {
+                    input.names = endpoint.names;
+                    input.values = match.values;
+                    switch endpoint.pipeline {
+                        case Option.Some(chain): {
+                            return endpoint.pipeline;
+                        }
+                        case Option.None: {
+                            throw route.ConfigurationError(message: "uncompiled route");
+                        }
+                    }
+                }
+                case Option.None: {
+                    throw route.ConfigurationError(message: "invalid route index");
+                }
+            }
+        }
+        case Option.None: {}
+    }
+    return Option<Pipeline>.None();
+}
+
+fn unmatched(registry: Registry, input: Request) throws(
+    route.ConfigurationError,
+    url.InputError,
+    listApi.LengthOverflow
+) -> Response {
+    let allowed = route.allowed(registry.router, input.path);
+    if allowed == "" {
+        return text(404, "Not Found");
+    }
+    if input.method == "OPTIONS" {
+        let optionsReply = text(204, "");
+        return optionsReply.withHeader("allow", allowed);
+    }
+    let reply = text(405, "Method Not Allowed");
+    return reply.withHeader("allow", allowed);
+}
+
+async fn execute(registry: Registry, input: Request, prepared: Option<PendingDispatch>) -> Response {
+    try {
+        var selected = Option<Pipeline>.None();
+        var failure = Option<List<Error>>.None();
+        var filtered = false;
+        switch prepared {
+            case Option.Some(work): {
+                if work.started {
+                    return text(500, "Internal Server Error");
+                }
+                work.started = true;
+                filtered = true;
+                selected = Option<Pipeline>.Some(value: work.chain);
+                failure = work.failure;
+            }
+            case Option.None: {
+                selected = select(registry, input);
+            }
+        }
+        switch selected {
+            case Option.Some(chain): {
+                switch failure {
+                    case Option.None: {
+                        try {
+                            switch chain.handler {
+                                case RouteHandler.Sync(handler): {
+                                    return checked(handler(input));
+                                }
+                                case RouteHandler.Async(handler): {
+                                    return checked(await handler(input));
+                                }
+                                case RouteHandler.Filtered(filters, handler): {
+                                    if !filtered {
+                                        switch firstResponse(filters, input) {
+                                            case Option.Some(response): {
+                                                return checked(response);
+                                            }
+                                            case Option.None: {}
+                                        }
+                                    }
+                                    return checked(await handler(input));
+                                }
+                            }
+                        }
+                        catch problems {
+                            failure = Option<List<Error>>.Some(value: problems);
+                        }
+                    }
+                    case Option.Some(problems): {}
+                }
+                switch failure {
+                    case Option.Some(errors): {
+                        return checked(await chain.errors.apply(input, errors));
+                    }
+                    case Option.None: {}
+                }
+            }
+            case Option.None: {
+                return unmatched(registry, input);
+            }
+        }
+    }
+    catch problems {
+        return text(500, "Internal Server Error");
+    }
+    return text(500, "Internal Server Error");
+}
+
+fn application() -> Application {
+    let root = Scope(
+        parent: Option<Scope>.None(),
+        prefix: "",
+        layers: [],
+        errors: Option<ErrorPolicy>.None(),
+        flat: [],
+        policy: ErrorPolicy(apply: defaultError)
+    );
+    return Application(
+        registry: Registry(router: route.router(), endpoints: [], scopes: [root], sealed: false),
+        scope: root
+    );
+}
+
+fn mutable(app: Application) {
+    if app.registry.sealed {
+        throw route.ConfigurationError(message: "application is sealed");
+    }
+}
+
+fn joined(prefix: String, path: String) -> String {
+    if path == "/" {
+        if prefix == "" {
+            return "/";
+        }
+        return prefix;
+    }
+    if stringApi.length(path) < 1 || url.slice(path, 0, 1) != "/" {
+        throw route.ConfigurationError(message: "path must start with slash");
+    }
+    return f"{prefix}{path}";
+}
+
+fn flatten(scope: Scope) {
+    var layers: List<MiddlewareLayer> = [];
+    var policy = ErrorPolicy(apply: defaultError);
+    switch scope.parent {
+        case Option.Some(parent): {
+            layers = parent.flat;
+            policy = parent.policy;
+        }
+        case Option.None: {}
+    }
+    switch scope.errors {
+        case Option.Some(own): {
+            policy = own;
+        }
+        case Option.None: {}
+    }
+    var index = 0;
+    while index < listApi.length(scope.layers) {
+        switch listApi.get(scope.layers, index) {
+            case Option.Some(layer): {
+                layers = listApi.append(layers, layer);
+            }
+            case Option.None: {}
+        }
+        index = index + 1;
+    }
+    if listApi.length(layers) > 64 {
+        throw route.ConfigurationError(message: "middleware nesting limit");
+    }
+    scope.flat = layers;
+    scope.policy = policy;
+}
+
+fn pipeline(endpoint: Endpoint) -> Pipeline {
+    let layers = endpoint.scope.flat;
+    let policy = endpoint.scope.policy;
+    var filters: List<SyncMiddleware> = [];
+    var index = 0;
+    for layer in layers {
+        switch layer {
+            case MiddlewareLayer.Sync(filter): {
+                filters = listApi.append(filters, filter);
+                index = index + 1;
+            }
+            case MiddlewareLayer.Async(middleware): {
+                break;
+            }
+        }
+    }
+    var handler = endpoint.handler;
+    if index < listApi.length(layers) {
+        handler = RouteHandler.Async(apply: middlewareHandler(layers, index, endpoint.handler));
+    }
+    if index != 0 {
+        handler = withFilters(filters, handler);
+    }
+    return Pipeline(handler: handler, errors: policy);
+}
+
+fn firstResponse(filters: List<SyncMiddleware>, input: Request) throws(Error) -> Option<Response> {
+    for filter in filters {
+        switch filter(input) {
+            case Option.Some(response): {
+                return Option<Response>.Some(value: response);
+            }
+            case Option.None: {}
+        }
+    }
+    return Option<Response>.None();
+}
+
+fn withFilters(filters: List<SyncMiddleware>, following: RouteHandler) -> RouteHandler {
+    switch following {
+        case RouteHandler.Sync(handler): {
+            return RouteHandler.Sync(
+                apply: fn (input: Request) -> Response {
+                    switch firstResponse(filters, input) {
+                        case Option.Some(response): {
+                            return response;
+                        }
+                        case Option.None: {
+                            return handler(input);
+                        }
+                    }
+                }
+            );
+        }
+        case RouteHandler.Async(handler): {
+            return RouteHandler.Filtered(filters: filters, apply: handler);
+        }
+        case RouteHandler.Filtered(next, handler): {
+            return RouteHandler.Filtered(filters: filters, apply: deferred(following));
+        }
+    }
+}
+
+fn deferred(handler: RouteHandler) -> Handler {
+    switch handler {
+        case RouteHandler.Sync(apply): {
+            return async fn (input: Request) -> Response {
+                return apply(input);
+            };
+        }
+        case RouteHandler.Async(apply): {
+            return apply;
+        }
+        case RouteHandler.Filtered(filters, apply): {
+            return async fn (input: Request) -> Response {
+                switch firstResponse(filters, input) {
+                    case Option.Some(response): {
+                        return response;
+                    }
+                    case Option.None: {
+                        return await apply(input);
+                    }
+                }
+            };
+        }
+    }
+}
+
+fn middlewareHandler(layers: List<MiddlewareLayer>, start: Int, terminal: RouteHandler) -> Handler {
+    if start == listApi.length(layers) {
+        return deferred(terminal);
+    }
+    return fn (input: Request) -> Future<Response> {
+        return runMiddleware(layers, start, terminal, input);
+    };
+}
+
+async fn runMiddleware(layers: List<MiddlewareLayer>, start: Int, terminal: RouteHandler, input: Request) throws(Error)
+    -> Response {
+    var index = start;
+    while index < listApi.length(layers) {
+        switch listApi.get(layers, index) {
+            case Option.Some(layer): {
+                switch layer {
+                    case MiddlewareLayer.Sync(filter): {
+                        switch filter(input) {
+                            case Option.Some(response): {
+                                return response;
+                            }
+                            case Option.None: {}
+                        }
+                    }
+                    case MiddlewareLayer.Async(middleware): {
+                        let following = middlewareHandler(layers, index + 1, terminal);
+                        let next = Next(request: input, handler: following, used: false, active: true);
+                        try {
+                            return await middleware.apply(input, next);
+                        }
+                        finally {
+                            next.active = false;
+                        }
+                    }
+                }
+            }
+            case Option.None: {}
+        }
+        index = index + 1;
+    }
+    switch terminal {
+        case RouteHandler.Sync(handler): {
+            return handler(input);
+        }
+        case RouteHandler.Async(handler): {
+            return await handler(input);
+        }
+        case RouteHandler.Filtered(filters, handler): {
+            switch firstResponse(filters, input) {
+                case Option.Some(response): {
+                    return response;
+                }
+                case Option.None: {
+                    return await handler(input);
+                }
+            }
+        }
+    }
+}
+
+fn text(status: Int, value: String) -> Response {
+    return Response(status: status, contentType: "text/plain", headers: [], body: stringApi.encodeUtf8(value));
+}
+
+fn binary(status: Int, value: ByteArray) -> Response {
+    return Response(status: status, contentType: "application/octet-stream", headers: [], body: value);
+}
+
+fn validateHeader(name: String, value: String) {
+    if stringApi.length(name) == 0 || stringApi.length(name) > 128 || stringApi.length(value) > 8192 {
+        throw route.ConfigurationError(message: "invalid response header length");
+    }
+    switch bytesApi.findNotAny(
+        stringApi.encodeUtf8(name),
+        bytesApi.from(b"abcdefghijklmnopqrstuvwxyz0123456789!#$%&'*+-.^_`|~"),
+        0
+    ) {
+        case Option.Some(index): {
+            throw route.ConfigurationError(message: "response header names are lowercase tokens");
+        }
+        case Option.None: {}
+    }
+    if name == "content-length"
+        || name == "transfer-encoding"
+        || name == "connection"
+        || name == "content-type"
+        || name == "server"
+        || name == "date" {
+        throw route.ConfigurationError(message: "reserved response header");
+    }
+    validateFieldValue(value);
+}
+
+fn validateFieldValue(value: String) {
+    switch bytesApi.findAny(
+        stringApi.encodeUtf8(value),
+        bytesApi.from(
+            b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f"
+        ),
+        0
+    ) {
+        case Option.Some(index): {
+            throw route.ConfigurationError(message: "invalid response header value");
+        }
+        case Option.None: {}
+    }
+}
+
+fn checked(value: Response) -> Response {
+    if value.status < 200
+        || value.status > 599
+        || bytesApi.length(value.body) > 65536
+        || listApi.length(value.headers) > 32
+        || ((value.status == 204 || value.status == 304) && bytesApi.length(value.body) != 0)
+        || stringApi.length(value.contentType) == 0
+        || stringApi.length(value.contentType) > 128 {
+        throw route.ConfigurationError(message: "invalid response");
+    }
+    validateFieldValue(value.contentType);
+    var index = 0;
+    while index < listApi.length(value.headers) {
+        switch listApi.get(value.headers, index) {
+            case Option.Some(header): {
+                validateHeader(header.name, header.value);
+            }
+            case Option.None: {}
+        }
+        index = index + 1;
+    }
+    return value;
+}
+
+async fn defaultError(input: Request, problems: List<Error>) -> Response {
+    switch listApi.get(problems, 0) {
+        case Option.Some(problem): {
+            if problem is url.InputError {
+                return text(problem.payload, "Bad Request");
+            }
+        }
+        case Option.None: {}
+    }
+    return text(500, "Internal Server Error");
+}
+
+fn request(method: String, target: String, headers: List<Header>, body: ByteArray) -> Request {
+    let length = stringApi.length(target);
+    if length < 1
+        || length > 8192
+        || bytesApi.length(body) > 65536
+        || url.slice(target, 0, 1) != "/"
+        || url.find(target, "#", 0) >= 0 {
+        throw url.invalid("invalid request target or body size");
+    }
+    var end = url.find(target, "?", 0);
+    var query = "";
+    if end < 0 {
+        end = length;
+    }
+    else {
+        query = url.slice(target, end + 1, length);
+    }
+    let path = url.decode(url.slice(target, 0, end), false, true);
+    return Request(
+        method: method,
+        target: target,
+        path: path,
+        rawQuery: query,
+        headers: headers,
+        body: body,
+        names: [],
+        values: [],
+        queryCache: Option<List<Query>>.None(),
+        textCache: Option<String>.None(),
+        dispatched: false
+    );
+}
+
+fn queryItems(input: Request) -> List<Query> {
+    switch input.queryCache {
+        case Option.Some(items): {
+            return items;
+        }
+        case Option.None: {}
+    }
+    var items: List<Query> = [];
+    if input.rawQuery != "" {
+        var start = 0;
+        while start <= stringApi.length(input.rawQuery) {
+            if listApi.length(items) >= 128 {
+                throw url.invalid("too many query fields");
+            }
+            var end = url.find(input.rawQuery, "&", start);
+            if end < 0 {
+                end = stringApi.length(input.rawQuery);
+            }
+            var equals = url.find(input.rawQuery, "=", start);
+            if equals < 0 || equals > end {
+                equals = end;
+            }
+            let key = url.decode(url.slice(input.rawQuery, start, equals), true, false);
+            var value = "";
+            if equals < end {
+                value = url.decode(url.slice(input.rawQuery, equals + 1, end), true, false);
+            }
+            items = listApi.append(items, Query(key: key, value: value));
+            start = end + 1;
+        }
+    }
+    input.queryCache = Option<List<Query>>.Some(value: items);
+    return items;
+}
+
+export Header;
+export Request;
+export Response;
+export SyncHandler;
+export SyncMiddleware;
+export Handler;
+export Middleware;
+export ErrorHandler;
+export Next;
+export Application;
+export Compiled;
+export Dispatch;
+export PendingDispatch;
+export application;
+export request;
+export text;
+export binary;
+export checked;
+export Query;
+export Registry;
+export Scope;
+export Endpoint;
+export ErrorPolicy;
+export Layer;
+export MiddlewareLayer;
+export Pipeline;
+export RouteHandler;
+export route.ConfigurationError;
+export route.Span;
+export route.Router;
+export route.Node;
+export url.InputError;

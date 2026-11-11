@@ -37,6 +37,7 @@ A standalone source file needs no manifest. Use a package with `rinzu.toml` for 
 | --- | --- |
 | `crates/` | Compiler, code generation, runtime, CLI, and development commands |
 | `sdk/` | Standard library sources and additional SDKs |
+| [`examples/`](examples/inventory/README.md) | Runnable applications, including the HTTP inventory dashboard |
 | `include/rinzu/` | Native boundary and runtime C headers |
 | `docs/` | Language, library, and development documentation |
 | `tests/` | Regression fixtures, integration runners, and runtime models |

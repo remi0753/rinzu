@@ -50,8 +50,24 @@ int64_t rinzu_socket_listen(const char *host, int32_t port, int32_t backlog);
 int64_t rinzu_socket_connect(const char *host, int32_t port, int64_t timeout);
 int64_t rinzu_socket_accept(void *listener, int64_t timeout);
 int64_t rinzu_socket_read(void *stream, int64_t maximum, int64_t timeout);
+/* Private Source bridge. A successful ready read uses slot 1023 in the low
+   ten bits of its generation token. It has no completion carrier and must
+   end in the current Owner turn. Other positive values are operation IDs. */
+int64_t rinzu_socket_read_start(void *stream, int64_t maximum, int64_t timeout);
+void rinzu_socket_end_ready_read(int64_t id, bool delivered);
 int64_t rinzu_socket_write(void *stream, const uint8_t *data, size_t length, bool all,
                            int64_t timeout);
+/* Private Source bridge. Positive values are operation IDs. Immediate success
+   returns -65536 minus the sent length, below the negative admission statuses.
+   Pending writes copy only the caller's unsent bytes. */
+enum { RINZU_SOCKET_WRITE_READY_BASE = -65536 };
+int64_t rinzu_socket_write_start(void *stream, const uint8_t *data, size_t length, bool all,
+                                 int64_t timeout);
+/* One nonblocking send. Uses the ready receipt encoding for the accepted
+   prefix (including zero). It never admits an operation or retains data. */
+int64_t rinzu_socket_try_write(void *stream, const uint8_t *data, size_t length);
+/* The shared physically complete marker carries no operation or byte count. */
+void *rinzu_socket_write_ready(void);
 int64_t rinzu_socket_shutdown(void *stream);
 int64_t rinzu_socket_close(void *handle);
 int64_t rinzu_socket_close_listener(void *listener);
@@ -60,6 +76,13 @@ void *rinzu_socket_operation(int64_t id);
 void *rinzu_socket_completion(void *operation);
 void *rinzu_socket_transfer_completion(int64_t id);
 const rinzu_native_byte_array_t *rinzu_socket_bytes_view_id(int64_t id);
+void *rinzu_socket_borrow_read(int64_t id);
+void *rinzu_socket_read_access(void);
+int64_t rinzu_socket_read_length(void *view);
+int64_t rinzu_socket_read_byte(void *view, int64_t index);
+int64_t rinzu_socket_find_read_byte(void *view, int64_t byte, int64_t start, int64_t end);
+const rinzu_native_byte_array_t *rinzu_socket_copy_read(void *view, int64_t start, int64_t end);
+void rinzu_socket_end_read(int64_t id);
 void rinzu_socket_ack_id(int64_t id);
 void rinzu_socket_cancel_id(int64_t id);
 void rinzu_socket_finish_id(int64_t id);

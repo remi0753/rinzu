@@ -12,7 +12,8 @@ enum {
   RINZU_NATIVE_OPAQUE,
   RINZU_NATIVE_RECORD,
   RINZU_NATIVE_USERDATA = 7,
-  RINZU_NATIVE_BYTE_ARRAY
+  RINZU_NATIVE_BYTE_ARRAY,
+  RINZU_NATIVE_BORROWED_BYTE_ARRAY
 };
 enum {
   RINZU_NATIVE_RESULT_OPAQUE = 12,
@@ -480,6 +481,15 @@ void rinzu_baseline_source_native_prepare(void *raw, int64_t plan_index,
         memcpy(buffer, value->bytes, length);
       call->words[index] = (uint64_t)(uintptr_t)buffer;
       call->buffers[call->buffer_count++] = buffer;
+      roots[root_count++] = bits;
+    } else if (parameter->kind == RINZU_NATIVE_BORROWED_BYTE_ARRAY) {
+      rinzu_managed_value_t *value = rinzu_managed_find(data, bits);
+      if (index != 1 || (plan->count != 3 && plan->count != 5) ||
+          value->kind != RINZU_MANAGED_BYTES || arguments[2] != value->length)
+        rinzu_interop_fatal();
+      /* The sealed submit plan has no callback, suspension or GC between
+         this lookup and physical return. The SDK owns any queued suffix. */
+      call->words[index] = (uint64_t)(uintptr_t)value->bytes;
       roots[root_count++] = bits;
     } else if (parameter->kind == RINZU_NATIVE_OPAQUE) {
       call->words[index] =

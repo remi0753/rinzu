@@ -229,6 +229,147 @@ fn input(aot: &BaselineAotObject, ty: &SourceAbiType) -> Result<(u32, u32, u64),
     })
 }
 
+// Only the bundled Socket submit implementation is known to finish using the
+// input before it returns. In particular, its pending path owns any remainder.
+// This proof does not extend to a package that happens to use the same symbol.
+fn borrow_socket_write(
+    aot: &BaselineAotObject,
+    plan: &rinzu_codegen::NativeCallPlan,
+    descriptors: &[rinzu_bindgen::source_package::SourceDescriptor],
+) -> Result<bool, String> {
+    let signature = &plan.signature;
+    let (symbol, canonical, caller) = match signature.name.as_str() {
+        "rinzu.socket::rawWrite" => (
+            "rinzu_socket_write_start",
+            "native(rinzu.socket::TcpStream,ByteArray,CUInt64,Bool,Int)->Int",
+            "rinzu.socket::send",
+        ),
+        "rinzu.socket::rawTryWrite" => (
+            "rinzu_socket_try_write",
+            "native(rinzu.socket::TcpStream,ByteArray,CUInt64)->Int",
+            "rinzu.socket::tryWrite",
+        ),
+        _ => return Ok(false),
+    };
+    if signature.binding != rinzu_compiler::ast::NativeBinding::Symbol(symbol.into())
+        || signature.canonical_type() != canonical
+        || signature.is_async
+        || signature.is_supplant
+        || !plan.callbacks.is_empty()
+        || !aot
+            .functions
+            .iter()
+            .any(|function| function.index == plan.function && function.name == caller)
+    {
+        return Ok(false);
+    }
+    let Some(descriptor) = descriptors
+        .iter()
+        .find(|descriptor| descriptor.interface.package.package == "rinzu.socket")
+    else {
+        return Ok(false);
+    };
+    let inputs = &descriptor.interface.package.build_inputs;
+    let expected = BTreeMap::from([
+        ("rinzu.standard-package", "rinzu.socket".to_owned()),
+        (
+            "rinzu:src/socket.rinzu",
+            sha256(include_bytes!("../../../sdk/socket/src/socket.rinzu")),
+        ),
+        (
+            "sdk:native/src/socket.c",
+            sha256(include_bytes!("../../../sdk/socket/native/src/socket.c")),
+        ),
+        (
+            "sdk:native/include/rinzu_socket.h",
+            sha256(include_bytes!(
+                "../../../sdk/socket/native/include/rinzu_socket.h"
+            )),
+        ),
+        (
+            "sdk.source-options",
+            "{\"native/src/socket.c\":[\"-std=c11\"]}".to_owned(),
+        ),
+        ("sdk.libraries", "[]".to_owned()),
+        ("sdk.frameworks", "[]".to_owned()),
+        ("cli.libraries", "[]".to_owned()),
+        ("cli.search-paths", "[]".to_owned()),
+    ]);
+    if expected
+        .iter()
+        .any(|(key, value)| inputs.get(*key) != Some(value))
+        || inputs.keys().any(|key| {
+            (key.starts_with("sdk:") || key.starts_with("cli:"))
+                && !expected.contains_key(key.as_str())
+        })
+    {
+        return Ok(false);
+    }
+    let Some(resource_root) = inputs.get("rinzu.toolchain-resource-root").map(Path::new) else {
+        return Ok(false);
+    };
+    let Some(clang_root) = inputs
+        .get("clang.identity")
+        .map(Path::new)
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+    else {
+        return Ok(false);
+    };
+    let clang_resources = clang_root.join("lib/clang");
+    let bytes_header = resource_root.join("include/rinzu/native_bytes.h");
+    let completion_header = resource_root.join("include/rinzu/native_completion.h");
+    let read_view_header = resource_root.join("include/rinzu/native_read_view.h");
+    let bytes_digest = sha256(include_bytes!("../../../include/rinzu/native_bytes.h"));
+    let completion_digest = sha256(include_bytes!("../../../include/rinzu/native_completion.h"));
+    let read_view_digest = sha256(include_bytes!("../../../include/rinzu/native_read_view.h"));
+    // Compiler search paths can supply extra includes and static libraries.
+    // Accept only the sealed SDK inputs, toolchain headers and compiler runtime.
+    for (key, digest) in inputs {
+        if let Some(relative) = key.strip_prefix("include:sdk:") {
+            if expected.get(format!("sdk:{relative}").as_str()) != Some(digest) {
+                return Ok(false);
+            }
+        } else if let Some(path) = key.strip_prefix("include:external:").map(Path::new) {
+            let known = (path == bytes_header && *digest == bytes_digest)
+                || (path == completion_header && *digest == completion_digest)
+                || (path == read_view_header && *digest == read_view_digest)
+                || path.starts_with(&clang_resources);
+            if !known {
+                return Ok(false);
+            }
+        } else if let Some(path) = key.strip_prefix("link:external:").map(Path::new) {
+            if !path.starts_with(&clang_resources)
+                || !path.ends_with("lib/darwin/libclang_rt.osx.a")
+            {
+                return Ok(false);
+            }
+        } else if key.starts_with("link:sdk:") {
+            return Ok(false);
+        }
+    }
+    let Some(binding) = rinzu_bindgen::native_binding::NativeBindingPlan::decode(inputs)? else {
+        return Ok(false);
+    };
+    binding.validate_functions(&descriptor.interface.functions)?;
+    let Some(slot) = binding
+        .slots
+        .iter()
+        .find(|slot| slot.declaration == signature.name)
+    else {
+        return Ok(false);
+    };
+    let image = &binding.images[slot.image];
+    Ok(binding.images.len() == 1
+        && image.bundled
+        && slot.symbol == symbol
+        && slot.signature == signature.canonical_type()
+        && slot.owner_path == image.path
+        && slot.owner_sha256.is_some()
+        && slot.owner_sha256 == image.sha256
+        && slot.owner_uuid == image.uuid)
+}
+
 pub fn plans(aot: &BaselineAotObject, packages: &[BuiltSourcePackage]) -> Result<String, String> {
     let descriptors = packages
         .iter()
@@ -254,6 +395,7 @@ pub fn plans(aot: &BaselineAotObject, packages: &[BuiltSourcePackage]) -> Result
         ));
     }
     for (plan_index, plan) in aot.native_call_plans.iter().enumerate() {
+        let borrow_write = borrow_socket_write(aot, plan, &descriptors)?;
         for site in &plan.callbacks {
             let targets = site
                 .targets
@@ -378,6 +520,11 @@ pub fn plans(aot: &BaselineAotObject, packages: &[BuiltSourcePackage]) -> Result
                     let (kind, scalar, length) = input(aot, ty)?;
                     (kind, scalar, length, "NULL".into(), 0, "NULL".into())
                 }
+            };
+            let kind = if borrow_write && index == 1 {
+                "RINZU_NATIVE_BORROWED_BYTE_ARRAY".to_owned()
+            } else {
+                kind.to_string()
             };
             parameters.push(format!(
                 "{{{kind},{scalar},UINT64_C({length}),{targets},{count},{callback}}}"

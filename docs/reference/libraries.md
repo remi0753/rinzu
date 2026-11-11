@@ -1,6 +1,6 @@
 # SDK API references
 
-These pages describe public source declarations. Standard packages can be imported directly; additional SDKs need local manifest dependencies. See the [library overview](../libraries/overview.md) and [SDK guide](../libraries/sdk.md).
+These pages describe public source declarations. Standard and bundled official SDKs can be imported directly. Additional SDKs use manifest dependencies. See the [library overview](../libraries/overview.md) and [SDK guide](../libraries/sdk.md).
 
 | Package | Reference |
 | --- | --- |
@@ -8,6 +8,7 @@ These pages describe public source declarations. Standard packages can be import
 | `rinzu.consumption` | [API](sdk-consumption.md) |
 | `rinzu.http` | [API](sdk-http.md) |
 | `rinzu.httpcodec` | [API](sdk-httpcodec.md) |
+| `rinzu.http.server` | [Guide](../../sdk/http/README.md#http-application-dispatch) |
 | `rinzu.io` | [API](sdk-io.md) |
 | `rinzu.log` | [API](sdk-log.md) |
 | `rinzu.macos` | [API](sdk-macos.md) |

@@ -57,12 +57,22 @@ typedef struct RinzuSupplant RinzuSupplant;
 static int rinzu_aot_supplant_drive(RinzuContext *);
 static int rinzu_aot_supplant_cancel(RinzuContext *, rinzu_async_future_t *);
 #endif
+typedef struct RinzuCompletionTurn {
+  uint64_t identity;
+  RinzuAsyncTask *task;
+  rinzu_child_scope_t *scope;
+  rinzu_ready_work_t *ready;
+  struct RinzuCompletionTurn *next, *previous;
+  int settled;
+} RinzuCompletionTurn;
 struct RinzuAsyncTask {
   RinzuContext context;
   rinzu_continuation_t continuation;
   rinzu_child_scope_t children;
   rinzu_async_future_t *future;
   rinzu_async_future_t *waiting;
+  RinzuCompletionTurn completion_turn;
+  int waiting_for_completion;
   rinzu_async_ready_waiter_t readiness;
   rinzu_wait_dependency_t *wait_dependency;
   rinzu_source_position_t function_source;
@@ -121,6 +131,7 @@ struct RinzuAsyncState {
   RinzuContext *root;
   RinzuAsyncTask *tasks;
   RinzuAsyncTask *ready_head, *ready_tail;
+  RinzuCompletionTurn *completion_head, *completion_tail;
   size_t ready_count;
   unsigned ready_order;
   RinzuAsyncResultRoot *result_roots;
@@ -146,7 +157,8 @@ struct RinzuAsyncState {
 enum { RINZU_TASK_READY_ASCENDING = 1, RINZU_TASK_READY_DESCENDING = 2 };
 static int rinzu_aot_async_runnable(const RinzuAsyncTask *task) {
   return !task->continuation.running &&
-         (!task->continuation.started || (task->waiting && task->waiting->settled));
+         (!task->continuation.started || (task->waiting && task->waiting->settled) ||
+          (task->waiting_for_completion && task->completion_turn.settled));
 }
 /* Owner-only readiness edges. Keep the lifetime list separate; no queue node,
    lock or allocation is needed. Monotonic arrival runs need no later sort. */
@@ -556,8 +568,9 @@ static void rinzu_aot_async_resume(RinzuContext *caller, RinzuAsyncTask *task) {
   rinzu_activity_end(activity);
   state->runtime.scope = scope;
   if (task->continuation.finished) {
-    if (!task->future->settled || task->waiting || task->context.roots.depth ||
-        task->context.return_roots || task->context.error_groups.depth)
+    if (!task->future->settled || task->waiting || task->completion_turn.task ||
+        task->waiting_for_completion || task->context.roots.depth || task->context.return_roots ||
+        task->context.error_groups.depth)
       rinzu_failure_fatal();
     if ((task->previous ? task->previous->next != task : state->tasks != task) ||
         (task->next && task->next->previous != task) || task->future->task_context != task)
@@ -748,15 +761,32 @@ static int64_t rinzu_baseline_async_timer(void *raw, int64_t milliseconds) {
 }
 #endif
 int64_t rinzu_baseline_async_service(void *raw, int64_t service, int64_t argument) {
-  if (service == 3 || service == 4) {
+  if (service == 3 || service == 4 || service == 5) {
     RinzuContext *context = raw;
     RinzuAsyncState *state = rinzu_aot_async_state(context);
     rinzu_managed_data_t *data = rinzu_context_data(context);
     rinzu_managed_value_t *value = rinzu_managed_find(data, (uint64_t)argument);
+    rinzu_native_completion_t *completion =
+        rinzu_managed_opaque_pointer(data, (uint64_t)argument, value->type);
+    rinzu_async_runtime_t *runtime = &state->runtime;
+    if (service == 5 && context->task && !context->task->completion_turn.task && runtime->scope &&
+        runtime->direct_native_completion && !runtime->record_evidence && !context->cancel_after &&
+        !context->shutdown_after && !context->cancel_requested && !context->shutdown_requested &&
+        !state->explicit_shutdown && !context->pending.current.primary &&
+        rinzu_native_completion_valid(completion) && rinzu_native_completion_is_done(completion)) {
+      /* The only consumer is the adjacent await. Keep the completion's place
+         among physical completions, but publish no Future or SDK pointer. */
+      rinzu_child_scope_t *scope = runtime->scope;
+      if (runtime->reactor_stopping || runtime->next_identity >= RINZU_ASYNC_HANDLE_BASE - 1 ||
+          scope->finished || (scope->closing && !runtime->callback_admission))
+        rinzu_failure_fatal();
+      rinzu_async_native_progress(runtime);
+      return -(int64_t)(++runtime->next_identity);
+    }
     rinzu_async_future_t *future =
-        rinzu_async_new(&state->runtime, RINZU_ASYNC_COMPLETION,
+        rinzu_async_new(runtime, RINZU_ASYNC_COMPLETION,
                         service == 4 ? RINZU_SCALAR_I64 : RINZU_TRANSFER_UNIT, context->source);
-    future->native_completion = rinzu_managed_opaque_pointer(data, (uint64_t)argument, value->type);
+    future->native_completion = completion;
     if (service == 4 && (future->native_completion->version != 3 ||
                          !rinzu_native_completion_valid(future->native_completion)))
       rinzu_failure_fatal();
@@ -853,6 +883,54 @@ static void rinzu_aot_async_resume_ready(RinzuContext *context) {
     }
   }
 }
+static void rinzu_aot_async_unlink_completion_turn(RinzuAsyncState *state,
+                                                   RinzuCompletionTurn *turn) {
+  if (turn->previous)
+    turn->previous->next = turn->next;
+  else
+    state->completion_head = turn->next;
+  if (turn->next)
+    turn->next->previous = turn->previous;
+  else
+    state->completion_tail = turn->previous;
+}
+static void rinzu_aot_async_finish_completion_turn(RinzuCompletionTurn *turn) {
+  if (!turn->settled || !turn->ready)
+    rinzu_failure_fatal();
+  rinzu_ready_receive(turn->ready);
+  rinzu_ready_dispose(turn->ready);
+  *turn = (RinzuCompletionTurn){0};
+}
+/* The Owner drains runnable tasks before selecting one physical completion.
+   These turns share the same identity order as timers, Workers and native I/O. */
+static int rinzu_aot_async_collect_ready(RinzuAsyncState *state) {
+  RinzuCompletionTurn *turn = state->completion_head;
+  uint64_t oldest = turn ? turn->identity : UINT64_MAX;
+  rinzu_async_future_t *ready = NULL;
+  for (rinzu_async_future_t *future = state->runtime.futures; future; future = future->next)
+    if (future->identity < oldest && !future->settled &&
+        (future->operation == RINZU_ASYNC_WORKER || future->operation == RINZU_ASYNC_FILE ||
+         future->operation == RINZU_ASYNC_TIMER || future->operation == RINZU_ASYNC_COMPLETION) &&
+        atomic_load_explicit(&future->physical_done, memory_order_acquire)) {
+      oldest = future->identity;
+      ready = future;
+    }
+  if (ready) {
+    if (!rinzu_async_try_collect(ready))
+      _Exit(86);
+    rinzu_async_adopt_observed(ready, &state->root->pending);
+  } else if (turn) {
+    rinzu_aot_async_unlink_completion_turn(state, turn);
+    turn->settled = 1;
+    if (turn->task->waiting_for_completion)
+      rinzu_aot_async_queue_ready(turn->task);
+    else
+      rinzu_aot_async_finish_completion_turn(turn);
+  } else {
+    return 0;
+  }
+  return 1;
+}
 #ifdef RINZU_AOT_HAS_SUPPLANT
 static RinzuAsyncTask *rinzu_aot_dispatcher_ready_task(RinzuAsyncState *state, unsigned lane) {
   RinzuAsyncTask *ready = NULL;
@@ -866,7 +944,7 @@ static int rinzu_aot_dispatcher_ready(void *raw, unsigned lane) {
   RinzuAsyncState *state = raw;
   rinzu_async_owner(&state->runtime);
   return rinzu_aot_dispatcher_ready_task(state, lane) != NULL ||
-         (lane == 1 && rinzu_async_has_completion(&state->runtime));
+         (lane == 1 && (rinzu_async_has_completion(&state->runtime) || state->completion_head));
 }
 static int rinzu_aot_dispatcher_can_enter(void *raw) {
   RinzuAsyncState *state = raw;
@@ -888,22 +966,8 @@ static int rinzu_aot_dispatcher_step(void *raw, unsigned lane) {
   if (task) {
     rinzu_aot_async_resume(root, task);
     did = 1;
-  } else if (lane == 1) {
-    rinzu_async_future_t *ready = NULL;
-    for (rinzu_async_future_t *future = state->runtime.futures; future; future = future->next)
-      if (!future->settled &&
-          (future->operation == RINZU_ASYNC_WORKER || future->operation == RINZU_ASYNC_FILE ||
-           future->operation == RINZU_ASYNC_TIMER || future->operation == RINZU_ASYNC_COMPLETION) &&
-          atomic_load_explicit(&future->physical_done, memory_order_acquire) &&
-          (!ready || future->identity < ready->identity))
-        ready = future;
-    if (ready) {
-      if (!rinzu_async_try_collect(ready))
-        _Exit(86);
-      rinzu_async_adopt_observed(ready, &root->pending);
-      did = 1;
-    }
-  }
+  } else if (lane == 1)
+    did = rinzu_aot_async_collect_ready(state);
   if (native)
     rinzu_owner_callback_leave(scope);
   return did;
@@ -920,7 +984,7 @@ static void rinzu_aot_control_interrupt(RinzuContext *context, rinzu_async_futur
   RinzuAsyncTask *task = rinzu_aot_async_task(state, future);
   if (task) {
     task->context.shutdown_requested = 1;
-    if (!task->context.cancel_masked && task->waiting)
+    if (!task->context.cancel_masked && (task->waiting || task->waiting_for_completion))
       rinzu_aot_async_resume(context, task);
   } else {
 #ifdef RINZU_AOT_HAS_SUPPLANT
@@ -966,7 +1030,7 @@ int64_t rinzu_baseline_task_control(void *raw, int64_t kind, int64_t handle) {
   if (task) {
     task->context.cancel_requested = 1;
     task->context.cancel_masked = 0;
-    if (task->waiting)
+    if (task->waiting || task->waiting_for_completion)
       rinzu_aot_async_resume(context, task);
   }
 #ifdef RINZU_AOT_HAS_SUPPLANT
@@ -999,35 +1063,75 @@ static void rinzu_aot_async_pump(RinzuContext *context, rinzu_async_future_t *wa
     uint64_t depth = 0;
     while (future->operation == RINZU_ASYNC_TASK && !future->settled) {
       RinzuAsyncTask *task = rinzu_aot_async_task(state, future);
-      if (!task || !task->waiting || ++depth > state->runtime.next_identity)
+      if (!task || ++depth > state->runtime.next_identity)
+        rinzu_failure_fatal();
+      if (task->waiting_for_completion) {
+        future = NULL;
+        break;
+      }
+      if (!task->waiting)
         rinzu_failure_fatal();
       future = task->waiting;
     }
-    if (future->settled || future->operation == RINZU_ASYNC_TASK)
-      rinzu_failure_fatal();
-    rinzu_async_start(future);
-    if (future->operation == RINZU_ASYNC_READY) {
-      rinzu_async_materialize(future);
-      rinzu_async_adopt_observed(future, &state->root->pending);
-      continue;
+    if (future) {
+      if (future->settled || future->operation == RINZU_ASYNC_TASK)
+        rinzu_failure_fatal();
+      rinzu_async_start(future);
+      if (future->operation == RINZU_ASYNC_READY) {
+        rinzu_async_materialize(future);
+        rinzu_async_adopt_observed(future, &state->root->pending);
+        continue;
+      }
     }
-    rinzu_async_future_t *ready = NULL;
-    for (rinzu_async_future_t *candidate = state->runtime.futures; candidate;
-         candidate = candidate->next)
-      if (!candidate->settled &&
-          (candidate->operation == RINZU_ASYNC_WORKER || candidate->operation == RINZU_ASYNC_FILE ||
-           candidate->operation == RINZU_ASYNC_TIMER ||
-           candidate->operation == RINZU_ASYNC_COMPLETION) &&
-          atomic_load_explicit(&candidate->physical_done, memory_order_acquire) &&
-          (!ready || candidate->identity < ready->identity))
-        ready = candidate;
-    if (ready) {
-      if (!rinzu_async_try_collect(ready))
-        _Exit(86);
-      rinzu_async_adopt_observed(ready, &state->root->pending);
-    } else
+    if (!rinzu_aot_async_collect_ready(state))
       rinzu_async_wait_progress(&state->runtime, observed);
   }
+}
+static void rinzu_aot_async_suspend_for_completion(RinzuAsyncTask *task) {
+  RinzuCompletionTurn *turn = &task->completion_turn;
+  if (task->waiting || task->waiting_for_completion || task->wait_dependency ||
+      turn->task != task || turn->settled)
+    rinzu_failure_fatal();
+  task->waiting_for_completion = 1;
+  task->wait_dependency = rinzu_owner_wait_prepare(
+      rinzu_context_transitions(&task->context), task->future->identity + 1, turn->identity + 1,
+      task->function_label, task->function_source.file, task->function_source.start_byte,
+      task->function_source.end_byte);
+  rinzu_continuation_yield(&task->continuation);
+  task->waiting_for_completion = 0;
+  if (turn->settled)
+    rinzu_aot_async_finish_completion_turn(turn);
+}
+static void rinzu_aot_async_wait_completion_turn(RinzuContext *context, uint64_t identity) {
+  RinzuAsyncState *state = context->async;
+  RinzuAsyncTask *task = context->task;
+  if (!task || task->completion_turn.task || !state->runtime.scope ||
+      (state->completion_tail && state->completion_tail->identity >= identity))
+    rinzu_failure_fatal();
+  /* This record lives with the task. If control interrupts the await, its
+     scope still drains the scheduled completion after running finally. */
+  RinzuCompletionTurn *turn = &task->completion_turn;
+  *turn = (RinzuCompletionTurn){.identity = identity,
+                                .task = task,
+                                .scope = state->runtime.scope,
+                                .previous = state->completion_tail};
+  if (turn->previous)
+    turn->previous->next = turn;
+  else
+    state->completion_head = turn;
+  state->completion_tail = turn;
+  turn->ready = rinzu_owner_ready_prepare(rinzu_context_transitions(context),
+                                          "reactor.native-completion", context->source.file,
+                                          context->source.start_byte, context->source.end_byte);
+  rinzu_ready_publish(turn->ready);
+  do {
+    rinzu_aot_async_suspend_for_completion(task);
+    if ((context->cancel_requested || context->shutdown_requested) && !context->pending.depth &&
+        !context->cancel_masked) {
+      rinzu_failure_fail(&context->pending, context->shutdown_requested ? 4 : 2, context->source);
+      return;
+    }
+  } while (turn->task);
 }
 static void rinzu_aot_async_wait(RinzuContext *context, rinzu_async_future_t *future) {
   if (context->task) {
@@ -1083,6 +1187,13 @@ int64_t rinzu_baseline_async_await(void *raw, int64_t handle, int64_t consume) {
     state->first_await_seen = 1;
     state->first_await_workers = state->started_workers;
     state->first_await_files = state->started_files;
+  }
+  if (handle < 0) {
+    uint64_t identity = (uint64_t)(-(handle + 1));
+    if (!consume || identity >= state->runtime.next_identity)
+      rinzu_failure_fatal();
+    rinzu_aot_async_wait_completion_turn(context, identity);
+    return 0; /* Unit */
   }
   rinzu_async_future_t *future = rinzu_async_find(&state->runtime, (uint64_t)handle);
   int pending = !future->settled;
@@ -1188,6 +1299,13 @@ static void rinzu_aot_async_close_scope(RinzuContext *context, rinzu_child_scope
     rinzu_child_t *pending = scope->children;
     while (pending && pending->completed)
       pending = pending->next;
+    if (context->task) {
+      RinzuCompletionTurn *turn = &context->task->completion_turn;
+      if (turn->scope == scope && (!pending || turn->identity < pending->identity)) {
+        rinzu_aot_async_suspend_for_completion(context->task);
+        continue;
+      }
+    }
     if (!pending)
       break;
     rinzu_async_future_t *future =
@@ -1350,6 +1468,8 @@ static void rinzu_aot_async_close(RinzuContext *context) {
   if (context != state->root || state->runtime.scope != &state->children)
     rinzu_failure_fatal();
   rinzu_aot_async_close_scope(context, &state->children, 1);
+  if (state->completion_head || state->completion_tail)
+    rinzu_failure_fatal();
   rinzu_continuation_cache_dispose(&state->continuations);
   while (state->result_roots)
     rinzu_aot_async_release_result(state, state->result_roots);

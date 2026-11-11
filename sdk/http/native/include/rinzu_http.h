@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "rinzu/native_bytes.h"
 enum { RINZU_HTTP_CHUNK = 65536 };
 enum RinzuHttpStatus {
   RINZU_HTTP_OWNER = -7301,
@@ -20,13 +21,15 @@ bool rinzu_http_busy(void *client);
 int32_t rinzu_http_ready(void *client);
 int32_t rinzu_http_request(void *client, const char *url, const uint8_t *body, size_t length,
                            bool post, int64_t timeout);
+int32_t rinzu_http_send(void *client, const char *method, const char *url, const uint8_t *headers,
+                        size_t header_length, const uint8_t *body, size_t length, int64_t timeout);
 int32_t rinzu_http_close(void *client);
 void *rinzu_http_completion(void *client);
 int32_t rinzu_http_status(void *client);
 int64_t rinzu_http_response_status(void *client);
-int64_t rinzu_http_length(void *client);
 int64_t rinzu_http_sent(void *client);
-const uint8_t *rinzu_http_bytes(void *client);
+const rinzu_native_byte_array_t *rinzu_http_bytes(void *client);
+const rinzu_native_byte_array_t *rinzu_http_headers(void *client);
 void rinzu_http_cancel(void *client);
 void rinzu_http_finish(void *client);
 int64_t rinzu_http_live_clients(void);

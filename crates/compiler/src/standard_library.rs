@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 pub const TARGET: &str = "aarch64-apple-darwin";
 pub const REVISION: u32 = 7;
 /// Shared by the embedded registry and its distribution fingerprint.
-pub const RUNTIME_CODEGEN_REVISION: u32 = 185;
+pub const RUNTIME_CODEGEN_REVISION: u32 = 187;
 pub const SOURCE_PACKAGES: [&str; 10] = [
     "rinzu.option",
     "rinzu.io",
@@ -22,6 +22,8 @@ pub const SOURCE_PACKAGES: [&str; 10] = [
     "rinzu.httpcodec",
     "rinzu.socket",
 ];
+
+const SOURCE_SUBMODULES: [(&str, &str); 1] = [("rinzu.http.server", "rinzu.http")];
 
 const BUILTIN_PACKAGES: [&str; 11] = [
     "rinzu.core",
@@ -49,18 +51,35 @@ pub(crate) fn intrinsic_source(name: &str) -> Option<&'static [u8]> {
     }
 }
 
+pub(crate) fn source_package(module: &str) -> Option<&'static str> {
+    SOURCE_PACKAGES
+        .into_iter()
+        .find(|&name| name == module)
+        .or_else(|| {
+            SOURCE_SUBMODULES
+                .into_iter()
+                .find_map(|(name, package)| (name == module).then_some(package))
+        })
+}
+
 pub fn registered(name: &str) -> bool {
-    builtin(name) || SOURCE_PACKAGES.contains(&name)
+    builtin(name) || source_package(name).is_some()
 }
 
 pub fn names() -> impl Iterator<Item = &'static str> {
     BUILTIN_PACKAGES.into_iter().chain(SOURCE_PACKAGES)
 }
 
+pub(crate) fn module_names() -> impl Iterator<Item = &'static str> {
+    names().chain(SOURCE_SUBMODULES.into_iter().map(|(name, _)| name))
+}
+
 pub fn dependencies(name: &str) -> &'static [&'static str] {
     match name {
         "rinzu.process" => &["rinzu.option"],
         "rinzu.stream" => &["rinzu.io"],
+        "rinzu.http" => &["rinzu.socket", "rinzu.httpcodec", "rinzu.io"],
+        "rinzu.httpcodec" => &["rinzu.socket"],
         _ => &[],
     }
 }
@@ -123,6 +142,7 @@ pub fn resources() -> BTreeMap<&'static str, &'static [u8]> {
         repository_resource!("include/rinzu/native_diagnostics.h", "include/rinzu/native_diagnostics.h"),
         repository_resource!("include/rinzu/native_input.h", "include/rinzu/native_input.h"),
         repository_resource!("include/rinzu/native_bytes.h", "include/rinzu/native_bytes.h"),
+        repository_resource!("include/rinzu/native_read_view.h", "include/rinzu/native_read_view.h"),
         repository_resource!("include/rinzu/native_opaque.h", "include/rinzu/native_opaque.h"),
         repository_resource!("include/rinzu/native_record.h", "include/rinzu/native_record.h"),
         repository_resource!("include/rinzu/native_userdata.h", "include/rinzu/native_userdata.h"),
@@ -188,8 +208,15 @@ pub fn resources() -> BTreeMap<&'static str, &'static [u8]> {
         sdk_resource!("httpcodec", "src/httpcodec.rinzu"),
         sdk_resource!("httpcodec", "native/request_line.c"),
         sdk_resource!("httpcodec", "native/request_line.h"),
+        sdk_resource!("httpcodec", "native/request_decoder.c"),
+        sdk_resource!("httpcodec", "native/request_decoder.h"),
         sdk_resource!("http", "rinzu.toml"),
         sdk_resource!("http", "src/http.rinzu"),
+        sdk_resource!("http", "src/server.rinzu"),
+        sdk_resource!("http", "src/server/application.rinzu"),
+        sdk_resource!("http", "src/server/http1.rinzu"),
+        sdk_resource!("http", "src/server/router.rinzu"),
+        sdk_resource!("http", "src/server/url.rinzu"),
         sdk_resource!("http", "native/src/http.c"),
         sdk_resource!("http", "native/include/rinzu_http.h"),
         sdk_resource!("socket", "rinzu.toml"),

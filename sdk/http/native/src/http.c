@@ -4,21 +4,24 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <errno.h>
 struct Client {
-  rinzu_native_completion_t completion;
+  rinzu_native_completion_v2_t completion;
   pthread_t owner;
   bool owns, busy, ready, closing, post, overflow;
   CURL *easy;
-  char *url;
-  uint8_t *body, *response;
-  size_t length, received;
+  char *url, *method;
+  struct curl_slist *headers;
+  uint8_t *body;
+  rinzu_native_byte_array_t response, response_headers;
+  size_t length;
   long timeout, http;
   int64_t sent;
   int32_t status;
   struct Client *next_owner;
 };
-enum { THREADS = 2, QUEUE = 32 };
+enum { THREADS = 2, QUEUE = 32, HEADER_BYTES = 32768, HEADER_COUNT = 64, TOKEN_BYTES = 128 };
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t changed = PTHREAD_COND_INITIALIZER;
 static pthread_once_t initialized = PTHREAD_ONCE_INIT;
@@ -28,7 +31,6 @@ static size_t head, queued, operations, owners, buffers, retained;
 static bool running, stopping;
 static int32_t backend_status;
 static _Thread_local struct Client *owner_clients;
-static const uint8_t empty[RINZU_HTTP_CHUNK];
 static void fatal(void) {
   _Exit(86);
 }
@@ -58,7 +60,7 @@ static int32_t check(struct Client *c) {
   return pthread_equal(c->owner, pthread_self()) ? 0 : RINZU_HTTP_OWNER;
 }
 static bool cancelled(struct Client *c) {
-  return atomic_load_explicit(&c->completion.cancelled, memory_order_acquire) != 0;
+  return atomic_load_explicit(&c->completion.base.cancelled, memory_order_acquire) != 0;
 }
 static int progress(void *context, curl_off_t total, curl_off_t now, curl_off_t up_total,
                     curl_off_t up_now) {
@@ -70,14 +72,107 @@ static int progress(void *context, curl_off_t total, curl_off_t now, curl_off_t 
 }
 static size_t receive(char *data, size_t size, size_t count, void *context) {
   struct Client *c = context;
-  if ((size && count > SIZE_MAX / size) || size * count > RINZU_HTTP_CHUNK - c->received) {
+  if ((size && count > SIZE_MAX / size) || size * count > RINZU_HTTP_CHUNK - c->response.length) {
     c->overflow = true;
     return 0;
   }
   size_t length = size * count;
-  memcpy(c->response + c->received, data, length);
-  c->received += length;
+  memcpy(c->response.data + c->response.length, data, length);
+  c->response.length += length;
   return length;
+}
+
+static bool token(const uint8_t *data, size_t length) {
+  if (!length)
+    return false;
+  for (size_t i = 0; i < length; ++i) {
+    uint8_t byte = data[i];
+    if (!((byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') ||
+          (byte >= '0' && byte <= '9') || (byte && strchr("!#$%&'*+-.^_`|~", byte))))
+      return false;
+  }
+  return true;
+}
+
+static bool field_is(const uint8_t *name, size_t length, const char *word) {
+  return length == strlen(word) && !strncasecmp((const char *)name, word, length);
+}
+
+/* The Source API supplies validated name/value pairs as colon-delimited lines.
+   Keep HTTP framing under libcurl's control and take ownership before queuing. */
+static int32_t request_headers(const uint8_t *data, size_t length, struct curl_slist **fields) {
+  if (length > HEADER_BYTES || (length && !data))
+    return RINZU_HTTP_ARGUMENT;
+  size_t count = 0;
+  for (size_t offset = 0; offset < length;) {
+    const uint8_t *line = data + offset;
+    const uint8_t *lf = memchr(line, '\n', length - offset);
+    if (++count > HEADER_COUNT || !lf || lf == line || lf[-1] != '\r')
+      return RINZU_HTTP_ARGUMENT;
+    const uint8_t *end = lf - 1;
+    const uint8_t *colon = memchr(line, ':', (size_t)(end - line));
+    if (!colon)
+      return RINZU_HTTP_ARGUMENT;
+    size_t name = (size_t)(colon - line);
+    size_t value = (size_t)(end - colon - 1);
+    if (name > TOKEN_BYTES || !token(line, name) || field_is(line, name, "content-length") ||
+        field_is(line, name, "transfer-encoding") || field_is(line, name, "trailer") ||
+        field_is(line, name, "upgrade"))
+      return RINZU_HTTP_ARGUMENT;
+    for (const uint8_t *p = colon + 1; p < end; ++p)
+      if ((*p < 32 && *p != '\t') || *p == 127)
+        return RINZU_HTTP_ARGUMENT;
+    char field[HEADER_BYTES + 1];
+    memcpy(field, line, name);
+    if (value) {
+      field[name] = ':';
+      field[name + 1] = ' ';
+      memcpy(field + name + 2, colon + 1, value);
+      field[name + 2 + value] = 0;
+    } else {
+      /* A literal empty value uses libcurl's semicolon form. */
+      field[name] = ';';
+      field[name + 1] = 0;
+    }
+    struct curl_slist *next = curl_slist_append(*fields, field);
+    if (!next)
+      _Exit(70);
+    *fields = next;
+    offset = (size_t)(lf - data) + 1;
+  }
+  return 0;
+}
+
+static int32_t collect_headers(struct Client *c) {
+  size_t capacity = 0, count = 0;
+  struct curl_header *field = NULL;
+  rinzu_native_byte_array_t *out = &c->response_headers;
+  while ((field = curl_easy_nextheader(c->easy, CURLH_HEADER, -1, field))) {
+    size_t name = strlen(field->name), value = strlen(field->value);
+    if (++count > HEADER_COUNT || name + value + 2 > HEADER_BYTES - out->length)
+      return RINZU_HTTP_BOUND;
+    if (!token((const uint8_t *)field->name, name))
+      return CURLE_WEIRD_SERVER_REPLY;
+    size_t needed = out->length + name + value + 2;
+    if (needed > capacity) {
+      capacity = capacity && capacity * 2 > needed ? capacity * 2 : needed;
+      if (capacity > HEADER_BYTES)
+        capacity = HEADER_BYTES;
+      uint8_t *next = realloc(out->data, capacity);
+      if (!next)
+        _Exit(70);
+      out->data = next;
+    }
+    uint8_t *data = out->data + out->length;
+    for (size_t i = 0; i < name; ++i) {
+      uint8_t byte = (uint8_t)field->name[i];
+      data[i] = byte >= 'A' && byte <= 'Z' ? (uint8_t)(byte + 'a' - 'A') : byte;
+    }
+    data[name] = 0;
+    memcpy(data + name + 1, field->value, value + 1);
+    out->length = needed;
+  }
+  return 0;
 }
 static CURLUcode url_part(CURLU *url, CURLUPart part, char **value) {
   CURLUcode result = curl_url_get(url, part, value, 0);
@@ -148,6 +243,12 @@ static void perform(struct Client *c) {
     SET(CURLOPT_NOPROGRESS, 0L);
     SET(CURLOPT_XFERINFOFUNCTION, progress);
     SET(CURLOPT_XFERINFODATA, c);
+    if (c->method) {
+      SET(CURLOPT_CUSTOMREQUEST, c->method);
+      SET(CURLOPT_HTTPHEADER, c->headers);
+      if (!strcmp(c->method, "HEAD"))
+        SET(CURLOPT_NOBODY, 1L);
+    }
     if (c->post) {
       SET(CURLOPT_POST, 1L);
       SET(CURLOPT_POSTFIELDS, c->body);
@@ -167,6 +268,8 @@ static void perform(struct Client *c) {
     c->sent = (int64_t)sent;
     if (c->overflow)
       status = RINZU_HTTP_BOUND;
+    if (!status && c->method)
+      status = collect_headers(c);
     if (status == CURLE_OUT_OF_MEMORY)
       _Exit(70);
     /* Drop every option referring to operation payload before publication. */
@@ -175,9 +278,14 @@ static void perform(struct Client *c) {
   pthread_mutex_lock(&lock);
   c->status = status;
   c->ready = true;
-  atomic_store_explicit(&c->completion.done, 1, memory_order_release);
+  rinzu_native_completion_wake_t *target =
+      rinzu_native_completion_v2_publish_target(&c->completion);
   pthread_cond_broadcast(&changed);
   pthread_mutex_unlock(&lock);
+  if (target) {
+    target->notify(target);
+    target->release(target);
+  }
 }
 static void *worker(void *unused) {
   (void)unused;
@@ -229,7 +337,7 @@ void *rinzu_http_new(void) {
   c->owns = true;
   c->next_owner = owner_clients;
   owner_clients = c;
-  rinzu_native_completion_init(&c->completion);
+  rinzu_native_completion_v2_init(&c->completion);
   pthread_mutex_lock(&lock);
   owners++;
   retained += sizeof(*c);
@@ -295,18 +403,19 @@ static void submit(struct Client *c, bool closing) {
   c->busy = true;
   c->ready = false;
   c->overflow = false;
-  c->received = 0;
+  c->response.length = 0;
   c->sent = 0;
   c->http = 0;
   c->status = 0;
-  rinzu_native_completion_init(&c->completion);
+  rinzu_native_completion_v2_init(&c->completion);
   operations++;
   queue[(head + queued) % QUEUE] = c;
   queued++;
   pthread_cond_signal(&changed);
 }
-int32_t rinzu_http_request(void *value, const char *url, const uint8_t *body, size_t length,
-                           bool post, int64_t timeout) {
+static int32_t request(void *value, const char *method, const char *url,
+                       const uint8_t *header_bytes, size_t header_length, const uint8_t *body,
+                       size_t length, bool post, int64_t timeout) {
   struct Client *c = value;
   int32_t status = check(c);
   if (status)
@@ -317,15 +426,26 @@ int32_t rinzu_http_request(void *value, const char *url, const uint8_t *body, si
   status = validate_url(url);
   if (status)
     return status;
+  struct curl_slist *fields = NULL;
+  status = request_headers(header_bytes, header_length, &fields);
+  if (status) {
+    curl_slist_free_all(fields);
+    return status;
+  }
   pthread_mutex_lock(&lock);
   status = admission(c);
   if (!status) {
     c->url = allocate(strlen(url) + 1);
     strcpy(c->url, url);
+    if (method) {
+      c->method = allocate(strlen(method) + 1);
+      strcpy(c->method, method);
+    }
+    c->headers = fields;
     c->body = allocate(length);
     if (length)
       memcpy(c->body, body, length);
-    c->response = allocate(RINZU_HTTP_CHUNK);
+    c->response.data = allocate(RINZU_HTTP_CHUNK);
     buffers++;
     c->length = length;
     c->post = post;
@@ -333,7 +453,22 @@ int32_t rinzu_http_request(void *value, const char *url, const uint8_t *body, si
     submit(c, false);
   }
   pthread_mutex_unlock(&lock);
+  if (status)
+    curl_slist_free_all(fields);
   return status;
+}
+int32_t rinzu_http_request(void *value, const char *url, const uint8_t *body, size_t length,
+                           bool post, int64_t timeout) {
+  return request(value, NULL, url, NULL, 0, body, length, post, timeout);
+}
+int32_t rinzu_http_send(void *value, const char *method, const char *url, const uint8_t *headers,
+                        size_t header_length, const uint8_t *body, size_t length, int64_t timeout) {
+  size_t method_length = strlen(method);
+  if (method_length > TOKEN_BYTES || !token((const uint8_t *)method, method_length) ||
+      (!strcmp(method, "HEAD") && length))
+    return RINZU_HTTP_ARGUMENT;
+  return request(value, method, url, headers, header_length, body, length,
+                 length || !strcmp(method, "POST"), timeout);
 }
 int32_t rinzu_http_close(void *value) {
   struct Client *c = value;
@@ -358,7 +493,7 @@ void *rinzu_http_completion(void *value) {
   struct Client *c = value;
   if (check(c) || !c->busy)
     fatal();
-  return &c->completion;
+  return &c->completion.base;
 }
 static struct Client *completed(void *value) {
   struct Client *c = value;
@@ -377,30 +512,35 @@ int32_t rinzu_http_status(void *value) {
 int64_t rinzu_http_response_status(void *value) {
   return (int64_t)completed(value)->http;
 }
-int64_t rinzu_http_length(void *value) {
-  return (int64_t)completed(value)->received;
-}
 int64_t rinzu_http_sent(void *value) {
   return completed(value)->sent;
 }
-const uint8_t *rinzu_http_bytes(void *value) {
-  struct Client *c = completed(value);
-  return c->response ? c->response : empty;
+const rinzu_native_byte_array_t *rinzu_http_bytes(void *value) {
+  return &completed(value)->response;
+}
+const rinzu_native_byte_array_t *rinzu_http_headers(void *value) {
+  return &completed(value)->response_headers;
 }
 void rinzu_http_cancel(void *value) {
   struct Client *c = value;
   if (check(c))
     fatal();
-  atomic_store_explicit(&c->completion.cancelled, 1, memory_order_release);
+  atomic_store_explicit(&c->completion.base.cancelled, 1, memory_order_release);
 }
 void rinzu_http_finish(void *value) {
   struct Client *c = completed(value);
   pthread_mutex_lock(&lock);
-  if (c->response) {
-    free(c->response);
-    c->response = NULL;
+  if (c->response.data) {
+    free(c->response.data);
+    c->response = (rinzu_native_byte_array_t){0};
     buffers--;
   }
+  free(c->response_headers.data);
+  c->response_headers = (rinzu_native_byte_array_t){0};
+  curl_slist_free_all(c->headers);
+  c->headers = NULL;
+  free(c->method);
+  c->method = NULL;
   free(c->body);
   c->body = NULL;
   free(c->url);

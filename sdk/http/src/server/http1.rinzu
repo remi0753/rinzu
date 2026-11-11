@@ -1,0 +1,554 @@
+import rinzu.bytes as bytes;
+import rinzu.error as errors;
+import rinzu.future as future;
+import "application.rinzu" as http;
+import rinzu.httpcodec as codec;
+import rinzu.io as io;
+import rinzu.list as list;
+import rinzu.number as number;
+import rinzu.socket as socket;
+import rinzu.string as string;
+import rinzu.timer as timer;
+
+class Input {
+    frames: List<codec.RequestFrame>,
+    status: Int,
+    eof: Bool,
+    partial: Bool
+}
+
+class State {
+    stopping: Bool,
+    responses: Int,
+    dateSecond: Int,
+    date: String
+}
+
+fn decode(decoder: codec.Decoder, input: Input, view: socket.ReadView) {
+    input.frames = [];
+    input.status = 0;
+    input.partial = false;
+    let length = socket.readLength(view);
+    input.eof = length == 0;
+    try {
+        if input.eof {
+            decoder.end();
+            return;
+        }
+        var offset = 0;
+        while offset < length {
+            switch decoder.feedRead(view, offset) {
+                case Option.Some(frame): {
+                    input.frames = list.append(input.frames, frame);
+                    if frame.head.closing {
+                        return;
+                    }
+                    offset = frame.end;
+                }
+                case Option.None: {
+                    input.partial = true;
+                    return;
+                }
+            }
+        }
+    }
+    catch [failure: Error, ...rest] {
+        if failure is codec.InvalidRequest {
+            input.status = failure.payload;
+        }
+        else {
+            rethrow [failure, ...rest];
+        }
+    }
+}
+
+fn request(frame: codec.RequestFrame) -> http.Request {
+    var headers: List<http.Header> = [];
+    for field in frame.head.headers {
+        headers = list.append(headers, http.Header(name: field.name, value: field.value));
+    }
+    return http.request(frame.head.method, frame.head.target, headers, frame.body);
+}
+
+fn twoDigits(value: Int) -> String {
+    if value < 10 {
+        return f"0{value}";
+    }
+    return number.formatInt(value);
+}
+
+fn name(values: List<String>, index: Int) -> String {
+    switch list.get(values, index) {
+        case Option.Some(value): {
+            return value;
+        }
+        case Option.None: {
+            return "";
+        }
+    }
+}
+
+// Convert UTC Unix seconds to the HTTP-date representation.
+fn httpDate(second: Int) -> String {
+    let days = second / 86400;
+    let utc = days + 719468;
+    let era = utc / 146097;
+    let dayOfEra = utc % 146097;
+    let yearOfEra = (dayOfEra - dayOfEra / 1460 + dayOfEra / 36524 - dayOfEra / 146096) / 365;
+    let dayOfYear = dayOfEra - (365 * yearOfEra + yearOfEra / 4 - yearOfEra / 100);
+    let marchMonth = (5 * dayOfYear + 2) / 153;
+    let day = dayOfYear - (153 * marchMonth + 2) / 5 + 1;
+    let month = (marchMonth + 2) % 12;
+    let year = yearOfEra + 400 * era + (marchMonth + 2) / 12;
+    let weekday = name(["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"], days % 7);
+    let monthName = name(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], month);
+    let hour = twoDigits((second / 3600) % 24);
+    let minute = twoDigits((second / 60) % 60);
+    let seconds = twoDigits(second % 60);
+    return f"{weekday}, {twoDigits(day)} {monthName} {year} {hour}:{minute}:{seconds} GMT";
+}
+
+fn headers(response: http.Response, date: String, close: Bool) -> ByteArray {
+    var head = f"HTTP/1.1 {response.status} \r\nDate: {date}\r\nContent-Type: {response.contentType}\r\n";
+    if close {
+        head = f"{head}Connection: close\r\n";
+    }
+    if response.status == 205 {
+        head = f"{head}Content-Length: 0\r\n";
+    }
+    else if response.status != 204 && response.status != 304 {
+        head = f"{head}Content-Length: {bytes.length(response.body)}\r\n";
+    }
+    for header in response.headers {
+        head = f"{head}{header.name}: {header.value}\r\n";
+    }
+    return string.encodeUtf8(f"{head}\r\n");
+}
+
+class ServerOptions {
+    const backlog: Int,
+    const maxConnections: Int,
+    const requestTimeoutMillis: Int,
+    const keepAliveTimeoutMillis: Int,
+    const writeTimeoutMillis: Int,
+    const shutdownTimeoutMillis: Int
+}
+
+fn defaultServerOptions() -> ServerOptions {
+    return ServerOptions(
+        backlog: 64,
+        maxConnections: 48,
+        requestTimeoutMillis: 2000,
+        keepAliveTimeoutMillis: 2000,
+        writeTimeoutMillis: 2000,
+        shutdownTimeoutMillis: 5000
+    );
+}
+
+fn validTimeout(milliseconds: Int) -> Bool {
+    return milliseconds >= 1 && milliseconds <= 30000;
+}
+
+class Session {
+    const stream: socket.TcpStream,
+    reading: Bool,
+    closed: Bool,
+    task: Option<Future<Unit>>
+}
+
+async fn closeSession(session: Session) nothrow {
+    if session.closed {
+        return;
+    }
+    session.closed = true;
+    try {
+        let closed = await socket.close(session.stream);
+    }
+    catch problems {}
+}
+
+fn finished(session: Session) -> Bool {
+    switch session.task {
+        case Option.Some(task): {
+            return future.isReady(task);
+        }
+        case Option.None: {
+            return true;
+        }
+    }
+}
+
+async fn drain(sessions: List<Session>, graceMillis: Int) {
+    let deadline = io.monotonicMillis() + graceMillis;
+    // Closing an idle stream wakes its read without cancelling a running handler.
+    for session in sessions {
+        if session.reading {
+            await closeSession(session);
+        }
+    }
+    var forced = false;
+    while true {
+        var pending = false;
+        for candidate in sessions {
+            if !finished(candidate) {
+                pending = true;
+                break;
+            }
+        }
+        if !pending {
+            break;
+        }
+        if !forced && io.monotonicMillis() >= deadline {
+            forced = true;
+            for active in sessions {
+                switch active.task {
+                    case Option.Some(task): {
+                        let requested = future.cancel(task);
+                    }
+                    case Option.None: {}
+                }
+            }
+            // A handler can still be settling child work after cancellation.
+            // Release its connection now so the peer observes the shutdown.
+            for interrupted in sessions {
+                if !interrupted.closed {
+                    await closeSession(interrupted);
+                }
+            }
+        }
+        await timer.sleep(5);
+    }
+    // A task cancelled before its first turn never entered its own finally.
+    for remaining in sessions {
+        if !remaining.closed {
+            await closeSession(remaining);
+        }
+    }
+}
+
+fn writeRemaining(deadline: Int) -> Int {
+    let remaining = deadline - io.monotonicMillis();
+    if remaining <= 0 {
+        throw errors.create(7810, "HTTP response write deadline");
+    }
+    return remaining;
+}
+
+async fn send(
+    stream: socket.TcpStream,
+    state: State,
+    response: http.Response,
+    close: Bool,
+    headOnly: Bool,
+    timeout: Int
+) {
+    let second = io.unixMillis() / 1000;
+    if second != state.dateSecond {
+        state.date = httpDate(second);
+        state.dateSecond = second;
+    }
+    let prefix = headers(response, state.date, close);
+    let body = !headOnly && response.status != 204 && response.status != 205 && response.status != 304;
+    let headLength = bytes.length(prefix);
+    if body && headLength + bytes.length(response.body) <= 65536 {
+        let output = bytes.concat(prefix, response.body);
+        let written = await socket.writeAllWithTimeout(stream, output, timeout);
+    }
+    else {
+        // All chunks of this response share one write deadline.
+        let deadline = io.monotonicMillis() + timeout;
+        if headLength <= 65536 {
+            let writtenHead = await socket.writeAllWithTimeout(stream, prefix, timeout);
+        }
+        else {
+            var offset = 0;
+            while offset < headLength {
+                var end = offset + 65536;
+                if end > headLength {
+                    end = headLength;
+                }
+                switch bytes.slice(prefix, offset, end) {
+                    case Option.Some(chunk): {
+                        let writtenChunk = await socket.writeAllWithTimeout(stream, chunk, writeRemaining(deadline));
+                    }
+                    case Option.None: {}
+                }
+                offset = end;
+            }
+        }
+        if body {
+            let writtenBody = await socket.writeAllWithTimeout(stream, response.body, writeRemaining(deadline));
+        }
+    }
+    state.responses = state.responses + 1;
+}
+
+async fn connection(session: Session, application: http.Compiled, state: State, options: ServerOptions) nothrow {
+    let stream = session.stream;
+    let timeout = options.writeTimeoutMillis;
+    try {
+        if state.stopping {
+            return;
+        }
+        let decoder = codec.Decoder.create();
+        try {
+            let input = Input(frames: [], status: 0, eof: false, partial: false);
+            let consume = fn (view: socket.ReadView) -> Unit {
+                decode(decoder, input, view);
+            };
+            var idle = false;
+            var deadline = io.monotonicMillis() + options.requestTimeoutMillis;
+            while !state.stopping {
+                let remaining = deadline - io.monotonicMillis();
+                if remaining <= 0 {
+                    return;
+                }
+                session.reading = true;
+                await socket.withReadTimeout(stream, 65536, remaining, consume);
+                session.reading = false;
+                if idle && !input.eof {
+                    idle = false;
+                    deadline = io.monotonicMillis() + options.requestTimeoutMillis;
+                }
+                for frame in input.frames {
+                    if state.stopping {
+                        return;
+                    }
+                    let headOnly = frame.head.method == "HEAD";
+                    try {
+                        let incoming = request(frame);
+                        switch application.dispatch(incoming) {
+                            case http.Dispatch.Ready(reply): {
+                                await send(
+                                    stream,
+                                    state,
+                                    reply,
+                                    frame.head.closing || state.stopping,
+                                    headOnly,
+                                    timeout
+                                );
+                            }
+                            case http.Dispatch.Pending(work): {
+                                let later = await work.run();
+                                await send(
+                                    stream,
+                                    state,
+                                    later,
+                                    frame.head.closing || state.stopping,
+                                    headOnly,
+                                    timeout
+                                );
+                            }
+                        }
+                    }
+                    catch [problem: Error, ...rest] {
+                        if problem is http.InputError {
+                            await send(
+                                stream,
+                                state,
+                                http.text(problem.payload, "Invalid request target"),
+                                true,
+                                headOnly,
+                                timeout
+                            );
+                            return;
+                        }
+                        rethrow [problem, ...rest];
+                    }
+                    if frame.head.closing || state.stopping {
+                        return;
+                    }
+                }
+                if state.stopping {
+                    return;
+                }
+                if input.status != 0 {
+                    await send(stream, state, http.text(input.status, "Invalid HTTP request"), true, false, timeout);
+                    return;
+                }
+                if input.eof {
+                    return;
+                }
+                if list.length(input.frames) != 0 {
+                    idle = !input.partial;
+                    let now = io.monotonicMillis();
+                    if idle {
+                        deadline = now + options.keepAliveTimeoutMillis;
+                    }
+                    else {
+                        deadline = now + options.requestTimeoutMillis;
+                    }
+                }
+            }
+        }
+        finally {
+            decoder.close();
+        }
+    }
+    catch problems {
+        // A connection's read or write failure ends that connection.
+    }
+    finally {
+        session.reading = false;
+        await closeSession(session);
+    }
+}
+
+class Server {
+    const port: Int,
+    private const listener: socket.Listener,
+    private const application: http.Compiled,
+    private const options: ServerOptions,
+    private const state: State,
+    private running: Bool,
+    private closed: Bool,
+
+    async fn listen(application: http.Compiled, host: String, port: Int, options: ServerOptions) -> Server {
+        if options.backlog < 1
+            || options.backlog > 128
+            || options.maxConnections < 1
+            || options.maxConnections > 63
+            || !validTimeout(options.requestTimeoutMillis)
+            || !validTimeout(options.keepAliveTimeoutMillis)
+            || !validTimeout(options.writeTimeoutMillis)
+            || !validTimeout(options.shutdownTimeoutMillis) {
+            throw http.ConfigurationError(message: "invalid HTTP server options");
+        }
+        let state = State(stopping: false, responses: 0, dateSecond: -1, date: "");
+        let listener = await socket.listen(socket.address(host, port), options.backlog);
+        var delivered = false;
+        try {
+            let server = Server(
+                port: socket.localPort(listener),
+                listener: listener,
+                application: application,
+                options: options,
+                state: state,
+                running: false,
+                closed: false
+            );
+            delivered = true;
+            return server;
+        }
+        finally {
+            if !delivered {
+                let discarded = await socket.closeListener(listener);
+            }
+        }
+    }
+
+    fn completedResponses(self: Server) -> Int {
+        return self.state.responses;
+    }
+
+    fn stop(self: Server) {
+        self.state.stopping = true;
+    }
+
+    fn serve(self: Server) -> Future<Unit> {
+        return self.serveUntil(
+            fn () -> Bool {
+                return false;
+            }
+        );
+    }
+
+    async fn serveUntil(self: Server, stopRequested: fn () -> Bool) {
+        if self.running || self.closed {
+            throw http.ConfigurationError(message: "HTTP server can serve once");
+        }
+        self.running = true;
+        let state = self.state;
+        let options = self.options;
+        var sessions: List<Session> = [];
+        try {
+            while !state.stopping && !stopRequested() {
+                var active: List<Session> = [];
+                for session in sessions {
+                    if !finished(session) {
+                        active = list.append(active, session);
+                    }
+                }
+                sessions = active;
+                if list.length(sessions) >= options.maxConnections {
+                    await timer.sleep(1);
+                }
+                else {
+                    try {
+                        let stream = await socket.acceptWithTimeout(self.listener, 100);
+                        var retained = false;
+                        try {
+                            if state.stopping || stopRequested() {
+                                return;
+                            }
+                            let accepted = Session(
+                                stream: stream,
+                                reading: false,
+                                closed: false,
+                                task: Option<Future<Unit>>.None()
+                            );
+                            sessions = list.append(sessions, accepted);
+                            retained = true;
+                            accepted.task = Option<Future<Unit>>.Some(
+                                value: connection(accepted, self.application, state, options)
+                            );
+                        }
+                        finally {
+                            if !retained {
+                                let discarded = await socket.close(stream);
+                            }
+                        }
+                    }
+                    catch [problem: Error, ...rest] {
+                        let status = errors.nativeStatus(problem);
+                        if status == Option<Int>.Some(value: -7505) {
+                            await timer.sleep(1);
+                        }
+                        else if status != Option<Int>.Some(value: -7509) {
+                            rethrow [problem, ...rest];
+                        }
+                    }
+                }
+            }
+        }
+        finally {
+            state.stopping = true;
+            try {
+                let closedListener = await socket.closeListener(self.listener);
+            }
+            finally {
+                try {
+                    await drain(sessions, options.shutdownTimeoutMillis);
+                }
+                finally {
+                    self.closed = true;
+                    self.running = false;
+                }
+            }
+        }
+    }
+
+    async fn close(self: Server) {
+        self.stop();
+        while self.running {
+            await timer.sleep(5);
+        }
+        if !self.closed {
+            self.running = true;
+            try {}
+            finally {
+                try {
+                    let closedListener = await socket.closeListener(self.listener);
+                }
+                finally {
+                    self.closed = true;
+                    self.running = false;
+                }
+            }
+        }
+    }
+}
+
+export ServerOptions;
+export defaultServerOptions;
+export Server;

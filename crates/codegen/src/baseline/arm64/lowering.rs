@@ -2132,7 +2132,23 @@ fn lower_block_operations(
                 let service_id = match runtime_function {
                     rinzu_compiler::RuntimeFunction::ReadResourceSize => 1,
                     rinzu_compiler::RuntimeFunction::Sleep => 2,
-                    rinzu_compiler::RuntimeFunction::NativeCompleted => 3,
+                    rinzu_compiler::RuntimeFunction::NativeCompleted => {
+                        // A consuming await is verified to have the sole semantic use.
+                        // Require adjacency except for its cancellation/GC safepoint:
+                        // the private receipt must never escape or survive another call.
+                        if matches!(
+                            block.operations.get(operation_index + 1..operation_index + 4),
+                            Some([
+                                rinzu_compiler::Operation { kind: OperationKind::CancellationPoll { .. }, .. },
+                                rinzu_compiler::Operation { kind: OperationKind::GcSafepoint { reason: rinzu_compiler::PollReason::Await, .. }, .. },
+                                rinzu_compiler::Operation { kind: OperationKind::Await { future, consume: true, .. }, .. },
+                            ]) if operation.result.as_ref().is_some_and(|result| result.id == *future)
+                        ) {
+                            5
+                        } else {
+                            3
+                        }
+                    }
                     rinzu_compiler::RuntimeFunction::NativeTransferred => 4,
                 };
                 let service = builder.ins().iconst(types::I64, service_id);
