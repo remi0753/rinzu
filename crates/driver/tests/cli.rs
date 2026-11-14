@@ -501,6 +501,7 @@ fn sdl2_sdk_package_uses_the_same_native_package_abi() {
 #[test]
 fn compiler_and_codegen_do_not_name_framework_packages() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let catalog = workspace.join("crates/compiler/src/official_sdk.rs");
     let mut directories = vec![
         workspace.join("crates/compiler/src"),
         workspace.join("crates/codegen/src"),
@@ -522,13 +523,27 @@ fn compiler_and_codegen_do_not_name_framework_packages() {
                 "{} names AppKit",
                 path.display()
             );
-            // v0.2 specifies one closed config tool; framework APIs remain SDK-owned.
-            let without_config_tool = source.replace("sdl2-config", "");
-            assert!(
-                !without_config_tool.contains("sdl2"),
-                "{} names SDL2",
-                path.display()
-            );
+            // The config tool and shipped inventory name SDL2; compiler
+            // semantics and code generation must not depend on the SDK.
+            for (index, line) in source.lines().enumerate() {
+                if path == catalog
+                    && matches!(
+                        line.trim(),
+                        "\"sdl2\","
+                            | "\"src/sdl2.rinzu\","
+                            | "\"native/src/sdl2_source.c\","
+                            | "\"native/include/rinzu_sdl2_source.h\","
+                    )
+                {
+                    continue;
+                }
+                assert!(
+                    !line.replace("sdl2-config", "").contains("sdl2"),
+                    "{}:{} names SDL2",
+                    path.display(),
+                    index + 1
+                );
+            }
         }
     }
 }

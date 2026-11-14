@@ -1,6 +1,6 @@
 # rinzu.sqlite
 
-Additional source SDK for SQLite connections, statements, copied results, observers, and deadlines. Add it as a local dependency. Connection and Statement are managed classes wrapping opaque native handles; handles have no members or constructors.
+Official source SDK for SQLite connections, statements, copied results, observers, and deadlines. Import it directly from a matching toolchain bundle, or declare a local path to the SDK. Connection and Statement are managed classes wrapping opaque native handles; handles have no members or constructors.
 
 ## Ownership and cleanup
 

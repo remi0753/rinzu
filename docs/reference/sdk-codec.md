@@ -2,13 +2,11 @@
 
 Generated from checked public exports and captured source comments.
 
-Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r82`.
-
-[Machine-readable API v4 snapshot](../../sdk/codec/build/package-api-v4.json).
+Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r85`.
 
 ## rinzu.codec.Document
 
-class · [source](../../sdk/codec/src/codec.rinzu#L7).
+class · [source](../../sdk/codec/src/codec.rinzu#L11).
 
 ```rinzu
 class Document interface Encodable
@@ -18,7 +16,7 @@ Text and a selection measured in Unicode scalar values, not UTF-8 bytes.
 
 ### field text
 
-[source](../../sdk/codec/src/codec.rinzu#L9).
+[source](../../sdk/codec/src/codec.rinzu#L13).
 
 ```rinzu
 const text: String
@@ -28,7 +26,7 @@ UTF-8 text preserves embedded NUL and all valid Unicode scalars.
 
 ### field selection
 
-[source](../../sdk/codec/src/codec.rinzu#L11).
+[source](../../sdk/codec/src/codec.rinzu#L15).
 
 ```rinzu
 const selection: Int
@@ -38,11 +36,11 @@ Position in the inclusive range 0..stringLength(text).
 
 ## rinzu.codec.Document.encode
 
-Checked type: `fn(Document)->ByteArray`.
+Checked type: `fn(Document) throws(Error)->ByteArray`.
 
 Error contract: `throws(Error)` (declared).
 
-method · [source](../../sdk/codec/src/codec.rinzu#L13).
+method · [source](../../sdk/codec/src/codec.rinzu#L17).
 
 ```rinzu
 fn encode(self: Document) throws(Error) -> ByteArray
@@ -50,7 +48,7 @@ fn encode(self: Document) throws(Error) -> ByteArray
 
 ## rinzu.codec.Encodable
 
-interface · [source](../../sdk/codec/src/codec.rinzu#L2).
+interface · [source](../../sdk/codec/src/codec.rinzu#L6).
 
 ```rinzu
 interface Encodable
@@ -60,7 +58,7 @@ An immutable binary representation. Encoding may reject invalid field values.
 
 ### method encode
 
-[source](../../sdk/codec/src/codec.rinzu#L3).
+[source](../../sdk/codec/src/codec.rinzu#L7).
 
 ```rinzu
 fn encode(self: Self) throws(Error) -> ByteArray;
@@ -68,7 +66,7 @@ fn encode(self: Self) throws(Error) -> ByteArray;
 
 ## rinzu.codec.Message
 
-class · [source](../../sdk/codec/src/codec.rinzu#L44).
+class · [source](../../sdk/codec/src/codec.rinzu#L51).
 
 ```rinzu
 class Message interface Encodable
@@ -76,7 +74,7 @@ class Message interface Encodable
 
 ### field sequence
 
-[source](../../sdk/codec/src/codec.rinzu#L45).
+[source](../../sdk/codec/src/codec.rinzu#L52).
 
 ```rinzu
 const sequence: Int
@@ -84,7 +82,7 @@ const sequence: Int
 
 ### field operation
 
-[source](../../sdk/codec/src/codec.rinzu#L46).
+[source](../../sdk/codec/src/codec.rinzu#L53).
 
 ```rinzu
 const operation: String
@@ -92,7 +90,7 @@ const operation: String
 
 ### field payload
 
-[source](../../sdk/codec/src/codec.rinzu#L47).
+[source](../../sdk/codec/src/codec.rinzu#L54).
 
 ```rinzu
 const payload: ByteArray
@@ -100,11 +98,11 @@ const payload: ByteArray
 
 ## rinzu.codec.Message.encode
 
-Checked type: `fn(Message)->ByteArray`.
+Checked type: `fn(Message) throws(Error)->ByteArray`.
 
 Error contract: `throws(Error)` (declared).
 
-method · [source](../../sdk/codec/src/codec.rinzu#L49).
+method · [source](../../sdk/codec/src/codec.rinzu#L56).
 
 ```rinzu
 fn encode(self: Message) throws(Error) -> ByteArray
@@ -112,7 +110,7 @@ fn encode(self: Message) throws(Error) -> ByteArray
 
 ## rinzu.codec.Settings
 
-class · [source](../../sdk/codec/src/codec.rinzu#L26).
+class · [source](../../sdk/codec/src/codec.rinzu#L33).
 
 ```rinzu
 class Settings interface Encodable
@@ -120,7 +118,7 @@ class Settings interface Encodable
 
 ### field fontSize
 
-[source](../../sdk/codec/src/codec.rinzu#L27).
+[source](../../sdk/codec/src/codec.rinzu#L34).
 
 ```rinzu
 const fontSize: Int
@@ -128,7 +126,7 @@ const fontSize: Int
 
 ### field tabWidth
 
-[source](../../sdk/codec/src/codec.rinzu#L28).
+[source](../../sdk/codec/src/codec.rinzu#L35).
 
 ```rinzu
 const tabWidth: Int
@@ -136,7 +134,7 @@ const tabWidth: Int
 
 ### field wrap
 
-[source](../../sdk/codec/src/codec.rinzu#L29).
+[source](../../sdk/codec/src/codec.rinzu#L36).
 
 ```rinzu
 const wrap: Bool
@@ -144,11 +142,11 @@ const wrap: Bool
 
 ## rinzu.codec.Settings.encode
 
-Checked type: `fn(Settings)->ByteArray`.
+Checked type: `fn(Settings) throws(Error)->ByteArray`.
 
 Error contract: `throws(Error)` (declared).
 
-method · [source](../../sdk/codec/src/codec.rinzu#L31).
+method · [source](../../sdk/codec/src/codec.rinzu#L38).
 
 ```rinzu
 fn encode(self: Settings) throws(Error) -> ByteArray
@@ -156,11 +154,11 @@ fn encode(self: Settings) throws(Error) -> ByteArray
 
 ## rinzu.codec.decodeDocument
 
-Checked type: `fn(ByteArray)->Document`.
+Checked type: `fn(ByteArray) throws(Error)->Document`.
 
 Error contract: `throws(Error)` (declared).
 
-function · [source](../../sdk/codec/src/codec.rinzu#L165).
+function · [source](../../sdk/codec/src/codec.rinzu#L172).
 
 ```rinzu
 fn decodeDocument(data: ByteArray) throws(Error) -> Document
@@ -168,11 +166,11 @@ fn decodeDocument(data: ByteArray) throws(Error) -> Document
 
 ## rinzu.codec.decodeMessage
 
-Checked type: `fn(ByteArray)->Message`.
+Checked type: `fn(ByteArray) throws(Error)->Message`.
 
 Error contract: `throws(Error)` (declared).
 
-function · [source](../../sdk/codec/src/codec.rinzu#L207).
+function · [source](../../sdk/codec/src/codec.rinzu#L221).
 
 ```rinzu
 fn decodeMessage(data: ByteArray) throws(Error) -> Message
@@ -180,11 +178,11 @@ fn decodeMessage(data: ByteArray) throws(Error) -> Message
 
 ## rinzu.codec.decodeSettings
 
-Checked type: `fn(ByteArray)->Settings`.
+Checked type: `fn(ByteArray) throws(Error)->Settings`.
 
 Error contract: `throws(Error)` (declared).
 
-function · [source](../../sdk/codec/src/codec.rinzu#L192).
+function · [source](../../sdk/codec/src/codec.rinzu#L206).
 
 ```rinzu
 fn decodeSettings(data: ByteArray) throws(Error) -> Settings
@@ -196,7 +194,7 @@ Checked type: `fn(T) throws(Error)->ByteArray`.
 
 Error contract: `throws(Error)` (declared).
 
-function · [source](../../sdk/codec/src/codec.rinzu#L233).
+function · [source](../../sdk/codec/src/codec.rinzu#L254).
 
 ```rinzu
 fn encode<T interface Encodable>(value: T) throws(Error) -> ByteArray
@@ -206,11 +204,11 @@ Encode any value with an explicit Encodable implementation.
 
 ## rinzu.codec.encodeDocument
 
-Checked type: `fn(Document)->ByteArray`.
+Checked type: `fn(Document) throws(Error)->ByteArray`.
 
 Error contract: `throws(Error)` (declared).
 
-function · [source](../../sdk/codec/src/codec.rinzu#L161).
+function · [source](../../sdk/codec/src/codec.rinzu#L168).
 
 ```rinzu
 fn encodeDocument(value: Document) throws(Error) -> ByteArray
@@ -240,11 +238,11 @@ fn main() {
 
 ## rinzu.codec.encodeMessage
 
-Checked type: `fn(Message)->ByteArray`.
+Checked type: `fn(Message) throws(Error)->ByteArray`.
 
 Error contract: `throws(Error)` (declared).
 
-function · [source](../../sdk/codec/src/codec.rinzu#L203).
+function · [source](../../sdk/codec/src/codec.rinzu#L217).
 
 ```rinzu
 fn encodeMessage(value: Message) throws(Error) -> ByteArray
@@ -252,11 +250,11 @@ fn encodeMessage(value: Message) throws(Error) -> ByteArray
 
 ## rinzu.codec.encodeSettings
 
-Checked type: `fn(Settings)->ByteArray`.
+Checked type: `fn(Settings) throws(Error)->ByteArray`.
 
 Error contract: `throws(Error)` (declared).
 
-function · [source](../../sdk/codec/src/codec.rinzu#L188).
+function · [source](../../sdk/codec/src/codec.rinzu#L202).
 
 ```rinzu
 fn encodeSettings(value: Settings) throws(Error) -> ByteArray

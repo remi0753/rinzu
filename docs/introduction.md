@@ -37,7 +37,7 @@ Main and Workers have separate managed heaps. A heap and its execution context f
 
 ## From source to an application
 
-Output, timers, files, HTTP, TCP, and testing support are bundled with the toolchain. Additional SDKs, including SQLite and macOS GUI integration, use local package dependencies.
+Output, timers, files, HTTP, TCP, and testing support are part of the standard library. A [toolchain bundle](tooling/distribution.md#export-the-toolchain) also supplies official SDKs, including SQLite and macOS GUI integration. Use [manifest dependencies](packages/manifest.md#dependencies) for local SDK sources and locked external archives.
 
 The usual workflow is to write source, run `check`, execute with `run`, add tests, and produce a binary with `build`. Start with one file and split it into modules or packages as the program grows.
 

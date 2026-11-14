@@ -4,7 +4,7 @@ The toolchain bundles the following modules. Import them directly in either a st
 
 | Module | Purpose | Details |
 | --- | --- | --- |
-| `rinzu.core` | Built-in types, text, bytes, numeric and task operations | [Core APIs](core.md) |
+| `rinzu.core`, `rinzu.error`, `rinzu.string`, `rinzu.bytes`, `rinzu.number`, `rinzu.future`, `rinzu.native` | Built-in types, panic, Error access, text, bytes, numbers, tasks, and native services | [Core APIs](core.md) |
 | `rinzu.list` | List queries, immutable updates and bulk construction | [Collection APIs](collections.md) |
 | `rinzu.map` | Map queries, immutable updates and bulk construction | [Collection APIs](collections.md) |
 | `rinzu.option` | Optional transformations, chained lookups and lazy defaults | [Option helpers](../language/enums.md#option-helpers) |
@@ -17,11 +17,11 @@ The toolchain bundles the following modules. Import them directly in either a st
 | `rinzu.testing` | Assertions | [Testing](../tooling/testing.md) |
 | `rinzu.shutdown` | Signal registration and cooperative shutdown | [Async](../language/async.md) |
 | `rinzu.http` | Bounded HTTP/HTTPS client | [Networking](networking.md) |
-| `rinzu.http.server` | HTTP route registration and dispatch | [Networking](networking.md#http-application-dispatch) |
+| `rinzu.http.server` | HTTP routing, application dispatch, and an HTTP/1.1 listener | [Networking](networking.md#http-application-dispatch) |
 | `rinzu.socket` | Nonblocking TCP listener and stream | [Networking](networking.md) |
-| `rinzu.httpcodec` | Request-line scanning for HTTP-oriented code | [Source API](../../sdk/httpcodec/src/httpcodec.rinzu) |
+| `rinzu.httpcodec` | Request-line validation and incremental HTTP/1.1 request decoding | [Networking](networking.md#incremental-http-decoding) |
 
-Core operations are available by unqualified names without an import. Other modules use their qualified module names.
+Use qualified module names for new code. [Legacy built-in names](core.md#compatibility-names) still resolve without an import.
 
 ## Output and timers
 
@@ -55,4 +55,4 @@ async fn main() {
 
 ## Additional packages
 
-SQLite, codecs, numeric logging, SDL2, macOS GUI, and the callback-consumption demonstration SDK are additional packages. See [Additional SDKs](sdk.md) and [Manifests](../packages/manifest.md). Sources under `sdk/` are also the detailed public declarations used to generate API references.
+The toolchain bundle also supplies the official SDKs for SQLite, typed codecs, logging, SDL2, and macOS GUI. Other SDKs can be included as [manifest dependencies](../packages/manifest.md#dependencies). See the [SDK guide](sdk.md) and [API references](../reference/libraries.md).

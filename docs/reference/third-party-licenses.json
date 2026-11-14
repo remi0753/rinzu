@@ -1,7 +1,7 @@
 {
   "schema": "rinzu.standard-library-license-inventory-v1",
-  "revision": 3,
-  "toolchainVersion": "0.2.0",
+  "revision": 4,
+  "toolchainVersion": "0.3.0",
   "ownSource": {
     "includes": [
       "Rinzu standard source",
@@ -44,7 +44,7 @@
       "licenseSource": "platform distribution; no third-party license text supplied by this repository"
     }
   ],
-  "additionalSdkPolicy": "GUI, SDL2, SQLite, typed codecs, logging, shim, and consumption SDKs are additional source packages, outside this standard resource bundle.",
+  "additionalSdkPolicy": "Toolchain bundles ship the official codec, log, macos, sqlite, and sdl2 SDK sources separately from the standard resources. Their native platform libraries and SDL2 are supplied by the host. The shim and consumption example SDKs remain outside the toolchain bundle.",
   "generatedAotDependencies": "The deployment inventory records actual selected images and their hashes/UUIDs; it is not a substitute for license texts.",
   "bundledDependencies": [
     {

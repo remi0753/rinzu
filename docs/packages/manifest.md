@@ -19,7 +19,7 @@ entry = "src/main.rinzu"
 
 A dependency key must match its package name. A `path` dependency refers to a directory relative to the declaring package. Built-in modules such as `rinzu.io` are reserved.
 
-Import standard modules and official SDKs from the selected Rinzu toolchain. A toolchain bundle supplies `rinzu.codec`, `rinzu.log`, `rinzu.macos`, `rinzu.sqlite`, and `rinzu.sdl2` directly to source imports. Declare local and downloaded SDKs under `[dependencies]`. A dependency's private dependencies do not grant your package arbitrary import or native symbol access.
+Import standard modules directly. A matching [toolchain bundle](../tooling/distribution.md#export-the-toolchain) also supplies `rinzu.codec`, `rinzu.log`, `rinzu.macos`, `rinzu.sqlite`, and `rinzu.sdl2` directly to source imports. With a source checkout you can instead declare explicit paths to those SDK sources in your application or local SDK. Declare local and downloaded SDKs under `[dependencies]`. A dependency's private dependencies do not grant your package arbitrary import or native symbol access.
 
 ### Add a source archive
 
@@ -47,12 +47,12 @@ kind = "sdk"
 language = "0.5"
 
 [requires]
-toolchain = "0.2.0"
+toolchain = "0.3.0"
 ```
 
 `modules add` checks manifest requirements throughout the dependency graph before updating the project. `modules sync` restores the pinned sources. Compilation checks those requirements again and resolves the official API in the active toolchain. Published archives can use standard modules and archive-compatible official SDKs such as `rinzu.codec` and `rinzu.log`. Applications and local SDKs can also import official SDKs with additional native inputs.
 
-An optional `[toolchain]` section with `version = "0.2.0"` in the root project selects an exact release. After changing the declared language level, run `rinzu modules relock` to refresh declaration fingerprints using the same installed and pinned sources.
+An optional `[toolchain]` section with `version = "0.3.0"` in the root project requires that exact release. Invoke the matching executable; the manifest does not install or switch toolchains. After changing the declared language level, run `rinzu modules relock` to refresh declaration fingerprints using the same installed and pinned sources.
 
 ## SDK manifests
 

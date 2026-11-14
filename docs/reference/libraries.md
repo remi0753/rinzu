@@ -8,7 +8,7 @@ These pages describe public source declarations. Standard and bundled official S
 | `rinzu.consumption` | [API](sdk-consumption.md) |
 | `rinzu.http` | [API](sdk-http.md) |
 | `rinzu.httpcodec` | [API](sdk-httpcodec.md) |
-| `rinzu.http.server` | [Guide](../../sdk/http/README.md#http-application-dispatch) |
+| `rinzu.http.server` | [API](sdk-http.md#rinzuhttpserverapplication) · [Guide](../../sdk/http/README.md#http-application-dispatch) |
 | `rinzu.io` | [API](sdk-io.md) |
 | `rinzu.log` | [API](sdk-log.md) |
 | `rinzu.macos` | [API](sdk-macos.md) |

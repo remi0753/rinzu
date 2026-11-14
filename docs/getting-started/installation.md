@@ -34,7 +34,7 @@ export PATH="$PWD/target/release:$PATH"
 rinzu --version
 ```
 
-The remaining pages use `rinzu` in commands. Toolchain version `0.2.0` and source language version `0.5` describe different interfaces. For installation outside this checkout, see [Toolchain bundles](../tooling/distribution.md).
+The remaining pages use `rinzu` in commands. Toolchain version `0.3.0` and source language version `0.5` describe different interfaces. See the [migration notes](../../CHANGELOG.md#upgrade-from-020) when upgrading from toolchain `0.2.0`.
 
 ## Optional dependencies
 
@@ -47,6 +47,6 @@ The remaining pages use `rinzu` in commands. Toolchain version `0.2.0` and sourc
 
 Native builds target the running macOS version by default. Set `MACOSX_DEPLOYMENT_TARGET` to build with an explicit minimum such as `26.0`. The minimum must be macOS 11 or later and at least as recent as the minimum required by each linked library. Changing the target changes the native cache and lock identity.
 
-Standard imports do not require dependency paths into this checkout. See [Manifests](../packages/manifest.md) for additional SDKs.
+Standard imports work without dependency paths. When using the executable from a source build, install its toolchain bundle for direct official SDK imports or declare explicit paths to the SDK sources. See [Manifests](../packages/manifest.md#dependencies).
 
 Next: [Your first program](quickstart.md).

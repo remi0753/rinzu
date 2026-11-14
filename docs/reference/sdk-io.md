@@ -4,8 +4,6 @@ Generated from checked public exports and captured source comments.
 
 Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r85`.
 
-[Machine-readable API v4 snapshot](../../../../../../private/tmp/rinzu-whole-io.RIRozuzD/io-api.json).
-
 ## rinzu.io.File
 
 Checked type: `File`.

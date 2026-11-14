@@ -155,14 +155,14 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rinzu-abi"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "rinzu-compiler"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "rinzu-abi",
  "serde",
@@ -181,7 +181,7 @@ dependencies = [
 
 [[package]]
 name = "rinzu-trace"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",

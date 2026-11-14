@@ -2,11 +2,11 @@
 
 Generated from checked public exports and captured source comments.
 
-Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r76`.
+Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r85`.
 
 ## rinzu.sqlite.Connection
 
-class · [source](../../sdk/sqlite/src/sqlite.rinzu#L1).
+class · [source](../../sdk/sqlite/src/sqlite.rinzu#L7).
 
 ```rinzu
 class Connection
@@ -14,7 +14,7 @@ class Connection
 
 ### field handle
 
-[source](../../sdk/sqlite/src/sqlite.rinzu#L2).
+[source](../../sdk/sqlite/src/sqlite.rinzu#L8).
 
 ```rinzu
 const handle: ConnectionHandle
@@ -24,7 +24,9 @@ const handle: ConnectionHandle
 
 Checked type: `fn(Connection)->Int`.
 
-method · [source](../../sdk/sqlite/src/sqlite.rinzu#L24).
+Error contract: `throws(Error)` (inferred).
+
+method · [source](../../sdk/sqlite/src/sqlite.rinzu#L30).
 
 ```rinzu
 fn close(self: Connection) -> Int
@@ -34,7 +36,9 @@ fn close(self: Connection) -> Int
 
 Checked type: `fn(Connection,String)->Int`.
 
-method · [source](../../sdk/sqlite/src/sqlite.rinzu#L16).
+Error contract: `throws(Error)` (inferred).
+
+method · [source](../../sdk/sqlite/src/sqlite.rinzu#L22).
 
 ```rinzu
 fn execute(self: Connection, sql: String) -> Int
@@ -44,7 +48,9 @@ fn execute(self: Connection, sql: String) -> Int
 
 Checked type: `fn(Connection,String,fn($rinzu_record_1e0e3e731944d6c3da5b94095f661568)->CInt32)->Int`.
 
-method · [source](../../sdk/sqlite/src/sqlite.rinzu#L32).
+Error contract: `throws(Error)` (inferred).
+
+method · [source](../../sdk/sqlite/src/sqlite.rinzu#L38).
 
 ```rinzu
 fn executeWithObserver(self: Connection, sql: String, handler: fn (ObserverContext) -> CInt) -> Int
@@ -54,7 +60,9 @@ fn executeWithObserver(self: Connection, sql: String, handler: fn (ObserverConte
 
 Checked type: `fn(Connection)->Bool`.
 
-method · [source](../../sdk/sqlite/src/sqlite.rinzu#L48).
+Error contract: `throws(Error)` (inferred).
+
+method · [source](../../sdk/sqlite/src/sqlite.rinzu#L54).
 
 ```rinzu
 fn inTransaction(self: Connection) -> Bool
@@ -64,7 +72,9 @@ fn inTransaction(self: Connection) -> Bool
 
 Checked type: `fn(Connection)->Bool`.
 
-method · [source](../../sdk/sqlite/src/sqlite.rinzu#L28).
+Error contract: `throws(Error)` (inferred).
+
+method · [source](../../sdk/sqlite/src/sqlite.rinzu#L34).
 
 ```rinzu
 fn isOpen(self: Connection) -> Bool
@@ -74,7 +84,9 @@ fn isOpen(self: Connection) -> Bool
 
 Checked type: `fn(String)->Connection`.
 
-method · [source](../../sdk/sqlite/src/sqlite.rinzu#L4).
+Error contract: `throws(Error)` (inferred).
+
+method · [source](../../sdk/sqlite/src/sqlite.rinzu#L10).
 
 ```rinzu
 fn open(path: String) -> Connection
@@ -84,7 +96,9 @@ fn open(path: String) -> Connection
 
 Checked type: `fn()->Connection`.
 
-method · [source](../../sdk/sqlite/src/sqlite.rinzu#L8).
+Error contract: `throws(Error)` (inferred).
+
+method · [source](../../sdk/sqlite/src/sqlite.rinzu#L14).
 
 ```rinzu
 fn openMemory() -> Connection
@@ -94,7 +108,9 @@ fn openMemory() -> Connection
 
 Checked type: `fn(Connection,String)->Statement`.
 
-method · [source](../../sdk/sqlite/src/sqlite.rinzu#L12).
+Error contract: `throws(Error)` (inferred).
+
+method · [source](../../sdk/sqlite/src/sqlite.rinzu#L18).
 
 ```rinzu
 fn prepare(self: Connection, sql: String) -> Statement
@@ -104,7 +120,9 @@ fn prepare(self: Connection, sql: String) -> Statement
 
 Checked type: `fn(Connection,String,Int)->List<ByteArray>`.
 
-method · [source](../../sdk/sqlite/src/sqlite.rinzu#L52).
+Error contract: `throws(Error)` (inferred).
+
+method · [source](../../sdk/sqlite/src/sqlite.rinzu#L58).
 
 ```rinzu
 fn queryByteRows(self: Connection, sql: String, maximumRows: Int) -> List<ByteArray>
@@ -114,7 +132,9 @@ fn queryByteRows(self: Connection, sql: String, maximumRows: Int) -> List<ByteAr
 
 Checked type: `fn(Connection,String)->ByteArray`.
 
-method · [source](../../sdk/sqlite/src/sqlite.rinzu#L36).
+Error contract: `throws(Error)` (inferred).
+
+method · [source](../../sdk/sqlite/src/sqlite.rinzu#L42).
 
 ```rinzu
 fn queryBytes(self: Connection, sql: String) -> ByteArray
@@ -124,7 +144,9 @@ fn queryBytes(self: Connection, sql: String) -> ByteArray
 
 Checked type: `fn(Connection,String)->Int`.
 
-method · [source](../../sdk/sqlite/src/sqlite.rinzu#L20).
+Error contract: `throws(Error)` (inferred).
+
+method · [source](../../sdk/sqlite/src/sqlite.rinzu#L26).
 
 ```rinzu
 fn queryInt(self: Connection, sql: String) -> Int
@@ -134,7 +156,9 @@ fn queryInt(self: Connection, sql: String) -> Int
 
 Checked type: `fn(Connection,String)->String`.
 
-method · [source](../../sdk/sqlite/src/sqlite.rinzu#L40).
+Error contract: `throws(Error)` (inferred).
+
+method · [source](../../sdk/sqlite/src/sqlite.rinzu#L46).
 
 ```rinzu
 fn queryText(self: Connection, sql: String) -> String
@@ -144,7 +168,9 @@ fn queryText(self: Connection, sql: String) -> String
 
 Checked type: `fn(Connection,Int)->Int`.
 
-method · [source](../../sdk/sqlite/src/sqlite.rinzu#L44).
+Error contract: `throws(Error)` (inferred).
+
+method · [source](../../sdk/sqlite/src/sqlite.rinzu#L50).
 
 ```rinzu
 fn setDeadline(self: Connection, milliseconds: Int) -> Int
@@ -154,7 +180,7 @@ fn setDeadline(self: Connection, milliseconds: Int) -> Int
 
 Checked type: `ConnectionHandle`.
 
-opaque · [source](../../sdk/sqlite/src/sqlite.rinzu#L82).
+opaque · [source](../../sdk/sqlite/src/sqlite.rinzu#L86).
 
 ```rinzu
 opaque ConnectionHandle;
@@ -162,17 +188,17 @@ opaque ConnectionHandle;
 
 ## rinzu.sqlite.ObserverContext
 
-type-alias · [source](../../sdk/sqlite/src/sqlite.rinzu#L77).
+Checked type: `{connection:Connection}`.
+
+type-alias · [source](../../sdk/sqlite/src/sqlite.rinzu#L83).
 
 ```rinzu
-type ObserverContext = {
-    connection: Connection
-};
+type ObserverContext = { connection: Connection };
 ```
 
 ## rinzu.sqlite.Statement
 
-class · [source](../../sdk/sqlite/src/sqlite.rinzu#L57).
+class · [source](../../sdk/sqlite/src/sqlite.rinzu#L63).
 
 ```rinzu
 class Statement
@@ -180,7 +206,7 @@ class Statement
 
 ### field handle
 
-[source](../../sdk/sqlite/src/sqlite.rinzu#L58).
+[source](../../sdk/sqlite/src/sqlite.rinzu#L64).
 
 ```rinzu
 const handle: StatementHandle
@@ -190,7 +216,9 @@ const handle: StatementHandle
 
 Checked type: `fn(Statement,Int)->Int`.
 
-method · [source](../../sdk/sqlite/src/sqlite.rinzu#L64).
+Error contract: `throws(Error)` (inferred).
+
+method · [source](../../sdk/sqlite/src/sqlite.rinzu#L70).
 
 ```rinzu
 fn columnInt(self: Statement, index: Int) -> Int
@@ -200,7 +228,9 @@ fn columnInt(self: Statement, index: Int) -> Int
 
 Checked type: `fn(Statement)->Int`.
 
-method · [source](../../sdk/sqlite/src/sqlite.rinzu#L68).
+Error contract: `throws(Error)` (inferred).
+
+method · [source](../../sdk/sqlite/src/sqlite.rinzu#L74).
 
 ```rinzu
 fn finalize(self: Statement) -> Int
@@ -210,7 +240,9 @@ fn finalize(self: Statement) -> Int
 
 Checked type: `fn(Statement)->Bool`.
 
-method · [source](../../sdk/sqlite/src/sqlite.rinzu#L72).
+Error contract: `throws(Error)` (inferred).
+
+method · [source](../../sdk/sqlite/src/sqlite.rinzu#L78).
 
 ```rinzu
 fn isOpen(self: Statement) -> Bool
@@ -220,7 +252,9 @@ fn isOpen(self: Statement) -> Bool
 
 Checked type: `fn(Statement)->Bool`.
 
-method · [source](../../sdk/sqlite/src/sqlite.rinzu#L60).
+Error contract: `throws(Error)` (inferred).
+
+method · [source](../../sdk/sqlite/src/sqlite.rinzu#L66).
 
 ```rinzu
 fn step(self: Statement) -> Bool
@@ -230,7 +264,7 @@ fn step(self: Statement) -> Bool
 
 Checked type: `StatementHandle`.
 
-opaque · [source](../../sdk/sqlite/src/sqlite.rinzu#L84).
+opaque · [source](../../sdk/sqlite/src/sqlite.rinzu#L88).
 
 ```rinzu
 opaque StatementHandle;
@@ -240,7 +274,7 @@ opaque StatementHandle;
 
 Checked type: `native()->Int`.
 
-native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L158).
+native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L161).
 
 ```rinzu
 fn allocatorCurrent() -> Int symbol "rinzu_sqlite_allocator_current";
@@ -250,7 +284,7 @@ fn allocatorCurrent() -> Int symbol "rinzu_sqlite_allocator_current";
 
 Checked type: `native()->Int`.
 
-native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L160).
+native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L163).
 
 ```rinzu
 fn allocatorPeak() -> Int symbol "rinzu_sqlite_allocator_peak";
@@ -260,7 +294,9 @@ fn allocatorPeak() -> Int symbol "rinzu_sqlite_allocator_peak";
 
 Checked type: `fn(Connection)->Int`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L223).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L226).
 
 ```rinzu
 fn close(connection: Connection) -> Int
@@ -270,7 +306,9 @@ fn close(connection: Connection) -> Int
 
 Checked type: `fn()->Int`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L227).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L230).
 
 ```rinzu
 fn closeOwnerConnections() -> Int
@@ -280,7 +318,9 @@ fn closeOwnerConnections() -> Int
 
 Checked type: `fn(Statement,Int)->Int`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L212).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L215).
 
 ```rinzu
 fn columnInt(statement: Statement, index: Int) -> Int
@@ -290,7 +330,9 @@ fn columnInt(statement: Statement, index: Int) -> Int
 
 Checked type: `fn()->Int`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L402).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L396).
 
 ```rinzu
 fn enableAllocatorStatsBeforeOpen() -> Int
@@ -300,7 +342,9 @@ fn enableAllocatorStatsBeforeOpen() -> Int
 
 Checked type: `fn(Connection,String)->Int`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L189).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L192).
 
 ```rinzu
 fn execute(connection: Connection, sql: String) -> Int
@@ -310,7 +354,9 @@ fn execute(connection: Connection, sql: String) -> Int
 
 Checked type: `fn(Connection,String,fn($rinzu_record_1e0e3e731944d6c3da5b94095f661568)->CInt32)->Int`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L257).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L260).
 
 ```rinzu
 fn executeWithObserver(connection: Connection, sql: String, handler: fn (ObserverContext) -> CInt) -> Int
@@ -320,7 +366,9 @@ fn executeWithObserver(connection: Connection, sql: String, handler: fn (Observe
 
 Checked type: `fn(Statement)->Int`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L219).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L222).
 
 ```rinzu
 fn finalize(statement: Statement) -> Int
@@ -330,7 +378,7 @@ fn finalize(statement: Statement) -> Int
 
 Checked type: `native()->String`.
 
-native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L168).
+native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L171).
 
 ```rinzu
 fn headerVersion() -> String symbol "rinzu_sqlite_header_version";
@@ -340,7 +388,9 @@ fn headerVersion() -> String symbol "rinzu_sqlite_header_version";
 
 Checked type: `fn(Connection)->Bool`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L336).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L330).
 
 ```rinzu
 fn inTransaction(connection: Connection) -> Bool
@@ -350,7 +400,9 @@ fn inTransaction(connection: Connection) -> Bool
 
 Checked type: `fn(Connection)->Bool`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L233).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L236).
 
 ```rinzu
 fn isOpen(connection: Connection) -> Bool
@@ -360,7 +412,9 @@ fn isOpen(connection: Connection) -> Bool
 
 Checked type: `fn(Statement)->Bool`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L245).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L248).
 
 ```rinzu
 fn isStatementOpen(statement: Statement) -> Bool
@@ -370,7 +424,7 @@ fn isStatementOpen(statement: Statement) -> Bool
 
 Checked type: `native()->String`.
 
-native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L166).
+native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L169).
 
 ```rinzu
 fn libraryVersion() -> String symbol "rinzu_sqlite_library_version";
@@ -380,7 +434,7 @@ fn libraryVersion() -> String symbol "rinzu_sqlite_library_version";
 
 Checked type: `native()->Int`.
 
-native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L154).
+native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L157).
 
 ```rinzu
 fn liveConnections() -> Int symbol "rinzu_sqlite_live_connections";
@@ -390,7 +444,7 @@ fn liveConnections() -> Int symbol "rinzu_sqlite_live_connections";
 
 Checked type: `native()->Int`.
 
-native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L156).
+native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L159).
 
 ```rinzu
 fn liveStatements() -> Int symbol "rinzu_sqlite_live_statements";
@@ -400,7 +454,7 @@ fn liveStatements() -> Int symbol "rinzu_sqlite_live_statements";
 
 Checked type: `native()->Int`.
 
-native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L164).
+native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L167).
 
 ```rinzu
 fn monotonicNanos() -> Int symbol "rinzu_sqlite_monotonic_nanos";
@@ -410,7 +464,9 @@ fn monotonicNanos() -> Int symbol "rinzu_sqlite_monotonic_nanos";
 
 Checked type: `fn(String)->Connection`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L173).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L176).
 
 ```rinzu
 fn open(path: String) -> Connection
@@ -420,7 +476,9 @@ fn open(path: String) -> Connection
 
 Checked type: `fn()->Connection`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L179).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L182).
 
 ```rinzu
 fn openMemory() -> Connection
@@ -430,7 +488,7 @@ fn openMemory() -> Connection
 
 Checked type: `native()->Int`.
 
-native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L134).
+native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L138).
 
 ```rinzu
 fn ownedAllocations() -> Int symbol "rinzu_sqlite_owned_allocations";
@@ -440,7 +498,7 @@ fn ownedAllocations() -> Int symbol "rinzu_sqlite_owned_allocations";
 
 Checked type: `native()->Int`.
 
-native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L138).
+native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L142).
 
 ```rinzu
 fn ownedLive() -> Int symbol "rinzu_sqlite_owned_live";
@@ -450,7 +508,7 @@ fn ownedLive() -> Int symbol "rinzu_sqlite_owned_live";
 
 Checked type: `native()->Int`.
 
-native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L136).
+native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L140).
 
 ```rinzu
 fn ownedReleases() -> Int symbol "rinzu_sqlite_owned_releases";
@@ -460,7 +518,9 @@ fn ownedReleases() -> Int symbol "rinzu_sqlite_owned_releases";
 
 Checked type: `fn(Connection,String)->Statement`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L183).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L186).
 
 ```rinzu
 fn prepare(connection: Connection, sql: String) -> Statement
@@ -470,7 +530,9 @@ fn prepare(connection: Connection, sql: String) -> Statement
 
 Checked type: `fn(Connection,String,Int)->List<ByteArray>`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L348).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L342).
 
 ```rinzu
 fn queryByteRows(connection: Connection, sql: String, maximumRows: Int) -> List<ByteArray>
@@ -480,7 +542,9 @@ fn queryByteRows(connection: Connection, sql: String, maximumRows: Int) -> List<
 
 Checked type: `fn(Connection,String)->ByteArray`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L316).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L310).
 
 ```rinzu
 fn queryBytes(connection: Connection, sql: String) -> ByteArray
@@ -490,7 +554,9 @@ fn queryBytes(connection: Connection, sql: String) -> ByteArray
 
 Checked type: `fn(Connection,String)->Int`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L193).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L196).
 
 ```rinzu
 fn queryInt(connection: Connection, sql: String) -> Int
@@ -500,7 +566,9 @@ fn queryInt(connection: Connection, sql: String) -> Int
 
 Checked type: `fn(Connection,String)->String`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L320).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L314).
 
 ```rinzu
 fn queryText(connection: Connection, sql: String) -> String
@@ -510,7 +578,7 @@ fn queryText(connection: Connection, sql: String) -> String
 
 Checked type: `native()->Int`.
 
-native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L140).
+native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L144).
 
 ```rinzu
 fn retainedControlBytes() -> Int symbol "rinzu_sqlite_retained_control_bytes";
@@ -520,7 +588,9 @@ fn retainedControlBytes() -> Int symbol "rinzu_sqlite_retained_control_bytes";
 
 Checked type: `fn(Connection,Int)->Int`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L332).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L326).
 
 ```rinzu
 fn setDeadline(connection: Connection, milliseconds: Int) -> Int
@@ -530,7 +600,7 @@ fn setDeadline(connection: Connection, milliseconds: Int) -> Int
 
 Checked type: `native()->String`.
 
-native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L170).
+native-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L173).
 
 ```rinzu
 fn sourceId() -> String symbol "rinzu_sqlite_source_id";
@@ -540,7 +610,9 @@ fn sourceId() -> String symbol "rinzu_sqlite_source_id";
 
 Checked type: `fn(Statement)->Bool`.
 
-function · [source](../../sdk/sqlite/src/sqlite.rinzu#L200).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/sqlite/src/sqlite.rinzu#L203).
 
 ```rinzu
 fn step(statement: Statement) -> Bool

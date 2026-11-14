@@ -1,19 +1,13 @@
 # Additional SDKs
 
-Additional SDKs are ordinary source packages. Add a local dependency in `rinzu.toml`, then import their exported module. Paths are relative to your package, so adjust the example to your checkout layout.
-
-```toml
-[dependencies]
-"rinzu.sqlite" = { path = "../rinzu/sdk/sqlite" }
-"rinzu.codec" = { path = "../rinzu/sdk/codec" }
-```
+The toolchain bundle includes the official source SDKs `rinzu.codec`, `rinzu.log`, `rinzu.macos`, `rinzu.sqlite`, and `rinzu.sdl2`. With the matching bundle installed, import them directly from a package or a standalone file.
 
 ```rinzu
 import rinzu.sqlite;
 import rinzu.codec;
 ```
 
-These dependencies are unavailable to manifest-free file input. The package system does not download packages from a registry; distribute or check out source dependencies explicitly.
+When building from a source checkout, you can declare a path to the SDK in your project's `rinzu.toml` instead. For other packages, use local paths or locked pure Rinzu source archives. See [Manifests and dependencies](../packages/manifest.md#dependencies) for the supported sources.
 
 ## SQLite
 
@@ -41,6 +35,6 @@ For AppKit, Metal, documents, and native widgets, see [macOS applications](macos
 
 ## Native SDK authoring helpers
 
-[rinzu.shim_example](../../sdk/shim-example/README.md) demonstrates a typed native shim. Use `tools/new_sdk.py` to generate a C, C++, or Objective-C++ scaffold. [rinzu.consumption](../../sdk/consumption/README.md) demonstrates bounded synchronous callback consumption; its lifetime contract is narrower than general callback registration.
+[rinzu.shim](../../sdk/shim-example/README.md) demonstrates a typed native shim. Use `tools/new_sdk.py` to generate a C, C++, or Objective-C++ scaffold. [rinzu.consumption](../../sdk/consumption/README.md) demonstrates bounded synchronous callback consumption; its lifetime contract is narrower than general callback registration. Both examples can be used as local SDK dependencies.
 
 Continue with [Modules](../packages/modules.md) or [SDK authoring](../packages/authoring.md).

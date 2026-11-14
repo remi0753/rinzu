@@ -1,6 +1,6 @@
 # rinzu.sdl2
 
-Additional SDL2 source SDK for macOS arm64. SDL2 and sdl2-config must be available. Window and renderer operations run on physical Main; one window can be active per SDK image.
+Official SDL2 source SDK for macOS arm64. Import it directly from a matching toolchain bundle. SDL2 and `sdl2-config` must be available on the host. Window and renderer operations run on physical Main; one window can be active per SDK image.
 
 createWindow, nextEvent, render, setTitle, isRunning, stop, and destroyWindow support a managed application loop. Event is a copied native record, automatically written back after polling. Retaining an event does not expose or reuse SDL's native event pointer. The existing run callback is synchronous; explicitly await async work in a managed polling loop.
 

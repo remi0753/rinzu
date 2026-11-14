@@ -51,7 +51,7 @@ fn create(root: &Path) -> PathBuf {
     );
     source.push_str(include_str!("fixtures/macos_interrupt/markers.c"));
     std::fs::write(native, source).unwrap();
-    std::fs::write(root.join("app/rinzu.toml"),"[package]\nname=\"macos_interrupt\"\nlanguage=\"0.2\"\n[dependencies]\n\"rinzu.macos\"={path=\"../macos\"}\n").unwrap();
+    std::fs::write(root.join("app/rinzu.toml"),"[package]\nname=\"macos_interrupt\"\nlanguage=\"0.5\"\n[dependencies]\n\"rinzu.macos\"={path=\"../macos\"}\n").unwrap();
     std::fs::write(
         root.join("app/src/main.rinzu"),
         include_str!("fixtures/macos_interrupt/main.rinzu"),

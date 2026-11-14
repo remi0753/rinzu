@@ -15,9 +15,9 @@ fn main() {
 }
 ```
 
-The execution target is **macOS arm64**. The source language version is `0.5`; the toolchain version is `0.2.0`.
+The execution target is **macOS arm64**. The source language version is `0.5`; the toolchain version is `0.3.0`.
 
-[Documentation](docs/README.md) · [Introduction](docs/introduction.md) · [Installation](docs/getting-started/installation.md) · [Quick start](docs/getting-started/quickstart.md)
+[Documentation](docs/README.md) · [Introduction](docs/introduction.md) · [Installation](docs/getting-started/installation.md) · [Quick start](docs/getting-started/quickstart.md) · [Changelog](CHANGELOG.md)
 
 ## Build and run
 

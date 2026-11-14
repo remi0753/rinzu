@@ -2,13 +2,13 @@
 
 Generated from checked public exports and captured source comments.
 
-Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r76`.
+Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r85`.
 
 ## rinzu.shutdown.clockMillis
 
 Checked type: `native()->Int`.
 
-native-function · [source](../../sdk/shutdown/src/shutdown.rinzu#L8).
+native-function · [source](../../sdk/shutdown/src/shutdown.rinzu#L10).
 
 ```rinzu
 fn clockMillis() -> Int symbol "rinzu_shutdown_clock";
@@ -18,7 +18,9 @@ fn clockMillis() -> Int symbol "rinzu_shutdown_clock";
 
 Checked type: `fn()->Int`.
 
-function · [source](../../sdk/shutdown/src/shutdown.rinzu#L15).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/shutdown/src/shutdown.rinzu#L17).
 
 ```rinzu
 fn disableSignals() -> Int
@@ -28,7 +30,9 @@ fn disableSignals() -> Int
 
 Checked type: `fn()->Int`.
 
-function · [source](../../sdk/shutdown/src/shutdown.rinzu#L11).
+Error contract: `throws(Error)` (inferred).
+
+function · [source](../../sdk/shutdown/src/shutdown.rinzu#L13).
 
 ```rinzu
 fn enableSignals() -> Int
@@ -38,7 +42,7 @@ fn enableSignals() -> Int
 
 Checked type: `native()->CInt32`.
 
-native-function · [source](../../sdk/shutdown/src/shutdown.rinzu#L6).
+native-function · [source](../../sdk/shutdown/src/shutdown.rinzu#L8).
 
 ```rinzu
 fn signalRequested() -> CInt symbol "rinzu_shutdown_signal";

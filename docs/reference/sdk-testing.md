@@ -2,7 +2,7 @@
 
 Generated from checked public exports and captured source comments.
 
-Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r76`.
+Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r85`.
 
 ## rinzu.testing.AssertionFailed
 
@@ -17,6 +17,8 @@ A recoverable test assertion failure, including the caller's message.
 ## rinzu.testing.assertEqual
 
 Checked type: `fn(T,T,String)->Unit`.
+
+Error contract: inferred for each specialization.
 
 function · [source](../../sdk/testing/src/testing.rinzu#L35).
 
@@ -39,6 +41,8 @@ fn main() {
 ## rinzu.testing.assertTrue
 
 Checked type: `fn(Bool,String)->Unit`.
+
+Error contract: `throws(Error)` (inferred).
 
 function · [source](../../sdk/testing/src/testing.rinzu#L17).
 

@@ -10,6 +10,8 @@ Start with the introduction and follow the language chapters in order. A `rinzu-
 2. [Installation and environment](getting-started/installation.md)
 3. [Your first program and project](getting-started/quickstart.md)
 
+Upgrading an existing project? See the [changelog and migration notes](../CHANGELOG.md).
+
 ## Learn the language
 
 1. [Source structure and syntax](language/syntax.md)

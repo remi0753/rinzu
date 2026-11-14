@@ -5,17 +5,19 @@
 | Interface | Current form |
 | --- | --- |
 | Source language | 0.5 |
-| Toolchain crate / `rinzu --version` | 0.2.0 |
+| Toolchain crate / `rinzu --version` | 0.3.0 |
 | Runtime execution and AOT target | macOS arm64, `aarch64-apple-darwin` |
 | Build toolchain | Rust 1.97.1 |
 | Native ABI | C-compatible ABI 1.1 with checked source-package descriptors |
 | Source-package descriptor | 2.6 |
 | SDK cache | v4 |
-| Package lock | v2 |
+| Package lock (`rinzu.lock`) | v2 |
+| Source archive lock (`rinzu.modules.lock`) | v1 |
 | API snapshot | v4 |
+| Toolchain bundle | v2 |
 | Event trace / resource report | v1 |
 
-Older language numbers in manifests remain accepted where supported by the loader, but the frontend uses current grammar. They do not select a preserved historical language edition. New packages should use `language = "0.5"`.
+Older language numbers in manifests remain accepted where supported by the loader. The frontend always uses the current grammar, so keep `language = "0.5"` and follow the [syntax migration notes](../../CHANGELOG.md#upgrade-from-020) when upgrading from toolchain `0.2.0`.
 
 The [standard API migration](../libraries/core.md#compatibility-names) retains the legacy source spellings and reserves their ABI operation numbers. Compiled SDK descriptors and caches still follow the toolchain's compatibility fingerprints.
 
@@ -35,7 +37,8 @@ Function values do not have Equality/Key/Transferable and can be stored in same-
 | --- | --- |
 | Package resolution | Local paths, locked source archives, and official SDKs from the toolchain |
 | Files and streams | Bounded native operations, explicit physical Owner cleanup |
-| HTTP | Verified HTTPS or loopback HTTP; bounded GET/POST client, no automatic redirect/retry/proxy |
+| HTTP client | Verified HTTPS or loopback HTTP; bounded methods, headers, and bodies; no automatic redirect/retry/proxy |
+| HTTP server | Plain HTTP/1.1 over IPv4 TCP, bounded requests and connections; see the [listener limits](../../sdk/http/README.md#http11-listener) |
 | TCP | Literal IPv4, Main ownership, bounded nonblocking operations |
 | Native calls | Explicit provider scope and supported C mappings; arbitrary crashes are not recoverable Errors |
 | Native callbacks | Selected call-lifetime paths; no general persistent capturing registration |

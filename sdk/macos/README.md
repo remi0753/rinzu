@@ -1,12 +1,12 @@
 # rinzu.macos
 
-Additional AppKit and Metal SDK for language 0.5 on macOS arm64. A desktop session is required. The API uses a common Session/Window/View model, owned events, managed async handlers/jobs, GPU operations, documents, and sheets.
+Official AppKit and Metal SDK for language 0.5 on macOS arm64. A desktop session is required. The API uses a common Session/Window/View model, owned events, managed async handlers/jobs, GPU operations, documents, and sheets.
 
 [GUI guide](../../docs/libraries/macos.md) · [Complete API reference](../../docs/reference/sdk-macos.md) · [Source](src/macos.rinzu)
 
 ## Start and stop an application
 
-Add rinzu.macos as a local package dependency. application(title,width,height,body) owns the OS loop and invokes an async body receiving UiApplication. applicationWithSignals also registers cooperative process signals. Use app.primary for the initial UiScope and app.session for session-wide operations.
+Import `rinzu.macos` directly from a matching toolchain bundle, or declare a local path to the SDK. application(title,width,height,body) owns the OS loop and invokes an async body receiving UiApplication. applicationWithSignals also registers cooperative process signals. Use app.primary for the initial UiScope and app.session for session-wide operations.
 
 A scope owns its window, resources, and jobs. Dispatch owned UiEvent values in managed async handlers. Request stop when closing or quitting, stop intake, and await jobs/native/GPU completion before releasing their resources. Application shutdown is explicit; a native window does not become a transferable Worker value.
 

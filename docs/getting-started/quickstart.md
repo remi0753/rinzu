@@ -68,6 +68,6 @@ Plain `test` runs the package's `main`. `--unit` discovers `test_*` functions. S
 | `rinzu run hello.rinzu` | Uses the explicit file as entry; does not read nearby manifests or locks |
 | `rinzu run ./hello` | Uses the package manifest, entry, dependencies, and existing lock |
 
-A standalone file can import bundled libraries and local source files. Additional SDK dependencies require package input. Programs do not accept additional command-line arguments; use environment settings through [rinzu.process](../libraries/overview.md).
+A standalone file can import standard modules, official SDKs from a matching toolchain bundle, and local source files. Dependencies declared in `rinzu.toml` require package input. Pass arguments with `rinzu run ./hello -- argument` and read them with `rinzu.process.arguments()`. See [CLI program arguments](../tooling/cli.md#program-arguments).
 
 Next: [Source structure and syntax](../language/syntax.md).

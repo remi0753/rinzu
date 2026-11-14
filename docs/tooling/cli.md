@@ -42,7 +42,7 @@ rinzu build ./report --output ./report-aot
 ./report-aot '取引 11月.json'
 ```
 
-Relative file arguments are resolved by the application against its working directory. See [process](../libraries/overview.md#process) and [JSON](../libraries/json.md).
+Relative file arguments are resolved by the application against its working directory. See [process](../libraries/overview.md#process-settings) and [JSON](../libraries/json.md).
 
 Native input options are `-L path`, `-l name`, `--native-object path`, and optional `--native-header path`. Repeat the same inputs for checking, locks, execution, and builds. See [Native interoperability](../language/native-interop.md).
 

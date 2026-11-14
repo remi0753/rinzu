@@ -1,6 +1,6 @@
 # macOS applications and GUI
 
-`rinzu.macos` is an additional SDK for AppKit and Metal on macOS arm64. It requires a desktop session. Add it as a local package dependency:
+`rinzu.macos` is an official SDK for AppKit and Metal on macOS arm64. It requires a desktop session. Import it directly with a matching toolchain bundle. When working from a source checkout, you can use an explicit local package dependency instead:
 
 ```toml
 [dependencies]
@@ -11,7 +11,7 @@ The public API covers Session, Window, View, widgets, owned events, async applic
 
 ## A minimal window
 
-Create an application package with the dependency above and this `src/main.rinzu`. It displays a label and requests a clean stop when the user closes the window or quits.
+Create an application package and add this `src/main.rinzu`. It displays a label and requests a clean stop when the user closes the window or quits.
 
 ```rinzu
 import rinzu.macos;

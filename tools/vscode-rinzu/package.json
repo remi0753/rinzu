@@ -3,7 +3,7 @@
   "displayName": "Rinzu Source",
   "description": "Rinzu syntax highlighting, diagnostics, navigation, completion and formatting.",
   "publisher": "rinzu-local",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "engines": { "vscode": "^1.95.0" },
   "main": "./extension.js",
   "capabilities": { "untrustedWorkspaces": { "supported": false } },

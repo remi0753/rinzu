@@ -504,14 +504,14 @@ dependencies = [
 
 [[package]]
 name = "rinzu-abi"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "rinzu-bindgen"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "rinzu-abi",
  "serde",
@@ -521,7 +521,7 @@ dependencies = [
 
 [[package]]
 name = "rinzu-codegen"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "cranelift-codegen",
@@ -541,7 +541,7 @@ dependencies = [
 
 [[package]]
 name = "rinzu-compiler"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "rinzu-abi",
  "serde",
@@ -551,7 +551,7 @@ dependencies = [
 
 [[package]]
 name = "rinzu-conformance"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "libc",
@@ -563,7 +563,7 @@ dependencies = [
 
 [[package]]
 name = "rinzu-driver"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "flate2",
  "libc",
@@ -581,7 +581,7 @@ dependencies = [
 
 [[package]]
 name = "rinzu-runtime"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cc",
  "libc",
@@ -593,7 +593,7 @@ dependencies = [
 
 [[package]]
 name = "rinzu-trace"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -601,7 +601,7 @@ dependencies = [
 
 [[package]]
 name = "rinzu-xtask"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "rustc-hash"

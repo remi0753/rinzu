@@ -65,7 +65,7 @@ release="$(./target/release/rinzu --version | cut -d ' ' -f 2)"
 bundle="rinzu-${release}-aarch64-apple-darwin"
 ./target/release/rinzu toolchain-bundle --output "$bundle"
 tar -czf "$bundle.tar.gz" "$bundle"
-shasum -a 256 "$bundle.tar.gz"
+shasum -a 256 "$bundle.tar.gz" > "$bundle.tar.gz.sha256"
 ```
 
-Publish a versioned archive and its checksum. Install by verifying the download and extracting to a new directory, then select the executable in its `bin/`. Keep each release in its own directory.
+In the GitHub Release for that tag, summarize the main changes and migration steps, and link to the [changelog](../../CHANGELOG.md) at the tag. Attach the versioned archive and its `.sha256` file. Install by running `shasum -a 256 -c "$bundle.tar.gz.sha256"` alongside the archive, extracting to a new directory, and selecting the executable in its `bin/`. Keep each release in its own directory.

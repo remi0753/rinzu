@@ -1,6 +1,6 @@
 # rinzu.log
 
-Additional SDK for bounded asynchronous numeric-context logging. Await writes so the application applies backpressure. A row is limited to 128 bytes; the application chooses its numeric context and does not implicitly expose payloads or raw Error values.
+Official SDK for bounded asynchronous numeric-context logging. Import it directly from a matching toolchain bundle. Await writes so the application applies backpressure. A row is limited to 128 bytes; the application chooses its numeric context and does not implicitly expose payloads or raw Error values.
 
 Native operations and cleanup follow the SDK's physical Owner and completion rules. Use the generated reference for exact signatures and statuses.
 
