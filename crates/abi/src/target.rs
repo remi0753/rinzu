@@ -35,11 +35,22 @@ impl Target {
     }
 
     pub const fn supports_native_packages(self) -> bool {
-        matches!(self, Self::Aarch64AppleDarwin)
+        true
     }
 
     pub const fn supports_async_aot(self) -> bool {
+        true
+    }
+
+    pub const fn supports_supplant(self) -> bool {
         matches!(self, Self::Aarch64AppleDarwin)
+    }
+
+    pub fn shared_library_name(self, stem: &str) -> String {
+        match self {
+            Self::Aarch64AppleDarwin => format!("{stem}.dylib"),
+            Self::X86_64UnknownLinuxGnu => format!("{stem}.so"),
+        }
     }
 
     pub const fn llvm_data_layout(self) -> &'static str {

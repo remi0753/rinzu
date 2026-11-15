@@ -364,25 +364,34 @@ pub fn emit_source_async_aot_object(
     entry: &str,
     native_imports: &HashMap<String, u64>,
 ) -> Result<BaselineAotObject> {
+    let target = Target::host().ok_or_else(|| anyhow!("unsupported async AOT host"))?;
+    emit_source_async_aot_object_for_target(target, module, entry, native_imports)
+}
+
+pub fn emit_source_async_aot_object_for_target(
+    target: Target,
+    module: &IrModule,
+    entry: &str,
+    native_imports: &HashMap<String, u64>,
+) -> Result<BaselineAotObject> {
     crate::ensure_source_async_backend(module)?;
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-    {
-        let _ = (module, entry, native_imports);
-        Err(anyhow!(
-            "Rinzu source async AOT requires aarch64-apple-darwin"
-        ))
-    }
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    {
-        clif::emit_aot(
-            Target::Aarch64AppleDarwin,
-            module,
-            entry,
-            native_imports,
-            true,
-            true,
-        )
-    }
+    ensure!(
+        target.supports_supplant()
+            || !module
+                .source_native_signatures
+                .iter()
+                .any(|signature| signature.is_supplant),
+        "native supplant is unavailable for {}",
+        target.triple()
+    );
+    clif::emit_aot(
+        target,
+        module,
+        entry,
+        native_imports,
+        true,
+        target == Target::Aarch64AppleDarwin,
+    )
 }
 
 /// C-JIT keeps its existing managed code backend; only its runtime plans use

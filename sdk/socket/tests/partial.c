@@ -1,4 +1,5 @@
 /* Partial write result, ready-credit retention, duplex and send-closed lane semantics. */
+#define RINZU_SOCKET_TEST_BUFFERS 1
 #include "../native/src/socket.c"
 #include <assert.h>
 #include <stdio.h>

@@ -32,6 +32,8 @@ mod tests {
             bundled: true,
             sha256: Some("a".repeat(64)),
             uuid: "b".repeat(32),
+            build_id: None,
+            soname: None,
         };
         (
             NativeBindingPlan {
@@ -47,6 +49,7 @@ mod tests {
                     image: 0,
                     owner_path: image.path,
                     owner_uuid: image.uuid,
+                    owner_build_id: None,
                     owner_sha256: image.sha256,
                 }],
             },
@@ -143,7 +146,18 @@ pub struct NativeProviderImage {
     pub bundled: bool,
     pub sha256: Option<String>,
     /// Mach-O UUID, including for images in the system shared cache.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub uuid: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub soname: Option<String>,
+}
+
+impl NativeProviderImage {
+    pub fn identity(&self) -> &str {
+        self.build_id.as_deref().unwrap_or(&self.uuid)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -158,7 +172,10 @@ pub struct NativeBindingSlot {
     pub image: usize,
     /// A bundled provider's leaf name, or the selected re-export terminal path.
     pub owner_path: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub owner_uuid: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_build_id: Option<String>,
     pub owner_sha256: Option<String>,
 }
 
@@ -183,18 +200,32 @@ fn os_image(path: &str) -> bool {
 
 impl NativeBindingPlan {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.version, 1 | 2)
-            || self.target != "aarch64-apple-darwin"
+        let elf = self.version == 3 && self.target == "x86_64-unknown-linux-gnu";
+        if !(elf || matches!(self.version, 1 | 2) && self.target == "aarch64-apple-darwin")
             || self.slots.is_empty()
         {
             return Err("unsupported or empty native binding plan".into());
         }
         let mut declarations = BTreeSet::new();
+        let valid_identity = |uuid: &str, build_id: Option<&str>| {
+            if elf {
+                uuid.is_empty()
+                    && build_id.is_some_and(|id| {
+                        (16..=128).contains(&id.len()) && id.len() % 2 == 0 && hex(id, id.len())
+                    })
+            } else {
+                build_id.is_none() && hex(uuid, 32)
+            }
+        };
         for image in &self.images {
             if !image_path(&image.path, image.bundled)
-                || !hex(&image.uuid, 32)
+                || !valid_identity(&image.uuid, image.build_id.as_deref())
+                || image
+                    .soname
+                    .as_deref()
+                    .is_some_and(|name| !elf || !image_path(name, true))
                 || image.sha256.as_ref().is_some_and(|value| !hex(value, 64))
-                || (image.bundled && image.sha256.is_none())
+                || ((image.bundled || elf) && image.sha256.is_none())
                 || (self.version == 2 && !image.bundled && !os_image(&image.path))
             {
                 return Err("invalid native provider path/digest/UUID".into());
@@ -224,7 +255,7 @@ impl NativeBindingPlan {
                 || !declarations.insert(&slot.declaration)
                 || !image_path(&slot.owner_path, self.owner_bundled(slot))
                 || (self.version == 2 && !self.owner_bundled(slot) && !os_image(&slot.owner_path))
-                || !hex(&slot.owner_uuid, 32)
+                || !valid_identity(&slot.owner_uuid, slot.owner_build_id.as_deref())
                 || slot
                     .owner_sha256
                     .as_ref()
@@ -232,16 +263,17 @@ impl NativeBindingPlan {
                 || (slot.resolver.is_some()
                     && (slot.owner_path != image.path
                         || slot.owner_uuid != image.uuid
+                        || slot.owner_build_id != image.build_id
                         || slot.owner_sha256 != image.sha256))
             {
                 return Err("invalid native slot identity/symbol/provider".into());
             }
-            if self.version == 2
-                && self.owner_bundled(slot)
+            if (self.version == 2 && self.owner_bundled(slot) || elf)
                 && !self.images.iter().any(|owner| {
-                    owner.bundled
+                    owner.bundled == self.owner_bundled(slot)
                         && owner.path == slot.owner_path
                         && owner.uuid == slot.owner_uuid
+                        && owner.build_id == slot.owner_build_id
                         && owner.sha256 == slot.owner_sha256
                 })
             {

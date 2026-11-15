@@ -57,6 +57,8 @@ fn sdl_poll_normalizes_the_real_union_and_releases_window_renderer_and_video() {
             ])
             .args(config("--cflags"))
             .arg("-I")
+            .arg(sdk.join("../../include"))
+            .arg("-I")
             .arg(sdk.join("native/include"))
             .arg(sdk.join("native/src/sdl2_source.c"))
             .arg(sdk.join("tests/poll.c"));

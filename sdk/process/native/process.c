@@ -1,5 +1,6 @@
 #include "process.h"
 #include "rinzu/posix_write.h"
+#include "rinzu/thread_identity.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -26,7 +27,7 @@ int64_t rinzu_process_identifier(void) {
   return (int64_t)getpid();
 }
 int32_t rinzu_process_error_line(const uint8_t *bytes, size_t length) {
-  if (!pthread_main_np() || length > CONFIGURATION_BYTES)
+  if (!rinzu_thread_is_main() || length > CONFIGURATION_BYTES)
     return -611;
   size_t offset = 0;
   while (offset < length) {

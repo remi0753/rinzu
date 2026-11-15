@@ -8,3 +8,6 @@ entry = "src/io.rinzu"
 sources = ["native/src/io.c", "native/src/whole_file.c"]
 headers = ["native/include/rinzu_io.h"]
 include-dirs = ["native/include"]
+
+[native.platform.linux]
+libraries = ["acl"]

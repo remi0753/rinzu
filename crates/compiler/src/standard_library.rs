@@ -51,20 +51,9 @@ pub(crate) fn host_target() -> Target {
 
 pub(crate) fn is_intrinsic_source(name: &str, bytes: &[u8]) -> bool {
     match name {
-        "rinzu.process" => [Target::Aarch64AppleDarwin, Target::X86_64UnknownLinuxGnu]
-            .into_iter()
-            .any(|target| bytes == process_source(target)),
+        "rinzu.process" => bytes == include_bytes!("../../../sdk/process/src/process.rinzu"),
         "rinzu.json" => bytes == include_bytes!("../../../sdk/json/src/json.rinzu"),
         _ => false,
-    }
-}
-
-fn process_source(target: Target) -> &'static [u8] {
-    match target {
-        Target::Aarch64AppleDarwin => include_bytes!("../../../sdk/process/src/process.rinzu"),
-        Target::X86_64UnknownLinuxGnu => {
-            include_bytes!("../../../sdk/process/linux/src/process.rinzu")
-        }
     }
 }
 
@@ -95,9 +84,9 @@ pub fn dependencies(name: &str) -> &'static [&'static str] {
     dependencies_for_target(name, host_target())
 }
 
-pub fn dependencies_for_target(name: &str, target: Target) -> &'static [&'static str] {
+pub fn dependencies_for_target(name: &str, _target: Target) -> &'static [&'static str] {
     match name {
-        "rinzu.process" if target == Target::Aarch64AppleDarwin => &["rinzu.option"],
+        "rinzu.process" => &["rinzu.option"],
         "rinzu.stream" => &["rinzu.io"],
         "rinzu.http" => &["rinzu.socket", "rinzu.httpcodec", "rinzu.io"],
         "rinzu.httpcodec" => &["rinzu.socket"],
@@ -210,6 +199,7 @@ pub(crate) fn resources_for_target(target: Target) -> BTreeMap<&'static str, &'s
         sdk_resource!("io", "native/src/io.c"),
         sdk_resource!("io", "native/src/io_pool.h"),
         sdk_resource!("io", "native/src/whole_file.c"),
+        sdk_resource!("io", "native/src/file_metadata.h"),
         sdk_resource!("io", "native/include/rinzu_io.h"),
         sdk_resource!("process", "rinzu.toml"),
         sdk_resource!("process", "src/process.rinzu"),
@@ -250,13 +240,32 @@ pub(crate) fn resources_for_target(target: Target) -> BTreeMap<&'static str, &'s
         sdk_resource!("socket", "native/include/rinzu_socket.h"),
     ]);
     if target == Target::X86_64UnknownLinuxGnu {
+        files.extend([
+            sdk_resource!("io", "native/src/file_metadata_linux.h"),
+            sdk_resource!("socket", "native/src/readiness_linux.h"),
+            repository_resource!(
+                "include/rinzu/arch/x86_64/continuation.h",
+                "include/rinzu/arch/x86_64/continuation.h"
+            ),
+            repository_resource!(
+                "runtime/continuation.S",
+                "crates/runtime/src/arch/x86_64/continuation.S"
+            ),
+            repository_resource!(
+                "include/rinzu/arch/x86_64/callback.h",
+                "include/rinzu/arch/x86_64/callback.h"
+            ),
+            repository_resource!("include/rinzu/elf_image.h", "include/rinzu/elf_image.h"),
+        ]);
         files.insert(
-            "packages/process/rinzu.toml",
-            include_bytes!("../../../sdk/process/linux/rinzu.toml"),
+            "runtime/callback_template.S",
+            include_bytes!("../../runtime/src/arch/x86_64/callback_template.S"),
         );
-        files.insert("packages/process/src/process.rinzu", process_source(target));
-        files.remove("packages/process/native/process.c");
-        files.remove("packages/process/native/process.h");
+    } else {
+        files.extend([
+            sdk_resource!("io", "native/src/file_metadata_macos.h"),
+            sdk_resource!("socket", "native/src/readiness_macos.h"),
+        ]);
     }
     files
 }

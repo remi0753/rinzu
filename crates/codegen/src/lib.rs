@@ -21,10 +21,16 @@ mod m5_reload_spike;
 mod jit_memory {
     pub(crate) mod macos;
 }
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 mod native_binding;
 mod native_call;
-#[cfg(target_os = "macos")]
+#[cfg(any(
+    target_os = "macos",
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 mod native_library;
 mod native_package;
 mod native_record;
@@ -47,9 +53,9 @@ pub use baseline::{
     AotDataType, AotFunctionMetadata, BaselineAotObject, BaselineFailure, BaselineOptions,
     BaselineRun, emit_baseline_aot_object, emit_baseline_aot_object_for_target,
     emit_baseline_aot_object_with_native_bindings, emit_source_async_aot_object,
-    emit_source_async_aot_plans, run_baseline_jit, run_baseline_jit_with_arguments,
-    run_baseline_jit_with_native_packages, run_baseline_jit_with_options,
-    run_baseline_jit_with_package_bindings, uses_async_runtime,
+    emit_source_async_aot_object_for_target, emit_source_async_aot_plans, run_baseline_jit,
+    run_baseline_jit_with_arguments, run_baseline_jit_with_native_packages,
+    run_baseline_jit_with_options, run_baseline_jit_with_package_bindings, uses_async_runtime,
 };
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use baseline::{CompiledAsyncJit, compile_source_async_jit};

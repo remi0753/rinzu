@@ -232,8 +232,17 @@ fn snapshot(
     })
 }
 
+fn lock_path(root: &Path) -> PathBuf {
+    match rinzu_abi::target::Target::host() {
+        Some(rinzu_abi::target::Target::X86_64UnknownLinuxGnu) => {
+            root.join("rinzu.lock.x86_64-unknown-linux-gnu")
+        }
+        _ => root.join("rinzu.lock"),
+    }
+}
+
 fn verify(root: &Path, expected: &PackageLock) -> Result<(), String> {
-    let path = root.join("rinzu.lock");
+    let path = lock_path(root);
     let bytes = std::fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let actual: PackageLock =
         serde_json::from_slice(&bytes).map_err(|e| format!("invalid package lock: {e}"))?;
@@ -262,7 +271,7 @@ fn verify(root: &Path, expected: &PackageLock) -> Result<(), String> {
 }
 
 fn has_lock(root: &Path) -> Result<bool, String> {
-    match std::fs::symlink_metadata(root.join("rinzu.lock")) {
+    match std::fs::symlink_metadata(lock_path(root)) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(format!("inspect package lock: {error}")),
@@ -600,7 +609,7 @@ pub fn run(command: &str, mut arguments: impl Iterator<Item = String>) -> Result
     }
     let (lock, descriptor) = fresh(&manifest, &artifact)?;
     if command == "lock" {
-        let path = manifest.root.join("rinzu.lock");
+        let path = lock_path(&manifest.root);
         if check {
             verify(&manifest.root, &lock)?;
             println!("checked lock: {}", path.display());
@@ -715,7 +724,7 @@ mod tests {
             "context":{"clang.target":"arm64-apple-macos11","clang.binary":"digest","target.os-build":"build","rinzu.private-abi":"revision"},"packages":{}
         });
         let expected: PackageLock = serde_json::from_value(value.clone()).unwrap();
-        let path = directory.join("rinzu.lock");
+        let path = lock_path(&directory);
         write_json(&path, &expected).unwrap();
         verify(&directory, &expected).unwrap();
         for key in [

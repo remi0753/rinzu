@@ -1,6 +1,6 @@
 # rinzu.socket
 
-Bundled nonblocking TCP for language 0.5 on macOS arm64. Import directly. Addresses use literal IPv4; there is no DNS or UDP API.
+Bundled nonblocking TCP for language 0.5 on macOS arm64 and x86_64 Linux. Import directly. The TCP API uses literal IPv4 addresses.
 
 Address, Listener, TcpStream, ReadChunk, WriteFailure, and Statistics describe the public surface. Use address/listen/localPort/accept for a listener, connect for a client, read/write/writeAll for transfer, shutdownWrite for half-close, and close/closeListener for cleanup. WithTimeout variants make deadlines explicit.
 

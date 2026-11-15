@@ -1,6 +1,6 @@
 # rinzu.io
 
-Bundled binary file and standard-stream I/O for language 0.5 on macOS arm64. Import `rinzu.io` directly; no manifest dependency is required. Timers use `rinzu.timer`.
+Bundled binary file and standard-stream I/O for language 0.5 on macOS arm64 and x86_64 Linux. Import `rinzu.io` directly. Timers use `rinzu.timer`.
 
 Use `readBytes` or `readText` with an explicit byte limit to read a whole file. `replaceBytes` and `replaceText` atomically install new contents and return a receipt containing any cleanup errors after installation.
 

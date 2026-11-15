@@ -1,4 +1,5 @@
 #include "rinzu_sqlite.h"
+#include "rinzu/thread_identity.h"
 #include <assert.h>
 #include <ctype.h>
 #include <pthread.h>
@@ -634,10 +635,8 @@ int64_t rinzu_sqlite_allocator_peak(void) {
   return sqlite3_memory_highwater(0);
 }
 int32_t rinzu_sqlite_enable_allocator_stats(void) {
-#if defined(__APPLE__)
-  if (!pthread_main_np())
+  if (!rinzu_thread_is_main())
     return RINZU_SQLITE_OWNER;
-#endif
   /* Explicit startup configuration, before any SDK open or external SQLite use. */
   if (pthread_mutex_lock(&initialization_lock))
     _Exit(86);

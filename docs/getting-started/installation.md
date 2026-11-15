@@ -1,8 +1,8 @@
 # Installation and environment
 
-Rinzu supports Apple Silicon macOS (`aarch64-apple-darwin`) and synchronous AOT on x86_64 Linux with glibc (`x86_64-unknown-linux-gnu`). Building the compiler requires Rust 1.97.1. Native compilation uses Xcode Command Line Tools on macOS and Clang, an ELF linker, and the target C development files on Linux.
+Rinzu supports Apple Silicon macOS (`aarch64-apple-darwin`) and AOT on x86_64 Linux with glibc (`x86_64-unknown-linux-gnu`). Building the compiler requires Rust 1.97.1. Native compilation uses Xcode Command Line Tools on macOS and Clang, an ELF linker, and the target C development files on Linux.
 
-For a released macOS arm64 bundle, verify the archive, extract it to a new directory, and add its `bin/` to PATH. Run `rinzu doctor` from that installation to check the resource catalog. The distribution includes the official SDK sources, so imports such as `import rinzu.codec;` resolve from that installation. See [Toolchain bundles](../tooling/distribution.md#export-the-toolchain).
+For a toolchain bundle matching your host, verify the archive, extract it to a new directory, and add its `bin/` to PATH. Run `rinzu doctor` from that installation to check the resource catalog. The distribution includes the official SDK sources for that target, so imports such as `import rinzu.codec;` resolve from that installation. See [Toolchain bundles](../tooling/distribution.md#export-the-toolchain).
 
 ## Prepare the toolchain
 
@@ -12,7 +12,7 @@ On macOS, install Apple's command-line development tools.
 xcode-select --install
 ```
 
-On x86_64 Linux, install Clang, an ELF linker, and the development files for glibc and GCC.
+On x86_64 Linux, install Clang, an ELF linker, and the development files for glibc and GCC. Linux native SDK loading uses OpenSSL. On Debian 13, install `libssl-dev`, `libacl1-dev`, `libcurl4-openssl-dev`, `libsqlite3-dev`, and `libsdl2-dev` to build all available standard and official SDKs. Keep their corresponding runtime libraries available when launching the generated applications.
 
 Use rustup to install Rust. The repository's `rust-toolchain.toml` selects the required toolchain and components.
 
@@ -47,7 +47,7 @@ The remaining pages use `rinzu` in commands. Toolchain version `0.3.0` and sourc
 | Compiler C/ObjC formatting and analysis | LLVM 21; Homebrew: `brew install llvm@21` |
 | Fuzz targets | Nightly Rust and cargo-fuzz |
 
-Native builds target the running macOS version by default. Set `MACOSX_DEPLOYMENT_TARGET` to build with an explicit minimum such as `26.0`. The minimum must be macOS 11 or later and at least as recent as the minimum required by each linked library. Changing the target changes the native cache and lock identity.
+Native builds on macOS target the running macOS version by default. Set `MACOSX_DEPLOYMENT_TARGET` to build with an explicit minimum such as `26.0`. The minimum must be macOS 11 or later and at least as recent as the minimum required by each linked library. Changing the target changes the native cache and lock identity.
 
 Standard imports work without dependency paths. When using the executable from a source build, install its toolchain bundle for direct official SDK imports or declare explicit paths to the SDK sources. See [Manifests](../packages/manifest.md#dependencies).
 

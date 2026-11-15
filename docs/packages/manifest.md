@@ -83,6 +83,8 @@ libraries = ["System"]
 
 Other supported keys are `objects`, `search-paths`, `frameworks`, and `config-tools`. Paths are relative to their owning package. Headers support ABI checks; link inputs select providers. Unknown sections and keys are errors, so custom metadata should live in a separate file. `macos-app.json` holds application bundle settings.
 
+Use `[native.platform.macos]` and `[native.platform.linux]` to add sources or link inputs for one operating system. The selected table extends the common `[native]` table. Linux native package locks use `rinzu.lock.x86_64-unknown-linux-gnu`. macOS package locks use `rinzu.lock`.
+
 ## Locks and caches
 
 ```sh

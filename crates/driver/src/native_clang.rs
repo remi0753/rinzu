@@ -64,4 +64,19 @@ impl TargetClang {
         }
         command
     }
+
+    pub fn shared_command(&self, name: &str) -> Command {
+        let mut command = self.command();
+        match self.target {
+            Target::Aarch64AppleDarwin => {
+                command
+                    .args(["-dynamiclib", "-install_name"])
+                    .arg(format!("@rpath/{name}"));
+            }
+            Target::X86_64UnknownLinuxGnu => {
+                super::platform::linux::configure_shared(self, &mut command, name);
+            }
+        }
+        command
+    }
 }

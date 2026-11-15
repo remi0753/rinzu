@@ -237,6 +237,9 @@ fn borrow_socket_write(
     plan: &rinzu_codegen::NativeCallPlan,
     descriptors: &[rinzu_bindgen::source_package::SourceDescriptor],
 ) -> Result<bool, String> {
+    if aot.target != rinzu_abi::target::Target::Aarch64AppleDarwin {
+        return Ok(false);
+    }
     let signature = &plan.signature;
     let (symbol, canonical, caller) = match signature.name.as_str() {
         "rinzu.socket::rawWrite" => (
@@ -323,11 +326,20 @@ fn borrow_socket_write(
     let bytes_digest = sha256(include_bytes!("../../../include/rinzu/native_bytes.h"));
     let completion_digest = sha256(include_bytes!("../../../include/rinzu/native_completion.h"));
     let read_view_digest = sha256(include_bytes!("../../../include/rinzu/native_read_view.h"));
+    let readiness = "native/src/readiness_macos.h";
+    let readiness_digest = sha256(include_bytes!(
+        "../../../sdk/socket/native/src/readiness_macos.h"
+    ));
+    if inputs.get(&format!("include:sdk:{readiness}")) != Some(&readiness_digest) {
+        return Ok(false);
+    }
     // Compiler search paths can supply extra includes and static libraries.
     // Accept only the sealed SDK inputs, toolchain headers and compiler runtime.
     for (key, digest) in inputs {
         if let Some(relative) = key.strip_prefix("include:sdk:") {
-            if expected.get(format!("sdk:{relative}").as_str()) != Some(digest) {
+            if expected.get(format!("sdk:{relative}").as_str()) != Some(digest)
+                && !(relative == readiness && digest == &readiness_digest)
+            {
                 return Ok(false);
             }
         } else if let Some(path) = key.strip_prefix("include:external:").map(Path::new) {
@@ -734,7 +746,7 @@ pub fn startup(
                             "{{{},{},{},{},{{{}}}}}",
                             literal(&path),
                             usize::from(image.bundled),
-                            literal(&image.uuid),
+                            literal(image.identity()),
                             usize::from(image.sha256.is_some()),
                             bytes(&digest)
                         ))
@@ -762,7 +774,7 @@ pub fn startup(
                             slot.resolver.as_deref().map_or("NULL".into(), literal),
                             literal(&owner),
                             usize::from(plan.owner_bundled(slot)),
-                            literal(&slot.owner_uuid),
+                            literal(slot.owner_build_id.as_deref().unwrap_or(&slot.owner_uuid)),
                             usize::from(slot.owner_sha256.is_some()),
                             bytes(&digest)
                         ))
@@ -825,7 +837,12 @@ pub fn startup(
                 "static const RinzuExpectedImport rinzu_source_imports_{index}[] = {{{}}};\n",
                 imports.join(",")
             ));
-            setup.push_str(&format!("const void *staged_{index}[{}] = {{0}};\n{{ char *path = rinzu_source_path(directory, {}); const unsigned char digest[32] = {{{}}}; rinzu_source_file(path, digest); rinzu_source_table(path, rinzu_source_wire_{index}, sizeof rinzu_source_wire_{index}, rinzu_source_imports_{index}, {}, staged_{index}, {binding_arguments}); free(path); }}\n", imports.len().max(1), literal(&layout.file(&format!("{subdirectory}/{filename}"))?), bytes(&digest), imports.len()));
+            let identity = if aot.target == rinzu_abi::target::Target::X86_64UnknownLinuxGnu {
+                literal(crate::native_image::image_info(library)?.identity())
+            } else {
+                "NULL".into()
+            };
+            setup.push_str(&format!("const void *staged_{index}[{}] = {{0}};\n{{ char *path = rinzu_source_path(directory, {}); const unsigned char digest[32] = {{{}}}; rinzu_source_file(path, digest); rinzu_source_table(path, rinzu_source_wire_{index}, sizeof rinzu_source_wire_{index}, rinzu_source_imports_{index}, {}, staged_{index}, {identity}, {binding_arguments}); free(path); }}\n", imports.len().max(1), literal(&layout.file(&format!("{subdirectory}/{filename}"))?), bytes(&digest), imports.len()));
         }
     }
     for (index, plan) in aot.native_call_plans.iter().enumerate() {

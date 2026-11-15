@@ -76,6 +76,8 @@ impl ImageProbe {
                         bundled: false,
                         sha256: None,
                         uuid,
+                        build_id: None,
+                        soname: None,
                     },
                 );
             }
@@ -90,6 +92,16 @@ impl ImageProbe {
         } else {
             None
         };
+        if rinzu_abi::target::Target::host()
+            == Some(rinzu_abi::target::Target::X86_64UnknownLinuxGnu)
+        {
+            return crate::platform::linux::elf::image_info(
+                &path,
+                bytes
+                    .as_deref()
+                    .ok_or_else(|| format!("missing ELF image {}", path.display()))?,
+            );
+        }
         // Local files are read again even when the same spelling was seen in
         // this operation: callers still detect a concurrent content change.
         if let Some(bytes) = &bytes
@@ -107,6 +119,8 @@ impl ImageProbe {
                 bundled: false,
                 sha256: Some(sha256(bytes)),
                 uuid: uuid.iter().map(|byte| format!("{byte:02x}")).collect(),
+                build_id: None,
+                soname: None,
             });
         }
         if bytes.is_none() && is_system(&path) {
@@ -138,6 +152,8 @@ impl ImageProbe {
             bundled: false,
             sha256: bytes.as_deref().map(sha256),
             uuid,
+            build_id: None,
+            soname: None,
         })
     }
 }

@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+pub(crate) mod elf;
+
 fn find_on_path(name: &str) -> Option<PathBuf> {
     std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
         .map(|directory| directory.join(name))
@@ -42,17 +44,7 @@ pub(crate) fn resolve_clang() -> Result<TargetClang, String> {
         .ok_or("install Clang or set RINZU_CLANG to build Linux executables")?
         .canonicalize()
         .map_err(|error| format!("resolve Linux Clang: {error}"))?;
-    let sysroot = std::env::var_os("RINZU_SYSROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/"))
-        .canonicalize()
-        .map_err(|error| format!("resolve Linux sysroot: {error}"))?;
-    if !sysroot.is_dir() {
-        return Err(format!(
-            "Linux sysroot must be a directory: {}",
-            sysroot.display()
-        ));
-    }
+    let sysroot = sysroot()?;
     let linker = query(
         &executable,
         &["-target", target.triple(), "-print-prog-name=ld"],
@@ -127,6 +119,21 @@ pub(crate) fn resolve_clang() -> Result<TargetClang, String> {
     })
 }
 
+pub(crate) fn sysroot() -> Result<PathBuf, String> {
+    let root = std::env::var_os("RINZU_SYSROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"))
+        .canonicalize()
+        .map_err(|error| format!("resolve Linux sysroot: {error}"))?;
+    if !root.is_dir() {
+        return Err(format!(
+            "Linux sysroot must be a directory: {}",
+            root.display()
+        ));
+    }
+    Ok(root)
+}
+
 pub(crate) fn configure_clang(toolchain: &TargetClang, command: &mut Command) {
     command
         .arg("--sysroot")
@@ -141,6 +148,25 @@ pub(crate) fn configure_executable(toolchain: &TargetClang, command: &mut Comman
             toolchain.fingerprint["clang.linker"]
         ))
         .args(["-fPIE", "-pie", "-pthread", "-Wl,-z,noexecstack"]);
+}
+
+pub(crate) fn configure_shared(toolchain: &TargetClang, command: &mut Command, soname: &str) {
+    command
+        .arg(format!(
+            "--ld-path={}",
+            toolchain.fingerprint["clang.linker"]
+        ))
+        .args([
+            "-shared",
+            "-fPIC",
+            "-pthread",
+            "-Wl,--build-id=sha1,--enable-new-dtags,-z,origin,-z,noexecstack,-z,defs",
+            "-Wl,-rpath,$ORIGIN",
+            "-Xlinker",
+            "-soname",
+            "-Xlinker",
+            soname,
+        ]);
 }
 
 pub(crate) fn link_runtime_libraries(command: &mut Command) {

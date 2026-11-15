@@ -5,7 +5,10 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, ensure};
 use rinzu_abi::{SourceImportV2, SourcePackageDescriptorV2};
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 use rinzu_bindgen::source_package::sha256;
 use rinzu_bindgen::source_package::{SourceDescriptor, decode_key, validate_source_descriptor};
 
@@ -120,7 +123,10 @@ impl LoadedSourcePackages {
     pub fn load(artifacts: &[SourcePackageArtifact]) -> Result<Self> {
         let mut staged = Self::default();
         let mut packages = BTreeSet::new();
-        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        #[cfg(any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+        ))]
         let (mut handles, mut providers) = (Vec::new(), Vec::new());
         for artifact in artifacts {
             let expected =
@@ -149,9 +155,15 @@ impl LoadedSourcePackages {
                 staged.descriptors.push(expected);
                 continue;
             }
-            #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-            anyhow::bail!("loading a native source-package facade requires macOS arm64");
-            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            #[cfg(not(any(
+                all(target_os = "macos", target_arch = "aarch64"),
+                all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+            )))]
+            anyhow::bail!("native source-package facade is unsupported on this host");
+            #[cfg(any(
+                all(target_os = "macos", target_arch = "aarch64"),
+                all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+            ))]
             {
                 use std::ffi::CString;
                 use std::os::unix::ffi::OsStrExt;
@@ -184,24 +196,7 @@ impl LoadedSourcePackages {
                     !entry_address.is_null(),
                     "missing rinzu_source_package_v2; v1 fallback forbidden"
                 );
-                // Reject a dependency/ambient entry instead of this artifact's own entry.
-                let mut info: libc::Dl_info = unsafe {
-                    // SAFETY: Dl_info is a C POD whose all-zero representation is valid.
-                    core::mem::zeroed()
-                };
-                // SAFETY: valid symbol pointer; writable Dl_info storage.
-                let identified = unsafe { libc::dladdr(entry_address, &mut info) };
-                ensure!(
-                    identified != 0 && !info.dli_fname.is_null(),
-                    "unknown source entry image"
-                );
-                // SAFETY: successful dladdr returns a NUL-terminated image filename.
-                let image = unsafe { CStr::from_ptr(info.dli_fname) }.to_str()?;
-                ensure!(
-                    rinzu_runtime::allocation::checked_io(PathBuf::from(image).canonicalize())?
-                        == path,
-                    "source entry belongs to another image"
-                );
+                crate::native_binding::check_facade_address(&path, entry_address)?;
                 // SAFETY: fixed v2 entry symbol follows the separate source package ABI.
                 let entry: rinzu_abi::SourcePackageEntryV2 =
                     unsafe { core::mem::transmute(entry_address) };
@@ -215,26 +210,17 @@ impl LoadedSourcePackages {
                         address.cast_const() == binding.glue_address(),
                         "source import address disagrees with its symbol"
                     );
-                    // SAFETY: the non-null validated native address has readable dladdr metadata.
-                    let identified = unsafe { libc::dladdr(address, &mut info) };
-                    ensure!(
-                        identified != 0 && !info.dli_fname.is_null(),
-                        "unknown source import image"
-                    );
-                    // SAFETY: successful dladdr supplies a NUL-terminated image filename.
-                    let image = unsafe { CStr::from_ptr(info.dli_fname) }.to_str()?;
-                    ensure!(
-                        rinzu_runtime::allocation::checked_io(PathBuf::from(image).canonicalize())?
-                            == path,
-                        "source import belongs to another image"
-                    );
+                    crate::native_binding::check_facade_address(&path, address)?;
                 }
                 merge(&mut staged.imports, bindings)?;
                 staged.descriptors.push(expected);
                 handles.push(handle);
             }
         }
-        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        #[cfg(any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+        ))]
         {
             // Publish only after every package has validated. No dynamic unload for v2.
             for handle in handles {
@@ -438,9 +424,15 @@ pub unsafe fn validate_source_table(
     Ok(staged)
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 struct Facade(*mut c_void);
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 impl Drop for Facade {
     fn drop(&mut self) {
         // SAFETY: owns one successful dlopen handle that has not been closed.

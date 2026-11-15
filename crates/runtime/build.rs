@@ -1,5 +1,6 @@
 fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS");
+    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH");
     println!("cargo:rerun-if-changed=../../include/rinzu/resource_counters.h");
     println!("cargo:rerun-if-changed=../../include/rinzu/managed_data.h");
     println!("cargo:rerun-if-changed=../../include/rinzu/gc_policy.h");
@@ -43,15 +44,18 @@ fn main() {
     }
     println!("cargo:rerun-if-changed=src/callback_entry.c");
     println!("cargo:rerun-if-changed=src/callback_template.S");
+    println!("cargo:rerun-if-changed=src/arch/x86_64/callback_template.S");
+    println!("cargo:rerun-if-changed=src/arch/x86_64/continuation.S");
+    println!("cargo:rerun-if-changed=../../include/rinzu/arch/x86_64");
+    println!("cargo:rerun-if-changed=../../include/rinzu/elf_image.h");
+    println!("cargo:rerun-if-changed=src/platform/linux/elf_image.c");
     println!("cargo:rerun-if-changed=../../include/rinzu/callback_entry.h");
     println!("cargo:rerun-if-changed=src/callback_return.c");
     println!("cargo:rerun-if-changed=src/owner_dispatcher.c");
     println!("cargo:rerun-if-changed=../../include/rinzu/owner_dispatcher.h");
     println!("cargo:rerun-if-changed=../../include/rinzu/callback_return.h");
     println!("cargo:rerun-if-changed=../../include/rinzu/callback_consumption.h");
-    if target_os.as_deref() == Ok("macos")
-        && std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("aarch64")
-    {
+    if target_os.as_deref() == Ok("macos") && target_arch.as_deref() == Ok("aarch64") {
         let mut callback = cc::Build::new();
         if std::env::var_os("CARGO_FEATURE_TEST_DISPATCHER_PROBE").is_some() {
             callback.define("RINZU_DISPATCHER_TESTING", None);
@@ -66,5 +70,18 @@ fn main() {
             .warnings_into_errors(true)
             .compile("rinzu_callback_entry");
         println!("cargo:rustc-link-lib=framework=CoreFoundation");
+    }
+    if target_os.as_deref() == Ok("linux") && target_arch.as_deref() == Ok("x86_64") {
+        cc::Build::new()
+            .define("_GNU_SOURCE", None)
+            .include("../../include")
+            .flag("-std=c11")
+            .warnings_into_errors(true)
+            .file("src/callback_entry.c")
+            .file("src/callback_return.c")
+            .file("src/arch/x86_64/callback_template.S")
+            .file("src/arch/x86_64/continuation.S")
+            .file("src/platform/linux/elf_image.c")
+            .compile("rinzu_callback_entry");
     }
 }

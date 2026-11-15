@@ -1,6 +1,19 @@
 //! Explicit library memory failures are fatal before loader diagnostics allocate.
 use std::ffi::{CStr, c_void};
 
+unsafe fn errno_pointer() -> *mut libc::c_int {
+    #[cfg(target_os = "macos")]
+    // SAFETY: both libc accessors return the current thread's errno cell.
+    unsafe {
+        libc::__error()
+    }
+    #[cfg(target_os = "linux")]
+    // SAFETY: both libc accessors return the current thread's errno cell.
+    unsafe {
+        libc::__errno_location()
+    }
+}
+
 fn checked<T>(value: T, failed: bool) -> T {
     if failed && std::io::Error::last_os_error().raw_os_error() == Some(libc::ENOMEM) {
         rinzu_runtime::allocation::fatal();
@@ -13,14 +26,17 @@ pub(crate) fn open(path: &CStr) -> *mut c_void {
 }
 
 pub(crate) fn open_first(path: &CStr) -> *mut c_void {
-    open_with_flags(path, libc::RTLD_NOW | libc::RTLD_LOCAL | libc::RTLD_FIRST)
+    #[cfg(target_os = "macos")]
+    return open_with_flags(path, libc::RTLD_NOW | libc::RTLD_LOCAL | libc::RTLD_FIRST);
+    #[cfg(target_os = "linux")]
+    open(path)
 }
 
 fn open_with_flags(path: &CStr, flags: i32) -> *mut c_void {
     // SAFETY: errno is thread local; path is NUL terminated and valid for dlopen.
     unsafe {
-        *libc::__error() = 0;
-        #[cfg(test)]
+        *errno_pointer() = 0;
+        #[cfg(all(test, target_os = "macos"))]
         if tests::inject(tests::Operation::Open) {
             return checked(core::ptr::null_mut(), true);
         }
@@ -33,8 +49,8 @@ fn open_with_flags(path: &CStr, flags: i32) -> *mut c_void {
 pub(crate) unsafe fn symbol(handle: *mut c_void, name: &CStr) -> *mut c_void {
     // SAFETY: the caller retains handle; name is NUL terminated, errno thread local.
     unsafe {
-        *libc::__error() = 0;
-        #[cfg(test)]
+        *errno_pointer() = 0;
+        #[cfg(all(test, target_os = "macos"))]
         if tests::inject(tests::Operation::Symbol) {
             return checked(core::ptr::null_mut(), true);
         }
@@ -47,8 +63,8 @@ pub(crate) unsafe fn symbol(handle: *mut c_void, name: &CStr) -> *mut c_void {
 pub(crate) unsafe fn close(handle: *mut c_void) {
     // SAFETY: the caller owns handle; errno is thread local.
     unsafe {
-        *libc::__error() = 0;
-        #[cfg(test)]
+        *errno_pointer() = 0;
+        #[cfg(all(test, target_os = "macos"))]
         if tests::inject(tests::Operation::Close) {
             checked(-1, true);
             return;
@@ -58,7 +74,7 @@ pub(crate) unsafe fn close(handle: *mut c_void) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
     use std::cell::Cell;
@@ -80,7 +96,7 @@ mod tests {
             {
                 failure.set(None);
                 // SAFETY: __error returns this thread's errno location.
-                unsafe { *libc::__error() = code };
+                unsafe { *errno_pointer() = code };
                 true
             } else {
                 false
@@ -144,13 +160,13 @@ mod tests {
     #[test]
     fn missing_library_and_symbol_ignore_stale_memory_errno() {
         // SAFETY: set this thread's errno to prove each operation clears stale data.
-        unsafe { *libc::__error() = libc::ENOMEM };
+        unsafe { *errno_pointer() = libc::ENOMEM };
         assert!(open(c"/rinzu/absent-memory-audit-library.dylib").is_null());
         let handle = open(c"/usr/lib/libSystem.B.dylib");
         assert!(!handle.is_null());
         // SAFETY: handle is live and owned here; the missing symbol is NUL terminated.
         unsafe {
-            *libc::__error() = libc::ENOMEM;
+            *errno_pointer() = libc::ENOMEM;
             assert!(symbol(handle, c"rinzu_absent_memory_audit_symbol").is_null());
             assert!(!symbol(handle, c"malloc").is_null());
             close(handle);

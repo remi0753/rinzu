@@ -17,7 +17,7 @@ pub fn doctor(arguments: impl Iterator<Item = String>) -> Result<(), String> {
     let support = if rinzu_runtime::validate_v1_target().is_ok() {
         "supported"
     } else if rinzu_abi::target::Target::host().is_some() {
-        "synchronous-aot-only"
+        "aot-only"
     } else {
         "portability-check-only"
     };
@@ -96,7 +96,8 @@ fn export(output: &Path) -> Result<(), String> {
     if !parent.is_dir() {
         return Err("toolchain bundle parent directory must exist".into());
     }
-    rinzu_runtime::validate_v1_target().map_err(|error| error.to_string())?;
+    let target = rinzu_abi::target::Target::host()
+        .ok_or("toolchain bundles require a supported host target")?;
     std::fs::create_dir(output).map_err(|e| e.to_string())?;
     let result = (|| {
         let bin = output.join("bin");
@@ -116,7 +117,7 @@ fn export(output: &Path) -> Result<(), String> {
             "toolchainVersion": env!("CARGO_PKG_VERSION"),
             "sourceCommit": option_env!("RINZU_SOURCE_COMMIT"),
             "host": rinzu_runtime::current_target(),
-            "target": rinzu_compiler::standard_library::TARGET,
+            "target": target.triple(),
             "compatibility": rinzu_compiler::standard_library::fingerprint(),
             "binary": "bin/rinzu", "binarySha256": rinzu_compiler::standard_library::sha256(&bytes),
             "resources": "share/rinzu", "registrySha256": rinzu_compiler::standard_library::sha256(&rinzu_compiler::standard_library::registry_bytes()),

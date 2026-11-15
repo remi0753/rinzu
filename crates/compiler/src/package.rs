@@ -332,6 +332,14 @@ pub fn load_manifest_with_sources(
     path: &Path,
     sources: &mut SourceSnapshot<'_>,
 ) -> Result<Manifest, Vec<Diagnostic>> {
+    load_manifest_snapshot(path, sources, Some(crate::standard_library::host_target()))
+}
+
+fn load_manifest_snapshot(
+    path: &Path,
+    sources: &mut SourceSnapshot<'_>,
+    target: Option<Target>,
+) -> Result<Manifest, Vec<Diagnostic>> {
     let read_error = |error: std::io::Error| {
         vec![
             package_diagnostic(
@@ -353,7 +361,7 @@ pub fn load_manifest_with_sources(
             "save the manifest as UTF-8",
         )]
     })?;
-    match crate::manifest::load_manifest_text(path, text) {
+    match crate::manifest::load_manifest_text_for_target(path, text, target) {
         Ok(manifest) => Ok(manifest),
         Err(error) if error.has_span() => {
             let file = sources.source(&canonical, bytes)?;
@@ -383,8 +391,8 @@ fn check_request(
     target: Target,
 ) -> Result<(Manifest, FrontendArtifact, Vec<crate::PackageTestCase>), Vec<Diagnostic>> {
     let manifest_path = find_manifest(start).map_err(|error| vec![error.into_diagnostic()])?;
-    let manifest = read_package_manifest(&manifest_path, sources)?;
-    let graph = resolve_installed_graph(manifest, sources)?;
+    let manifest = read_package_manifest(&manifest_path, sources, target)?;
+    let graph = resolve_locked_graph(manifest, sources, false, target)?;
     crate::compatibility::validate_graph(&graph)?;
     let (manifest, mut artifact, cases) = CheckGraph::new(graph, target).check(sources, tests)?;
     artifact.checked_inputs = sources.input_bytes();
@@ -394,8 +402,21 @@ fn check_request(
 fn read_package_manifest(
     path: &Path,
     sources: &mut SourceSnapshot<'_>,
+    target: Target,
 ) -> Result<Manifest, Vec<Diagnostic>> {
-    let mut manifest = load_manifest_with_sources(path, sources)?;
+    let mut manifest = load_manifest_snapshot(path, sources, Some(target))?;
+    if target == Target::X86_64UnknownLinuxGnu
+        && (crate::official_sdk::macos_only(&manifest.name)
+            || !manifest.native.frameworks.is_empty())
+    {
+        return Err(vec![
+            package_diagnostic(
+                format!("package `{}` requires macOS", manifest.name),
+                "select a package with Linux support",
+            )
+            .with_path(path),
+        ]);
+    }
     crate::manifest::canonicalize_native_inputs_with(&mut manifest, |path| {
         sources.canonical_path(path)
     })
@@ -1504,13 +1525,19 @@ struct SnapshotPackages<'s, 'cache> {
     lock: Option<ModulesLock>,
     archive_roots: HashMap<String, PathBuf>,
     refresh: bool,
+    target: Target,
 }
 
 pub fn resolve_installed_graph(
     manifest: Manifest,
     sources: &mut SourceSnapshot<'_>,
 ) -> Result<ResolvedGraph, Vec<Diagnostic>> {
-    resolve_locked_graph(manifest, sources, false)
+    resolve_locked_graph(
+        manifest,
+        sources,
+        false,
+        crate::standard_library::host_target(),
+    )
 }
 
 /// Recompute declaration fingerprints with the same sources and dependency edges.
@@ -1518,7 +1545,12 @@ pub fn refresh_modules_lock(
     manifest: Manifest,
     sources: &mut SourceSnapshot<'_>,
 ) -> Result<ModulesLock, Vec<Diagnostic>> {
-    let graph = resolve_locked_graph(manifest, sources, true)?;
+    let graph = resolve_locked_graph(
+        manifest,
+        sources,
+        true,
+        crate::standard_library::host_target(),
+    )?;
     crate::compatibility::validate_graph(&graph)?;
     Ok(ModulesLock::from_graph(
         &graph,
@@ -1530,6 +1562,7 @@ fn resolve_locked_graph(
     manifest: Manifest,
     sources: &mut SourceSnapshot<'_>,
     refresh: bool,
+    target: Target,
 ) -> Result<ResolvedGraph, Vec<Diagnostic>> {
     let project = manifest.root.clone();
     let lock_path = project.join(MODULES_LOCK);
@@ -1544,6 +1577,7 @@ fn resolve_locked_graph(
         lock,
         archive_roots: HashMap::new(),
         refresh,
+        target,
     };
     let graph = resolve_package_graph(manifest, &mut provider)?;
     if let Some(lock) = provider.lock {
@@ -1639,7 +1673,7 @@ impl PackageProvider for SnapshotPackages<'_, '_> {
     }
 
     fn load(&mut self, location: &PackageLocation) -> Result<Manifest, Vec<Diagnostic>> {
-        load_resolved_manifest(location, self.sources)
+        load_resolved_manifest_for_target(location, self.sources, self.target)
     }
 }
 
@@ -1647,9 +1681,17 @@ pub fn load_resolved_manifest(
     location: &PackageLocation,
     sources: &mut SourceSnapshot<'_>,
 ) -> Result<Manifest, Vec<Diagnostic>> {
+    load_resolved_manifest_for_target(location, sources, crate::standard_library::host_target())
+}
+
+fn load_resolved_manifest_for_target(
+    location: &PackageLocation,
+    sources: &mut SourceSnapshot<'_>,
+    target: Target,
+) -> Result<Manifest, Vec<Diagnostic>> {
     let path = location.root.join("rinzu.toml");
     let PackageSource::Archive(pin) = &location.source else {
-        return read_package_manifest(&path, sources);
+        return read_package_manifest(&path, sources, target);
     };
     let receipt_path = location.root.with_file_name(modules_lock::RECEIPT);
     let metadata = std::fs::symlink_metadata(&receipt_path)
@@ -1671,7 +1713,7 @@ pub fn load_resolved_manifest(
         return Err(provider_error("invalid published SDK manifest", &path));
     }
     sources.register_archive(location.root.clone(), receipt);
-    let manifest = load_manifest_with_sources(&path, sources)?;
+    let manifest = load_manifest_snapshot(&path, sources, None)?;
     if manifest.native != NativeManifest::default() {
         return Err(provider_error(
             "published SDKs must contain only Rinzu source",

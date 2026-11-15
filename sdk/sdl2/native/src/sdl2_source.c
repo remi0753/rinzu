@@ -1,4 +1,5 @@
 #include "rinzu_sdl2_source.h"
+#include "rinzu/thread_identity.h"
 #include <SDL.h>
 #include <pthread.h>
 #include <stdlib.h>
@@ -13,11 +14,7 @@ typedef struct {
 } Window;
 static Window *active;
 static int on_main(void) {
-#ifdef __APPLE__
-  return pthread_main_np();
-#else
-  return 1;
-#endif
+  return rinzu_thread_is_main();
 }
 static Window *live(void *raw) {
   return on_main() && raw == active ? active : NULL;

@@ -4,6 +4,7 @@ use crate::native_clang::TargetClang;
 pub use crate::native_image::image_info;
 use crate::native_image::{ImageProbe, inspection_arch};
 use object::{Object, ObjectSection, ObjectSymbol};
+use rinzu_abi::target::Target;
 use rinzu_bindgen::native_binding::{NativeBindingPlan, NativeBindingSlot, NativeProviderImage};
 use rinzu_bindgen::source_package::sha256;
 use rinzu_compiler::ast::{NativeBinding, NativeMember};
@@ -22,6 +23,7 @@ struct Definition {
 
 #[derive(Clone, Default)]
 pub struct ReferenceIndex {
+    target: Option<Target>,
     inputs_only: bool,
     inspected_images: BTreeMap<String, Option<String>>,
     inspection_tool: Option<String>,
@@ -31,6 +33,7 @@ pub struct ReferenceIndex {
     pub runtime_paths: BTreeSet<PathBuf>,
     files: BTreeMap<PathBuf, (String, String)>,
 }
+mod elf;
 
 #[derive(Clone)]
 pub struct ReferenceCheck {
@@ -332,6 +335,9 @@ impl ReferenceIndex {
             // digest remains part of the inputs compared before publication.
             return Ok(());
         }
+        if self.target == Some(Target::X86_64UnknownLinuxGnu) {
+            return self.elf_object(bytes, identity);
+        }
         let file = object::File::parse(bytes)
             .map_err(|error| format!("invalid native object {identity}: {error}"))?;
         if file.format() != object::BinaryFormat::MachO
@@ -414,10 +420,19 @@ impl ReferenceIndex {
                 )?;
             }
         } else if path.extension().is_some_and(|extension| extension == "tbd") {
+            if self.target == Some(Target::X86_64UnknownLinuxGnu) {
+                return Err(format!(
+                    "Darwin library stub is unsupported on Linux: {}",
+                    path.display()
+                ));
+            }
             let runtime = stub_runtime(&path, sysroot)?;
             let root = images.get(&runtime)?;
             self.shared(&root, &root, &mut BTreeSet::new(), images)?;
         } else {
+            if self.target == Some(Target::X86_64UnknownLinuxGnu) {
+                return self.elf_input(&path, &bytes, &input_identity);
+            }
             let file = object::File::parse(bytes.as_slice())
                 .map_err(|error| format!("unsupported native input {}: {error}", path.display()))?;
             if file.format() != object::BinaryFormat::MachO
@@ -674,6 +689,7 @@ impl ReferenceIndex {
         // and re-export graph. Rebuilding every export/function index adds no
         // evidence once those identities are unchanged.
         let mut index = Self {
+            target: Some(toolchain.target),
             inputs_only,
             inspection_tool: Some(sha256(
                 &serde_json::to_vec(&toolchain.fingerprint).map_err(|error| error.to_string())?,
@@ -754,9 +770,20 @@ impl ReferenceIndex {
             .chain(frameworks.iter().map(|name| ("framework", name)))
             .collect();
         if !selections.is_empty() {
-            let mut command = toolchain.command();
+            let linux = toolchain.target == Target::X86_64UnknownLinuxGnu;
+            if linux && !frameworks.is_empty() {
+                return Err("Darwin frameworks are unavailable on Linux".into());
+            }
+            let output_name = toolchain.target.shared_library_name("native-selection");
+            let mut command = if linux {
+                toolchain.shared_command(&output_name)
+            } else {
+                let mut command = toolchain.command();
+                command.arg("-dynamiclib");
+                command
+            };
             command
-                .args(["-dynamiclib", "-Wl,-t"])
+                .arg("-Wl,-t")
                 .arg(directory.join("native-selection.c"));
             for search in &searches {
                 command.arg("-L").arg(search);
@@ -771,9 +798,7 @@ impl ReferenceIndex {
                     command.arg("-framework").arg(name);
                 }
             }
-            command
-                .arg("-o")
-                .arg(directory.join("native-selection.dylib"));
+            command.arg("-o").arg(directory.join(output_name));
             // All selections use the same search paths and target. A single
             // linker trace still proves each explicit name unambiguously.
             let output = crate::cli_diagnostics::tool_output(
@@ -800,11 +825,15 @@ impl ReferenceIndex {
                     .collect();
                 if selected.len() != 1 {
                     return Err(format!(
-                        "native {kind} `{name}` has {} unambiguous linker-selected inputs; target aarch64-apple-darwin",
-                        selected.len()
+                        "native {kind} `{name}` has {} unambiguous linker-selected inputs; target {}",
+                        selected.len(),
+                        toolchain.target.triple()
                     ));
                 }
-                let selected = selected.into_iter().next().unwrap();
+                let mut selected = selected.into_iter().next().unwrap();
+                if linux {
+                    selected = index.elf_link_input(selected, name, &trace, &toolchain.sysroot)?;
+                }
                 index.add_path(
                     &selected,
                     &format!("{kind}:{name}"),
@@ -848,6 +877,7 @@ impl ReferenceIndex {
         package: &ResolvedSdkPackage,
     ) -> Result<(NativeBindingPlan, BTreeMap<String, String>), String> {
         let mut selections = Vec::new();
+        let target = toolchain.target.triple();
         for signature in &source.signatures {
             let NativeBinding::Symbol(symbol) = &signature.binding else {
                 continue;
@@ -861,7 +891,7 @@ impl ReferenceIndex {
                     "duplicate definitions"
                 };
                 return Err(format!(
-                    "{}: {diagnostic} native symbol `{symbol}` for declaration `{}`; {count} definitions; explicit candidates [{}]; inputs [{}]; target aarch64-apple-darwin",
+                    "{}: {diagnostic} native symbol `{symbol}` for declaration `{}`; {count} definitions; explicit candidates [{}]; inputs [{}]; target {target}",
                     declaration_position(source, &signature.name),
                     signature.name,
                     candidates
@@ -880,7 +910,7 @@ impl ReferenceIndex {
             let definition = candidates.unwrap().values().next().unwrap();
             if !definition.executable {
                 return Err(format!(
-                    "{}: native symbol `{symbol}` is not a verified executable function: {}; target aarch64-apple-darwin",
+                    "{}: native symbol `{symbol}` is not a verified executable function: {}; target {target}",
                     declaration_position(source, &signature.name),
                     definition.identity
                 ));
@@ -888,6 +918,16 @@ impl ReferenceIndex {
             selections.push((signature, definition));
         }
         self.verify_inputs()?;
+        if toolchain.target == Target::X86_64UnknownLinuxGnu {
+            return self.bind_elf(
+                source,
+                directory,
+                toolchain,
+                provider_name,
+                package,
+                selections,
+            );
+        }
         let mut inputs = self.inputs.clone();
         let local = selections
             .iter()
@@ -1044,6 +1084,7 @@ impl ReferenceIndex {
                 image,
                 owner_path: owner.path.clone(),
                 owner_uuid: owner.uuid.clone(),
+                owner_build_id: None,
                 owner_sha256: owner.sha256.clone(),
             });
         }
@@ -1068,15 +1109,28 @@ impl ReferenceIndex {
     pub fn validate_link(&self, directory: &Path) -> Result<(), String> {
         self.verify_inputs()?;
         let toolchain = TargetClang::resolve()?;
-        let mut command = toolchain.command();
-        command
-            .args(["-dynamiclib", "-Wl,-fatal_warnings"])
-            .arg(directory.join("native-selection.c"));
+        let name = toolchain.target.shared_library_name("explicit-inputs");
+        let linux = toolchain.target == Target::X86_64UnknownLinuxGnu;
+        let mut command = if linux {
+            toolchain.shared_command(&name)
+        } else {
+            let mut command = toolchain.command();
+            command.args(["-dynamiclib", "-Wl,-fatal_warnings"]);
+            command
+        };
+        command.arg(directory.join("native-selection.c"));
         for path in &self.link_paths {
             if path.extension().is_some_and(|extension| extension == "a") {
-                command
-                    .args(["-Xlinker", "-force_load", "-Xlinker"])
-                    .arg(path);
+                if linux {
+                    command
+                        .arg("-Wl,--whole-archive")
+                        .arg(path)
+                        .arg("-Wl,--no-whole-archive");
+                } else {
+                    command
+                        .args(["-Xlinker", "-force_load", "-Xlinker"])
+                        .arg(path);
+                }
             } else {
                 command.arg(path);
             }
@@ -1084,7 +1138,7 @@ impl ReferenceIndex {
         for path in &self.runtime_paths {
             command.args(["-Xlinker", "-rpath", "-Xlinker"]).arg(path);
         }
-        let output = directory.join("explicit-inputs.dylib");
+        let output = directory.join(name);
         crate::cli_diagnostics::tool_output(
             command.arg("-o").arg(&output).output(),
             Some(&output),

@@ -6,12 +6,8 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <strings.h>
-#include <sys/acl.h>
-#include <sys/attr.h>
 #include <sys/stat.h>
-#include <sys/xattr.h>
 #include <unistd.h>
-#include <xattr_flags.h>
 
 enum WholeStep { WHOLE_OPEN, WHOLE_READ, WHOLE_WRITE, WHOLE_INSTALL, WHOLE_CLEANUP };
 enum CleanupStep { CLOSE_TEMPORARY, CLOSE_ORIGINAL, REMOVE_NAME, CLOSE_DIRECTORY, CLEANUP_COUNT };
@@ -69,33 +65,18 @@ static int32_t opened_fd(int *slot, int fd) {
 static int32_t close_fd(int *slot) {
   if (*slot < 0)
     return 0;
-  /* Darwin consumes the fd even on error. Retrying could close a reused fd. */
+  /* Retrying close could close a reused fd. */
   int32_t status = close(*slot) ? native_error() : 0;
   *slot = -1;
   rinzu_io_track_resource(true, false);
   return status;
 }
 
-static bool same_inode(const struct stat *a, const struct stat *b) {
-  return a->st_dev == b->st_dev && a->st_ino == b->st_ino && a->st_gen == b->st_gen;
-}
-
-static bool same_time(struct timespec a, struct timespec b) {
-  return a.tv_sec == b.tv_sec && a.tv_nsec == b.tv_nsec;
-}
-
-static bool same_permissions(const struct stat *a, const struct stat *b) {
-  return a->st_uid == b->st_uid && a->st_gid == b->st_gid &&
-         (a->st_mode & ACCESSPERMS) == (b->st_mode & ACCESSPERMS);
-}
-
-static bool unchanged(const struct stat *a, const struct stat *b) {
-  return same_inode(a, b) && same_permissions(a, b) && a->st_mode == b->st_mode &&
-         a->st_flags == b->st_flags && a->st_size == b->st_size &&
-         same_time(a->st_ctimespec, b->st_ctimespec) &&
-         same_time(a->st_mtimespec, b->st_mtimespec) &&
-         same_time(a->st_birthtimespec, b->st_birthtimespec);
-}
+#if defined(__linux__)
+#include "file_metadata_linux.h"
+#else
+#include "file_metadata_macos.h"
+#endif
 
 static const int regular_flags = O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK;
 
@@ -116,24 +97,20 @@ static int32_t open_input(struct WholeFile *file) {
   return S_ISREG(info.st_mode) ? 0 : RINZU_IO_REGULAR;
 }
 
-static bool protected_file(const struct stat *info) {
-  return (info->st_mode & (S_ISUID | S_ISGID)) ||
-         (info->st_flags & (UF_IMMUTABLE | SF_IMMUTABLE | UF_APPEND | SF_APPEND));
-}
-
 static int32_t inspect_destination(struct WholeFile *file) {
   struct stat entry;
   if (fstatat(file->dir_fd, file->name, &entry, AT_SYMLINK_NOFOLLOW))
     return errno == ENOENT ? 0 : native_error();
   if (!S_ISREG(entry.st_mode))
     return RINZU_IO_REGULAR;
-  if (protected_file(&entry))
-    return EPERM;
+  int32_t status = protected_status(-1, &entry);
+  if (status)
+    return status;
   int fd;
   do {
     fd = openat(file->dir_fd, file->name, regular_flags);
   } while (fd < 0 && errno == EINTR && !whole_cancelled(file));
-  int32_t status = opened_fd(&file->source_fd, fd);
+  status = opened_fd(&file->source_fd, fd);
   if (status)
     return status;
   struct stat *info = &file->source_info;
@@ -141,8 +118,9 @@ static int32_t inspect_destination(struct WholeFile *file) {
     return native_error();
   if (!S_ISREG(info->st_mode))
     return RINZU_IO_REGULAR;
-  if (protected_file(info))
-    return EPERM;
+  status = protected_status(fd, info);
+  if (status)
+    return status;
   if (!unchanged(&entry, info))
     return ESTALE;
   return 0;
@@ -178,7 +156,7 @@ static int32_t open_replacement(struct WholeFile *file) {
   file->phase = RINZU_IO_OPEN_DIRECTORY;
   int fd;
   do {
-    fd = open(file->directory, O_SEARCH | O_CLOEXEC);
+    fd = open(file->directory, directory_flags);
   } while (fd < 0 && errno == EINTR && !whole_cancelled(file));
   int32_t status = opened_fd(&file->dir_fd, fd);
   if (status || whole_cancelled(file))
@@ -246,223 +224,6 @@ static int32_t write_chunk(struct WholeFile *file) {
   return 0;
 }
 
-static const char quarantine[] = "com.apple.quarantine";
-
-struct SavedXattr {
-  struct SavedXattr *next;
-  char *name;
-  void *data;
-  size_t length;
-};
-
-struct Metadata {
-  struct SavedXattr *xattrs;
-  acl_t acl;
-  bool has_birthtime;
-  struct timespec birthtime;
-};
-
-static void free_metadata(struct Metadata *metadata) {
-  if (metadata->acl)
-    acl_free(metadata->acl);
-  while (metadata->xattrs) {
-    struct SavedXattr *attribute = metadata->xattrs;
-    metadata->xattrs = attribute->next;
-    free(attribute->name);
-    free(attribute->data);
-    free(attribute);
-  }
-}
-
-static int32_t get_acl(int fd, acl_t *acl) {
-  errno = 0;
-  *acl = acl_get_fd_np(fd, ACL_TYPE_EXTENDED);
-  return *acl || errno == ENOENT || errno == ENOTSUP ? 0 : native_error();
-}
-
-static int32_t check_acl(int fd, acl_t expected) {
-  acl_t actual;
-  int32_t status = get_acl(fd, &actual);
-  if (status || (!actual && !expected))
-    return status;
-  if (actual && expected) {
-    ssize_t size = acl_size(expected);
-    ssize_t other = acl_size(actual);
-    if (size < 0 || other < 0)
-      status = native_error();
-    else if (size != other)
-      status = ESTALE;
-    else {
-      void *a = allocate((size_t)size);
-      void *b = allocate((size_t)size);
-      if (acl_copy_ext(a, expected, size) < 0 || acl_copy_ext(b, actual, size) < 0)
-        status = native_error();
-      else if (memcmp(a, b, (size_t)size) != 0)
-        status = ESTALE;
-      free(a);
-      free(b);
-    }
-  } else {
-    status = ESTALE;
-  }
-  if (actual)
-    acl_free(actual);
-  return status;
-}
-
-static int32_t capture_birthtime(int fd, const struct stat *info, struct Metadata *metadata) {
-  struct attrlist attributes = {.bitmapcount = ATTR_BIT_MAP_COUNT,
-                                .commonattr = ATTR_CMN_RETURNED_ATTRS | ATTR_CMN_CRTIME};
-  struct {
-    uint32_t length;
-    attribute_set_t returned;
-    struct timespec time;
-  } result = {0};
-  if (fgetattrlist(fd, &attributes, &result, sizeof(result), 0)) {
-    /* stat uses zero for volumes without a recorded birth time. */
-    if (errno == ENOTSUP && same_time(info->st_birthtimespec, (struct timespec){0}))
-      return 0;
-    return native_error();
-  }
-  if (result.returned.commonattr & ATTR_CMN_CRTIME) {
-    metadata->has_birthtime = true;
-    metadata->birthtime = result.time;
-  }
-  return 0;
-}
-
-static int32_t list_xattrs(int fd, char **names, size_t *length) {
-  ssize_t size = flistxattr(fd, NULL, 0, 0);
-  if (size < 0)
-    return errno == ENOTSUP ? 0 : native_error();
-  if (!size)
-    return 0;
-  *names = allocate((size_t)size);
-  ssize_t used = flistxattr(fd, *names, (size_t)size, 0);
-  if (used < 0)
-    return native_error();
-  *length = (size_t)used;
-  return 0;
-}
-
-static bool save_xattr(const char *name) {
-  /* Quarantine is copied explicitly. Provenance is maintained by the OS. */
-  return strcmp(name, quarantine) != 0 && strcmp(name, "com.apple.provenance") != 0 &&
-         xattr_preserve_for_intent(name, XATTR_OPERATION_INTENT_SAVE);
-}
-
-static int32_t capture_xattr(int fd, const char *name, bool optional, struct Metadata *metadata) {
-  ssize_t size = fgetxattr(fd, name, NULL, 0, 0, 0);
-  if (size < 0)
-    return optional && (errno == ENOATTR || errno == ENOTSUP) ? 0 : native_error();
-  struct SavedXattr *attribute = allocate(sizeof(*attribute));
-  attribute->next = metadata->xattrs;
-  metadata->xattrs = attribute;
-  attribute->name = copy_text(name);
-  attribute->length = (size_t)size;
-  attribute->data = allocate(size ? (size_t)size : 1);
-  ssize_t received = fgetxattr(fd, name, attribute->data, (size_t)size, 0, 0);
-  return received < 0 ? native_error() : received != size ? ESTALE : 0;
-}
-
-static int32_t capture_metadata(int fd, const struct stat *info, struct Metadata *metadata) {
-  int32_t status = get_acl(fd, &metadata->acl);
-  if (!status)
-    status = capture_birthtime(fd, info, metadata);
-  char *names = NULL;
-  size_t length = 0;
-  if (!status)
-    status = list_xattrs(fd, &names, &length);
-  bool listed_quarantine = false;
-  for (size_t offset = 0; !status && offset < length;) {
-    const char *name = names + offset;
-    if (!strcmp(name, quarantine))
-      listed_quarantine = true;
-    else if (save_xattr(name))
-      status = capture_xattr(fd, name, false, metadata);
-    offset += strlen(name) + 1;
-  }
-  free(names);
-  return status ? status : capture_xattr(fd, quarantine, !listed_quarantine, metadata);
-}
-
-static int32_t apply_metadata(int fd, const struct stat *source, const struct stat *written,
-                              const struct Metadata *metadata) {
-  if ((source->st_uid != written->st_uid || source->st_gid != written->st_gid) &&
-      fchown(fd, source->st_uid, source->st_gid))
-    return native_error();
-  if (metadata->has_birthtime) {
-    struct attrlist attributes = {.bitmapcount = ATTR_BIT_MAP_COUNT, .commonattr = ATTR_CMN_CRTIME};
-    struct timespec time = metadata->birthtime;
-    if (fsetattrlist(fd, &attributes, &time, sizeof(time), 0))
-      return native_error();
-  }
-  for (const struct SavedXattr *item = metadata->xattrs; item; item = item->next)
-    if (fsetxattr(fd, item->name, item->data, item->length, 0, 0))
-      return native_error();
-
-  if (fchmod(fd, source->st_mode & ACCESSPERMS))
-    return native_error();
-  if (metadata->acl)
-    return acl_set_fd(fd, metadata->acl) ? native_error() : 0;
-  acl_t inherited;
-  int32_t status = get_acl(fd, &inherited);
-  if (inherited) {
-    acl_free(inherited);
-    if (acl_set_fd(fd, _FILESEC_REMOVE_ACL))
-      return native_error();
-  }
-  return status;
-}
-
-static int32_t check_xattrs(int fd, const struct Metadata *metadata, bool exact) {
-  size_t expected = 0;
-  bool has_quarantine = false;
-  for (const struct SavedXattr *item = metadata->xattrs; item; item = item->next) {
-    void *data = allocate(item->length ? item->length : 1);
-    ssize_t used = fgetxattr(fd, item->name, data, item->length, 0, 0);
-    int32_t status = used < 0 ? native_error()
-                     : (size_t)used != item->length || memcmp(data, item->data, item->length) != 0
-                         ? ESTALE
-                         : 0;
-    free(data);
-    if (status)
-      return status;
-    if (!strcmp(item->name, quarantine))
-      has_quarantine = true;
-    else
-      expected++;
-  }
-  if (!exact)
-    return 0;
-  if (!has_quarantine) {
-    if (fgetxattr(fd, quarantine, NULL, 0, 0, 0) >= 0)
-      return ESTALE;
-    if (errno != ENOATTR && errno != ENOTSUP)
-      return native_error();
-  }
-  char *names = NULL;
-  size_t length = 0, count = 0;
-  int32_t status = list_xattrs(fd, &names, &length);
-  for (size_t offset = 0; !status && offset < length; offset += strlen(names + offset) + 1)
-    if (save_xattr(names + offset))
-      count++;
-  free(names);
-  return status ? status : count == expected ? 0 : ESTALE;
-}
-
-static int32_t verify_metadata(int fd, const struct stat *source, const struct stat *written,
-                               const struct Metadata *metadata, struct stat *current) {
-  if (fstat(fd, current))
-    return native_error();
-  if (!same_permissions(source, current) || written->st_size != current->st_size ||
-      !same_time(written->st_mtimespec, current->st_mtimespec) ||
-      (metadata->has_birthtime && !same_time(metadata->birthtime, current->st_birthtimespec)))
-    return ESTALE;
-  int32_t status = check_acl(fd, metadata->acl);
-  return status ? status : check_xattrs(fd, metadata, false);
-}
-
 static int32_t recheck_destination(struct WholeFile *file, const struct Metadata *metadata) {
   if (file->source_fd < 0)
     return 0; /* The exclusive rename checks absence at installation. */
@@ -474,12 +235,14 @@ static int32_t recheck_destination(struct WholeFile *file, const struct Metadata
   struct stat current;
   if (fstatat(file->dir_fd, file->name, &current, AT_SYMLINK_NOFOLLOW))
     return native_error();
-  return unchanged(&file->source_info, &current) ? 0 : ESTALE;
+  if (!unchanged(&file->source_info, &current))
+    return ESTALE;
+  return protected_status(file->source_fd, &current);
 }
 
 static bool install_rejected(int32_t status) {
-  /* Darwin's documented refusals. I/O or transport failures may leave the
-     installation outcome unknown, so keep an explicit allowlist. */
+  /* These errors indicate a rejected rename. I/O or transport failures may
+     leave the installation outcome unknown. */
   switch (status) {
   case EACCES:
   case EBADF:
@@ -562,10 +325,9 @@ static int32_t install_file(struct WholeFile *file) {
                                                memory_order_acq_rel, memory_order_acquire))
     return ECANCELED;
   file->installed = RINZU_IO_INSTALLING;
-  int result =
-      file->source_fd >= 0
-          ? renameat(file->dir_fd, file->temporary, file->dir_fd, file->name)
-          : renameatx_np(file->dir_fd, file->temporary, file->dir_fd, file->name, RENAME_EXCL);
+  int result = file->source_fd >= 0
+                   ? renameat(file->dir_fd, file->temporary, file->dir_fd, file->name)
+                   : install_exclusive(file->dir_fd, file->temporary, file->name);
   if (!result) {
     file->installed = RINZU_IO_INSTALLED;
     return 0;

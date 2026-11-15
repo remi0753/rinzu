@@ -168,7 +168,7 @@ impl BackendRecord {
             stride,
             bridge,
             dispatcher,
-        ) = if target.supports_native_packages() {
+        ) = if target == rinzu_abi::target::Target::Aarch64AppleDarwin {
             (
                 rinzu_abi::CALLBACK_RULE_VERSION,
                 rinzu_abi::TEMPLATE_LAYOUT_VERSION,
@@ -179,7 +179,15 @@ impl BackendRecord {
                 "macos-runloop-v1",
             )
         } else {
-            (0, 0, 0, "0", "0", "none", "none")
+            (
+                rinzu_abi::CALLBACK_RULE_VERSION,
+                rinzu_abi::TEMPLATE_LAYOUT_VERSION,
+                rinzu_abi::CLOSED_SERVICE_REGISTRY_VERSION,
+                "4096",
+                "32",
+                "sysv-amd64-v1",
+                "none",
+            )
         };
         Self {
             native_data_contract: rinzu_abi::NATIVE_DATA_CONTRACT_VERSION,
@@ -597,25 +605,44 @@ impl SourceInterface {
             return Err("unsupported native data contract revision".into());
         }
         let mut expected = BackendRecord::for_target(target);
-        if target.supports_native_packages() {
+        if target == Target::Aarch64AppleDarwin {
             if !(1..=expected.service_registry).contains(&backend.service_registry) {
                 return Err("unsupported service registry version".into());
             }
             expected.service_registry = backend.service_registry;
-        } else if self.package.data_layout != target.llvm_data_layout()
-            || !self.types.is_empty()
-            || self.functions.iter().any(|function| {
-                function.code.is_none()
-                    || function.kind != FunctionKind::Sync
-                    || !function.callbacks.is_empty()
-                    || !function.callback_sites.is_empty()
-            })
-            || self
-                .package
-                .build_inputs
-                .contains_key(crate::native_binding::KEY)
-        {
-            return Err("Linux source packages require synchronous managed code".into());
+        } else {
+            if self.package.data_layout != target.llvm_data_layout()
+                || self
+                    .functions
+                    .iter()
+                    .any(|function| function.kind == FunctionKind::Supplant)
+            {
+                return Err("unsupported Linux source-package ABI or function kind".into());
+            }
+            // The first Linux compiler published synchronous source-only packages.
+            if backend.callback_rule == 0
+                && backend.template_layout == 0
+                && backend.service_registry == 0
+                && self.types.is_empty()
+                && self.functions.iter().all(|function| {
+                    function.code.is_some()
+                        && function.kind == FunctionKind::Sync
+                        && function.callbacks.is_empty()
+                        && function.callback_sites.is_empty()
+                })
+                && !self
+                    .package
+                    .build_inputs
+                    .contains_key(crate::native_binding::KEY)
+            {
+                expected.callback_rule = 0;
+                expected.template_layout = 0;
+                expected.service_registry = 0;
+                expected.page_size = "0".into();
+                expected.entry_stride = "0".into();
+                expected.control_stride = "0".into();
+                expected.bridge_abi = "none".into();
+            }
         }
         if backend != &expected {
             return Err("unsupported target/backend capability or template layout".into());
@@ -1404,6 +1431,9 @@ fn validate_source_descriptor_uncached(wire: &[u8]) -> Result<SourceDescriptor, 
     if let Some(plan) = crate::native_binding::NativeBindingPlan::decode(
         &descriptor.interface.package.build_inputs,
     )? {
+        if plan.target != descriptor.interface.package.target {
+            return Err("native binding target disagrees with descriptor".into());
+        }
         plan.validate_functions(&descriptor.interface.functions)?;
     }
     crate::compilation::validate(&descriptor.interface.package.build_inputs)?;

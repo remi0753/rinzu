@@ -220,6 +220,11 @@ fn deploy(package: &BuiltSourcePackage, destination: &Path) -> Result<BuiltSourc
     else {
         return Ok(package.clone());
     };
+    if plan.version == 3 {
+        // The Linux link step has already selected and sealed these ELF images
+        // under their SONAMEs with an origin-relative RUNPATH.
+        return Ok(package.clone());
+    }
     let source = package
         .descriptor
         .parent()

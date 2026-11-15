@@ -1,6 +1,6 @@
 # rinzu.http
 
-The Main-owned client uses macOS system libcurl. Create a client with `newClient()`, await `send(client, method, url, headers, body, timeoutMillis)`, and await `close(client)` in `finally`. A client handles one operation at a time and can be reused between requests.
+The Main-owned client uses system libcurl on macOS and Linux. Create a client with `newClient()`, await `send(client, method, url, headers, body, timeoutMillis)`, and await `close(client)` in `finally`. A client handles one operation at a time and can be reused between requests.
 
 `send` accepts case-sensitive HTTP method tokens up to 128 bytes. Use `header(name, text)` for a UTF-8 field value or construct a `Header` with a `ByteArray` value. Headers are ordered and may repeat. Libcurl owns request framing. `Content-Length`, `Transfer-Encoding`, `Trailer`, and `Upgrade` are reserved. `HEAD` uses an empty request body. A request or final response supports up to 64 fields and 32 KiB of header data.
 

@@ -118,6 +118,12 @@ impl CheckGraph {
                 .filter(|import| import.file.is_none())
             {
                 let name = import.path.join(".");
+                if self.target == Target::X86_64UnknownLinuxGnu && official_sdk::macos_only(&name) {
+                    return Err(import_error(
+                        import.range,
+                        format!("SDK `{name}` requires macOS"),
+                    ));
+                }
                 let extra = official_sdk::for_module(&name)
                     .map_err(|error| import_error(import.range, error))?;
                 let package = if let Some(extra) = extra {
@@ -309,7 +315,7 @@ impl CheckGraph {
                     .map_err(|e| error(e.to_string()))?;
             }
         }
-        let manifest = read_package_manifest(&root.join("rinzu.toml"), sources)?;
+        let manifest = read_package_manifest(&root.join("rinzu.toml"), sources, self.target)?;
         if manifest.name != name
             || manifest.kind != PackageKind::Sdk
             || !manifest.dependencies.is_empty()

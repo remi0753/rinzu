@@ -2,7 +2,7 @@
 
 Generated from checked public exports and captured source comments.
 
-Native execution requires macOS arm64, SDL2, and `sdl2-config`. See the [SDK ownership guide](../../sdk/sdl2/README.md).
+Native execution supports macOS arm64 and x86_64 Linux with SDL2 and `sdl2-config`. See the [SDK ownership guide](../../sdk/sdl2/README.md).
 
 Language: `rinzu-0.5` · target: `aarch64-apple-darwin` · semantics: `rinzu-language-0.5-r85`.
 

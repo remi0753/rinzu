@@ -190,19 +190,7 @@ pub fn check_input_with_sources(
             .extend(artifact.native_inputs.headers.clone());
         (CompilationMode::File, metadata, artifact, canonical)
     };
-    if requested_target == Some(Target::X86_64UnknownLinuxGnu) {
-        for package in &artifact.sdk_packages {
-            if package.manifest.native != NativeManifest::default() {
-                return Err(input_error(
-                    &entry,
-                    format!(
-                        "SDK `{}` requires native packages, unavailable on {}",
-                        package.manifest.name, options.target
-                    ),
-                ));
-            }
-        }
-    } else if options.target != crate::standard_library::TARGET
+    if requested_target.is_none()
         && artifact.sdk_packages.iter().any(|p| {
             crate::standard_library::SOURCE_PACKAGES.contains(&p.manifest.name.as_str())
                 || crate::official_sdk::registered(&p.manifest.name)

@@ -24,12 +24,19 @@ fn main() {
 }
 ```
 
-Explicitly authorize the provider for check, run, and build:
+On macOS, explicitly select the system library for each command.
 
 ```sh
 rinzu check absolute.rinzu -lSystem
 rinzu run absolute.rinzu -lSystem
 rinzu build absolute.rinzu -lSystem --output ./absolute
+```
+
+On x86_64 Linux, build against glibc and run the generated ELF.
+
+```sh
+rinzu build absolute.rinzu -lc --output ./absolute
+./absolute
 ```
 
 A caller's native scope is empty by default. Runtime or SDK dependencies do not grant direct access to their symbols. `-L` supplies search paths, `-l` selects libraries, and `--native-object` selects objects. An optional `--native-header` checks declarations; a header or search path alone grants no symbol access.
@@ -57,7 +64,7 @@ A language record passed through the native boundary is a checked call-context t
 
 ## Callbacks, ownership, and cleanup
 
-Supported call-lifetime Main callbacks can capture same-Domain class state. Function expressions can specify a checked native fallback, for example `fn(value: Int) -> Int fallback 0 { return value; }`.
+Supported call-lifetime Main callbacks can capture same-Domain class state. Function expressions can specify a checked native fallback, for example `fn(value: Int) -> Int fallback 0 { return value; }`. Linux callbacks run on the invoking native call's Owner thread. A callback from another thread without a compatible Origin fails with exit status 86.
 
 Native resource ownership includes physical thread/Owner requirements. GC does not substitute for close, finalize, or native completion. Await resource users before closing handles. Borrowed callback values must not escape their allowed lifetime.
 

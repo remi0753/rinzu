@@ -83,7 +83,7 @@ fn every_selected_source_package_is_reachable_without_manifest_dependencies() {
 }
 
 #[test]
-fn linux_process_sdk_is_selected_by_target_without_native_inputs() {
+fn linux_process_sdk_resolves_its_portable_native_inputs() {
     let scratch = Scratch::new();
     let entry = scratch.source(
         "entry.rinzu",
@@ -98,14 +98,12 @@ fn linux_process_sdk_is_selected_by_target_without_native_inputs() {
         &NativeCliInputs::default(),
     )
     .unwrap_or_else(|errors| panic!("{errors:#?}"));
-    assert_eq!(packages(&linux), ["rinzu.process"]);
+    assert_eq!(packages(&linux), ["rinzu.option", "rinzu.process"]);
     assert_eq!(
-        linux.artifact.sdk_packages[0].manifest.native,
-        Default::default()
+        linux.artifact.sdk_packages[1].manifest.native.sources.len(),
+        1
     );
     assert_eq!(packages(&check(&entry)), ["rinzu.option", "rinzu.process"]);
-    let linux_sdk = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk/process/linux");
-    assert!(check(&linux_sdk).artifact.source_interface.is_some());
 }
 
 #[test]

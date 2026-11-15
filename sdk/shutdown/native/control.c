@@ -1,4 +1,5 @@
 #include "control.h"
+#include "rinzu/thread_identity.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -55,7 +56,7 @@ static void relay(int number) {
     _exit(128 + number);
 }
 int32_t rinzu_shutdown_enable(void) {
-  if (!pthread_main_np())
+  if (!rinzu_thread_is_main())
     return -8101;
   if (enabled)
     return -8102;
@@ -83,7 +84,7 @@ int32_t rinzu_shutdown_enable(void) {
   return 0;
 }
 int32_t rinzu_shutdown_disable(void) {
-  if (!pthread_main_np())
+  if (!rinzu_thread_is_main())
     return -8101;
   if (!enabled)
     return 0;
@@ -94,7 +95,7 @@ int32_t rinzu_shutdown_disable(void) {
   return publish_status(0) ? -8105 : 0;
 }
 int32_t rinzu_shutdown_signal(void) {
-  if (!pthread_main_np())
+  if (!rinzu_thread_is_main())
     return -8101;
   return atomic_load_explicit(&requested, memory_order_relaxed);
 }

@@ -48,28 +48,33 @@ fn macos_target(version: &str) -> Result<String, String> {
     Ok(format!("arm64-apple-macos{version}"))
 }
 
-pub(crate) fn resolve_clang() -> Result<TargetClang, String> {
-    fn query(arguments: &[&str]) -> Result<String, String> {
-        let output = Command::new("xcrun")
-            .args(arguments)
-            .output()
-            .map_err(|error| format!("resolve target Clang: {error}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "resolve target Clang failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
-        }
-        String::from_utf8(output.stdout)
-            .map(|text| text.trim().to_owned())
-            .map_err(|error| error.to_string())
+fn query(arguments: &[&str]) -> Result<String, String> {
+    let output = Command::new("xcrun")
+        .args(arguments)
+        .output()
+        .map_err(|error| format!("resolve Xcode SDK input: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "resolve Xcode SDK input: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
+    String::from_utf8(output.stdout)
+        .map(|text| text.trim().to_owned())
+        .map_err(|error| error.to_string())
+}
+
+pub(crate) fn sysroot() -> Result<PathBuf, String> {
+    PathBuf::from(query(&["--sdk", "macosx", "--show-sdk-path"])?)
+        .canonicalize()
+        .map_err(|error| error.to_string())
+}
+
+pub(crate) fn resolve_clang() -> Result<TargetClang, String> {
     let executable = PathBuf::from(query(&["--sdk", "macosx", "--find", "clang"])?)
         .canonicalize()
         .map_err(|error| error.to_string())?;
-    let sysroot = PathBuf::from(query(&["--sdk", "macosx", "--show-sdk-path"])?)
-        .canonicalize()
-        .map_err(|error| error.to_string())?;
+    let sysroot = sysroot()?;
     let version = Command::new(&executable)
         .arg("--version")
         .output()

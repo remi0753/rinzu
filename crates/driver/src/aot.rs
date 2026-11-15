@@ -5,9 +5,12 @@ use std::path::{Path, PathBuf};
 use rinzu_abi::target::Target;
 use rinzu_codegen::{
     AotFunctionMetadata, BaselineAotObject, emit_baseline_aot_object_for_target,
-    emit_source_async_aot_object,
+    emit_source_async_aot_object_for_target,
 };
 use serde_json::json;
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use rinzu_codegen::emit_source_async_aot_object;
 
 mod equivalence;
 pub(crate) mod native_quality;
@@ -104,9 +107,15 @@ fn build_checked_layout(
         })?;
     let uses_source_async =
         manifest.language != "0.1" && rinzu_codegen::uses_async_runtime(&artifact.ir, target);
-    if uses_source_async && !target.supports_async_aot() {
+    if !target.supports_supplant()
+        && artifact
+            .ir
+            .source_native_signatures
+            .iter()
+            .any(|signature| signature.is_supplant)
+    {
         return Err(format!(
-            "async AOT is unavailable for {}; build a synchronous application",
+            "native supplant is unavailable for {}",
             target.triple()
         ));
     }
@@ -131,7 +140,7 @@ fn build_checked_layout(
         &native_build.directory.join("deployment"),
     )?;
     let aot = if uses_source_async {
-        emit_source_async_aot_object(&artifact.ir, "main", &native_bindings)
+        emit_source_async_aot_object_for_target(target, &artifact.ir, "main", &native_bindings)
     } else {
         emit_baseline_aot_object_for_target(target, &artifact.ir, "main", &native_bindings)
     }
@@ -278,6 +287,9 @@ fn build_checked_layout(
     // to a second copy outside the binding plan's selected image.
     if async_plan.is_some() {
         linker.arg("-pthread");
+        if target == Target::X86_64UnknownLinuxGnu {
+            linker.arg(runtime_resources.join("runtime/continuation.S"));
+        }
         if async_plan
             .as_ref()
             .is_some_and(|plan| plan.source_file_read || !plan.file_read_keys.is_empty())
@@ -298,6 +310,9 @@ fn build_checked_layout(
     }
     if target == Target::X86_64UnknownLinuxGnu {
         crate::platform::linux::link_runtime_libraries(&mut linker);
+        if !aot.native_call_plans.is_empty() {
+            linker.args(["-lcrypto", "-ldl"]);
+        }
     }
     crate::cli_diagnostics::tool_output(
         linker.arg("-o").arg(&executable).output(),
@@ -366,7 +381,7 @@ pub(crate) fn async_aot_plan(
     artifact: &rinzu_compiler::FrontendArtifact,
     aot: &BaselineAotObject,
 ) -> Result<Option<AsyncAotPlan>, String> {
-    if !main_uses_source_async(artifact) {
+    if !rinzu_codegen::uses_async_runtime(&artifact.ir, aot.target) {
         return Ok(None);
     }
     let mut workers = std::collections::BTreeMap::new();

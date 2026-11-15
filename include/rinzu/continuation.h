@@ -11,9 +11,7 @@
 /* Build-time native code, never writable executable memory. The initial
    backend preserves the target's complete nonvolatile register set. Managed
    roots are published separately; native stacks are not conservative roots. */
-#if !defined(__APPLE__) || !defined(__aarch64__)
-#error "Rinzu native continuations require the macOS arm64 backend"
-#endif
+#if defined(__APPLE__) && defined(__aarch64__)
 typedef struct {
   uint64_t x[12]; /* x19..x30, including frame pointer and return address */
   uint64_t sp, fpcr, fpsr;
@@ -55,6 +53,22 @@ __asm__(".text\n.p2align 2\n"
         "ret\n"
         "_rinzu_continuation_bootstrap:\n"
         "mov x0, x19\nblr x20\nbrk #0\n");
+static inline void rinzu_continuation_arch_check(void) {}
+static inline void rinzu_continuation_arch_init(rinzu_continuation_registers_t *registers,
+                                                void (*run)(void *), void *context) {
+  registers->x[0] = (uint64_t)(uintptr_t)context;
+  registers->x[1] = (uint64_t)(uintptr_t)run;
+  registers->x[11] = (uint64_t)(uintptr_t)rinzu_continuation_bootstrap;
+  __asm__ volatile("mrs %0, fpcr" : "=r"(registers->fpcr));
+  __asm__ volatile("mrs %0, fpsr" : "=r"(registers->fpsr));
+}
+#elif defined(__linux__) && defined(__x86_64__)
+#include "rinzu/arch/x86_64/continuation.h"
+void rinzu_continuation_switch(rinzu_continuation_registers_t *,
+                               const rinzu_continuation_registers_t *);
+#else
+#error "unsupported native continuation target"
+#endif
 
 typedef struct rinzu_continuation_stack {
   struct rinzu_continuation_stack *next;
@@ -86,6 +100,7 @@ static inline void rinzu_continuation_owner(const rinzu_continuation_t *continua
     rinzu_failure_fatal();
 }
 static inline void rinzu_continuation_init_root(rinzu_continuation_t *root) {
+  rinzu_continuation_arch_check();
   memset(root, 0, sizeof(*root));
   root->owner = pthread_self();
   root->running = 1;
@@ -154,11 +169,7 @@ static inline void rinzu_continuation_init(rinzu_continuation_t *continuation, s
   continuation->body = body;
   continuation->argument = argument;
   continuation->accounting = accounting;
-  continuation->registers.x[0] = (uint64_t)(uintptr_t)continuation;
-  continuation->registers.x[1] = (uint64_t)(uintptr_t)rinzu_continuation_run;
-  continuation->registers.x[11] = (uint64_t)(uintptr_t)rinzu_continuation_bootstrap;
-  __asm__ volatile("mrs %0, fpcr" : "=r"(continuation->registers.fpcr));
-  __asm__ volatile("mrs %0, fpsr" : "=r"(continuation->registers.fpsr));
+  rinzu_continuation_arch_init(&continuation->registers, rinzu_continuation_run, continuation);
   accounting->live += 1;
   if (accounting->live > accounting->peak_live)
     accounting->peak_live = accounting->live;

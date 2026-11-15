@@ -1,4 +1,4 @@
-/* Bounded macOS TCP transport. Source wrapper/standard registry: M5.12-8. */
+/* Bounded TCP transport. Source wrapper/standard registry: M5.12-8. */
 #include "rinzu_socket.h"
 #include "rinzu/native_completion.h"
 #include "rinzu/native_read_view.h"
@@ -8,10 +8,19 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/event.h>
 #include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
+#if defined(__linux__)
+#include <sys/epoll.h>
+#include <sys/eventfd.h>
+typedef struct epoll_event ReadinessEvent;
+#define SEND_FLAGS MSG_NOSIGNAL
+#else
+#include <sys/event.h>
+typedef struct kevent ReadinessEvent;
+#define SEND_FLAGS 0
+#endif
 
 enum {
   HANDLES = 256,
@@ -53,6 +62,9 @@ struct Handle {
   int fd;
   bool listener, closing, eof, send_closed;
   unsigned refs, reads, writes;
+#if defined(__linux__)
+  uintptr_t readiness, ready_read, ready_write;
+#endif
 };
 struct Operation {
   rinzu_native_completion_v2_t completion;
@@ -243,21 +255,12 @@ static int check(struct Handle *h, bool listener) {
     return -7504;
   return 0;
 }
-static int filter(enum Kind kind) {
-  return kind == READ || kind == ACCEPT ? EVFILT_READ : EVFILT_WRITE;
-}
-static void unregister(struct Operation *op) {
-  if (!op->registered)
-    return;
-  if (!op->handle)
-    fatal();
-  struct kevent event;
-  EV_SET(&event, op->handle->fd, filter(op->kind), EV_DELETE, 0, 0, NULL);
-  ++kevent_calls;
-  if (kevent(queue_fd, &event, 1, NULL, 0, NULL) < 0 && errno != ENOENT && errno != EBADF)
-    fatal();
-  op->registered = false;
-}
+static void publish(struct Operation *op, int32_t status);
+#if defined(__linux__)
+#include "readiness_linux.h"
+#else
+#include "readiness_macos.h"
+#endif
 static void flush_completion_wake(struct CompletionWakeBatch *batch) {
   rinzu_native_completion_wake_t *target = batch->target;
   batch->target = NULL;
@@ -295,16 +298,6 @@ static void publish(struct Operation *op, int32_t status) {
     batch->target = target;
   }
 }
-static void arm(struct Operation *op) {
-  struct kevent event;
-  EV_SET(&event, op->handle->fd, filter(op->kind), EV_ADD | EV_ENABLE | EV_ONESHOT, 0, 0,
-         (void *)op->id);
-  ++kevent_calls;
-  if (kevent(queue_fd, &event, 1, NULL, 0, NULL) < 0)
-    publish(op, failure());
-  else
-    op->registered = true;
-}
 static void close_handle(struct Handle *h) {
   h->closing = true;
   bitmap_remove(closing_handles, (size_t)(h - handles));
@@ -322,10 +315,13 @@ static void close_handle(struct Handle *h) {
   release_handle(h);
 }
 static int configure(int fd) {
-  int one = 1;
-  if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0 || fcntl(fd, F_SETFD, FD_CLOEXEC) < 0 ||
-      setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one)) < 0)
+  if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0 || fcntl(fd, F_SETFD, FD_CLOEXEC) < 0)
     return failure();
+#ifdef SO_NOSIGPIPE
+  int one = 1;
+  if (setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one)) < 0)
+    return failure();
+#endif
 #ifdef RINZU_SOCKET_TEST_BUFFERS
   int buffer = 4096;
   if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &buffer, sizeof(buffer)) < 0 ||
@@ -357,14 +353,14 @@ static ssize_t data_io(struct Operation *op, bool writing, bool owner) {
   if (owner) {
     if (worker_data_io)
       fatal();
-    return writing ? send(fd, buffer, count, 0) : recv(fd, buffer, count, 0);
+    return writing ? send(fd, buffer, count, SEND_FLAGS) : recv(fd, buffer, count, 0);
   }
   if (worker_data_io)
     fatal();
   worker_data_io = true;
   pthread_mutex_unlock(&lock);
   RINZU_SOCKET_DATA_IO_STAGE(op, 0);
-  ssize_t n = writing ? send(fd, buffer, count, 0) : recv(fd, buffer, count, 0);
+  ssize_t n = writing ? send(fd, buffer, count, SEND_FLAGS) : recv(fd, buffer, count, 0);
   int error = n < 0 ? errno : 0;
   RINZU_SOCKET_DATA_IO_STAGE(op, 1);
   pthread_mutex_lock(&lock);
@@ -563,29 +559,6 @@ static void advance(struct Operation *op, struct Budget *budget, bool owner) {
   else if (value)
     request_close(value);
 }
-/* Validate immutable operation identity before touching a reused slot/descriptor. */
-static void observe_event(const struct kevent *event) {
-  if (event->filter == EVFILT_USER) {
-    /* The SDK lock orders receipt against every producer. Work enqueued
-       before this receipt is visible to the next advance pass; a producer
-       after it must publish a fresh notification. Other user IDs are not ours. */
-    if (event->ident == 1)
-      wake_pending = false;
-    return;
-  }
-  ++event_count;
-  uintptr_t id = (uintptr_t)event->udata;
-  struct Operation *found = lookup_operation(id);
-  if (!found || found->ready || found->handle->fd != (int)event->ident ||
-      filter(found->kind) != event->filter) {
-    ++stale_events;
-    return;
-  }
-  found->registered = false;
-  found->attempt = true;
-  if (event->flags & EV_ERROR)
-    publish(found, (int32_t)event->data);
-}
 static void advance_range(size_t start, size_t end, struct Budget *budget) {
   for (size_t index = bitmap_next(pending_operations, start, end); index < end;
        index = bitmap_next(pending_operations, index + 1, end))
@@ -595,13 +568,13 @@ static void *drive(void *unused) {
   (void)unused;
   struct CompletionWakeBatch completions = {0};
   completion_batch = &completions;
-  struct kevent events[64];
+  ReadinessEvent events[64];
   int count = -1;
   pthread_mutex_lock(&lock);
   for (;;) {
     polling_with_timeout = false;
     if (count >= 0) {
-      ++kevent_calls;
+      readiness_waited();
       if (!count)
         ++poll_timeouts;
       for (int i = 0; i < count; ++i)
@@ -628,8 +601,7 @@ static void *drive(void *unused) {
     flush_completion_wake(&completions);
     if (stop)
       break;
-    struct timespec timeout = {0, runnable ? 0 : 10000000};
-    count = kevent(queue_fd, NULL, 0, events, 64, pending ? &timeout : NULL);
+    count = readiness_wait(events, 64, pending ? (runnable ? 0 : 10) : -1);
     if (count < 0 && errno != EINTR)
       fatal();
     pthread_mutex_lock(&lock);
@@ -645,25 +617,12 @@ static void wake(void) {
     return;
   wake_pending = true;
   ++user_wakes;
-  struct kevent event;
-  EV_SET(&event, 1, EVFILT_USER, 0, NOTE_TRIGGER, 0, NULL);
-  ++kevent_calls;
-  if (kevent(queue_fd, &event, 1, NULL, 0, NULL) < 0)
-    fatal();
+  readiness_signal();
 }
 static void start(void) {
   if (running)
     return;
-  queue_fd = kqueue();
-  if (queue_fd < 0)
-    fatal();
-  if (fcntl(queue_fd, F_SETFD, FD_CLOEXEC) < 0)
-    fatal();
-  struct kevent event;
-  EV_SET(&event, 1, EVFILT_USER, EV_ADD | EV_CLEAR, 0, 0, NULL);
-  ++kevent_calls;
-  if (kevent(queue_fd, &event, 1, NULL, 0, NULL) < 0)
-    fatal();
+  readiness_open();
   running = true;
   stopping = false;
   wake_pending = false;
@@ -726,7 +685,9 @@ static int parse_address(const char *host, int32_t port, bool connecting,
   if (port < (connecting ? 1 : 0) || port > 65535 || !host || !*host)
     return -7504;
   memset(address, 0, sizeof(*address));
+#ifdef __APPLE__
   address->sin_len = sizeof(*address);
+#endif
   address->sin_family = AF_INET;
   address->sin_port = htons((uint16_t)port);
   return inet_pton(AF_INET, host, &address->sin_addr) == 1 ? 0 : -7506;
@@ -801,7 +762,7 @@ static bool try_write(struct Handle *h, const uint8_t *data, size_t size, bool a
   if (!size)
     return true;
   ++write_calls;
-  ssize_t n = send(h->fd, data, size, 0);
+  ssize_t n = send(h->fd, data, size, SEND_FLAGS);
   if (n > 0) {
     attempt->length = (size_t)n;
     sent_bytes += (size_t)n;
@@ -1288,8 +1249,7 @@ static void stop_if_idle(void) {
   if (pthread_join(worker, NULL))
     fatal();
   pthread_mutex_lock(&lock);
-  (void)close(queue_fd);
-  queue_fd = -1;
+  readiness_close();
   running = stopping = false;
 }
 void rinzu_socket_end_ready_read(int64_t id, bool delivered) {
@@ -1392,8 +1352,7 @@ bool rinzu_socket_join_idle(void) {
   if (pthread_join(worker, NULL))
     fatal();
   pthread_mutex_lock(&lock);
-  (void)close(queue_fd);
-  queue_fd = -1;
+  readiness_close();
   running = stopping = false;
   pthread_mutex_unlock(&lock);
   return true;

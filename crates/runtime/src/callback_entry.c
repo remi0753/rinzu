@@ -2,19 +2,27 @@
 #include "rinzu/foreign_queue.h"
 #include "rinzu/native_diagnostics.h"
 #include "rinzu/ready_work.h"
-#include <mach/mach.h>
-#include <mach/mach_vm.h>
 #include "rinzu/thread_identity.h"
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-enum {
-  RINZU_CALLBACK_PAGE = 16384,
-  RINZU_CALLBACK_STRIDE = 32,
-  RINZU_CALLBACK_SLOTS = RINZU_CALLBACK_PAGE / RINZU_CALLBACK_STRIDE
-};
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
+#define RINZU_CALLBACK_PAGE 16384
+#define RINZU_CALLBACK_STRIDE 32
+#define RINZU_CALLBACK_INTEGER_REGISTERS 8
+#elif defined(__linux__) && defined(__x86_64__)
+#include "rinzu/arch/x86_64/callback.h"
+#include <errno.h>
+#include <sys/mman.h>
+#else
+#error "unsupported callback backend"
+#endif
+
+enum { RINZU_CALLBACK_SLOTS = RINZU_CALLBACK_PAGE / RINZU_CALLBACK_STRIDE };
 extern const unsigned char rinzu_callback_template[], rinzu_callback_template_end[];
 extern void rinzu_callback_pointer_u64_bridge(void);
 extern void rinzu_callback_frame_bridge(void);
@@ -24,7 +32,7 @@ typedef struct {
   uintptr_t reserved[2];
 } Slot;
 typedef struct Block {
-  mach_vm_address_t base;
+  uintptr_t base;
   size_t used;
   struct Block *next;
 } Block;
@@ -98,17 +106,12 @@ static void *allocate(size_t size) {
     _Exit(71);
   return memory;
 }
+#if defined(__APPLE__)
 static void vm_check(kern_return_t result) {
   if (result != KERN_SUCCESS)
     _Exit(result == KERN_RESOURCE_SHORTAGE || result == KERN_NO_SPACE ? 71 : 78);
 }
-static Block *grow(void) {
-  if (getpagesize() != RINZU_CALLBACK_PAGE ||
-      (uintptr_t)rinzu_callback_template % RINZU_CALLBACK_PAGE ||
-      (uintptr_t)rinzu_callback_template_end - (uintptr_t)rinzu_callback_template !=
-          RINZU_CALLBACK_PAGE)
-    _Exit(78);
-  Block *block = allocate(sizeof(*block));
+static uintptr_t map_block(void) {
 #ifdef RINZU_CALLBACK_TESTING
   if (mapping_failure)
     vm_check(mapping_failure == 1 ? KERN_RESOURCE_SHORTAGE : KERN_PROTECTION_FAILURE);
@@ -120,22 +123,23 @@ static Block *grow(void) {
     merged_control_region = 0;
   }
 #endif
-  vm_check(mach_vm_allocate(mach_task_self(), &block->base, RINZU_CALLBACK_PAGE * 2 + prefix,
+  mach_vm_address_t base;
+  vm_check(mach_vm_allocate(mach_task_self(), &base, RINZU_CALLBACK_PAGE * 2 + prefix,
                             VM_FLAGS_ANYWHERE));
-  block->base += prefix;
-  mach_vm_address_t target = block->base + RINZU_CALLBACK_PAGE;
+  base += prefix;
+  mach_vm_address_t target = base + RINZU_CALLBACK_PAGE;
   vm_prot_t current, maximum;
   vm_check(mach_vm_remap(mach_task_self(), &target, RINZU_CALLBACK_PAGE, 0,
                          VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE, mach_task_self(),
                          (mach_vm_address_t)rinzu_callback_template, FALSE, &current, &maximum,
                          VM_INHERIT_NONE));
-  if (target != block->base + RINZU_CALLBACK_PAGE ||
+  if (target != base + RINZU_CALLBACK_PAGE ||
       (current & (VM_PROT_READ | VM_PROT_EXECUTE)) != (VM_PROT_READ | VM_PROT_EXECUTE) ||
       (current & VM_PROT_WRITE))
     _Exit(78);
-  vm_check(mach_vm_protect(mach_task_self(), block->base, RINZU_CALLBACK_PAGE, FALSE,
+  vm_check(mach_vm_protect(mach_task_self(), base, RINZU_CALLBACK_PAGE, FALSE,
                            VM_PROT_READ | VM_PROT_WRITE));
-  mach_vm_address_t region = block->base;
+  mach_vm_address_t region = base;
   mach_vm_size_t size = 0;
   vm_region_basic_info_data_64_t info;
   mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
@@ -144,12 +148,39 @@ static Block *grow(void) {
                           (vm_region_info_t)&info, &count, &object));
   /* Mach may coalesce adjacent RW allocations. Validate that the entire
      control page lies in the reported RW region without adding addresses. */
-  if (region > block->base || size < RINZU_CALLBACK_PAGE ||
-      block->base - region > size - RINZU_CALLBACK_PAGE ||
+  if (region > base || size < RINZU_CALLBACK_PAGE || base - region > size - RINZU_CALLBACK_PAGE ||
       info.protection != (VM_PROT_READ | VM_PROT_WRITE))
     _Exit(78);
   if (object != MACH_PORT_NULL)
     vm_check(mach_port_deallocate(mach_task_self(), object));
+  return base;
+}
+#else
+static uintptr_t map_block(void) {
+#ifdef RINZU_CALLBACK_TESTING
+  if (mapping_failure)
+    _Exit(mapping_failure == 1 ? 71 : 78);
+#endif
+  unsigned char *base =
+      mmap(NULL, RINZU_CALLBACK_PAGE * 2, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+  if (base == MAP_FAILED)
+    _Exit(errno == ENOMEM ? 71 : 78);
+  unsigned char *entries = base + RINZU_CALLBACK_PAGE;
+  memcpy(entries, rinzu_callback_template, RINZU_CALLBACK_PAGE);
+  if (mprotect(entries, RINZU_CALLBACK_PAGE, PROT_READ | PROT_EXEC))
+    _Exit(errno == ENOMEM ? 71 : 78);
+  return (uintptr_t)base;
+}
+#endif
+
+static Block *grow(void) {
+  if (sysconf(_SC_PAGESIZE) != RINZU_CALLBACK_PAGE ||
+      (uintptr_t)rinzu_callback_template % RINZU_CALLBACK_PAGE ||
+      (uintptr_t)rinzu_callback_template_end - (uintptr_t)rinzu_callback_template !=
+          RINZU_CALLBACK_PAGE)
+    _Exit(78);
+  Block *block = allocate(sizeof(*block));
+  block->base = map_block();
   block->next = blocks;
   blocks = block;
   block_count++;
@@ -541,8 +572,8 @@ uint64_t rinzu_callback_frame_dispatch(rinzu_callback_control_t *control,
 }
 uint64_t rinzu_callback_frame_word(const rinzu_callback_frame_t *frame,
                                    rinzu_callback_abi_cursor_t *cursor, unsigned kind) {
-  if (!frame || !cursor || kind > RINZU_CALLBACK_POINTER || cursor->integers > 8 ||
-      cursor->floats > 8)
+  if (!frame || !cursor || kind > RINZU_CALLBACK_POINTER ||
+      cursor->integers > RINZU_CALLBACK_INTEGER_REGISTERS || cursor->floats > 8)
     _Exit(86);
   static const unsigned widths[] = {1, 2, 4, 8, 1, 2, 4, 8, 4, 8, 1, 8};
   unsigned width = widths[kind];
@@ -550,18 +581,24 @@ uint64_t rinzu_callback_frame_word(const rinzu_callback_frame_t *frame,
   uint64_t bits = 0;
   if (floating && cursor->floats < 8)
     bits = frame->floats[cursor->floats++];
-  else if (!floating && cursor->integers < 8)
+  else if (!floating && cursor->integers < RINZU_CALLBACK_INTEGER_REGISTERS)
     bits = frame->integers[cursor->integers++];
   else {
     if (!frame->stack)
       _Exit(86);
+#ifdef __linux__
+    size_t offset = cursor->stack;
+    size_t size = sizeof(uint64_t);
+#else
     if (cursor->stack > SIZE_MAX - (width - 1))
       _Exit(71);
     size_t offset = (cursor->stack + width - 1) & ~((size_t)width - 1);
-    if (offset > SIZE_MAX - width)
+    size_t size = width;
+#endif
+    if (offset > SIZE_MAX - size)
       _Exit(71);
     memcpy(&bits, frame->stack + offset, width);
-    cursor->stack = offset + width;
+    cursor->stack = offset + size;
   }
   switch (kind) {
   case 0:

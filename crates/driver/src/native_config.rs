@@ -19,9 +19,21 @@ pub fn resolve(tool: &str) -> Result<ConfigToolOutput, String> {
         .canonicalize()
         .map_err(|error| format!("resolve config tool: {error}"))?;
     let prefix_text = run(&executable, "--prefix")?;
-    let prefix = PathBuf::from(prefix_text.trim());
+    let mut prefix = PathBuf::from(prefix_text.trim());
     if !prefix.is_absolute() || prefix.parent().is_none() {
         return Err("config tool prefix must be an absolute installation directory".to_owned());
+    }
+    let sysroot = if cfg!(target_os = "linux") {
+        crate::platform::linux::sysroot()?
+    } else {
+        crate::platform::macos::sysroot()?
+    };
+    let staged = cfg!(target_os = "linux")
+        && sysroot != Path::new("/")
+        && executable.starts_with(&sysroot)
+        && !prefix.starts_with(&sysroot);
+    if staged {
+        prefix = sysroot.join(prefix.strip_prefix("/").unwrap());
     }
     let prefix = prefix
         .canonicalize()
@@ -29,21 +41,18 @@ pub fn resolve(tool: &str) -> Result<ConfigToolOutput, String> {
     if !prefix.is_dir() || !executable.starts_with(&prefix) {
         return Err("config tool is outside its reported installation prefix".to_owned());
     }
-    let output = Command::new("xcrun")
-        .args(["--sdk", "macosx", "--show-sdk-path"])
-        .output()
-        .map_err(|error| format!("read target sysroot: {error}"))?;
-    if !output.status.success() {
-        return Err("cannot resolve target toolchain sysroot".to_owned());
-    }
-    let sysroot_text = String::from_utf8(output.stdout).map_err(|error| error.to_string())?;
-    let sysroot = Path::new(sysroot_text.trim())
-        .canonicalize()
-        .map_err(|error| format!("resolve target sysroot: {error}"))?;
     let cflags = run(&executable, "--cflags")?;
     let libraries = run(&executable, "--libs")?;
-    let mut flags = parse_flags(&cflags, &[&prefix, &sysroot])?;
-    flags.extend(parse_flags(&libraries, &[&prefix, &sysroot])?);
+    let mut trusted_roots = vec![prefix.as_path()];
+    if sysroot != Path::new("/") {
+        trusted_roots.push(&sysroot);
+    }
+    let mut flags = parse_flags(&cflags, &trusted_roots, staged.then_some(&sysroot))?;
+    flags.extend(parse_flags(
+        &libraries,
+        &trusted_roots,
+        staged.then_some(&sysroot),
+    )?);
     let digest = rinzu_bindgen::source_package::sha256(
         &std::fs::read(&executable).map_err(|error| error.to_string())?,
     );
@@ -79,7 +88,11 @@ fn run(executable: &Path, mode: &str) -> Result<String, String> {
         .map_err(|error| format!("config tool output is not UTF-8: {error}"))
 }
 
-pub fn parse_flags(output: &str, trusted_roots: &[&Path]) -> Result<Vec<String>, String> {
+fn parse_flags(
+    output: &str,
+    trusted_roots: &[&Path],
+    staged: Option<&Path>,
+) -> Result<Vec<String>, String> {
     if output.chars().any(|ch| "$`\\\"';|&".contains(ch)) {
         return Err("config output contains shell syntax".to_owned());
     }
@@ -107,7 +120,12 @@ pub fn parse_flags(output: &str, trusted_roots: &[&Path]) -> Result<Vec<String>,
             if !path.is_absolute() {
                 return Err("config input paths must be absolute".to_owned());
             }
-            let canonical = path
+            let staged_path = staged
+                .filter(|root| !path.starts_with(root))
+                .map(|root| root.join(path.strip_prefix("/").unwrap()));
+            let canonical = staged_path
+                .as_deref()
+                .unwrap_or(path)
                 .canonicalize()
                 .map_err(|error| format!("resolve config path `{value}`: {error}"))?;
             if !canonical.is_dir() || !trusted_roots.iter().any(|root| canonical.starts_with(root))
@@ -163,7 +181,7 @@ mod tests {
             root.display(),
             root.display()
         );
-        assert!(parse_flags(&allowed, &[&root]).is_ok());
+        assert!(parse_flags(&allowed, &[&root], None).is_ok());
         for output in [
             "-Wl,-rpath,/tmp",
             "-Xclang plugin",
@@ -176,13 +194,21 @@ mod tests {
             "-I/tmp",
             "-Irelative",
         ] {
-            assert!(parse_flags(output, &[&root]).is_err(), "accepted {output}");
+            assert!(
+                parse_flags(output, &[&root], None).is_err(),
+                "accepted {output}"
+            );
         }
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink(std::env::temp_dir(), root.join("outside")).unwrap();
             assert!(
-                parse_flags(&format!("-I{}", root.join("outside").display()), &[&root]).is_err()
+                parse_flags(
+                    &format!("-I{}", root.join("outside").display()),
+                    &[&root],
+                    None
+                )
+                .is_err()
             );
         }
         std::fs::remove_dir_all(root).unwrap();

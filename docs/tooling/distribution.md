@@ -14,7 +14,7 @@ The build command accepts an explicit `.rinzu` entry file and compiles without e
 
 An executable can have `.source-packages`, `.resources`, and native library sidecars. Move these with the executable and preserve their relative layout. Do not copy only the executable when a build generated companions.
 
-Custom dylib load/re-export dependencies are bundled and use relative loader paths. Startup validates selected native images, descriptors, hashes, UUIDs, and ABI context. Source directories and SDK caches are not required at application runtime, but native OS image compatibility still applies. Building on one macOS version does not establish compatibility with arbitrary other OS builds.
+On macOS, custom dylib load/re-export dependencies are bundled with relative loader paths. On Linux, explicitly selected custom ELF shared libraries travel with the source packages under their SONAME. Linux startup checks ELF build IDs, SHA-256 hashes, and symbol ownership. macOS startup uses Mach-O UUIDs for image identity. Source directories and SDK caches are unnecessary at runtime. Both platforms require compatible system libraries.
 
 After changing toolchain, ABI, or source packages, rebuild generated artifacts and refresh intended package locks. Current source-package descriptors are version 2.6, and the checked SDK cache format is v4. API snapshots use v4 to describe private storage, generic method owners, interfaces and Error contracts; regenerate older snapshots before treating an API comparison as definitive.
 
@@ -53,9 +53,9 @@ See [macOS applications](../libraries/macos.md) for SDK resource paths.
 rinzu toolchain-bundle --output ./rinzu-toolchain
 ```
 
-On macOS arm64, choose a new directory whose parent exists. The bundle contains `bin/rinzu`, `bundle.json`, and the standard resources and official SDKs under `share/rinzu`. Keep the directory together when relocating or installing read-only. Generated caches remain user-writable outside the installation.
+On macOS arm64 or x86_64 Linux, choose a new directory whose parent exists. The bundle contains `bin/rinzu`, `bundle.json`, and the standard resources and official SDKs for the host under `share/rinzu`. Keep the directory together when relocating or installing read-only. Generated caches remain user-writable outside the installation.
 
-The bundled executable resolves official SDKs such as `rinzu.codec` and `rinzu.sqlite` from source imports. It checks that the installation catalog matches its release and verifies inputs for each SDK it uses. Use `rinzu doctor --sdk rinzu.sdl2` to check the installed catalog and SDL2 configuration. Native SDK builds use the local macOS toolchain.
+The bundled executable resolves official SDKs such as `rinzu.codec` and `rinzu.sqlite` from source imports. It checks that the installation catalog matches its release and target, and verifies inputs for each SDK it uses. Use `rinzu doctor --sdk rinzu.sdl2` to check the installed catalog and SDL2 configuration. Native SDK builds use the local development toolchain. Linux bundles include codec, log, SQLite, and SDL2. The macOS bundle also includes `rinzu.macos`.
 
 For a tagged release, build from the tagged source with the lockfile and record the source commit in the bundle.
 

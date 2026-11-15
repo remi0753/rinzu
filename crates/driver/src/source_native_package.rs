@@ -1,5 +1,6 @@
 use crate::native_clang::TargetClang;
 use crate::native_contract::validate_package_with_toolchain;
+use rinzu_abi::target::Target;
 use rinzu_bindgen::source_package::{SourceInterface, generate_source_package, sha256};
 use rinzu_codegen::source_package::SourcePackageArtifact;
 use rinzu_compiler::ast::NativeBinding;
@@ -120,15 +121,14 @@ pub fn build_with_mode(
         .source
         .as_ref()
         .ok_or("source SDK interface is missing")?;
-    if rinzu_abi::target::Target::host().is_some_and(|target| !target.supports_native_packages())
-        && (package.manifest.native != rinzu_compiler::NativeManifest::default()
-            || !inputs.is_empty()
-            || !source.signatures.is_empty()
-            || !source.native_records.is_empty()
-            || source.types.values().any(|schema| schema.kind == "opaque"))
+    if Target::host().is_some_and(|target| !target.supports_supplant())
+        && source
+            .signatures
+            .iter()
+            .any(|signature| signature.is_supplant)
     {
         return Err(format!(
-            "native package `{}` is unavailable for {}",
+            "native supplant in package `{}` is unavailable for {}",
             package.manifest.name,
             rinzu_runtime::current_target()
         ));
@@ -143,6 +143,7 @@ pub fn build_with_mode(
     input_snapshot.native(&package.manifest, inputs)?;
     crate::native_binding::validate_signatures(source)?;
     let toolchain = TargetClang::resolve()?;
+    let linux = toolchain.target == Target::X86_64UnknownLinuxGnu;
     let contract =
         validate_package_with_toolchain(&package.manifest, source, directory, &toolchain)?;
     let mut interface = interface::build(package, source, &contract, application_root, inputs)?;
@@ -245,7 +246,8 @@ pub fn build_with_mode(
     let mut native_digests = BTreeMap::new();
     let mut reference_inputs = None;
     let mut consumption = crate::native_consumption::prepare(package);
-    let analyze_consumption = crate::native_consumption::supported(package, &mut consumption);
+    let analyze_consumption =
+        !linux && crate::native_consumption::supported(package, &mut consumption);
     if has_native {
         for (index, source_path) in package.manifest.native.sources.iter().enumerate() {
             let output = directory.join(format!("source-{index}.o"));
@@ -270,6 +272,9 @@ pub fn build_with_mode(
                 ])
                 .arg(&dependencies);
             command.args(source_language_flags(source_path));
+            if linux {
+                command.arg("-fPIC");
+            }
             add_package_flags(&mut command, package, false)?;
             if package.manifest.native.headers.is_empty() {
                 command.arg("-include").arg(&native_contract_path);
@@ -336,10 +341,10 @@ pub fn build_with_mode(
         }
     }
     if has_native {
-        let provider_name = format!(
-            "provider-{}.dylib",
+        let provider_name = toolchain.target.shared_library_name(&format!(
+            "provider-{}",
             &sha256(package.manifest.name.as_bytes())[..24]
-        );
+        ));
         let index = crate::native_binding::ReferenceIndex::prepare(
             package,
             application_root,
@@ -373,8 +378,9 @@ pub fn build_with_mode(
             .bind(source, directory, &toolchain, &provider_name, package)
             .map_err(|error| {
                 format!(
-                    "native scope `{}` / target aarch64-apple-darwin / declarations [{}]: {error}",
+                    "native scope `{}` / target {} / declarations [{}]: {error}",
                     package.manifest.name,
+                    toolchain.target.triple(),
                     source
                         .signatures
                         .iter()
@@ -442,10 +448,10 @@ pub fn build_with_mode(
         None
     };
     if let Some((cache, key)) = &completed_cache {
-        let library_name = format!(
-            "source-{}.dylib",
+        let library_name = toolchain.target.shared_library_name(&format!(
+            "source-{}",
             &sha256(package.manifest.name.as_bytes())[..24]
-        );
+        ));
         let mut names: BTreeSet<String> = [
             "source-package-v2.json",
             "source-package.h",
@@ -535,14 +541,13 @@ pub fn build_with_mode(
     let mut cache_hit = false;
     let mut pending_cache = None;
     let library = if has_native {
-        let library_name = format!(
-            "source-{}.dylib",
+        let library_name = toolchain.target.shared_library_name(&format!(
+            "source-{}",
             &sha256(package.manifest.name.as_bytes())[..24]
-        );
+        ));
         let library = directory.join(&library_name);
-        let mut command = toolchain.command();
+        let mut command = toolchain.shared_command(&library_name);
         command.args([
-            "-dynamiclib",
             "-O2",
             "-Wall",
             "-Wextra",
@@ -553,9 +558,6 @@ pub fn build_with_mode(
             "-fno-builtin",
             "-fno-lto",
         ]);
-        command
-            .arg("-install_name")
-            .arg(format!("@rpath/{library_name}"));
         command
             .arg("-I")
             .arg(rinzu_compiler::standard_library::resource_root()?.join("include"));
@@ -608,12 +610,14 @@ pub fn build_with_mode(
                     .filter_map(|path| application_root.join(path).parent().map(Path::to_path_buf)),
             )
             .collect();
-        for path in runtime_paths {
-            command
-                .arg("-Xlinker")
-                .arg("-rpath")
-                .arg("-Xlinker")
-                .arg(path);
+        if !linux {
+            for path in runtime_paths {
+                command
+                    .arg("-Xlinker")
+                    .arg("-rpath")
+                    .arg("-Xlinker")
+                    .arg(path);
+            }
         }
         command.arg("-o").arg(&library);
         let first_link = crate::cli_diagnostics::tool_output(

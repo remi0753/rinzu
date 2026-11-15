@@ -165,6 +165,16 @@ pub fn load_manifest(path: &Path) -> Result<Manifest, ManifestError> {
 }
 
 pub fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, ManifestError> {
+    load_manifest_text_for_target(path, text, Some(crate::standard_library::host_target()))
+}
+
+/// An absent target includes all platform inputs when checking an archive.
+pub(crate) fn load_manifest_text_for_target(
+    path: &Path,
+    text: &str,
+    target: Option<rinzu_abi::target::Target>,
+) -> Result<Manifest, ManifestError> {
+    use rinzu_abi::target::Target;
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let sections = parse_sections(path, text)?;
     let package = &sections
@@ -223,6 +233,8 @@ pub fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, ManifestE
             "dependencies",
             "exports",
             "native",
+            "native.platform.macos",
+            "native.platform.linux",
             "toolchain",
             "requires",
         ]
@@ -348,111 +360,42 @@ pub fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, ManifestE
         }
     }
 
-    let native = if let Some(section) = sections.get("native") {
-        let values = &section.entries;
-        reject_unknown_keys(
-            path,
-            "native",
-            values,
-            &[
-                "sources",
-                "headers",
-                "objects",
-                "include-dirs",
-                "search-paths",
-                "frameworks",
-                "libraries",
-                "config-tools",
-            ],
-        )?;
-        NativeManifest {
-            sources: optional_array(values, "sources", path)?
-                .unwrap_or_default()
-                .into_iter()
-                .map(PathBuf::from)
-                .collect(),
-            headers: optional_array(values, "headers", path)?
-                .unwrap_or_default()
-                .into_iter()
-                .map(PathBuf::from)
-                .collect(),
-            objects: optional_array(values, "objects", path)?
-                .unwrap_or_default()
-                .into_iter()
-                .map(PathBuf::from)
-                .collect(),
-            include_dirs: optional_array(values, "include-dirs", path)?
-                .unwrap_or_default()
-                .into_iter()
-                .map(PathBuf::from)
-                .collect(),
-            search_paths: optional_array(values, "search-paths", path)?
-                .unwrap_or_default()
-                .into_iter()
-                .map(PathBuf::from)
-                .collect(),
-            frameworks: optional_array(values, "frameworks", path)?.unwrap_or_default(),
-            libraries: optional_array(values, "libraries", path)?.unwrap_or_default(),
-            config_tools: optional_array(values, "config-tools", path)?.unwrap_or_default(),
-        }
-    } else {
-        NativeManifest::default()
-    };
-    for (key, paths) in [
-        ("sources", &native.sources),
-        ("headers", &native.headers),
-        ("objects", &native.objects),
-        ("include-dirs", &native.include_dirs),
-        ("search-paths", &native.search_paths),
+    let mut native = NativeManifest::default();
+    let mut native_section = None;
+    for (name, platform) in [
+        ("native", None),
+        ("native.platform.macos", Some(Target::Aarch64AppleDarwin)),
+        ("native.platform.linux", Some(Target::X86_64UnknownLinuxGnu)),
     ] {
-        for native_path in paths {
-            validate_package_relative(path, native_path, "native input")
-                .map_err(|error| error.at_value(&sections["native"].entries, key))?;
+        let Some(section) = sections.get(name) else {
+            continue;
+        };
+        let extra = parse_native_section(path, name, &section.entries)?;
+        if extra != NativeManifest::default() {
+            native_section = Some(section);
         }
-    }
-    for (key, names) in [
-        ("frameworks", &native.frameworks),
-        ("libraries", &native.libraries),
-    ] {
-        for name in names {
-            if name.is_empty()
-                || !name.chars().all(|character| {
-                    character.is_ascii_alphanumeric() || matches!(character, '_' | '+')
-                })
-            {
-                return Err(ManifestError::new(
-                    path,
-                    format!("invalid native library/framework name `{name}`"),
-                    "use an explicit ASCII library or framework name",
-                )
-                .at_value(&sections["native"].entries, key));
-            }
+        if target.is_some() && platform.is_some() && target != platform {
+            continue;
         }
-    }
-    for tool in &native.config_tools {
-        if tool != "sdl2-config" {
-            return Err(ManifestError::new(
-                path,
-                format!("invalid native config tool `{tool}`"),
-                "use only sdl2-config",
-            )
-            .at_value(&sections["native"].entries, "config-tools"));
-        }
+        native.sources.extend(extra.sources);
+        native.headers.extend(extra.headers);
+        native.objects.extend(extra.objects);
+        native.include_dirs.extend(extra.include_dirs);
+        native.search_paths.extend(extra.search_paths);
+        native.frameworks.extend(extra.frameworks);
+        native.libraries.extend(extra.libraries);
+        native.config_tools.extend(extra.config_tools);
     }
     if kind != PackageKind::Sdk
-        && (!exports.modules.is_empty() || native != NativeManifest::default())
+        && let Some(section) =
+            native_section.or_else(|| (!exports.modules.is_empty()).then(|| &sections["exports"]))
     {
-        let section = if exports.modules.is_empty() {
-            "native"
-        } else {
-            "exports"
-        };
         return Err(ManifestError::new(
             path,
             "application package cannot declare SDK exports or native inputs",
             "move native declarations and inputs into a `kind = \"sdk\"` dependency",
         )
-        .at(sections[section].span.clone()));
+        .at(section.span.clone()));
     }
 
     Ok(Manifest {
@@ -470,6 +413,100 @@ pub fn load_manifest_text(path: &Path, text: &str) -> Result<Manifest, ManifestE
         exports,
         native,
     })
+}
+
+fn parse_native_section(
+    path: &Path,
+    name: &str,
+    values: &Entries,
+) -> Result<NativeManifest, ManifestError> {
+    reject_unknown_keys(
+        path,
+        name,
+        values,
+        &[
+            "sources",
+            "headers",
+            "objects",
+            "include-dirs",
+            "search-paths",
+            "frameworks",
+            "libraries",
+            "config-tools",
+        ],
+    )?;
+    let native = NativeManifest {
+        sources: optional_array(values, "sources", path)?
+            .unwrap_or_default()
+            .into_iter()
+            .map(PathBuf::from)
+            .collect(),
+        headers: optional_array(values, "headers", path)?
+            .unwrap_or_default()
+            .into_iter()
+            .map(PathBuf::from)
+            .collect(),
+        objects: optional_array(values, "objects", path)?
+            .unwrap_or_default()
+            .into_iter()
+            .map(PathBuf::from)
+            .collect(),
+        include_dirs: optional_array(values, "include-dirs", path)?
+            .unwrap_or_default()
+            .into_iter()
+            .map(PathBuf::from)
+            .collect(),
+        search_paths: optional_array(values, "search-paths", path)?
+            .unwrap_or_default()
+            .into_iter()
+            .map(PathBuf::from)
+            .collect(),
+        frameworks: optional_array(values, "frameworks", path)?.unwrap_or_default(),
+        libraries: optional_array(values, "libraries", path)?.unwrap_or_default(),
+        config_tools: optional_array(values, "config-tools", path)?.unwrap_or_default(),
+    };
+    for (key, paths) in [
+        ("sources", &native.sources),
+        ("headers", &native.headers),
+        ("objects", &native.objects),
+        ("include-dirs", &native.include_dirs),
+        ("search-paths", &native.search_paths),
+    ] {
+        for native_path in paths {
+            validate_package_relative(path, native_path, "native input")
+                .map_err(|error| error.at_value(values, key))?;
+        }
+    }
+    for (key, names) in [
+        ("frameworks", &native.frameworks),
+        ("libraries", &native.libraries),
+    ] {
+        for name in names {
+            if name.is_empty()
+                || !name.chars().all(|character| {
+                    character.is_ascii_alphanumeric() || matches!(character, '_' | '+')
+                })
+            {
+                return Err(ManifestError::new(
+                    path,
+                    format!("invalid native library/framework name `{name}`"),
+                    "use an explicit ASCII library or framework name",
+                )
+                .at_value(values, key));
+            }
+        }
+    }
+    for tool in &native.config_tools {
+        if tool != "sdl2-config" {
+            return Err(ManifestError::new(
+                path,
+                format!("invalid native config tool `{tool}`"),
+                "use only sdl2-config",
+            )
+            .at_value(values, "config-tools"));
+        }
+    }
+    Ok(native)
 }
 
 fn release_version(
