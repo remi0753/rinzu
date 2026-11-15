@@ -15,7 +15,7 @@ use rinzu_runtime::code::{CodeFrame, CodeVersion, CodeVersionId, CodeVersionStat
 use rinzu_runtime::dispatch::VersionedDispatchCell;
 
 use crate::function_reference::ReferenceTargets;
-use crate::macos_jit_memory::{JitMemoryAuditSnapshot, MacOsArm64JitMemory};
+use crate::jit_memory::macos::{JitMemoryAuditSnapshot, MacOsArm64JitMemory};
 
 fn checked(text: &str) -> (SourceFile, FrontendArtifact) {
     let file = SourceFile::new(FileId(1), "entry.rinzu", text);

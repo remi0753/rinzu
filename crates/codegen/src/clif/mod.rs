@@ -1,26 +1,45 @@
-//! Cranelift lowering and JIT/object emission for macOS arm64.
-use super::*;
+//! Cranelift lowering shared by AOT objects and the host JIT.
+use std::collections::{BTreeMap, HashMap, HashSet};
 
+pub(crate) mod isa;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+mod jit;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+mod jit_runtime;
 mod lowering;
-mod runtime;
+pub mod native_abi;
+mod object;
 
-use anyhow::{Context, ensure};
+use anyhow::{Context, Result, anyhow, bail, ensure};
+use rinzu_abi::target::Target;
 use rinzu_compiler::{
-    BasicBlock, BinaryOperator, BlockId, ConstantValue, IrFunction, OperationKind, StackRoot,
-    Terminator, UnaryOperator, ValueId,
+    BasicBlock, BinaryOperator, BlockId, ConstantValue, IrFunction, IrModule, OperationKind,
+    StackRoot, Terminator, Type, UnaryOperator, ValueId,
 };
-use std::collections::HashSet;
 
 use cranelift_codegen::ir::{AbiParam, InstBuilder, UserFuncName, Value, condcodes::IntCC, types};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch, Variable};
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataDescription, FuncId, Linkage, Module, default_libcall_names};
-use cranelift_object::{ObjectBuilder, ObjectModule};
 use lowering::define_function;
-pub(super) use runtime::run;
 
-use crate::macos_jit_memory::MacOsArm64JitMemory;
-use rinzu_compiler::Type;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use crate::baseline::{BaselineFailure, BaselineOptions, BaselineRun, CompiledAsyncJit};
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use crate::jit_memory::macos::MacOsArm64JitMemory;
+use crate::{CompileEvidence, baseline::source_identities};
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub(crate) use jit::compile_async_jit;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub(crate) use jit_runtime::run;
+pub(crate) use object::emit_aot;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use rinzu_runtime::failure::{ErrorKind, Failure, SourcePosition};
+
+pub(crate) fn uses_direct_c_context(target: Target) -> bool {
+    matches!(target, Target::Aarch64AppleDarwin)
+}
 
 const SOURCE_SYMBOL: &str = "rinzu_baseline_set_source_packed";
 const OBSERVE_SOURCE_SYMBOL: &str = "rinzu_baseline_observe_source";
@@ -85,6 +104,7 @@ struct AsyncRuntimeFunctions {
 }
 
 struct RuntimeFunctions {
+    direct_c_context: bool,
     owned_imports: HashSet<FuncId>,
     proven_owner_operations: HashMap<String, HashSet<(BlockId, usize)>>,
     owner_helpers: BTreeMap<&'static str, FuncId>,
@@ -151,173 +171,6 @@ struct FunctionInfo {
     signature: cranelift_codegen::ir::Signature,
 }
 
-pub(super) fn compile_async_jit(
-    ir: &IrModule,
-    external_symbols: &BTreeMap<String, usize>,
-    native_imports: &HashMap<String, u64>,
-) -> Result<CompiledAsyncJit> {
-    let isa = super::super::native_isa(false)?;
-    let mut builder = JITBuilder::with_isa(isa, default_libcall_names());
-    for (symbol, address) in external_symbols {
-        ensure!(*address != 0, "null async runtime symbol");
-        builder.symbol(symbol, address.to_owned() as *const u8);
-    }
-    let (memory, audit) = MacOsArm64JitMemory::new_with_audit()?;
-    builder.memory_provider(Box::new(memory));
-    let mut module = JITModule::new(builder);
-    let runtime = declare_runtime_functions(&mut module, ir, true, true)?;
-    let functions = declare_managed_functions(&mut module, ir, Linkage::Export)?;
-    let mut compile = CompileEvidence {
-        stack_map_count: 0,
-        stack_map_entry_count: 0,
-        code_size: 0,
-    };
-    for (index, function) in ir.functions.iter().enumerate() {
-        define_function(
-            &mut module,
-            function,
-            index,
-            &functions,
-            &runtime,
-            native_imports,
-            false,
-            &mut compile,
-            None,
-            None,
-        )?;
-    }
-    module
-        .finalize_definitions()
-        .context("finalize compiled async JIT")?;
-    let memory = audit.snapshot();
-    ensure!(
-        memory.executable_mappings > 0
-            && memory.icache_flushes == memory.executable_mappings
-            && memory.rx_transitions == memory.executable_mappings
-            && memory.rwx_mappings == 0,
-        "compiled async JIT violated W^X publication"
-    );
-    let symbols = module
-        .declarations()
-        .get_functions()
-        .filter(|(_, declaration)| declaration.linkage == Linkage::Export)
-        .map(|(id, declaration)| {
-            (
-                declaration.name.clone().expect("export has a name"),
-                module.get_finalized_function(id) as usize,
-            )
-        })
-        .collect();
-    Ok(CompiledAsyncJit {
-        module: Some(module),
-        symbols,
-        compile,
-        executable_mappings: memory.executable_mappings,
-        executable_bytes: memory.executable_bytes,
-        icache_flushes: memory.icache_flushes,
-        rx_transitions: memory.rx_transitions,
-        rwx_mappings: memory.rwx_mappings,
-    })
-}
-
-pub(super) fn emit_aot(
-    module_ir: &IrModule,
-    entry: &str,
-    native_imports: &HashMap<String, u64>,
-    source_async: bool,
-    c_backend: bool,
-) -> Result<BaselineAotObject> {
-    let isa = super::super::native_isa(true)?;
-    let builder = ObjectBuilder::new(isa, "rinzu-baseline-aot", default_libcall_names())
-        .context("create baseline AOT object backend")?;
-    let mut module = ObjectModule::new(builder);
-    let runtime_functions = declare_runtime_functions(&mut module, module_ir, source_async, true)?;
-    // C-lowered definitions live in the companion translation unit. Keep
-    // them imported in this object; native definitions are promoted below.
-    let functions = declare_managed_functions(&mut module, module_ir, Linkage::Import)?;
-    let entry = functions
-        .get(entry)
-        .ok_or_else(|| anyhow!("missing AOT entry function {entry}"))?;
-    ensure!(
-        entry.parameter_count == 0,
-        "AOT entry must not take arguments"
-    );
-    let entry_index = entry.index;
-    let entry_symbol = entry.symbol.clone();
-    let mut compile = CompileEvidence {
-        stack_map_count: 0,
-        stack_map_entry_count: 0,
-        code_size: 0,
-    };
-    let mut c_output = CFunctions::default();
-    for (function_index, function) in module_ir.functions.iter().enumerate() {
-        define_function(
-            &mut module,
-            function,
-            function_index,
-            &functions,
-            &runtime_functions,
-            native_imports,
-            true,
-            &mut compile,
-            None,
-            c_backend.then_some(&mut c_output),
-        )?;
-    }
-    let source_ids = source_identities(module_ir).0;
-    let mut metadata = functions
-        .iter()
-        .map(|(name, function)| AotFunctionMetadata {
-            source: {
-                let range = module_ir.functions[function.index].range;
-                SourcePosition {
-                    file: source_ids
-                        .get(&range.file_id.0)
-                        .copied()
-                        .unwrap_or(u64::from(range.file_id.0)),
-                    start_byte: range.start_byte,
-                    end_byte: range.end_byte,
-                }
-            },
-            index: function.index,
-            name: name.clone(),
-            symbol: function.symbol.clone(),
-            parameter_count: function.parameter_count,
-            parameter_types: module_ir.functions[function.index].parameter_types.clone(),
-            result_type: module_ir.functions[function.index].result_type.clone(),
-            is_async: module_ir.functions[function.index].is_async,
-            callback_fallback: module_ir.functions[function.index]
-                .callback_fallback
-                .clone(),
-        })
-        .collect::<Vec<_>>();
-    metadata.sort_by_key(|function| function.index);
-    let object = module
-        .finish()
-        .emit()
-        .context("emit baseline AOT object bytes")?;
-    ensure!(!object.is_empty(), "baseline AOT object is empty");
-    Ok(BaselineAotObject {
-        object,
-        c_function_source: c_output.source,
-        c_functions: c_output.names,
-        c_fallbacks: c_output.fallbacks,
-        entry_index,
-        entry_symbol,
-        functions: metadata,
-        source_files: source_identities(module_ir).1,
-        source_locations_c: crate::error_sources::c_source(module_ir),
-        data_schema_c: runtime_functions.data_schema.c_source(),
-        uses_json: runtime_functions.data_schema.json.is_some(),
-        data_types: runtime_functions.data_schema.metadata(),
-        reference_targets: runtime_functions.reference_targets.metadata(),
-        native_call_plans: runtime_functions.native_plans.records,
-        native_signatures: module_ir.source_native_signatures.clone(),
-        native_record_schemas: module_ir.native_records.clone(),
-        compile,
-    })
-}
-
 fn declare_managed_functions<M: Module>(
     module: &mut M,
     module_ir: &IrModule,
@@ -328,7 +181,9 @@ fn declare_managed_functions<M: Module>(
         let parameter_count = parameter_count(function)?;
         let mut signature = module.make_signature();
         signature.call_conv = module.target_config().default_call_conv;
-        signature.params.push(AbiParam::new(types::I64));
+        signature
+            .params
+            .push(AbiParam::new(module.isa().pointer_type()));
         signature
             .params
             .extend((0..parameter_count).map(|_| AbiParam::new(types::I64)));
@@ -371,8 +226,8 @@ fn declare_runtime_functions<M: Module>(
     ir: &IrModule,
     source_async: bool,
     c_runtime: bool,
+    direct_c_context: bool,
 ) -> Result<RuntimeFunctions> {
-    let pointer = types::I64;
     let mut owned_imports = HashSet::new();
     let mut declare =
         |module: &mut M, name: &str, parameters: usize, returns: bool| -> Result<FuncId> {
@@ -380,7 +235,7 @@ fn declare_runtime_functions<M: Module>(
             signature.call_conv = module.target_config().default_call_conv;
             signature
                 .params
-                .extend((0..parameters).map(|_| AbiParam::new(pointer)));
+                .extend((0..parameters).map(|_| AbiParam::new(types::I64)));
             if returns {
                 signature.returns.push(AbiParam::new(types::I64));
             }
@@ -407,6 +262,7 @@ fn declare_runtime_functions<M: Module>(
         None
     };
     Ok(RuntimeFunctions {
+        direct_c_context,
         proven_owner_operations: if c_runtime {
             rinzu_compiler::proven_data_owner_operations(ir)
         } else {
@@ -483,7 +339,7 @@ fn declare_runtime_functions<M: Module>(
             ))
         })
         .collect::<Result<_>>()?,
-        native_stubs: crate::source_native_abi::declare(module, &ir.source_native_signatures)?
+        native_stubs: native_abi::declare(module, &ir.source_native_signatures)?
             .into_iter()
             .map(|(name, (id, _))| (name, id))
             .collect(),
@@ -574,12 +430,18 @@ struct CFunctions {
     fallbacks: BTreeMap<String, String>,
 }
 
-#[cfg(feature = "test-c-lowering-probe")]
-pub(super) fn inspect_clif(ir: &IrModule) -> Result<Vec<(String, String)>> {
-    let isa = super::super::native_isa(true)?;
+#[cfg(all(
+    feature = "test-c-lowering-probe",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
+pub(crate) fn inspect_clif(ir: &IrModule) -> Result<Vec<(String, String)>> {
+    use cranelift_object::{ObjectBuilder, ObjectModule};
+
+    let isa = isa::native_isa(true)?;
     let builder = ObjectBuilder::new(isa, "rinzu-c-lowering-inventory", default_libcall_names())?;
     let mut module = ObjectModule::new(builder);
-    let runtime = declare_runtime_functions(&mut module, ir, true, true)?;
+    let runtime = declare_runtime_functions(&mut module, ir, true, true, true)?;
     let functions = declare_managed_functions(&mut module, ir, Linkage::Export)?;
     let mut compile = CompileEvidence {
         stack_map_count: 0,

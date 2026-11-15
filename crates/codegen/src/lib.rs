@@ -3,6 +3,8 @@
 #[cfg(feature = "test-allocation-probe")]
 pub mod allocation_probe;
 mod baseline;
+mod c_lowering;
+mod clif;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod compiled_runtime;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -16,7 +18,9 @@ mod function_reference;
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 mod m5_reload_spike;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-mod macos_jit_memory;
+mod jit_memory {
+    pub(crate) mod macos;
+}
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod native_binding;
 mod native_call;
@@ -26,15 +30,12 @@ mod native_package;
 mod native_record;
 pub use native_call::NativeCallPlan;
 pub use native_record::source_native_record_layouts;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-mod c_lowering;
 mod scalar_backend;
 mod source_async;
 mod source_failure;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-pub mod source_native_abi;
+pub use clif::native_abi as source_native_abi;
 pub mod source_package;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod task_error_origin;
 #[cfg(test)]
 #[path = "../test-support/library.rs"]
@@ -44,10 +45,11 @@ mod test_library;
 pub use baseline::inspect_source_async_clif;
 pub use baseline::{
     AotDataType, AotFunctionMetadata, BaselineAotObject, BaselineFailure, BaselineOptions,
-    BaselineRun, emit_baseline_aot_object, emit_baseline_aot_object_with_native_bindings,
-    emit_source_async_aot_object, emit_source_async_aot_plans, run_baseline_jit,
-    run_baseline_jit_with_arguments, run_baseline_jit_with_native_packages,
-    run_baseline_jit_with_options, run_baseline_jit_with_package_bindings,
+    BaselineRun, emit_baseline_aot_object, emit_baseline_aot_object_for_target,
+    emit_baseline_aot_object_with_native_bindings, emit_source_async_aot_object,
+    emit_source_async_aot_plans, run_baseline_jit, run_baseline_jit_with_arguments,
+    run_baseline_jit_with_native_packages, run_baseline_jit_with_options,
+    run_baseline_jit_with_package_bindings, uses_async_runtime,
 };
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use baseline::{CompiledAsyncJit, compile_source_async_jit};
@@ -77,8 +79,8 @@ pub const C_CONTEXT_FAILURE_ORIGIN_OFFSET: i32 = 896;
 pub const C_ASYNC_HANDLE_BASE: i64 = 1 << 61;
 
 use anyhow::{Context, Result, anyhow, ensure};
+use clif::isa::native_isa;
 use cranelift_codegen::ir::{AbiParam, InstBuilder, UserFuncName, types};
-use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use cranelift_jit::{JITBuilder, JITModule};
@@ -118,27 +120,6 @@ pub struct AotEvidence {
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 extern "C" fn spike_safepoint() {}
-
-fn native_isa(position_independent: bool) -> Result<cranelift_codegen::isa::OwnedTargetIsa> {
-    let mut flags = settings::builder();
-    flags
-        .set(
-            "is_pic",
-            if position_independent {
-                "true"
-            } else {
-                "false"
-            },
-        )
-        .context("configure position-independent code")?;
-    flags
-        .set("use_colocated_libcalls", "false")
-        .context("allow external runtime symbols")?;
-    cranelift_native::builder()
-        .map_err(|message| anyhow!(message))?
-        .finish(settings::Flags::new(flags))
-        .context("build native Cranelift ISA")
-}
 
 fn define_spike<M: Module>(module: &mut M) -> Result<(FuncId, CompileEvidence)> {
     let mut safepoint_signature = module.make_signature();
@@ -222,6 +203,7 @@ pub fn with_jit_spike_inspection<T>(
 ) -> Result<(JitEvidence, T)> {
     #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
     {
+        let _ = inspect;
         return Err(anyhow!("Rinzu v1 JIT spike requires aarch64-apple-darwin"));
     }
 
@@ -230,7 +212,7 @@ pub fn with_jit_spike_inspection<T>(
         let isa = native_isa(false)?;
         let mut jit_builder = JITBuilder::with_isa(isa, default_libcall_names());
         jit_builder.symbol(SAFEPOINT_SYMBOL, spike_safepoint as *const u8);
-        let (jit_memory, memory_audit) = macos_jit_memory::MacOsArm64JitMemory::new_with_audit()?;
+        let (jit_memory, memory_audit) = jit_memory::macos::MacOsArm64JitMemory::new_with_audit()?;
         jit_builder.memory_provider(Box::new(jit_memory));
         let mut module = JITModule::new(jit_builder);
         let (function, compile) = define_spike(&mut module)?;

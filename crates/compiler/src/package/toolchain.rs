@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
+use rinzu_abi::target::Target;
+
 use super::{
     ParsedModule, ResolvedSdkPackage, check_loaded, merge_packages, package_diagnostic,
     read_package_manifest,
@@ -20,6 +22,7 @@ type CheckedSdk = (ResolvedSdkPackage, Vec<ResolvedSdkPackage>);
 /// Source imports extend it locally, in the same snapshot used to check each SDK.
 pub(super) struct CheckGraph {
     graph: ResolvedGraph,
+    target: Target,
     names: HashMap<String, PackageId>,
     checked: HashMap<PackageId, CheckedSdk>,
     standard_root: Option<PathBuf>,
@@ -27,7 +30,7 @@ pub(super) struct CheckGraph {
 }
 
 impl CheckGraph {
-    pub(super) fn new(graph: ResolvedGraph) -> Self {
+    pub(super) fn new(graph: ResolvedGraph, target: Target) -> Self {
         let names = graph
             .packages()
             .filter(|(_, node)| node.manifest.kind == PackageKind::Sdk)
@@ -35,6 +38,7 @@ impl CheckGraph {
             .collect();
         Self {
             graph,
+            target,
             names,
             checked: HashMap::new(),
             standard_root: None,
@@ -263,7 +267,8 @@ impl CheckGraph {
             )
         } else {
             if self.standard_root.is_none() {
-                let root = standard_library::resource_root().map_err(error)?;
+                let root =
+                    standard_library::resource_root_for_target(self.target).map_err(error)?;
                 sources
                     .read_config(&root.join("registry.json"))
                     .map_err(|e| error(e.to_string()))?;
@@ -271,7 +276,7 @@ impl CheckGraph {
             }
             let short_name = name.strip_prefix("rinzu.").unwrap();
             let prefix = format!("packages/{short_name}/");
-            let files = standard_library::resources()
+            let files = standard_library::resources_for_target(self.target)
                 .into_iter()
                 .filter_map(|(path, bytes)| {
                     path.strip_prefix(&prefix)

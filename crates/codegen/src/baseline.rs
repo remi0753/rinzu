@@ -1,10 +1,12 @@
 //! Baseline JIT and AOT entry points and shared metadata.
 use std::collections::{BTreeMap, HashMap};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, anyhow, ensure};
+use rinzu_abi::target::Target;
 use rinzu_compiler::IrModule;
 use rinzu_runtime::failure::{ErrorKind, Failure, SourcePosition};
 
+use crate::clif;
 use crate::{CompileEvidence, LoadedNativePackages};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -86,6 +88,7 @@ pub struct AotDataType {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BaselineAotObject {
+    pub target: Target,
     pub object: Vec<u8>,
     /// Whole synchronous functions compiled with the generated C runtime.
     pub c_function_source: String,
@@ -109,6 +112,10 @@ pub struct BaselineAotObject {
 }
 
 impl BaselineAotObject {
+    pub fn uses_direct_c_context(&self) -> bool {
+        clif::uses_direct_c_context(self.target)
+    }
+
     pub fn data_type(&self, ty: &rinzu_compiler::Type) -> Option<&AotDataType> {
         let ty = crate::data_schema::canonical(ty);
         self.data_types.iter().find(|entry| entry.ty == ty)
@@ -120,7 +127,7 @@ impl BaselineAotObject {
 /// callback admissions, then retire it only after runtime settlement.
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub struct CompiledAsyncJit {
-    module: Option<cranelift_jit::JITModule>,
+    pub(crate) module: Option<cranelift_jit::JITModule>,
     pub symbols: BTreeMap<String, usize>,
     pub compile: CompileEvidence,
     pub executable_mappings: usize,
@@ -149,7 +156,7 @@ pub fn compile_source_async_jit(
     native_imports: &HashMap<String, u64>,
 ) -> Result<CompiledAsyncJit> {
     crate::ensure_source_async_backend(module)?;
-    arm64::compile_async_jit(module, external_symbols, native_imports)
+    clif::compile_async_jit(module, external_symbols, native_imports)
 }
 
 pub(crate) fn source_identities(module: &IrModule) -> (HashMap<u32, u64>, BTreeMap<u64, String>) {
@@ -164,9 +171,6 @@ pub(crate) fn source_identities(module: &IrModule) -> (HashMap<u32, u64>, BTreeM
     }
     (identities, names)
 }
-
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-mod arm64;
 
 pub fn run_baseline_jit(module: &IrModule, entry: &str) -> Result<BaselineRun> {
     run_baseline_jit_with_options(module, entry, BaselineOptions::default())
@@ -188,7 +192,7 @@ pub fn run_baseline_jit_with_options(
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
-        arm64::run(module, entry, options, None, None, Vec::new())
+        clif::run(module, entry, options, None, None, Vec::new())
     }
 }
 
@@ -209,7 +213,7 @@ pub fn run_baseline_jit_with_native_packages(
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
-        arm64::run(
+        clif::run(
             module,
             entry,
             options,
@@ -260,7 +264,7 @@ pub fn run_baseline_jit_with_arguments(
     }
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
-        arm64::run(
+        clif::run(
             module,
             entry,
             options,
@@ -281,12 +285,12 @@ pub fn inspect_source_async_clif(module: &IrModule) -> Result<Vec<(String, Strin
     crate::ensure_source_async_backend(module)?;
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
-        arm64::inspect_clif(module)
+        clif::inspect_clif(module)
     }
     #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
     {
         let _ = module;
-        bail!("C lowering inventory requires macOS arm64")
+        anyhow::bail!("C lowering inventory requires macOS arm64")
     }
 }
 
@@ -295,19 +299,62 @@ pub fn emit_baseline_aot_object_with_native_bindings(
     entry: &str,
     native_imports: &HashMap<String, u64>,
 ) -> Result<BaselineAotObject> {
-    crate::ensure_scalar_backend(module, true)?;
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-    {
-        let _ = (module, entry, native_imports);
-        Err(anyhow!(
-            "Rinzu v0.1 baseline AOT requires aarch64-apple-darwin"
-        ))
-    }
+    let target = Target::host().ok_or_else(|| {
+        anyhow!(
+            "Rinzu AOT is unavailable on {}",
+            rinzu_runtime::current_target()
+        )
+    })?;
+    emit_baseline_aot_object_for_target(target, module, entry, native_imports)
+}
 
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    {
-        arm64::emit_aot(module, entry, native_imports, false, false)
+pub fn emit_baseline_aot_object_for_target(
+    target: Target,
+    module: &IrModule,
+    entry: &str,
+    native_imports: &HashMap<String, u64>,
+) -> Result<BaselineAotObject> {
+    if !target.supports_native_packages() {
+        ensure!(
+            module.source_native_signatures.is_empty() && native_imports.is_empty(),
+            "native bindings are unavailable for {}",
+            target.triple()
+        );
     }
+    if !target.supports_async_aot() {
+        ensure!(
+            !uses_async_runtime(module, target),
+            "async AOT is unavailable for {}",
+            target.triple()
+        );
+    }
+    crate::ensure_scalar_backend(module, true)?;
+    clif::emit_aot(target, module, entry, native_imports, false, false)
+}
+
+/// A synchronous entry can still contain task operations or reach an async callee.
+pub fn uses_async_runtime(module: &IrModule, target: Target) -> bool {
+    use rinzu_compiler::{OperationKind, TaskControlKind};
+
+    let process_exit_is_async = target == Target::Aarch64AppleDarwin;
+    module
+        .source_native_signatures
+        .iter()
+        .any(|signature| signature.is_async || signature.is_supplant)
+        || module.functions.iter().any(|function| {
+            function.is_async
+                || function
+                    .blocks
+                    .iter()
+                    .flat_map(|block| &block.operations)
+                    .any(|operation| match operation.kind {
+                        OperationKind::TaskControl { kind, .. } => {
+                            process_exit_is_async || kind != TaskControlKind::ExitStatus
+                        }
+                        OperationKind::Await { .. } | OperationKind::Spawn { .. } => true,
+                        _ => false,
+                    })
+        })
 }
 
 /// Emit real source async calls with private Future records and typed Worker
@@ -327,7 +374,14 @@ pub fn emit_source_async_aot_object(
     }
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
-        arm64::emit_aot(module, entry, native_imports, true, true)
+        clif::emit_aot(
+            Target::Aarch64AppleDarwin,
+            module,
+            entry,
+            native_imports,
+            true,
+            true,
+        )
     }
 }
 
@@ -341,11 +395,18 @@ pub fn emit_source_async_aot_plans(
     crate::ensure_source_async_backend(module)?;
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
-        arm64::emit_aot(module, entry, native_imports, true, false)
+        clif::emit_aot(
+            Target::Aarch64AppleDarwin,
+            module,
+            entry,
+            native_imports,
+            true,
+            false,
+        )
     }
     #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
     {
         let _ = (module, entry, native_imports);
-        bail!("source async plans require macOS arm64")
+        anyhow::bail!("source async plans require macOS arm64")
     }
 }

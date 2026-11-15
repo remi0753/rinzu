@@ -9,14 +9,22 @@ pub fn doctor(arguments: impl Iterator<Item = String>) -> Result<(), String> {
         _ => return Err("usage: rinzu doctor [--sdk <official SDK name>]".into()),
     };
     let target = rinzu_runtime::current_target();
+    let aot = if rinzu_abi::target::Target::host().is_some() {
+        "supported"
+    } else {
+        "unavailable"
+    };
     let support = if rinzu_runtime::validate_v1_target().is_ok() {
         "supported"
+    } else if rinzu_abi::target::Target::host().is_some() {
+        "synchronous-aot-only"
     } else {
         "portability-check-only"
     };
     println!("Rinzu {}", rinzu_compiler::compatibility::RELEASE);
     println!("target: {target}");
     println!("v1 runtime: {support}");
+    println!("AOT: {aot}");
     let root = rinzu_compiler::official_sdk::inspect_installation()?;
     if let Some(root) = &root {
         println!("toolchain resources: {}", root.display());

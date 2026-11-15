@@ -15,18 +15,26 @@ fn main() {
 }
 ```
 
-The execution target is **macOS arm64**. The source language version is `0.5`; the toolchain version is `0.3.0`.
+Rinzu runs on **macOS arm64** and builds synchronous AOT executables on **x86_64 Linux with glibc**. The source language version is `0.5` and the toolchain version is `0.3.0`.
 
 [Documentation](docs/README.md) · [Introduction](docs/introduction.md) · [Installation](docs/getting-started/installation.md) · [Quick start](docs/getting-started/quickstart.md) · [Changelog](CHANGELOG.md)
 
 ## Build and run
 
-Install Rust 1.97.1 and Xcode Command Line Tools, then run these commands in the repository:
+On macOS arm64, install Rust 1.97.1 and Xcode Command Line Tools.
 
 ```sh
 cargo build --release -p rinzu-driver --bin rinzu
 ./target/release/rinzu doctor
 ./target/release/rinzu run /path/to/hello.rinzu
+```
+
+On x86_64 Linux, install Rust 1.97.1, Clang, an ELF linker, and the glibc and GCC development files. Build the workspace tools and run an AOT executable.
+
+```sh
+cargo build --locked --workspace
+./target/debug/rinzu build /path/to/hello.rinzu --output ./hello
+./hello
 ```
 
 A standalone source file needs no manifest. Use a package with `rinzu.toml` for applications with additional SDK dependencies.

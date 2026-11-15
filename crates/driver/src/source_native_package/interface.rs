@@ -1,6 +1,7 @@
 //! Source SDK descriptor generation from the checked interface and native contract.
 use super::source_language_flags;
 use crate::native_contract::NativeContract;
+use rinzu_abi::target::Target;
 use rinzu_bindgen::source_package::{
     BackendRecord, CallbackRecord, CallbackSiteRecord, CodeRecord, FallbackRecord, FieldLayout,
     FunctionKind, FunctionRecord, PackageIdentity, SourceInterface, SourceTemplateRecord,
@@ -124,6 +125,7 @@ pub(super) fn build(
     application_root: &Path,
     inputs: &NativeCliInputs,
 ) -> Result<SourceInterface, String> {
+    let target = Target::host().ok_or("source package generation requires a supported target")?;
     let _timing = rinzu_compiler::timing::span("native.interface").detail(&package.manifest.name);
     let mut types = BTreeMap::new();
     fn collect_type(
@@ -238,7 +240,7 @@ pub(super) fn build(
                         gate: "admission-close-settle-v1".to_owned(),
                         origin: "actual-caller-domain".to_owned(),
                         parent_scope: "actual-caller-scope".to_owned(),
-                        target: "aarch64-apple-darwin".to_owned(),
+                        target: target.triple().to_owned(),
                         code_version: 1,
                         fallback: None,
                     })
@@ -467,25 +469,15 @@ pub(super) fn build(
             modules: source.modules.keys().cloned().collect(),
             exports,
             language: format!("rinzu-{}", package.manifest.language),
-            target: "aarch64-apple-darwin".to_owned(),
-            data_layout: "e-m:o-i64:64-i128:128-n32:64-S128".to_owned(),
+            target: target.triple().to_owned(),
+            data_layout: target.llvm_data_layout().to_owned(),
             toolchain: format!("rinzu-{}", env!("CARGO_PKG_VERSION")),
             native_compiler: contract.fingerprint["clang.version"].clone(),
             build_inputs,
         },
         types: types.into_values().collect(),
         functions,
-        backend: BackendRecord {
-            native_data_contract: rinzu_abi::NATIVE_DATA_CONTRACT_VERSION,
-            callback_rule: 1,
-            template_layout: rinzu_abi::TEMPLATE_LAYOUT_VERSION,
-            service_registry: rinzu_abi::CLOSED_SERVICE_REGISTRY_VERSION,
-            page_size: "16384".to_owned(),
-            entry_stride: "32".to_owned(),
-            control_stride: "32".to_owned(),
-            bridge_abi: "arm64-x16-v1".to_owned(),
-            owner_dispatcher: "macos-runloop-v1".to_owned(),
-        },
+        backend: BackendRecord::for_target(target),
         constants,
         constant_types: source
             .constants

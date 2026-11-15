@@ -537,6 +537,7 @@ dependencies = [
  "rinzu-runtime",
  "rinzu-trace",
  "serde_json",
+ "target-lexicon",
 ]
 
 [[package]]

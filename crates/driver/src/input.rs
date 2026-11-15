@@ -1,6 +1,7 @@
 //! Common CLI input checks and options.
 use std::path::{Path, PathBuf};
 
+use rinzu_abi::target::Target;
 use rinzu_compiler::{FrontendArtifact, Manifest, NativeCliInputs, SourceCache, SourceSnapshot};
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -13,7 +14,10 @@ pub struct Options {
 impl Options {
     pub fn compiler(&self) -> Result<rinzu_compiler::CompilationOptions, String> {
         let host = rinzu_runtime::current_target();
-        if self.target.as_deref().is_some_and(|target| target != host) {
+        let requested = self.target.as_deref().unwrap_or(host);
+        let linux_alias = Target::host() == Some(Target::X86_64UnknownLinuxGnu)
+            && requested == "x86_64-unknown-linux";
+        if requested != host && !linux_alias {
             return Err(format!(
                 "cross target is unsupported; host target is `{host}`"
             ));
@@ -172,6 +176,26 @@ pub fn build_native(
     crate::native_package::build_artifact(&context.metadata, &context.artifact)
 }
 
+pub(crate) fn validate_native_inputs(
+    manifest: &Manifest,
+    artifact: &FrontendArtifact,
+) -> Result<(), String> {
+    if Target::host().is_some_and(|target| !target.supports_native_packages())
+        && (manifest.native != rinzu_compiler::NativeManifest::default()
+            || !artifact.native_inputs.is_empty()
+            || artifact
+                .source_interface
+                .as_ref()
+                .is_some_and(|source| !source.signatures.is_empty()))
+    {
+        return Err(format!(
+            "native inputs for `{}` are unavailable on {}",
+            manifest.name,
+            rinzu_runtime::current_target()
+        ));
+    }
+    Ok(())
+}
 pub fn publication_directory(
     manifest: &rinzu_compiler::Manifest,
     artifact: &rinzu_compiler::FrontendArtifact,

@@ -86,7 +86,7 @@ pub(super) fn define_function<M: Module>(
                 .get(&function.name)
                 .cloned()
                 .unwrap_or_default(),
-            direct_source: colocate_runtime_calls || runtime_functions.source_async.is_some(),
+            direct_source: runtime_functions.direct_c_context,
             virtual_bytes_options: HashSet::new(),
             dead_temporary_roots: HashSet::new(),
             dead_local_roots: HashSet::new(),

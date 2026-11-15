@@ -158,6 +158,43 @@ pub struct BackendRecord {
     pub owner_dispatcher: String,
 }
 
+impl BackendRecord {
+    pub fn for_target(target: rinzu_abi::target::Target) -> Self {
+        let (
+            callback_rule,
+            template_layout,
+            service_registry,
+            page_size,
+            stride,
+            bridge,
+            dispatcher,
+        ) = if target.supports_native_packages() {
+            (
+                rinzu_abi::CALLBACK_RULE_VERSION,
+                rinzu_abi::TEMPLATE_LAYOUT_VERSION,
+                rinzu_abi::CLOSED_SERVICE_REGISTRY_VERSION,
+                "16384",
+                "32",
+                "arm64-x16-v1",
+                "macos-runloop-v1",
+            )
+        } else {
+            (0, 0, 0, "0", "0", "none", "none")
+        };
+        Self {
+            native_data_contract: rinzu_abi::NATIVE_DATA_CONTRACT_VERSION,
+            callback_rule,
+            template_layout,
+            service_registry,
+            page_size: page_size.into(),
+            entry_stride: stride.into(),
+            control_stride: stride.into(),
+            bridge_abi: bridge.into(),
+            owner_dispatcher: dispatcher.into(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SourceTypeRecord {
@@ -552,27 +589,36 @@ impl SourceInterface {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        use rinzu_abi::target::Target;
+        let target = Target::from_triple(&self.package.target)
+            .ok_or("unsupported target/backend capability")?;
         let backend = &self.backend;
         if backend.native_data_contract != rinzu_abi::NATIVE_DATA_CONTRACT_VERSION {
             return Err("unsupported native data contract revision".into());
         }
-        if backend.callback_rule != rinzu_abi::CALLBACK_RULE_VERSION
-            || backend.template_layout != rinzu_abi::TEMPLATE_LAYOUT_VERSION
-            || !(1..=rinzu_abi::CLOSED_SERVICE_REGISTRY_VERSION).contains(&backend.service_registry)
+        let mut expected = BackendRecord::for_target(target);
+        if target.supports_native_packages() {
+            if !(1..=expected.service_registry).contains(&backend.service_registry) {
+                return Err("unsupported service registry version".into());
+            }
+            expected.service_registry = backend.service_registry;
+        } else if self.package.data_layout != target.llvm_data_layout()
+            || !self.types.is_empty()
+            || self.functions.iter().any(|function| {
+                function.code.is_none()
+                    || function.kind != FunctionKind::Sync
+                    || !function.callbacks.is_empty()
+                    || !function.callback_sites.is_empty()
+            })
+            || self
+                .package
+                .build_inputs
+                .contains_key(crate::native_binding::KEY)
         {
-            return Err("unsupported callback/template/service version".into());
+            return Err("Linux source packages require synchronous managed code".into());
         }
-        if backend.owner_dispatcher != "macos-runloop-v1"
-            || backend.bridge_abi != "arm64-x16-v1"
-            || self.package.target != "aarch64-apple-darwin"
-        {
-            return Err("unsupported target/backend capability".into());
-        }
-        if backend.page_size != "16384"
-            || backend.entry_stride != "32"
-            || backend.control_stride != "32"
-        {
-            return Err("invalid template layout".into());
+        if backend != &expected {
+            return Err("unsupported target/backend capability or template layout".into());
         }
         if self.package.package.is_empty()
             || self.package.data_layout.is_empty()

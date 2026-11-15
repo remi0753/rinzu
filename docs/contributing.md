@@ -14,6 +14,16 @@ cargo xtask test
 
 The production toolchain is selected by `rust-toolchain.toml`. The main executable is built with `cargo build -p rinzu-driver --bin rinzu`.
 
+### x86_64 Linux builds
+
+Cranelift lowering and object generation live under `crates/codegen/src/clif/`. The driver selects Clang and linker settings through `crates/driver/src/platform/`.
+
+On an x86_64 Linux host with glibc, install the C development toolchain, Clang, and an ELF linker. Run `cargo build --locked --workspace` to build `rinzu`, `rinzu-conformance`, and `rinzu-xtask`. Run `target/debug/rinzu doctor`, build a synchronous application with `target/debug/rinzu build ./app --output ./app-elf`, and launch `./app-elf`. The Linux AOT toolchain uses `clang` on `PATH`. Set `RINZU_CLANG` to a specific executable or `RINZU_SYSROOT` to a separate Linux sysroot when needed.
+
+On Apple Silicon, Cargo can build the Linux toolchain executable for `x86_64-unknown-linux-gnu` using the Rust target standard library and a Clang linker wrapper configured with an x86_64 Linux sysroot and ELF linker. Set `CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER` and `CC_x86_64_unknown_linux_gnu` to the wrapper and `AR_x86_64_unknown_linux_gnu` to `llvm-ar`. Use `cargo build --locked -p rinzu-driver --bin rinzu --target x86_64-unknown-linux-gnu`, then copy the resulting `rinzu` to a Lima VM configured with `vmType: qemu` and `arch: x86_64`. In that guest, run `rinzu build` and use `readelf -h` to check the ELF before running it. The workspace also has a Linux integration test at `cargo test -p rinzu-driver --test linux_aot`.
+
+### Test suite
+
 `cargo xtask test` runs the workspace with all targets and features, the Rust doctests, the standalone runtime model, the VS Code diagnostics unit tests, and the signed trampoline fixture on macOS arm64. The driver suite executes the published `rinzu-test` examples. The test command uses Python 3, Node.js, and the native toolchain. The Socket and HTTP SDK tests use local loopback listeners.
 
 ## Source and native quality tools

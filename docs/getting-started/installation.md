@@ -1,16 +1,18 @@
 # Installation and environment
 
-Rinzu executes on Apple Silicon macOS (`aarch64-apple-darwin`). Building the compiler requires Rust 1.97.1. Native compilation uses Xcode Command Line Tools.
+Rinzu supports Apple Silicon macOS (`aarch64-apple-darwin`) and synchronous AOT on x86_64 Linux with glibc (`x86_64-unknown-linux-gnu`). Building the compiler requires Rust 1.97.1. Native compilation uses Xcode Command Line Tools on macOS and Clang, an ELF linker, and the target C development files on Linux.
 
-When using a released toolchain bundle, verify the archive, extract it to a new directory, and add its `bin/` to PATH. Run `rinzu doctor` from that installation to check the resource catalog. The distribution includes the official SDK sources, so imports such as `import rinzu.codec;` resolve from that installation. See [Toolchain bundles](../tooling/distribution.md#export-the-toolchain).
+For a released macOS arm64 bundle, verify the archive, extract it to a new directory, and add its `bin/` to PATH. Run `rinzu doctor` from that installation to check the resource catalog. The distribution includes the official SDK sources, so imports such as `import rinzu.codec;` resolve from that installation. See [Toolchain bundles](../tooling/distribution.md#export-the-toolchain).
 
 ## Prepare the toolchain
 
-Install Apple's command-line development tools:
+On macOS, install Apple's command-line development tools.
 
 ```sh
 xcode-select --install
 ```
+
+On x86_64 Linux, install Clang, an ELF linker, and the development files for glibc and GCC.
 
 Use rustup to install Rust. The repository's `rust-toolchain.toml` selects the required toolchain and components.
 
@@ -23,7 +25,7 @@ cargo build --release -p rinzu-driver --bin rinzu
 ./target/release/rinzu doctor
 ```
 
-Check the target printed by `doctor`. Linux, Windows, and macOS x86_64 are portability compile targets; successful compiler builds there do not provide supported Rinzu execution.
+Check the target printed by `doctor`. On x86_64 Linux, use `rinzu build` and launch the resulting executable directly. Build all workspace tools from source with `cargo build --locked --workspace`.
 
 ## Make rinzu available
 

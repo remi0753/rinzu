@@ -118,39 +118,43 @@ impl LoadedSourcePackages {
     /// Validate all packages before returning any binding. Successful facades are
     /// process-lifetime pinned; failed transactions close every temporary handle.
     pub fn load(artifacts: &[SourcePackageArtifact]) -> Result<Self> {
-        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-        {
-            let _ = artifacts;
-            anyhow::bail!("source-package v2 loader requires macOS arm64");
-        }
+        let mut staged = Self::default();
+        let mut packages = BTreeSet::new();
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        {
-            use std::ffi::CString;
-            use std::os::unix::ffi::OsStrExt;
-            let mut staged = Self::default();
-            let mut handles = Vec::new();
-            let mut providers = Vec::new();
-            let mut packages = BTreeSet::new();
-            for artifact in artifacts {
-                let expected = validate_source_descriptor(&artifact.expected_wire)
-                    .map_err(anyhow::Error::msg)?;
+        let (mut handles, mut providers) = (Vec::new(), Vec::new());
+        for artifact in artifacts {
+            let expected =
+                validate_source_descriptor(&artifact.expected_wire).map_err(anyhow::Error::msg)?;
+            ensure!(
+                expected.interface.package.target == rinzu_runtime::current_target(),
+                "source package `{}` targets {}; current target is {}",
+                expected.interface.package.package,
+                expected.interface.package.target,
+                rinzu_runtime::current_target()
+            );
+            ensure!(
+                packages.insert(expected.interface.package.package.clone()),
+                "duplicate package identity"
+            );
+            let has_native = expected
+                .interface
+                .functions
+                .iter()
+                .any(|function| function.symbol.is_some());
+            if !has_native {
                 ensure!(
-                    packages.insert(expected.interface.package.package.clone()),
-                    "duplicate package identity"
+                    artifact.library.is_none() && artifact.facade_digest.is_none(),
+                    "source-only package must not supply code artifact"
                 );
-                let has_native = expected
-                    .interface
-                    .functions
-                    .iter()
-                    .any(|function| function.symbol.is_some());
-                if !has_native {
-                    ensure!(
-                        artifact.library.is_none() && artifact.facade_digest.is_none(),
-                        "service-only package must not supply code artifact"
-                    );
-                    staged.descriptors.push(expected);
-                    continue;
-                }
+                staged.descriptors.push(expected);
+                continue;
+            }
+            #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+            anyhow::bail!("loading a native source-package facade requires macOS arm64");
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            {
+                use std::ffi::CString;
+                use std::os::unix::ffi::OsStrExt;
                 let path = rinzu_runtime::allocation::checked_io(
                     artifact
                         .library
@@ -229,6 +233,9 @@ impl LoadedSourcePackages {
                 staged.descriptors.push(expected);
                 handles.push(handle);
             }
+        }
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        {
             // Publish only after every package has validated. No dynamic unload for v2.
             for handle in handles {
                 core::mem::forget(handle);
@@ -236,8 +243,8 @@ impl LoadedSourcePackages {
             for handle in providers {
                 core::mem::forget(handle);
             }
-            Ok(staged)
         }
+        Ok(staged)
     }
 
     /// AOT startup uses the same validator and publication transaction as JIT.

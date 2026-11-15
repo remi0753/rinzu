@@ -1,6 +1,8 @@
 //! Explicit source-file or directory-package selection, without generated configuration.
 use std::path::{Path, PathBuf};
 
+use rinzu_abi::target::Target;
+
 use crate::{
     Diagnostic, DiagnosticCode, FileId, FrontendArtifact, Manifest, NativeCliInputs,
     NativeManifest, PackageExports, PackageKind, SourceCache, SourceRange, SourceSnapshot,
@@ -45,10 +47,15 @@ pub struct CompilationInput {
 impl CompilationContext {
     #[must_use]
     pub fn default_output(&self) -> PathBuf {
-        match self.mode {
-            CompilationMode::File => self.cwd.join("build").join(&self.metadata.name),
-            CompilationMode::Package => self.metadata.root.join("build").join(&self.metadata.name),
+        let root = match self.mode {
+            CompilationMode::File => &self.cwd,
+            CompilationMode::Package => &self.metadata.root,
+        };
+        let mut directory = root.join("build");
+        if Target::from_triple(&self.target) == Some(Target::X86_64UnknownLinuxGnu) {
+            directory.push(&self.target);
         }
+        directory.join(&self.metadata.name)
     }
 }
 
@@ -104,6 +111,8 @@ pub fn check_input_with_sources(
             "input must be a regular source file or directory",
         ));
     }
+    let requested_target = Target::from_triple(&options.target);
+    let sdk_target = requested_target.unwrap_or_else(crate::standard_library::host_target);
     let (mode, metadata, mut artifact, entry) = if stat
         .as_ref()
         .is_some_and(std::fs::Metadata::is_dir)
@@ -114,7 +123,8 @@ pub fn check_input_with_sources(
                 "--language cannot override package language; edit the manifest or specify a source file",
             ));
         }
-        let (mut manifest, mut artifact) = crate::check_package_with_sources(&canonical, sources)?;
+        let (mut manifest, mut artifact) =
+            crate::package::check_with_sources_for_target(&canonical, sources, sdk_target)?;
         artifact.native_inputs = native.normalize(&manifest)?;
         manifest
             .native
@@ -169,7 +179,8 @@ pub fn check_input_with_sources(
             exports: PackageExports::default(),
             native: NativeManifest::default(),
         };
-        let mut artifact = crate::package::check_file_with_sources(&canonical, &metadata, sources)?;
+        let mut artifact =
+            crate::package::check_file_with_sources(&canonical, &metadata, sources, sdk_target)?;
         let mut cli_owner = metadata.clone();
         cli_owner.root = cwd.clone();
         artifact.native_inputs = native.normalize(&cli_owner)?;
@@ -179,7 +190,19 @@ pub fn check_input_with_sources(
             .extend(artifact.native_inputs.headers.clone());
         (CompilationMode::File, metadata, artifact, canonical)
     };
-    if options.target != crate::standard_library::TARGET
+    if requested_target == Some(Target::X86_64UnknownLinuxGnu) {
+        for package in &artifact.sdk_packages {
+            if package.manifest.native != NativeManifest::default() {
+                return Err(input_error(
+                    &entry,
+                    format!(
+                        "SDK `{}` requires native packages, unavailable on {}",
+                        package.manifest.name, options.target
+                    ),
+                ));
+            }
+        }
+    } else if options.target != crate::standard_library::TARGET
         && artifact.sdk_packages.iter().any(|p| {
             crate::standard_library::SOURCE_PACKAGES.contains(&p.manifest.name.as_str())
                 || crate::official_sdk::registered(&p.manifest.name)

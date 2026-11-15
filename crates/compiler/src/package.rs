@@ -2,6 +2,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use rinzu_abi::target::Target;
+
 use crate::ast::{
     Arguments, Block, Declaration, Export, Expression, ExpressionKind, Module, NativeMember,
     Statement, StatementKind, TypeRef, TypeRefKind,
@@ -88,7 +90,15 @@ pub(crate) fn check_with_sources(
     start: &Path,
     sources: &mut SourceSnapshot<'_>,
 ) -> Result<(Manifest, FrontendArtifact), Vec<Diagnostic>> {
-    let (manifest, artifact, _) = check_request(start, sources, None)?;
+    check_with_sources_for_target(start, sources, crate::standard_library::host_target())
+}
+
+pub(crate) fn check_with_sources_for_target(
+    start: &Path,
+    sources: &mut SourceSnapshot<'_>,
+    target: Target,
+) -> Result<(Manifest, FrontendArtifact), Vec<Diagnostic>> {
+    let (manifest, artifact, _) = check_request(start, sources, None, target)?;
     Ok((manifest, artifact))
 }
 
@@ -182,9 +192,10 @@ pub(crate) fn check_file_with_sources(
     path: &Path,
     manifest: &Manifest,
     sources: &mut SourceSnapshot<'_>,
+    target: Target,
 ) -> Result<FrontendArtifact, Vec<Diagnostic>> {
     let mut external = builtin_symbols();
-    let mut graph = CheckGraph::new(ResolvedGraph::new(manifest.clone()));
+    let mut graph = CheckGraph::new(ResolvedGraph::new(manifest.clone()), target);
     let mut loader = Loader::file(
         path,
         toolchain::import_names()?.map(str::to_owned).collect(),
@@ -357,19 +368,25 @@ pub(crate) fn check_tests(
     sources: &mut SourceSnapshot<'_>,
     tests: &crate::PackageTestOptions,
 ) -> Result<(Manifest, FrontendArtifact, Vec<crate::PackageTestCase>), Vec<Diagnostic>> {
-    check_request(start, sources, Some(tests))
+    check_request(
+        start,
+        sources,
+        Some(tests),
+        crate::standard_library::host_target(),
+    )
 }
 
 fn check_request(
     start: &Path,
     sources: &mut SourceSnapshot<'_>,
     tests: Option<&crate::PackageTestOptions>,
+    target: Target,
 ) -> Result<(Manifest, FrontendArtifact, Vec<crate::PackageTestCase>), Vec<Diagnostic>> {
     let manifest_path = find_manifest(start).map_err(|error| vec![error.into_diagnostic()])?;
     let manifest = read_package_manifest(&manifest_path, sources)?;
     let graph = resolve_installed_graph(manifest, sources)?;
     crate::compatibility::validate_graph(&graph)?;
-    let (manifest, mut artifact, cases) = CheckGraph::new(graph).check(sources, tests)?;
+    let (manifest, mut artifact, cases) = CheckGraph::new(graph, target).check(sources, tests)?;
     artifact.checked_inputs = sources.input_bytes();
     Ok((manifest, artifact, cases))
 }
@@ -657,17 +674,17 @@ fn check_loaded(
     )?;
     merge_packages(&mut sdk_packages, toolchain_packages)?;
     let source_inputs = loader.source_inputs;
-    let intrinsic_package = crate::standard_library::intrinsic_source(&manifest.name)
-        .filter(|source| {
-            manifest.kind == PackageKind::Sdk
-                && loader
-                    .modules
-                    .iter()
-                    .find(|module| module.name == entry_module)
-                    .and_then(|module| source_inputs.get(&module.source_path))
-                    .is_some_and(|bytes| bytes.as_slice() == *source)
-        })
-        .map(|_| manifest.name.as_str());
+    // Authenticate the exact embedded source when checking either SDK directly.
+    let is_intrinsic_package = manifest.kind == PackageKind::Sdk
+        && loader
+            .modules
+            .iter()
+            .find(|module| module.name == entry_module)
+            .and_then(|module| source_inputs.get(&module.source_path))
+            .is_some_and(|bytes| {
+                crate::standard_library::is_intrinsic_source(&manifest.name, bytes)
+            });
+    let intrinsic_package = is_intrinsic_package.then_some(manifest.name.as_str());
     let (mut syntax, mut module_graph) = link_modules(
         &link_entry,
         loader.modules,

@@ -1,4 +1,5 @@
 fn main() {
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS");
     println!("cargo:rerun-if-changed=../../include/rinzu/resource_counters.h");
     println!("cargo:rerun-if-changed=../../include/rinzu/managed_data.h");
     println!("cargo:rerun-if-changed=../../include/rinzu/gc_policy.h");
@@ -21,23 +22,23 @@ fn main() {
         println!("cargo:rerun-if-changed=../../include/rinzu/{resource}");
     }
     if std::env::var("CARGO_CFG_TARGET_FAMILY").as_deref() == Ok("unix") {
-        cc::Build::new()
-            .file("../../include/rinzu/json.c")
-            .include("../../include")
+        let mut c = cc::Build::new();
+        if target_os.as_deref() == Ok("linux") {
+            c.define("_GNU_SOURCE", None);
+        }
+        c.include("../../include")
             .flag("-std=c11")
+            .warnings_into_errors(true);
+        c.clone()
+            .file("../../include/rinzu/json.c")
             .opt_level(3)
-            .warnings_into_errors(true)
             .compile("rinzu_json");
-        cc::Build::new()
-            .file("src/display.c")
+        c.file("src/display.c")
             .file("src/stdio.c")
             .file("src/foreign_queue.c")
             .file("src/native_diagnostics.c")
             .file("src/ready_work.c")
             .file("src/standalone_interrupt.c")
-            .include("../../include")
-            .flag("-std=c11")
-            .warnings_into_errors(true)
             .compile("rinzu_foreign_queue");
     }
     println!("cargo:rerun-if-changed=src/callback_entry.c");
@@ -48,7 +49,7 @@ fn main() {
     println!("cargo:rerun-if-changed=../../include/rinzu/owner_dispatcher.h");
     println!("cargo:rerun-if-changed=../../include/rinzu/callback_return.h");
     println!("cargo:rerun-if-changed=../../include/rinzu/callback_consumption.h");
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos")
+    if target_os.as_deref() == Ok("macos")
         && std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("aarch64")
     {
         let mut callback = cc::Build::new();

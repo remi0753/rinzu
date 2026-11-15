@@ -23,6 +23,10 @@ rinzu-abi = { path = "../abi" }
 rinzu-compiler = { path = "../compiler" }
 rinzu-runtime = { path = "../runtime" }
 rinzu-trace = { path = "../trace" }
+target-lexicon.workspace = true
+
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+cranelift-codegen = { workspace = true, features = ["x86"] }
 
 [dev-dependencies]
 serde_json.workspace = true

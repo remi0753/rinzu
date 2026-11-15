@@ -1,5 +1,6 @@
 //! Managed execution state and runtime entry points for the baseline JIT.
 use super::*;
+use crate::LoadedNativePackages;
 use core::ffi::c_void;
 use rinzu_abi::{ABI_VERSION, NativeInvocationContextV1};
 use rinzu_runtime::code::{CodeFrame, CodeVersion, CodeVersionId, CodeVersionState};
@@ -13,7 +14,7 @@ mod errors;
 mod native;
 use native::NativeLedger;
 
-pub(in crate::baseline) fn run(
+pub(crate) fn run(
     module_ir: &IrModule,
     entry: &str,
     options: BaselineOptions,
@@ -135,7 +136,7 @@ pub(in crate::baseline) fn run(
     let (jit_memory, memory_audit) = MacOsArm64JitMemory::new_with_audit()?;
     jit_builder.memory_provider(Box::new(jit_memory));
     let mut module = JITModule::new(jit_builder);
-    let runtime_functions = declare_runtime_functions(&mut module, module_ir, false, false)?;
+    let runtime_functions = declare_runtime_functions(&mut module, module_ir, false, false, false)?;
     let functions = declare_managed_functions(&mut module, module_ir, Linkage::Local)?;
     let native_imports = native_packages
         .as_ref()

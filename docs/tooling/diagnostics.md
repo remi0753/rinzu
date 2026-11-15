@@ -6,7 +6,7 @@ Compiler diagnostics include a diagnostic code, message, and source location. Fi
 
 | Symptom | Check |
 | --- | --- |
-| Unsupported execution target | Run `rinzu doctor`; runtime execution requires macOS arm64 |
+| Unsupported execution target | Run `rinzu doctor`. Use `rinzu build` for synchronous x86_64 Linux programs and `rinzu run` for JIT execution on macOS arm64 |
 | Import cannot be resolved | Check the entry mode, source root, exports, and direct manifest dependency |
 | Standard package cannot be replaced | Remove its `[dependencies]` entry; import it directly |
 | Error can escape Main or Worker | Add appropriate exhaustive recovery at that boundary |

@@ -3,6 +3,7 @@
 use core::ffi::{c_char, c_void};
 pub mod data_operation;
 pub mod integer_operation;
+pub mod target;
 
 pub const ABI_VERSION_MAJOR: u32 = 1;
 pub const ABI_VERSION_MINOR: u32 = 1;

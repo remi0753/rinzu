@@ -54,6 +54,7 @@ mod native_image;
 mod native_package;
 mod package_commands;
 mod package_tests;
+mod platform;
 mod release;
 #[cfg(test)]
 mod resource_accounting_tests;
@@ -238,6 +239,7 @@ fn run(mut arguments: impl Iterator<Item = OsString>) -> Result<(), String> {
                 .map_or_else(|| env::current_dir().map_err(|error| error.to_string()), Ok)?;
             let context = input::check(&path, &parsed.input, &parsed.native)?;
             if context.metadata.kind == rinzu_compiler::PackageKind::Sdk {
+                input::validate_native_inputs(&context.metadata, &context.artifact)?;
                 let source = context
                     .artifact
                     .source_interface
@@ -259,6 +261,7 @@ fn run(mut arguments: impl Iterator<Item = OsString>) -> Result<(), String> {
                     &package.manifest.root,
                     &artifact.native_inputs,
                 )?;
+                let _scratch = verify_capture::TemporaryDirectory(dependencies.directory.clone());
                 let built = source_native_package::build_with_dependencies(
                     &package,
                     &package.manifest.root,
@@ -290,7 +293,6 @@ fn run(mut arguments: impl Iterator<Item = OsString>) -> Result<(), String> {
                 println!("descriptor: {}", built.descriptor.display());
                 println!("contract: {}", built.contract.display());
                 println!("table: {}", built.table.display());
-                let _ = std::fs::remove_dir_all(dependencies.directory);
                 return Ok(());
             }
             let build = aot::build_checked_input(&context, parsed.output)?;

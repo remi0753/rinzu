@@ -342,7 +342,7 @@ mod tests {
             let mut child = Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
-                    "macos_jit_memory::tests::allocation_failure_child",
+                    "jit_memory::macos::tests::allocation_failure_child",
                     "--nocapture",
                 ])
                 .env("RINZU_TEST_JIT_MEMORY_FAILURE", mode)
@@ -514,7 +514,7 @@ mod tests {
         let result = Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
-                "macos_jit_memory::tests::readonly_write_child",
+                "jit_memory::macos::tests::readonly_write_child",
                 "--nocapture",
             ])
             .env("RINZU_JIT_READONLY_WRITE", "1")

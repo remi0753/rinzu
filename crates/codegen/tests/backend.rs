@@ -1,3 +1,7 @@
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[path = "../test-support/library.rs"]
 mod test_library;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -7,8 +11,15 @@ use rinzu_codegen::run_jit_spike;
 use rinzu_codegen::{
     BaselineFailure, BaselineOptions, run_baseline_jit, run_baseline_jit_with_options,
 };
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 use rinzu_compiler::{FileId, SourceFile};
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 use test_library::compile_library;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -261,6 +272,30 @@ fn main() {
 #[test]
 fn unsupported_host_does_not_claim_v1_jit_support() {
     assert!(run_jit_spike().is_err());
+}
+
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
+#[test]
+fn explicit_x86_64_target_emits_an_elf_object() {
+    use rinzu_abi::target::Target;
+
+    let source = SourceFile::new(FileId(1), "main.rinzu", "fn main() {}\n");
+    let artifact = compile_library(&source).unwrap();
+    let target = Target::X86_64UnknownLinuxGnu;
+    let output = rinzu_codegen::emit_baseline_aot_object_for_target(
+        target,
+        &artifact.ir,
+        "main",
+        &Default::default(),
+    )
+    .unwrap();
+    assert_eq!(output.target, target);
+    assert!(output.compile.code_size > 0);
+    assert_eq!(&output.object[..6], b"\x7fELF\x02\x01");
+    assert_eq!(&output.object[16..20], &[1, 0, 62, 0]); // ET_REL, EM_X86_64.
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

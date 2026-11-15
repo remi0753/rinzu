@@ -65,7 +65,9 @@ use crate::host_loop::{
     STANDARD_HOST_QUEUE_CAPACITY,
 };
 
-pub const V1_TARGET: &str = "aarch64-apple-darwin";
+use rinzu_abi::target::Target;
+
+pub const V1_TARGET: &str = Target::Aarch64AppleDarwin.triple();
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UnsupportedTarget {
@@ -87,8 +89,8 @@ impl std::error::Error for UnsupportedTarget {}
 
 #[must_use]
 pub const fn current_target() -> &'static str {
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        "aarch64-apple-darwin"
+    if let Some(target) = Target::host() {
+        target.triple()
     } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
         "x86_64-apple-darwin"
     } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {

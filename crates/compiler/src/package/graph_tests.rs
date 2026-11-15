@@ -130,6 +130,8 @@ fn selected_registry_candidate_uses_the_same_graph_lock_and_frontend() {
     );
     let mut cache = SourceCache::default();
     let mut sources = SourceSnapshot::new(&mut cache, Default::default());
-    let (_, artifact, _) = CheckGraph::new(graph).check(&mut sources, None).unwrap();
+    let (_, artifact, _) = CheckGraph::new(graph, crate::standard_library::host_target())
+        .check(&mut sources, None)
+        .unwrap();
     assert_eq!(artifact.sdk_packages.len(), 3);
 }

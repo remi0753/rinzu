@@ -158,6 +158,7 @@ pub fn build_artifact(
     manifest: &rinzu_compiler::Manifest,
     artifact: &rinzu_compiler::FrontendArtifact,
 ) -> Result<BuiltNativePackages, String> {
+    crate::input::validate_native_inputs(manifest, artifact)?;
     let _timing = rinzu_compiler::timing::span("native.build");
     let mut snapshot = crate::source_receipt::InputSnapshot::checked(
         &artifact.checked_inputs,

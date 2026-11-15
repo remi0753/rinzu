@@ -120,6 +120,19 @@ pub fn build_with_mode(
         .source
         .as_ref()
         .ok_or("source SDK interface is missing")?;
+    if rinzu_abi::target::Target::host().is_some_and(|target| !target.supports_native_packages())
+        && (package.manifest.native != rinzu_compiler::NativeManifest::default()
+            || !inputs.is_empty()
+            || !source.signatures.is_empty()
+            || !source.native_records.is_empty()
+            || source.types.values().any(|schema| schema.kind == "opaque"))
+    {
+        return Err(format!(
+            "native package `{}` is unavailable for {}",
+            package.manifest.name,
+            rinzu_runtime::current_target()
+        ));
+    }
     let checked: BTreeMap<_, _> = source
         .source_inputs
         .iter()

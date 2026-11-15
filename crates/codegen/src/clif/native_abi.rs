@@ -3,11 +3,17 @@
 //! exactly the source declaration's C parameters and return convention.
 use std::collections::BTreeMap;
 
-use anyhow::{Context, Result, anyhow, ensure};
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use anyhow::Context;
+use anyhow::{Result, anyhow, ensure};
 use cranelift_codegen::ir::{AbiParam, InstBuilder, MemFlagsData, Signature, Value, types};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{FuncId, Linkage, Module, default_libcall_names};
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use cranelift_module::default_libcall_names;
+use cranelift_module::{FuncId, Linkage, Module};
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use rinzu_compiler::{AbiScalar, SourceAbiType, SourceNativeSignature};
 
@@ -131,11 +137,13 @@ pub(crate) fn declare<M: Module>(
     Ok(functions)
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub struct NativeAbiObject {
     pub object: Vec<u8>,
     pub symbols: BTreeMap<String, String>,
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub fn emit_object(signatures: &[SourceNativeSignature]) -> Result<NativeAbiObject> {
     let isa = crate::native_isa(true)?;
     let builder = ObjectBuilder::new(isa, "rinzu-source-native", default_libcall_names())?;
@@ -152,15 +160,17 @@ pub fn emit_object(signatures: &[SourceNativeSignature]) -> Result<NativeAbiObje
 
 /// Owned by the compiling thread. Each physical Worker can compile its own
 /// immutable stubs without sharing compiler state or touching another heap.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub struct NativeAbiStubs {
     module: JITModule,
     functions: BTreeMap<String, (FuncId, usize)>,
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 impl NativeAbiStubs {
     pub fn new(signatures: &[SourceNativeSignature]) -> Result<Self> {
         let mut builder = JITBuilder::with_isa(crate::native_isa(false)?, default_libcall_names());
-        let (memory, audit) = crate::macos_jit_memory::MacOsArm64JitMemory::new_with_audit()?;
+        let (memory, audit) = crate::jit_memory::macos::MacOsArm64JitMemory::new_with_audit()?;
         builder.memory_provider(Box::new(memory));
         let mut module = JITModule::new(builder);
         let functions = declare(&mut module, signatures)?;

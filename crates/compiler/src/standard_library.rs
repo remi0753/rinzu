@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use sha2::{Digest, Sha256};
 
-pub const TARGET: &str = "aarch64-apple-darwin";
+use rinzu_abi::target::Target;
+
+pub const TARGET: &str = Target::Aarch64AppleDarwin.triple();
 pub const REVISION: u32 = 7;
 /// Shared by the embedded registry and its distribution fingerprint.
 pub const RUNTIME_CODEGEN_REVISION: u32 = 187;
@@ -43,11 +45,26 @@ pub(crate) fn builtin(name: &str) -> bool {
     BUILTIN_PACKAGES.contains(&name)
 }
 
-pub(crate) fn intrinsic_source(name: &str) -> Option<&'static [u8]> {
+pub(crate) fn host_target() -> Target {
+    Target::host().unwrap_or(Target::Aarch64AppleDarwin)
+}
+
+pub(crate) fn is_intrinsic_source(name: &str, bytes: &[u8]) -> bool {
     match name {
-        "rinzu.process" => Some(include_bytes!("../../../sdk/process/src/process.rinzu")),
-        "rinzu.json" => Some(include_bytes!("../../../sdk/json/src/json.rinzu")),
-        _ => None,
+        "rinzu.process" => [Target::Aarch64AppleDarwin, Target::X86_64UnknownLinuxGnu]
+            .into_iter()
+            .any(|target| bytes == process_source(target)),
+        "rinzu.json" => bytes == include_bytes!("../../../sdk/json/src/json.rinzu"),
+        _ => false,
+    }
+}
+
+fn process_source(target: Target) -> &'static [u8] {
+    match target {
+        Target::Aarch64AppleDarwin => include_bytes!("../../../sdk/process/src/process.rinzu"),
+        Target::X86_64UnknownLinuxGnu => {
+            include_bytes!("../../../sdk/process/linux/src/process.rinzu")
+        }
     }
 }
 
@@ -75,8 +92,12 @@ pub(crate) fn module_names() -> impl Iterator<Item = &'static str> {
 }
 
 pub fn dependencies(name: &str) -> &'static [&'static str] {
+    dependencies_for_target(name, host_target())
+}
+
+pub fn dependencies_for_target(name: &str, target: Target) -> &'static [&'static str] {
     match name {
-        "rinzu.process" => &["rinzu.option"],
+        "rinzu.process" if target == Target::Aarch64AppleDarwin => &["rinzu.option"],
         "rinzu.stream" => &["rinzu.io"],
         "rinzu.http" => &["rinzu.socket", "rinzu.httpcodec", "rinzu.io"],
         "rinzu.httpcodec" => &["rinzu.socket"],
@@ -103,7 +124,11 @@ macro_rules! repository_resource {
 }
 
 pub fn resources() -> BTreeMap<&'static str, &'static [u8]> {
-    BTreeMap::from([
+    resources_for_target(host_target())
+}
+
+pub(crate) fn resources_for_target(target: Target) -> BTreeMap<&'static str, &'static [u8]> {
+    let mut files = BTreeMap::from([
         repository_resource!("include/rinzu/byte_scan.h", "include/rinzu/byte_scan.h"),
         repository_resource!("include/rinzu/callback_consumption.h", "include/rinzu/callback_consumption.h"),
         repository_resource!("include/rinzu/callback_entry.h", "include/rinzu/callback_entry.h"),
@@ -223,7 +248,17 @@ pub fn resources() -> BTreeMap<&'static str, &'static [u8]> {
         sdk_resource!("socket", "src/socket.rinzu"),
         sdk_resource!("socket", "native/src/socket.c"),
         sdk_resource!("socket", "native/include/rinzu_socket.h"),
-    ])
+    ]);
+    if target == Target::X86_64UnknownLinuxGnu {
+        files.insert(
+            "packages/process/rinzu.toml",
+            include_bytes!("../../../sdk/process/linux/rinzu.toml"),
+        );
+        files.insert("packages/process/src/process.rinzu", process_source(target));
+        files.remove("packages/process/native/process.c");
+        files.remove("packages/process/native/process.h");
+    }
+    files
 }
 
 pub fn sha256(bytes: &[u8]) -> String {
@@ -231,14 +266,23 @@ pub fn sha256(bytes: &[u8]) -> String {
 }
 
 pub fn registry_bytes() -> Vec<u8> {
-    // This inventory describes immutable embedded bytes, not disk state.
-    // Installed resources are still freshly checked by verify on every use.
-    static REGISTRY: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
-    REGISTRY.get_or_init(build_registry_bytes).clone()
+    registry_bytes_for_target(host_target()).to_vec()
 }
 
-fn build_registry_bytes() -> Vec<u8> {
-    let inventory: BTreeMap<_, _> = resources()
+fn registry_bytes_for_target(target: Target) -> &'static [u8] {
+    // This inventory describes immutable embedded bytes, not disk state.
+    // Installed resources are still freshly checked by verify on every use.
+    static DARWIN: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    static LINUX: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    let registry = match target {
+        Target::Aarch64AppleDarwin => &DARWIN,
+        Target::X86_64UnknownLinuxGnu => &LINUX,
+    };
+    registry.get_or_init(|| build_registry_bytes(target))
+}
+
+fn build_registry_bytes(target: Target) -> Vec<u8> {
+    let inventory: BTreeMap<_, _> = resources_for_target(target)
         .into_iter()
         .map(|(name, bytes)| (name, sha256(bytes)))
         .collect();
@@ -248,7 +292,7 @@ fn build_registry_bytes() -> Vec<u8> {
                 name,
                 serde_json::json!({
                     "version": "0.1.0", "builtin": !SOURCE_PACKAGES.contains(&name),
-                    "dependencies": dependencies(name),
+                    "dependencies": dependencies_for_target(name, target),
                 }),
             )
         })
@@ -256,7 +300,7 @@ fn build_registry_bytes() -> Vec<u8> {
     serde_json::to_vec_pretty(&serde_json::json!({
         "schema": "rinzu.standard-library-v1", "revision": REVISION,
         "toolchainVersion": env!("CARGO_PKG_VERSION"), "language": "0.5",
-        "semantics": crate::LANGUAGE_SEMANTICS_REVISION, "target": TARGET,
+        "semantics": crate::LANGUAGE_SEMANTICS_REVISION, "target": target.triple(),
         "sourcePackageAbi": format!("{}.{}",rinzu_abi::SOURCE_PACKAGE_MAJOR,rinzu_abi::SOURCE_PACKAGE_MINOR), "runtimeCodegenRevision": RUNTIME_CODEGEN_REVISION,
         "packages": packages, "files": inventory,
     }))
@@ -264,13 +308,10 @@ fn build_registry_bytes() -> Vec<u8> {
 }
 
 pub fn cache_root() -> Result<PathBuf, String> {
-    let path = if let Some(path) = std::env::var_os("RINZU_CACHE_DIR") {
-        PathBuf::from(path)
-    } else if let Some(path) = std::env::var_os("HOME") {
-        PathBuf::from(path).join("Library/Caches/rinzu")
-    } else {
-        return Err("set RINZU_CACHE_DIR to a writable user cache directory".into());
-    };
+    let path = std::env::var_os("RINZU_CACHE_DIR")
+        .map(PathBuf::from)
+        .or_else(default_cache_root)
+        .ok_or("set RINZU_CACHE_DIR to a writable user cache directory")?;
     if std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()) {
         return Err("RINZU_CACHE_DIR cannot be a symlink".into());
     }
@@ -279,10 +320,26 @@ pub fn cache_root() -> Result<PathBuf, String> {
     path.canonicalize().map_err(|e| e.to_string())
 }
 
+fn default_cache_root() -> Option<PathBuf> {
+    let home = || std::env::var_os("HOME").map(PathBuf::from);
+    if cfg!(target_os = "linux") {
+        std::env::var_os("XDG_CACHE_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .or_else(|| home().map(|path| path.join(".cache")))
+            .map(|path| path.join("rinzu"))
+    } else {
+        home().map(|path| path.join("Library/Caches/rinzu"))
+    }
+}
+
 pub fn verify(root: &Path) -> Result<(), String> {
-    let mut expected = resources();
-    let registry = registry_bytes();
-    expected.insert("registry.json", &registry);
+    verify_for_target(root, host_target())
+}
+
+fn verify_for_target(root: &Path, target: Target) -> Result<(), String> {
+    let mut expected = resources_for_target(target);
+    expected.insert("registry.json", registry_bytes_for_target(target));
     for (relative, bytes) in expected {
         let path = root.join(relative);
         let metadata = std::fs::symlink_metadata(&path)
@@ -305,10 +362,13 @@ pub fn verify(root: &Path) -> Result<(), String> {
 
 /// Write an embedded snapshot into an owned empty directory; never repair an installed root.
 pub fn write_resources(root: &Path) -> Result<(), String> {
+    write_resources_for_target(root, host_target())
+}
+
+fn write_resources_for_target(root: &Path, target: Target) -> Result<(), String> {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let registry = registry_bytes();
-    let mut files = resources();
-    files.insert("registry.json", &registry);
+    let mut files = resources_for_target(target);
+    files.insert("registry.json", registry_bytes_for_target(target));
     std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
     let root = root.canonicalize().map_err(|e| e.to_string())?;
     for (name, bytes) in files {
@@ -357,7 +417,7 @@ pub fn write_resources(root: &Path) -> Result<(), String> {
         output.write_all(bytes).map_err(|e| e.to_string())?;
         std::fs::rename(&temporary, &path).map_err(|e| e.to_string())?;
     }
-    verify(&root)
+    verify_for_target(&root, target)
 }
 
 pub(crate) fn installed_resource_root() -> Result<Option<PathBuf>, String> {
@@ -381,12 +441,20 @@ pub(crate) fn installed_resource_root() -> Result<Option<PathBuf>, String> {
 }
 
 pub fn resource_root() -> Result<PathBuf, String> {
-    if let Some(root) = installed_resource_root()? {
-        verify(&root)?;
+    resource_root_for_target(host_target())
+}
+
+pub(crate) fn resource_root_for_target(target: Target) -> Result<PathBuf, String> {
+    if target == host_target()
+        && let Some(root) = installed_resource_root()?
+    {
+        verify_for_target(&root, target)?;
         return Ok(root);
     }
     let cache = cache_root()?;
-    let root = cache.join("resources").join(sha256(&registry_bytes()));
+    let root = cache
+        .join("resources")
+        .join(sha256(registry_bytes_for_target(target)));
     for path in [cache.join("resources"), root.clone()] {
         if std::fs::symlink_metadata(&path).is_ok_and(|m| !m.file_type().is_dir()) {
             return Err(format!(
@@ -395,7 +463,7 @@ pub fn resource_root() -> Result<PathBuf, String> {
             ));
         }
     }
-    write_resources(&root)?;
+    write_resources_for_target(&root, target)?;
     Ok(root)
 }
 
@@ -412,7 +480,7 @@ pub fn package_root(name: &str) -> Result<PathBuf, String> {
 pub fn fingerprint() -> serde_json::Value {
     serde_json::json!({"schema":"rinzu.toolchain-resource-receipt-v1", "revision": REVISION,
         "toolchainVersion": env!("CARGO_PKG_VERSION"), "standardPackageVersion":"0.1.0",
-        "target": TARGET, "language":"0.5", "semantics":crate::LANGUAGE_SEMANTICS_REVISION,
+        "target": host_target().triple(), "language":"0.5", "semantics":crate::LANGUAGE_SEMANTICS_REVISION,
         "sourcePackageAbi":format!("{}.{}",rinzu_abi::SOURCE_PACKAGE_MAJOR,rinzu_abi::SOURCE_PACKAGE_MINOR), "runtimeCodegenRevision":RUNTIME_CODEGEN_REVISION,
         "registrySha256":sha256(&registry_bytes())})
 }

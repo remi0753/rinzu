@@ -1,3 +1,4 @@
+use rinzu_abi::target::Target;
 use rinzu_compiler::{
     CompilationOptions, FileId, NativeCliInputs, SourceFile, check_input, format_source,
     standard_library,
@@ -63,11 +64,12 @@ fn every_selected_source_package_is_reachable_without_manifest_dependencies() {
     for name in standard_library::SOURCE_PACKAGES {
         let entry = scratch.source("entry.rinzu", &format!("import {name}; fn main() {{}}"));
         let result = check(&entry);
-        let expected: Vec<_> = standard_library::dependencies(name)
-            .iter()
-            .copied()
-            .chain([name])
-            .collect();
+        let expected: Vec<_> =
+            standard_library::dependencies_for_target(name, Target::Aarch64AppleDarwin)
+                .iter()
+                .copied()
+                .chain([name])
+                .collect();
         assert_eq!(packages(&result), expected);
         assert!(result.artifact.source_interface.is_none());
         assert!(
@@ -78,6 +80,32 @@ fn every_selected_source_package_is_reachable_without_manifest_dependencies() {
                 .any(|p| p.ends_with("registry.json"))
         );
     }
+}
+
+#[test]
+fn linux_process_sdk_is_selected_by_target_without_native_inputs() {
+    let scratch = Scratch::new();
+    let entry = scratch.source(
+        "entry.rinzu",
+        "import rinzu.process; fn main() { let accepted = rinzu.process.setExitStatus(7); }",
+    );
+    let linux = check_input(
+        &entry,
+        &CompilationOptions {
+            language: None,
+            target: Target::X86_64UnknownLinuxGnu.triple().into(),
+        },
+        &NativeCliInputs::default(),
+    )
+    .unwrap_or_else(|errors| panic!("{errors:#?}"));
+    assert_eq!(packages(&linux), ["rinzu.process"]);
+    assert_eq!(
+        linux.artifact.sdk_packages[0].manifest.native,
+        Default::default()
+    );
+    assert_eq!(packages(&check(&entry)), ["rinzu.option", "rinzu.process"]);
+    let linux_sdk = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk/process/linux");
+    assert!(check(&linux_sdk).artifact.source_interface.is_some());
 }
 
 #[test]

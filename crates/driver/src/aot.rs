@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use rinzu_abi::target::Target;
 use rinzu_codegen::{
-    AotFunctionMetadata, BaselineAotObject, emit_baseline_aot_object_with_native_bindings,
+    AotFunctionMetadata, BaselineAotObject, emit_baseline_aot_object_for_target,
     emit_source_async_aot_object,
 };
 use serde_json::json;
@@ -93,6 +94,22 @@ fn build_checked_layout(
 ) -> Result<AotBuild, String> {
     let manifest = &context.metadata;
     let artifact = &context.artifact;
+    let target = Target::from_triple(&context.target)
+        .filter(|target| Target::host() == Some(*target))
+        .ok_or_else(|| {
+            format!(
+                "Rinzu AOT requires a supported host target; requested {}",
+                context.target
+            )
+        })?;
+    let uses_source_async =
+        manifest.language != "0.1" && rinzu_codegen::uses_async_runtime(&artifact.ir, target);
+    if uses_source_async && !target.supports_async_aot() {
+        return Err(format!(
+            "async AOT is unavailable for {}; build a synchronous application",
+            target.triple()
+        ));
+    }
     let native_bindings = artifact
         .sdk_packages
         .iter()
@@ -113,11 +130,10 @@ fn build_checked_layout(
         &native_build.source_packages,
         &native_build.directory.join("deployment"),
     )?;
-    let uses_source_async = manifest.language != "0.1" && main_uses_source_async(artifact);
     let aot = if uses_source_async {
         emit_source_async_aot_object(&artifact.ir, "main", &native_bindings)
     } else {
-        emit_baseline_aot_object_with_native_bindings(&artifact.ir, "main", &native_bindings)
+        emit_baseline_aot_object_for_target(target, &artifact.ir, "main", &native_bindings)
     }
     .map_err(|error| {
         crate::cli_diagnostics::stage_failure(
@@ -232,7 +248,7 @@ fn build_checked_layout(
 
     let runtime_resources = rinzu_compiler::standard_library::resource_root()?;
     let link_toolchain = crate::native_clang::TargetClang::resolve()?;
-    let mut linker = link_toolchain.command();
+    let mut linker = link_toolchain.executable_command();
     linker
         .arg("-std=c11")
         .arg("-O2")
@@ -279,6 +295,9 @@ fn build_checked_layout(
     }
     if !native_build.artifacts.is_empty() {
         linker.arg("-Wl,-rpath,@executable_path");
+    }
+    if target == Target::X86_64UnknownLinuxGnu {
+        crate::platform::linux::link_runtime_libraries(&mut linker);
     }
     crate::cli_diagnostics::tool_output(
         linker.arg("-o").arg(&executable).output(),
@@ -331,27 +350,7 @@ pub(super) fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
 }
 
 pub(crate) fn main_uses_source_async(artifact: &rinzu_compiler::FrontendArtifact) -> bool {
-    // A synchronous entry may start asynchronous work. Runtime selection must
-    // follow executable task operations, not the spelling of Main's signature.
-    artifact
-        .ir
-        .source_native_signatures
-        .iter()
-        .any(|signature| signature.is_async || signature.is_supplant)
-        || artifact.ir.functions.iter().any(|function| {
-            function.is_async
-                || function
-                    .blocks
-                    .iter()
-                    .flat_map(|block| &block.operations)
-                    .any(|op| {
-                        matches!(
-                            op.kind,
-                            rinzu_compiler::OperationKind::TaskControl { .. }
-                                | rinzu_compiler::OperationKind::Spawn { .. }
-                        )
-                    })
-        })
+    rinzu_codegen::uses_async_runtime(&artifact.ir, Target::Aarch64AppleDarwin)
 }
 
 fn async_scalar_kind(ty: &rinzu_compiler::Type) -> Result<u32, String> {
@@ -617,7 +616,7 @@ fn write_metadata_with_native_inputs(
         "version": 1,
         "package": package,
         "nativeInputs": { "searchPaths": inputs.search_paths, "libraries": inputs.libraries, "objects": inputs.objects },
-        "target": rinzu_runtime::V1_TARGET,
+        "target": aot.target.triple(),
         "entryIndex": aot.entry_index,
         "entrySymbol": aot.entry_symbol,
         "functions": functions,
@@ -762,6 +761,8 @@ fn runtime_shim(
     async_plan: Option<&AsyncAotPlan>,
     packages: &[crate::source_native_package::BuiltSourcePackage],
 ) -> String {
+    let synchronous_exit_status =
+        aot.target == Target::X86_64UnknownLinuxGnu && async_plan.is_none();
     let mut source = String::from(
         "#include <stdint.h>\n#include <stdio.h>\n#ifndef printf\nstatic int rinzu_report_printf(const char *,...);\n#define printf rinzu_report_printf\n#define RINZU_AOT_BUFFERED_REPORT 1\n#endif\n#include <limits.h>\n#include <stdlib.h>\n#include <string.h>\n#include <pthread.h>\n#include \"rinzu/standalone_interrupt.h\"\n#include \"rinzu/runtime.h\"\n#include \"rinzu/failure.h\"\n#include \"rinzu/error_groups.h\"\n#include \"rinzu/managed_composite.h\"\n#include \"rinzu/native_record.h\"\n#include \"rinzu/native_userdata.h\"\n#include \"rinzu/owner_transition.h\"\n",
     );
@@ -855,19 +856,29 @@ fn runtime_shim(
             source.push_str(include_str!("aot_supplant.c"));
         }
     } else {
-        source.push_str("#define ASYNC_EVENT(raw, kind, future) ((void)0)\n#define rinzu_aot_async_observe(context, failure) ((void)0)\n#define rinzu_aot_async_cancelled(context) ((context)->cancel_requested)\n#define rinzu_aot_async_root_shutdown(context) 0\nint64_t rinzu_baseline_task_control(void *raw,int64_t kind,int64_t future) {(void)raw;(void)kind;(void)future;rinzu_failure_fatal();return 0;}\n");
+        source.push_str("#define ASYNC_EVENT(raw, kind, future) ((void)0)\n#define rinzu_aot_async_observe(context, failure) ((void)0)\n#define rinzu_aot_async_cancelled(context) ((context)->cancel_requested)\n#define rinzu_aot_async_root_shutdown(context) 0\n");
+        if synchronous_exit_status {
+            source.push_str(&format!(
+                "int64_t rinzu_baseline_task_control(void *raw, int64_t kind, int64_t status) {{\n  if (kind != {}) rinzu_failure_fatal();\n  if (status < 0 || status > 255) return 0;\n  ((RinzuContext *)raw)->exit_status = (int)status;\n  return 1;\n}}\n",
+                rinzu_compiler::TaskControlKind::ExitStatus as u8
+            ));
+        } else {
+            source.push_str("int64_t rinzu_baseline_task_control(void *raw,int64_t kind,int64_t future) {(void)raw;(void)kind;(void)future;rinzu_failure_fatal();return 0;}\n");
+        }
     }
-    source.push_str(&format!(
-        "_Static_assert(offsetof(RinzuContext, pending) + offsetof(rinzu_failure_state_t, current) + offsetof(rinzu_failure_t, primary) == {}, \"private pending primary offset\");\n\
-         _Static_assert(sizeof(((RinzuContext *)0)->pending.current.primary) == 8, \"private pending primary width\");\n\
-         _Static_assert(_Alignof(RinzuContext) >= 8, \"private Context alignment\");\n",
-        rinzu_codegen::C_CONTEXT_PENDING_PRIMARY_OFFSET
-    ));
-    source.push_str(&format!(
-        "_Static_assert(offsetof(RinzuContext, failure_origin) == {}, \"private failure origin offset\");\n\
-         _Static_assert(sizeof(((RinzuContext *)0)->failure_origin) == 8, \"private failure origin width\");\n",
-        rinzu_codegen::C_CONTEXT_FAILURE_ORIGIN_OFFSET
-    ));
+    if aot.uses_direct_c_context() {
+        source.push_str(&format!(
+            "_Static_assert(offsetof(RinzuContext, pending) + offsetof(rinzu_failure_state_t, current) + offsetof(rinzu_failure_t, primary) == {}, \"private pending primary offset\");\n\
+             _Static_assert(sizeof(((RinzuContext *)0)->pending.current.primary) == 8, \"private pending primary width\");\n\
+             _Static_assert(_Alignof(RinzuContext) >= 8, \"private Context alignment\");\n",
+            rinzu_codegen::C_CONTEXT_PENDING_PRIMARY_OFFSET
+        ));
+        source.push_str(&format!(
+            "_Static_assert(offsetof(RinzuContext, failure_origin) == {}, \"private failure origin offset\");\n\
+             _Static_assert(sizeof(((RinzuContext *)0)->failure_origin) == 8, \"private failure origin width\");\n",
+            rinzu_codegen::C_CONTEXT_FAILURE_ORIGIN_OFFSET
+        ));
+    }
     source.push_str(include_str!("aot_safepoint.c"));
     source.push_str(
         "\nvoid rinzu_baseline_begin_cleanup(void *raw, int64_t region) { RinzuContext *context = raw; rinzu_failure_begin_scoped(&context->pending, context->roots.depth, (uint64_t)region); }\n\
@@ -956,8 +967,9 @@ fn runtime_shim(
         append_async_main(&mut source, aot, plan);
     } else {
         source.push_str(&format!(
-        "int main(void) {{\n  rinzu_report_begin();\n  RinzuContext context = {{0}};\n  const char *cancel = getenv(\"RINZU_CANCEL_AFTER_POLLS\");\n  const char *maximum = getenv(\"RINZU_MAX_ALLOCATIONS\");\n  const char *shutdown = getenv(\"RINZU_SHUTDOWN_AFTER_POLLS\");\n  if (cancel) context.cancel_after = strtoull(cancel, NULL, 10);\n  if (maximum) context.max_allocations = strtoull(maximum, NULL, 10);\n  if (shutdown) context.shutdown_after = strtoull(shutdown, NULL, 10);\n  rinzu_activity_t *main_activity=rinzu_owner_activity_prepare(rinzu_context_transitions(&context),RINZU_ACTIVITY_MANAGED,{main_label},UINT64_C({main_file}),{main_start},{main_end},0);\n  rinzu_activity_start(main_activity);\n  int64_t result = {}(&context);\n  rinzu_activity_end(main_activity);\n  rinzu_baseline_leave_dispatch(&context);\n  rinzu_failure_forget_managed(&context.pending.current); rinzu_managed_collect(&context.data, &context.roots);\n  if (context.data.objects != 0) rinzu_failure_fatal(); rinzu_owner_transition_finish(rinzu_context_transitions(&context));\n  rinzu_failure_print(&context.pending); rinzu_failure_print_traces(&context.pending);\n  const char *outcome = context.pending.current.primary == 2 ? \"cancelled\" : ((context.pending.current.primary && context.pending.current.primary != 4) ? \"failure\" : \"success\");\n  const char *failure = rinzu_failure_name(context.pending.current.primary);\n  printf(\"RINZU_RESULT=%lld\\n\", (long long)result);\n  printf(\"RINZU_FAILURE=%s\\n\", failure);\n  printf(\"RINZU_TRACE={{\\\"schema\\\":\\\"rinzu.event-trace\\\",\\\"version\\\":1,\\\"producer\\\":\\\"rinzu-aot\\\",\\\"context\\\":{{\\\"engine\\\":\\\"baseline-aot\\\",\\\"resume-domain\\\":\\\"main\\\",\\\"resource-baseline\\\":\\\"true\\\",\\\"shutdown\\\":\\\"complete\\\"}},\\\"events\\\":[{{\\\"sequence\\\":0,\\\"domain\\\":\\\"main\\\",\\\"task\\\":\\\"main\\\",\\\"kind\\\":\\\"task-start\\\"}},{{\\\"sequence\\\":1,\\\"domain\\\":\\\"main\\\",\\\"task\\\":\\\"main\\\",\\\"kind\\\":\\\"task-complete\\\",\\\"outcome\\\":\\\"%s\\\"}}]}}\\n\", outcome);\n  int exit_code = (context.pending.current.primary == 0 || context.pending.current.primary == 4) ? 0 : 1; rinzu_failure_dispose(&context.pending); rinzu_managed_dispose(&context.roots); rinzu_managed_data_dispose(&context.data); if (rinzu_report_flush()) exit_code = 1; return exit_code;\n}}\n",
+        "int main(void) {{\n  rinzu_report_begin();\n  RinzuContext context = {{0}};\n  const char *cancel = getenv(\"RINZU_CANCEL_AFTER_POLLS\");\n  const char *maximum = getenv(\"RINZU_MAX_ALLOCATIONS\");\n  const char *shutdown = getenv(\"RINZU_SHUTDOWN_AFTER_POLLS\");\n  if (cancel) context.cancel_after = strtoull(cancel, NULL, 10);\n  if (maximum) context.max_allocations = strtoull(maximum, NULL, 10);\n  if (shutdown) context.shutdown_after = strtoull(shutdown, NULL, 10);\n  rinzu_activity_t *main_activity=rinzu_owner_activity_prepare(rinzu_context_transitions(&context),RINZU_ACTIVITY_MANAGED,{main_label},UINT64_C({main_file}),{main_start},{main_end},0);\n  rinzu_activity_start(main_activity);\n  int64_t result = {}(&context);\n  rinzu_activity_end(main_activity);\n  rinzu_baseline_leave_dispatch(&context);\n  rinzu_failure_forget_managed(&context.pending.current); rinzu_managed_collect(&context.data, &context.roots);\n  if (context.data.objects != 0) rinzu_failure_fatal(); rinzu_owner_transition_finish(rinzu_context_transitions(&context));\n  rinzu_failure_print(&context.pending); rinzu_failure_print_traces(&context.pending);\n  const char *outcome = context.pending.current.primary == 2 ? \"cancelled\" : ((context.pending.current.primary && context.pending.current.primary != 4) ? \"failure\" : \"success\");\n  const char *failure = rinzu_failure_name(context.pending.current.primary);\n  printf(\"RINZU_RESULT=%lld\\n\", (long long)result);\n  printf(\"RINZU_FAILURE=%s\\n\", failure);\n  printf(\"RINZU_TRACE={{\\\"schema\\\":\\\"rinzu.event-trace\\\",\\\"version\\\":1,\\\"producer\\\":\\\"rinzu-aot\\\",\\\"context\\\":{{\\\"engine\\\":\\\"baseline-aot\\\",\\\"resume-domain\\\":\\\"main\\\",\\\"resource-baseline\\\":\\\"true\\\",\\\"shutdown\\\":\\\"complete\\\"}},\\\"events\\\":[{{\\\"sequence\\\":0,\\\"domain\\\":\\\"main\\\",\\\"task\\\":\\\"main\\\",\\\"kind\\\":\\\"task-start\\\"}},{{\\\"sequence\\\":1,\\\"domain\\\":\\\"main\\\",\\\"task\\\":\\\"main\\\",\\\"kind\\\":\\\"task-complete\\\",\\\"outcome\\\":\\\"%s\\\"}}]}}\\n\", outcome);\n  int exit_code = (context.pending.current.primary == 0 || context.pending.current.primary == 4) ? {requested_exit} : 1; rinzu_failure_dispose(&context.pending); rinzu_managed_dispose(&context.roots); rinzu_managed_data_dispose(&context.data); if (rinzu_report_flush()) exit_code = 1; return exit_code;\n}}\n",
         aot.entry_symbol,
+        requested_exit = if synchronous_exit_status { "context.exit_status" } else { "0" },
         main_label = serde_json::to_string(&aot.functions.iter().find(|function|function.index==aot.entry_index).unwrap().name).unwrap(),
         main_file = aot.functions.iter().find(|function|function.index==aot.entry_index).unwrap().source.file,
         main_start = aot.functions.iter().find(|function|function.index==aot.entry_index).unwrap().source.start_byte,
@@ -974,6 +986,12 @@ fn runtime_shim(
             "rinzu_baseline_leave_dispatch(&context);",
             "rinzu_baseline_leave_dispatch(&context); context.data.program_arguments = 0;",
         );
+        if synchronous_exit_status {
+            source = source.replace(
+                "int cancel_masked; } RinzuContext;",
+                "int cancel_masked; int exit_status; } RinzuContext;",
+            );
+        }
     }
     source = source.replace(
         "int main(int argc, char **argv) {",
