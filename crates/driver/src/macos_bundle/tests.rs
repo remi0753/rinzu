@@ -135,8 +135,7 @@ fn app_layout_keeps_code_and_data_inside_contents() {
 fn png_icons_round_trip_through_validated_icns_and_empty_containers_fail() {
     let fixture = Fixture::new();
     let png = fs::read(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/fixtures/programs/macos-charts/assets/AppIcon.png"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/macos_bundle/assets/icon.png"),
     )
     .unwrap();
     let first = fixture.0.join("png");

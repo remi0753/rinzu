@@ -86,25 +86,7 @@ pub fn check(root: &Path, path: &Path, text: &str, temporary: &Path) -> Option<R
         );
     }
     if name.starts_with("sdk/sqlite/tests/") && !name.contains("/rows/") {
-        return Some(dependencies::check(root, path, text, temporary, "sqlite"));
-    }
-    if name == "crates/driver/tests/fixtures/macos_interrupt/main.rinzu"
-        || name == "sdk/macos/tests/binding/src/main.rinzu"
-    {
-        return Some(dependencies::check(root, path, text, temporary, "macos"));
-    }
-    if name == "sdk/macos/tests/sheets/src/main.rinzu"
-        || name == "sdk/macos/tests/sheets/hooks.rinzu.in"
-        || name == "tests/fixtures/programs/macos-notepad/tests/exercise.rinzu.in"
-    {
-        return Some(dependencies::macos_sheets(root, path, text, temporary));
-    }
-    if name == "tests/fixtures/programs/editor/tests/ime.rinzu.in" {
-        return Some((|| {
-            let main = read(&root.join("tests/fixtures/programs/editor/src/main.rinzu"))?
-                .replace("async fn main()", "async fn legacyMain()");
-            dependencies::check(root, path, &format!("{main}\n{text}"), temporary, "macos")
-        })());
+        return Some(dependencies::sqlite(root, path, text, temporary));
     }
     if name == "crates/codegen/tests/fixtures/async_composite_cancel.rinzu"
         || name == "crates/codegen/tests/fixtures/worker_composite_cancel.rinzu"

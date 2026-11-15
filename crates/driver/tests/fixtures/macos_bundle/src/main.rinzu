@@ -1,0 +1,18 @@
+import rinzu.io;
+import rinzu.stdio;
+
+async fn main() {
+    try {
+        let size = await rinzu.io.readSize("data/probe.txt");
+        if size != 4 {
+            panic("bundled runtime data unavailable");
+        }
+        if rinzu.io.liveFiles() + rinzu.io.liveBuffers() + rinzu.io.liveOperations() != 0 {
+            panic("bundled native resources did not settle");
+        }
+        rinzu.stdio.writeLine("BUNDLE:runtime-data");
+    }
+    catch errors {
+        panic(f"failed to read bundled runtime data: {errors}");
+    }
+}

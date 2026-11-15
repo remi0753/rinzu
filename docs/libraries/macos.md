@@ -1,13 +1,13 @@
 # macOS applications and GUI
 
-`rinzu.macos` is an official SDK for AppKit and Metal on macOS arm64. It requires a desktop session. Import it directly with a matching toolchain bundle. When working from a source checkout, you can use an explicit local package dependency instead:
+`rinzu.macos` is the external AppKit, CoreText, and Metal SDK for macOS arm64. Run GUI applications from a desktop session. Register v0.1.0 from your application directory using a Rinzu toolchain with native SDK archive support. [SDK release](https://github.com/remi0753/rinzu-macos/releases/tag/v0.1.0)
 
-```toml
-[dependencies]
-"rinzu.macos" = { path = "../rinzu/sdk/macos" }
+```sh
+rinzu modules add rinzu.macos https://github.com/remi0753/rinzu-macos/releases/download/v0.1.0/rinzu-macos-0.1.0.tar.gz
+rinzu lock .
 ```
 
-The public API covers Session, Window, View, widgets, owned events, async application handlers, Metal resources, 2D drawing, documents, and sheets. [The SDK reference](../../sdk/macos/README.md) describes the application entry and resource types; [the source](../../sdk/macos/src/macos.rinzu) contains exact signatures.
+Keep `import rinzu.macos;` in your source. If the application already declares a local `rinzu.macos` path, remove that declaration before registering the published module. Commit `rinzu.toml` and `rinzu.modules.lock` so another checkout can restore the same SDK with `rinzu modules sync`. Keep the target's `rinzu.lock` if you use native build locks. [API reference](https://github.com/remi0753/rinzu-macos/blob/v0.1.0/docs/api.md) · [Examples](https://github.com/remi0753/rinzu-macos/tree/v0.1.0/examples)
 
 ## A minimal window
 

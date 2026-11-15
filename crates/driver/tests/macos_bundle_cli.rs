@@ -41,24 +41,6 @@ impl Drop for Fixture {
         let _ = fs::remove_dir_all(&self.0);
     }
 }
-fn copy(source: &Path, destination: &Path) {
-    fs::create_dir_all(destination).unwrap();
-    for entry in fs::read_dir(source).unwrap() {
-        let entry = entry.unwrap();
-        if [".rinzu", "build"]
-            .iter()
-            .any(|name| entry.file_name() == *name)
-        {
-            continue;
-        }
-        let target = destination.join(entry.file_name());
-        if entry.file_type().unwrap().is_dir() {
-            copy(&entry.path(), &target);
-        } else {
-            fs::copy(entry.path(), target).unwrap();
-        }
-    }
-}
 fn rejected(output: Output, marker: &str) {
     assert!(!output.status.success(), "{output:?}");
     assert!(
@@ -90,21 +72,7 @@ fn baseline(path: &Path) {
 #[test]
 fn signed_app_relocates_without_sources_preserves_native_receipts_and_rejects_tampering() {
     let f = Fixture::new();
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let sources = f.0.join("packages");
-    let sdk = sources.join("sdk/macos");
-    copy(&repo.join("sdk/macos"), &sdk);
-    let package = sdk.join("tests/bundle");
-    fs::copy(
-        repo.join("tests/fixtures/programs/macos-charts/assets/AppIcon.png"),
-        package.join("assets/icon.png"),
-    )
-    .unwrap();
-    let config_path = package.join("macos-app.json");
-    let mut config: serde_json::Value =
-        serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
-    config["icon"] = "assets/icon.png".into();
-    fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let package = platform::stage_fixture(&f.0, "crates/driver/tests/fixtures/macos_bundle");
     let report = f.0.join("jit.jsonl");
     let jit = platform::bounded_tool(
         Command::new(frozen_cli::path())
@@ -112,10 +80,10 @@ fn signed_app_relocates_without_sources_preserves_native_receipts_and_rejects_ta
             .arg(&package)
             .args(["--resource-interval-ms", "0", "--resource-report"])
             .arg(&report)
-            .env("RINZU_BUNDLE_DEV_ROOT", &package)
             .env("RINZU_CACHE_DIR", f.0.join("cache")),
     );
     platform::success(&jit);
+    assert_eq!(jit.stdout, b"BUNDLE:runtime-data\n");
     baseline(&report);
     let bundle = f.0.join("Initial 日本語.app");
     platform::success(&f.cli(&[
@@ -125,10 +93,9 @@ fn signed_app_relocates_without_sources_preserves_native_receipts_and_rejects_ta
         bundle.as_os_str(),
     ]));
     assert!(bundle.join("Contents/Resources/Icon.icns").is_file());
-    assert!(
-        bundle
-            .join("Contents/Resources/app/assets/日本語.txt")
-            .is_file()
+    assert_eq!(
+        fs::read_to_string(bundle.join("Contents/Resources/app/assets/日本語.txt")).unwrap(),
+        "Bundled resources 日本語 😀\n",
     );
     assert!(
         bundle
@@ -158,7 +125,6 @@ fn signed_app_relocates_without_sources_preserves_native_receipts_and_rejects_ta
     let ordinary = platform::bounded_tool(
         Command::new(&bare)
             .current_dir(&f.0)
-            .env("RINZU_BUNDLE_DEV_ROOT", &package)
             .env("RINZU_RESOURCE_REPORT", f.0.join("bare.jsonl"))
             .env("RINZU_RESOURCE_INTERVAL_MS", "0"),
     );
@@ -167,14 +133,13 @@ fn signed_app_relocates_without_sources_preserves_native_receipts_and_rejects_ta
     baseline(&f.0.join("bare.jsonl"));
     let moved = f.0.join("Moved 東京.app");
     fs::rename(&bundle, &moved).unwrap();
-    fs::remove_dir_all(&sources).unwrap();
+    fs::remove_dir_all(&package).unwrap();
     fs::remove_dir_all(f.0.join("cache")).unwrap();
     platform::success(&f.cli(&["bundle-verify".as_ref(), moved.as_os_str()]));
     let executable = moved.join("Contents/MacOS/macos_bundle_probe");
     let aot = platform::bounded_tool(
         Command::new(&executable)
             .current_dir(&f.0)
-            .env("RINZU_BUNDLE_EXPECT_APP", "1")
             .env_remove("RINZU_TOOLCHAIN_ROOT")
             .env_remove("RINZU_CACHE_DIR")
             .env("RINZU_RESOURCE_REPORT", f.0.join("app.jsonl"))
@@ -191,12 +156,20 @@ fn signed_app_relocates_without_sources_preserves_native_receipts_and_rejects_ta
         "inventory changed",
     );
     fs::write(&asset, bytes).unwrap();
-    let framework = fs::read_dir(moved.join("Contents/Frameworks"))
+    let source_packages: serde_json::Value = serde_json::from_slice(
+        &fs::read(moved.join("Contents/Resources/SourcePackages/manifest.json")).unwrap(),
+    )
+    .unwrap();
+    let io = source_packages["packages"]
+        .as_array()
         .unwrap()
-        .next()
-        .unwrap()
-        .unwrap()
-        .path();
+        .iter()
+        .find(|package| package["package"] == "rinzu.io")
+        .unwrap();
+    let library = Path::new(io["library"].as_str().unwrap())
+        .file_name()
+        .unwrap();
+    let framework = moved.join("Contents/Frameworks").join(library);
     let bytes = fs::read(&framework).unwrap();
     let mut changed = bytes.clone();
     changed.push(0);
@@ -205,8 +178,7 @@ fn signed_app_relocates_without_sources_preserves_native_receipts_and_rejects_ta
         f.cli(&["bundle-verify".as_ref(), moved.as_os_str()]),
         "inventory changed",
     );
-    let failure =
-        platform::bounded_tool(Command::new(&executable).env("RINZU_BUNDLE_EXPECT_APP", "1"));
+    let failure = platform::bounded_tool(&mut Command::new(&executable));
     assert_eq!(failure.status.code(), Some(78), "{failure:?}");
     assert!(!failure.stdout.windows(7).any(|s| s == b"BUNDLE:"));
     fs::write(&framework, bytes).unwrap();

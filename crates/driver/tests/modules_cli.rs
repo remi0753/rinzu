@@ -69,12 +69,28 @@ impl Drop for Fixture {
 }
 
 fn archive(path: &Path, name: &str, manifest: &str, source: &str) -> String {
+    archive_with_files(path, name, manifest, source, &[])
+}
+
+fn archive_with_files(
+    path: &Path,
+    name: &str,
+    manifest: &str,
+    source: &str,
+    files: &[(&str, &str)],
+) -> String {
     let encoder = GzEncoder::new(fs::File::create(path).unwrap(), Compression::fast());
     let mut tar = tar::Builder::new(encoder);
     for (name, body) in [
         ("sdk/rinzu.toml".to_owned(), manifest),
         (format!("sdk/src/{name}.rinzu"), source),
-    ] {
+    ]
+    .into_iter()
+    .chain(
+        files
+            .iter()
+            .map(|(path, body)| (format!("sdk/{path}"), *body)),
+    ) {
         let mut header = tar::Header::new_gnu();
         header.set_size(body.len() as u64);
         header.set_mode(0o644);
@@ -243,6 +259,75 @@ fn relocated_toolchain_resolves_official_imports_and_verifies_its_catalog() {
     );
 }
 
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
+#[test]
+fn macos_sdk_resolves_only_from_an_explicit_dependency() {
+    let fixture = Fixture::new();
+    success(fixture.cli(&["toolchain-bundle", "--output", "../toolchain"]));
+    let bundle = fixture.path("toolchain");
+    let metadata: serde_json::Value =
+        serde_json::from_slice(&fs::read(bundle.join("bundle.json")).unwrap()).unwrap();
+    let packages = metadata["officialSdkCatalog"]["packages"]
+        .as_object()
+        .unwrap();
+    assert!(!packages.contains_key("rinzu.macos"));
+    assert!(!bundle.join("share/rinzu/sdk/rinzu.macos").exists());
+
+    let installed = bundle.join("bin/rinzu");
+    let run = |args: &[&str]| fixture.command(&installed).args(args).output().unwrap();
+    success(run(&["doctor", "--sdk", "rinzu.codec"]));
+    rejected(
+        run(&["doctor", "--sdk", "rinzu.macos"]),
+        "unknown additional official SDK `rinzu.macos`",
+    );
+    fs::write(
+        fixture.path("app/src/main.rinzu"),
+        "import rinzu.macos; fn main() { let value = rinzu.macos.value(); }",
+    )
+    .unwrap();
+    rejected(
+        run(&["check", "."]),
+        "SDK package `rinzu.macos` is not a declared dependency",
+    );
+
+    let manifest = fixture.path("app/rinzu.toml");
+    let package = fs::read_to_string(&manifest).unwrap();
+    fs::write(
+        &manifest,
+        format!(
+            r#"{package}
+[dependencies]
+"rinzu.macos" = {{ path = "../macos" }}
+"#
+        ),
+    )
+    .unwrap();
+    fs::create_dir_all(fixture.path("macos/src")).unwrap();
+    let sdk = SDK.replace("values", "rinzu.macos");
+    let sdk_manifest = fixture.path("macos/rinzu.toml");
+    fs::write(&sdk_manifest, &sdk).unwrap();
+    fs::write(fixture.path("macos/src/macos.rinzu"), SOURCE).unwrap();
+    success(run(&["check", "."]));
+
+    #[cfg(target_os = "linux")]
+    {
+        fs::write(
+            &sdk_manifest,
+            format!(
+                r#"{sdk}
+[native]
+frameworks = ["AppKit"]
+"#
+            ),
+        )
+        .unwrap();
+        rejected(run(&["check", "."]), "package `rinzu.macos` requires macOS");
+    }
+}
+
 #[test]
 fn pinned_local_archive_restores_and_repairs_with_sibling_path_dependency() {
     let fixture = Fixture::new();
@@ -297,6 +382,71 @@ fn pinned_local_archive_restores_and_repairs_with_sibling_path_dependency() {
     );
     rejected(fixture.cli(&["modules", "sync"]), "SHA-256 mismatch");
     assert_eq!(fs::read(&lock_path).unwrap(), original);
+}
+
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
+#[test]
+fn native_archive_builds_from_pinned_sources_and_repairs_inventory_changes() {
+    let fixture = Fixture::new();
+    let manifest = format!(
+        r#"{SDK}
+[native]
+sources = ["native/bridge.c"]
+headers = ["include/bridge.h"]
+include-dirs = ["include"]
+"#
+    );
+    let source = r#"
+native {
+    fn value() -> CInt symbol "archive_value";
+}
+export value;
+"#;
+    let native_source = "#include \"bridge.h\"\n#include \"detail.h\"\nint archive_value(void) { return ANSWER; }\n";
+    let detail = "#define ANSWER 42\n";
+    let digest = archive_with_files(
+        &fixture.path("values.tar.gz"),
+        "values",
+        &manifest,
+        source,
+        &[
+            ("native/bridge.c", native_source),
+            ("include/bridge.h", "int archive_value(void);\n"),
+            ("include/detail.h", detail),
+        ],
+    );
+    fs::write(
+        fixture.path("app/src/main.rinzu"),
+        r#"import values; fn main() { if values.value() != CInt(42) { panic("wrong native value"); } }"#,
+    )
+    .unwrap();
+    success(fixture.cli(&["modules", "add", "values", "../values.tar.gz"]));
+    success(fixture.cli(&["run", "."]));
+
+    let root = fixture.path(&format!("app/modules/store/sha256/{digest}/package"));
+    for (name, content) in [
+        ("native/bridge.c", native_source),
+        ("include/detail.h", detail),
+    ] {
+        let input = root.join(name);
+        fs::write(&input, "changed").unwrap();
+        rejected(fixture.cli(&["check", "."]), "verified inventory");
+        success(fixture.cli(&["modules", "sync", "--offline"]));
+        assert_eq!(fs::read_to_string(&input).unwrap(), content);
+    }
+
+    let shadow_header = root.join("native/detail.h");
+    fs::write(&shadow_header, "#define ANSWER 0\n").unwrap();
+    rejected(
+        fixture.cli(&["check", "."]),
+        "unexpected input in SDK archive inventory",
+    );
+    success(fixture.cli(&["modules", "sync", "--offline"]));
+    assert!(!shadow_header.exists());
+    success(fixture.cli(&["run", "."]));
 }
 
 #[test]

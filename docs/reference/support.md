@@ -22,7 +22,7 @@ Older language numbers in manifests remain accepted where supported by the loade
 
 The [standard API migration](../libraries/core.md#compatibility-names) retains the legacy source spellings and reserves their ABI operation numbers. Compiled SDK descriptors and caches still follow the toolchain's compatibility fingerprints.
 
-On x86_64 Linux, `rinzu run`, `rinzu test`, `rinzu build`, and `rinzu verify-aot` support synchronous and async Main, Workers, and native SDKs with SysV AMD64 callbacks. Linux async execution requires CET shadow stacks to be disabled for the process. Native `supplant` and the `rinzu.macos` SDK require macOS arm64. Other Linux targets, Windows, and macOS x86_64 remain portability compile targets.
+On x86_64 Linux, `rinzu run`, `rinzu test`, `rinzu build`, and `rinzu verify-aot` support synchronous and async Main, Workers, and native SDKs with SysV AMD64 callbacks. Linux async execution requires CET shadow stacks to be disabled for the process. Native `supplant` requires macOS arm64. Other Linux targets, Windows, and macOS x86_64 remain portability compile targets.
 
 ## Language boundaries
 
@@ -43,7 +43,7 @@ Function values do not have Equality/Key/Transferable and can be stored in same-
 | TCP | Literal IPv4, Main ownership, bounded nonblocking operations |
 | Native calls | Explicit provider scope and supported C mappings; arbitrary crashes are not recoverable Errors |
 | Native callbacks | Selected call-lifetime paths; no general persistent capturing registration |
-| GUI | macOS desktop/Metal facilities and SDK-specific bounds |
+| GUI | AppKit and Metal via the external macOS arm64 SDK. [SDK setup](../libraries/macos.md) |
 | Editor | Local VS Code adapter and versioned protocol; one folder/service, file documents |
 | Distribution | Host AOT and generated bundles; no automatic notarization or App Store publishing |
 

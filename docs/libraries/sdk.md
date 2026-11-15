@@ -1,13 +1,13 @@
 # Additional SDKs
 
-The toolchain bundle includes the official source SDKs `rinzu.codec`, `rinzu.log`, `rinzu.macos`, `rinzu.sqlite`, and `rinzu.sdl2`. With the matching bundle installed, import them directly from a package or a standalone file.
+The toolchain bundle includes the official source SDKs `rinzu.codec`, `rinzu.log`, `rinzu.sqlite`, and `rinzu.sdl2`. With the matching bundle installed, import them directly from a package or a standalone file.
 
 ```rinzu
 import rinzu.sqlite;
 import rinzu.codec;
 ```
 
-When building from a source checkout, you can declare a path to the SDK in your project's `rinzu.toml` instead. For other packages, use local paths or locked pure Rinzu source archives. See [Manifests and dependencies](../packages/manifest.md#dependencies) for the supported sources.
+When building from a source checkout, you can declare a path to the SDK in your project's `rinzu.toml` instead. For other packages, use local paths or locked SDK archives. See [Manifests and dependencies](../packages/manifest.md#dependencies) for the supported sources.
 
 ## SQLite
 
@@ -31,7 +31,7 @@ Public operations are `encodeDocument/decodeDocument`, `encodeSettings/decodeSet
 
 [rinzu.sdl2](../../sdk/sdl2/README.md) requires SDL2 and `sdl2-config`. Window and renderer operations use physical Main. It exposes copied events and a single active window per SDK image. Poll a bounded number of events per turn, await asynchronous application work, and explicitly destroy the window after its users settle.
 
-For AppKit, Metal, documents, and native widgets, see [macOS applications](macos.md).
+For AppKit, Metal, documents, and native widgets, register the external `rinzu.macos` SDK with `rinzu modules add`. [macOS applications](macos.md)
 
 ## Native SDK authoring helpers
 

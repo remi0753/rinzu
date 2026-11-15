@@ -107,21 +107,7 @@ fn regression_programs_check_as_real_entries() {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/programs");
     let mut failures = Vec::new();
     let filter = std::env::var("RINZU_MIGRATION_FILTER").unwrap_or_default();
-    let macos: &[&str] = if Target::host() == Some(Target::Aarch64AppleDarwin) {
-        &[
-            "editor",
-            "macos-charts",
-            "macos-data-browser",
-            "macos-image-viewer",
-            "macos-metal",
-            "macos-notepad",
-            "macos-task-list",
-            "macos-widgets",
-            "source-callback",
-        ]
-    } else {
-        &[]
-    };
+    let macos = (Target::host() == Some(Target::Aarch64AppleDarwin)).then_some("source-callback");
     let common = [
         "file-copy",
         "async-spawn",
@@ -147,7 +133,7 @@ fn regression_programs_check_as_real_entries() {
         "try-all",
         "try-all-control",
     ];
-    for name in common.into_iter().chain(macos.iter().copied()) {
+    for name in common.into_iter().chain(macos) {
         if !name.contains(&filter) {
             continue;
         }

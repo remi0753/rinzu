@@ -26,7 +26,6 @@ MARKERS = {
 }
 MACOS_ONLY = (
     "crates/driver/src/aot_supplant.c",
-    "crates/driver/tests/fixtures/macos_interrupt",
     "crates/driver/tests/fixtures/native_capsule_sdk",
     "crates/driver/tests/fixtures/native_dispatcher_sdk",
     "crates/driver/tests/fixtures/native_foreign_sdk",
@@ -37,7 +36,6 @@ MACOS_ONLY = (
     "crates/runtime/src/owner_dispatcher.c",
     "crates/runtime/tests/fixtures/activity_clock.c",
     "crates/runtime/tests/fixtures/owner_dispatcher.c",
-    "sdk/macos",
     "sdk/io/native/src/file_metadata_macos.h",
     "sdk/io/tests/whole_file.c",
     "sdk/socket/native/src/readiness_macos.h",
@@ -226,11 +224,6 @@ def compilation_database(driver=None):
             extra += sdl_flags + ["-I", str(ROOT / "sdk/sdl2/native/include")]
         if file.suffix in {".m", ".mm"}:
             extra += ["-fobjc-arc"]
-        if "macos_interrupt" in file.parts or file.relative_to(ROOT).as_posix() in {
-            "sdk/macos/tests/binding/probe.m", "sdk/macos/tests/sheets/probe.m",
-        }:
-            extra += ["-I", str(ROOT / "sdk/macos/native/include"), "-x", "objective-c", "-fobjc-arc", "-include",
-                      str(ROOT / "sdk/macos/native/src/macos.m")]
         if file.suffix == ".h":
             extra += ["-x", "c-header"]
         if file.name in {"owner_dispatcher.c", "foreign_queue.c", "native_diagnostics.c"}:

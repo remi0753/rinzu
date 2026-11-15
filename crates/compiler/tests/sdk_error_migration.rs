@@ -14,8 +14,6 @@ fn sdk_apis_check_with_direct_returns_and_error_payloads() {
         "codec",
         "log",
         "sqlite",
-        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        "macos",
         "shim-example",
     ] {
         match check_package(&root.join("sdk").join(name)) {

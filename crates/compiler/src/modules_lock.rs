@@ -296,6 +296,27 @@ pub fn archive_package_root(modules: &Path, digest: &str) -> io::Result<PathBuf>
     Ok(package)
 }
 
+/// Native tools can discover files through include and library search paths.
+pub fn check_archive_inventory(root: &Path, files: &BTreeMap<PathBuf, String>) -> io::Result<()> {
+    let mut directories = vec![root.to_owned()];
+    while let Some(directory) = directories.pop() {
+        for entry in std::fs::read_dir(directory)? {
+            let entry = entry?;
+            let path = entry.path();
+            let kind = entry.file_type()?;
+            if kind.is_dir() {
+                directories.push(path);
+            } else if !kind.is_file() || !files.contains_key(path.strip_prefix(root).unwrap()) {
+                return Err(io::Error::other(format!(
+                    "unexpected input in SDK archive inventory: {}",
+                    path.display()
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArchiveReceipt {

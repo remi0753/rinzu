@@ -307,6 +307,21 @@ impl<'a> SourceSnapshot<'a> {
             .insert(root, VerifiedPackage { files, archive });
     }
 
+    pub(crate) fn read_native_archive(&mut self, root: &Path) -> io::Result<()> {
+        let files = &self.verified[root].files;
+        crate::modules_lock::check_archive_inventory(root, files)?;
+        let inputs: Vec<_> = files
+            .keys()
+            .filter(|path| path.as_path() != Path::new("rinzu.toml"))
+            .map(|path| root.join(path))
+            .collect();
+        for input in inputs {
+            let canonical = self.canonical_path(&input)?;
+            self.read_bytes(&canonical)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn is_archive(&self, root: &Path) -> bool {
         self.verified
             .get(root)

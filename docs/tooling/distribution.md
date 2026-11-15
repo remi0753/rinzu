@@ -55,7 +55,7 @@ rinzu toolchain-bundle --output ./rinzu-toolchain
 
 On macOS arm64 or x86_64 Linux, choose a new directory whose parent exists. The bundle contains `bin/rinzu`, `bundle.json`, and the standard resources and official SDKs for the host under `share/rinzu`. Keep the directory together when relocating or installing read-only. Generated caches remain user-writable outside the installation.
 
-The bundled executable resolves official SDKs such as `rinzu.codec` and `rinzu.sqlite` from source imports. It checks that the installation catalog matches its release and target, and verifies inputs for each SDK it uses. Use `rinzu doctor --sdk rinzu.sdl2` to check the installed catalog and SDL2 configuration. Native SDK builds use the local development toolchain. Linux bundles include codec, log, SQLite, and SDL2. The macOS bundle also includes `rinzu.macos`.
+The bundled executable resolves official SDKs such as `rinzu.codec` and `rinzu.sqlite` from source imports. It checks that the installation catalog matches its release and target, and verifies inputs for each SDK it uses. Use `rinzu doctor --sdk rinzu.sdl2` to check the installed catalog and SDL2 configuration. Native SDK builds use the local development toolchain. Both hosts bundle `rinzu.codec`, `rinzu.log`, `rinzu.sqlite`, and `rinzu.sdl2`. For macOS GUI applications, register the published `rinzu.macos` module. [macOS SDK setup](../libraries/macos.md)
 
 For a tagged release, build from the tagged source with the lockfile and record the source commit in the bundle.
 

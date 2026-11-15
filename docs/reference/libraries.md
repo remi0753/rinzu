@@ -11,7 +11,7 @@ These pages describe public source declarations. Standard and bundled official S
 | `rinzu.http.server` | [API](sdk-http.md#rinzuhttpserverapplication) · [Guide](../../sdk/http/README.md#http-application-dispatch) |
 | `rinzu.io` | [API](sdk-io.md) |
 | `rinzu.log` | [API](sdk-log.md) |
-| `rinzu.macos` | [API](sdk-macos.md) |
+| `rinzu.macos` (external SDK) | [API](sdk-macos.md) |
 | `rinzu.process` | [API](sdk-process.md) |
 | `rinzu.json` | [API](../libraries/json.md) |
 | `rinzu.sdl2` | [API](sdk-sdl2.md) |

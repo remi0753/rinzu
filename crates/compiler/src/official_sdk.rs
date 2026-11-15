@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use rinzu_abi::target::Target;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -36,16 +35,6 @@ macro_rules! sdk {
 const PAYLOADS: &[Payload] = &[
     sdk!("codec", true, "src/codec.rinzu"),
     sdk!("log", true, "src/log.rinzu"),
-    sdk!(
-        "macos",
-        false,
-        "src/macos.rinzu",
-        "src/document.rinzu",
-        "src/document_files.rinzu",
-        "src/image_files.rinzu",
-        "native/src/macos.m",
-        "native/include/rinzu_macos.h",
-    ),
     sdk!(
         "sqlite",
         false,
@@ -88,17 +77,6 @@ pub fn registered(name: &str) -> bool {
     PAYLOADS.iter().any(|payload| payload.name == name)
 }
 
-pub(crate) fn macos_only(name: &str) -> bool {
-    name == "rinzu.macos" || name.starts_with("rinzu.macos.")
-}
-
-fn payloads() -> impl Iterator<Item = &'static Payload> {
-    let target = standard_library::host_target();
-    PAYLOADS
-        .iter()
-        .filter(move |payload| target == Target::Aarch64AppleDarwin || !macos_only(payload.name))
-}
-
 pub(crate) fn archive_compatible(name: &str) -> bool {
     PAYLOADS
         .iter()
@@ -117,7 +95,7 @@ fn catalog() -> Result<&'static Catalog, String> {
 fn build_catalog() -> Result<Catalog, String> {
     let mut packages = BTreeMap::new();
     let mut modules = BTreeMap::new();
-    for payload in payloads() {
+    for payload in PAYLOADS {
         let root = Path::new("sdk").join(payload.name);
         let path = root.join("rinzu.toml");
         let manifest = load_manifest_text(
@@ -191,13 +169,7 @@ fn build_catalog() -> Result<Catalog, String> {
 }
 
 pub(crate) fn public_names() -> Result<impl Iterator<Item = &'static str>, String> {
-    // Recognize unavailable names so import resolution can diagnose the target.
-    Ok(catalog()?.modules.keys().map(String::as_str).chain([
-        "rinzu.macos",
-        "rinzu.macos.document",
-        "rinzu.macos.document_files",
-        "rinzu.macos.image_files",
-    ]))
+    Ok(catalog()?.modules.keys().map(String::as_str))
 }
 
 pub(crate) fn for_module(name: &str) -> Result<Option<&'static OfficialSdk>, String> {
@@ -209,9 +181,6 @@ pub(crate) fn for_module(name: &str) -> Result<Option<&'static OfficialSdk>, Str
 }
 
 pub fn sdk(name: &str) -> Result<&'static OfficialSdk, String> {
-    if standard_library::host_target() != Target::Aarch64AppleDarwin && macos_only(name) {
-        return Err(format!("SDK `{name}` requires macOS"));
-    }
     catalog()?
         .packages
         .get(name)
@@ -226,7 +195,7 @@ pub fn catalog_metadata() -> Result<(&'static Value, &'static str), String> {
 /// The bundle generator writes only explicitly listed release inputs.
 pub fn write_resources(resources: &Path) -> Result<(), String> {
     catalog()?;
-    for payload in payloads() {
+    for payload in PAYLOADS {
         let root = resources.join("sdk").join(payload.name);
         for (relative, bytes) in payload.files {
             let path = root.join(relative);

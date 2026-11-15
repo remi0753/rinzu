@@ -6,7 +6,8 @@ use std::process::{Command, Stdio};
 
 use flate2::read::MultiGzDecoder;
 use rinzu_compiler::modules_lock::{
-    MAX_LOCK_BYTES, RECEIPT, archive_entry, archive_package_root, lexical_path, valid_sha256,
+    MAX_LOCK_BYTES, RECEIPT, archive_entry, archive_package_root, check_archive_inventory,
+    lexical_path, valid_sha256,
 };
 use rinzu_compiler::standard_library::{cache_root, sha256};
 use rinzu_compiler::{ArchivePin, ArchiveReceipt};
@@ -228,7 +229,9 @@ fn verified_entry(entry: &Path, request: &Request, digest: &str) -> Result<Archi
         tree_sha256,
     };
     let root = entry.join("package");
-    for (relative, expected) in ArchiveReceipt::parse(&receipt, &pin)?.files {
+    let receipt = ArchiveReceipt::parse(&receipt, &pin)?;
+    check_archive_inventory(&root, &receipt.files)?;
+    for (relative, expected) in receipt.files {
         let path = root.join(relative);
         if !fs::symlink_metadata(&path)?.is_file()
             || path.canonicalize()? != lexical_path(&path)

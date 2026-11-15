@@ -405,10 +405,7 @@ fn read_package_manifest(
     target: Target,
 ) -> Result<Manifest, Vec<Diagnostic>> {
     let mut manifest = load_manifest_snapshot(path, sources, Some(target))?;
-    if target == Target::X86_64UnknownLinuxGnu
-        && (crate::official_sdk::macos_only(&manifest.name)
-            || !manifest.native.frameworks.is_empty())
-    {
+    if target == Target::X86_64UnknownLinuxGnu && !manifest.native.frameworks.is_empty() {
         return Err(vec![
             package_diagnostic(
                 format!("package `{}` requires macOS", manifest.name),
@@ -716,13 +713,11 @@ fn check_loaded(
     let archive_compatible_sdk = graph.is_toolchain(owner)
         && crate::official_sdk::registered(&manifest.name)
         && crate::official_sdk::archive_compatible(&manifest.name);
-    if (sources.is_archive(&manifest.root) || archive_compatible_sdk)
-        && !syntax.native_blocks.is_empty()
-    {
+    if archive_compatible_sdk && !syntax.native_blocks.is_empty() {
         return Err(vec![
             package_diagnostic(
-                "published SDKs must contain only Rinzu source",
-                "remove native declarations from the published SDK",
+                "archive-compatible toolchain SDKs must contain only Rinzu source",
+                "remove native declarations from this toolchain SDK",
             )
             .with_path(&manifest_path),
         ]);
@@ -1713,12 +1708,11 @@ fn load_resolved_manifest_for_target(
         return Err(provider_error("invalid published SDK manifest", &path));
     }
     sources.register_archive(location.root.clone(), receipt);
-    let manifest = load_manifest_snapshot(&path, sources, None)?;
+    let manifest = read_package_manifest(&path, sources, target)?;
     if manifest.native != NativeManifest::default() {
-        return Err(provider_error(
-            "published SDKs must contain only Rinzu source",
-            &path,
-        ));
+        sources
+            .read_native_archive(&manifest.root)
+            .map_err(|error| provider_error(error.to_string(), &path))?;
     }
     if !location.root.join(&manifest.entry).is_file() {
         return Err(provider_error("published SDK entry is missing", &path));

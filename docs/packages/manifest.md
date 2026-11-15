@@ -19,7 +19,9 @@ entry = "src/main.rinzu"
 
 A dependency key must match its package name. A `path` dependency refers to a directory relative to the declaring package. Built-in modules such as `rinzu.io` are reserved.
 
-Import standard modules directly. A matching [toolchain bundle](../tooling/distribution.md#export-the-toolchain) also supplies `rinzu.codec`, `rinzu.log`, `rinzu.macos`, `rinzu.sqlite`, and `rinzu.sdl2` directly to source imports. With a source checkout you can instead declare explicit paths to those SDK sources in your application or local SDK. Declare local and downloaded SDKs under `[dependencies]`. A dependency's private dependencies do not grant your package arbitrary import or native symbol access.
+Import standard modules directly. A matching [toolchain bundle](../tooling/distribution.md#export-the-toolchain) also supplies `rinzu.codec`, `rinzu.log`, `rinzu.sqlite`, and `rinzu.sdl2` directly to source imports. With a source checkout you can instead declare explicit paths to those SDK sources in your application or local SDK. Declare local and downloaded SDKs under `[dependencies]`. A dependency's private dependencies do not grant your package arbitrary import or native symbol access.
+
+Register the external `rinzu.macos` SDK with `rinzu modules add` and keep the existing `import rinzu.macos;` statement. [macOS SDK setup](../libraries/macos.md)
 
 ### Add a source archive
 
@@ -32,7 +34,7 @@ rinzu modules sync --offline
 rinzu modules relock
 ```
 
-The archive contains one pure Rinzu SDK. Put `rinzu.toml` and `src/` at its root or inside a single enclosing directory. The command records the `archive` dependency in `rinzu.toml`, the resolved graph in `rinzu.modules.lock`, and verified source under `modules/store/sha256/`. The lock and manifest are the inputs to commit. `modules sync` restores the pinned graph, and `--offline` restores it from installed sources, the user cache, or local archives. Build and editor commands use the installed sources locally.
+The archive contains one SDK. Put `rinzu.toml`, `src/`, and any declared native inputs at its root or inside a single enclosing directory. Rinzu verifies the native files against the locked archive inventory and builds them with the target's local development toolchain. The command records the `archive` dependency in `rinzu.toml`, the resolved graph in `rinzu.modules.lock`, and verified source under `modules/store/sha256/`. The lock and manifest are the inputs to commit. `modules sync` restores the pinned graph, and `--offline` restores it from installed sources, the user cache, or local archives. Build and editor commands use the installed sources locally.
 
 The first addition from a GitHub Release checks the public asset digest. For an unpinned local file or other HTTPS URL, the first successful addition records the received SHA-256. Subsequent restorations enforce the pinned digest. A published SDK declares each of its direct external dependencies as an HTTPS archive with `integrity = "sha256:<digest>"`. When the current project is an SDK, `modules add` writes this integrity value for the dependency it adds. Consumers resolve the full graph from the published declarations and keep their own lock. A project's existing declaration is protected when adding a different source under the same name.
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Register the separately versioned `rinzu.macos` SDK with `rinzu modules add`. SDK archives can include native inputs covered by the modules lock and checked during builds. Keep `import rinzu.macos;`, refresh the application lock, and rebuild native and AOT artifacts. The toolchain bundle retains codec, log, SQLite, and SDL2 on both hosts. [macOS SDK migration](docs/libraries/macos.md)
+
 ## 0.3.0
 
 Rinzu 0.3.0 adds an HTTP/1.1 server, locked SDK dependencies, and whole-file I/O on macOS arm64. The source language level remains `0.5`; review the updated Error contract syntax before upgrading.
