@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 #[cfg(unix)]
 #[test]
 fn c_metadata_reuse_preserves_identity_ownership_errors_and_gc_pacing() {
@@ -10,7 +13,7 @@ fn c_metadata_reuse_preserves_identity_ownership_errors_and_gc_pacing() {
     let mut expected_pacing = None;
     for capacity in [0, 256, 1024, 2048, 4096] {
         let binary = work.join(format!("capacity-{capacity}"));
-        let built = Command::new("clang")
+        let built = native::clang()
             .args([
                 "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread", "-I",
             ])

@@ -1,4 +1,7 @@
 #![cfg(unix)]
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::process::Command;
 
 #[test]
@@ -8,7 +11,7 @@ fn synchronous_writer_preserves_bytes_records_fd_flags_and_signals() {
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     for sanitized in [false, true] {
         let binary = root.join(if sanitized { "sanitized" } else { "normal" });
-        let mut clang = Command::new("clang");
+        let mut clang = native::clang();
         clang
             .args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread"])
             .arg("-I")

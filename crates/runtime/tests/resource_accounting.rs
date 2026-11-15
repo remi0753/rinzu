@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::data::{ManagedData, NativeInputError};
 use rinzu_runtime::heap::{CollectionKind, DomainHeap, FinalizerPolicy, HeapValue};
 use rinzu_runtime::resource_accounting::{self as accounting, Kind};
@@ -99,7 +102,7 @@ fn c_counter_known_allocations_gc_input_and_retained_buffers() {
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     for sanitized in [false, true] {
         let binary = directory.join(if sanitized { "sanitized" } else { "normal" });
-        let mut clang = Command::new("clang");
+        let mut clang = native::clang();
         clang
             .args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread"])
             .arg(manifest.join("tests/fixtures/resource_accounting.c"))
@@ -145,7 +148,7 @@ fn concurrent_native_domain_updates_and_sampler_pass_memory_and_race_sanitizers(
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     for (name, sanitizer) in [("memory", "address,undefined"), ("race", "thread")] {
         let binary = directory.join(name);
-        let output = Command::new("clang")
+        let output = native::clang()
             .args([
                 "-std=c11",
                 "-O1",

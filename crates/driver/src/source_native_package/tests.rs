@@ -1,9 +1,12 @@
 use super::*;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use rinzu_bindgen::source_package::{CodeRecord, FunctionKind};
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod supplant_capture_fixture {
     include!("../../tests/fixtures/native_supplant_capture_sdk/setup.rs");
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn supplant_descriptor_retains_and_validates_private_capture_contracts() {
     let root =
@@ -124,7 +127,7 @@ fn ordinary_file_interface_reuses_scalar_string_bytes_and_callback_glue() {
         &entry,
         &rinzu_compiler::CompilationOptions {
             language: None,
-            target: "aarch64-apple-darwin".into(),
+            target: rinzu_runtime::current_target().into(),
         },
         &NativeCliInputs::default(),
     )
@@ -572,6 +575,8 @@ fn compiled_jit_native_ledger_uses_the_exact_plan_on_main_and_physical_workers()
     std::fs::remove_dir_all(root).unwrap();
 }
 
+// The source interpreter's physical native callbacks use the macOS backend.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn source_native_ledger_keeps_main_and_worker_roots_through_physical_return() {
     let root =
@@ -863,7 +868,9 @@ fn callback_sites_keep_resolved_private_lengths_targets_and_exact_public_fn_type
 
 #[test]
 fn generated_facade_owns_typed_imports_for_source_archive_and_shared_inputs() {
-    for kind in ["c", "m", "o", "a", "dylib"] {
+    let toolchain = TargetClang::resolve().unwrap();
+    let objective_c = (toolchain.target == Target::Aarch64AppleDarwin).then_some("m");
+    for kind in ["c", "o", "a", "shared"].into_iter().chain(objective_c) {
         let root =
             std::env::temp_dir().join(format!("rinzu-source-build-{}-{kind}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -883,9 +890,9 @@ fn generated_facade_owns_typed_imports_for_source_archive_and_shared_inputs() {
         let native = match kind {
             "c" | "m" => format!("sources = [\"{source_name}\"]"),
             "o" | "a" => {
-                let mut command = TargetClang::resolve().unwrap().command();
+                let mut command = toolchain.command();
                 command
-                    .arg("-c")
+                    .args(["-c", "-fPIC"])
                     .arg(root.join(source_name))
                     .arg("-o")
                     .arg(root.join("api.o"));
@@ -901,17 +908,12 @@ fn generated_facade_owns_typed_imports_for_source_archive_and_shared_inputs() {
                 format!("objects = [\"api.{kind}\"]")
             }
             _ => {
-                let library = root.join("api.dylib");
-                let mut command = TargetClang::resolve().unwrap().command();
-                command
-                    .arg("-dynamiclib")
-                    .arg(root.join(source_name))
-                    .arg("-install_name")
-                    .arg(&library)
-                    .arg("-o")
-                    .arg(&library);
+                let name = toolchain.target.shared_library_name("api");
+                let library = root.join(&name);
+                let mut command = toolchain.shared_command(&name);
+                command.arg(root.join(source_name)).arg("-o").arg(&library);
                 run(command, "fixture shared library").unwrap();
-                "objects = [\"api.dylib\"]".to_owned()
+                format!("objects = [\"{name}\"]")
             }
         };
         std::fs::write(root.join("rinzu.toml"), format!("[package]\nname = \"api\"\nlanguage = \"0.2\"\nkind = \"sdk\"\nentry = \"src/api.rinzu\"\n[native]\nheaders = [\"api.h\"]\n{native}\n")).unwrap();
@@ -947,7 +949,11 @@ fn record_callback_library_only_and_service_only_builds() {
         (
             "library",
             "native { fn pid() -> CInt symbol \"getpid\"; } export pid;",
-            "libraries = [\"System\"]",
+            if cfg!(target_os = "macos") {
+                "libraries = [\"System\"]"
+            } else {
+                "libraries = [\"c\"]"
+            },
             "",
         ),
         (
@@ -1106,6 +1112,8 @@ fn selected_library_content_invalidates_digest_and_rpath_resolves_facade_depende
     };
     let mut descriptors = Vec::new();
     let mut final_artifact = None;
+    let toolchain = TargetClang::resolve().unwrap();
+    let library = toolchain.target.shared_library_name("libanswer");
     for answer in [42, 43] {
         let source = root.join("native/answer.c");
         std::fs::write(
@@ -1113,14 +1121,11 @@ fn selected_library_content_invalidates_digest_and_rpath_resolves_facade_depende
             format!("int answer(void) {{ return {answer}; }}\n"),
         )
         .unwrap();
-        let mut command = TargetClang::resolve().unwrap().command();
+        let mut command = toolchain.shared_command(&library);
         command
-            .arg("-dynamiclib")
             .arg(&source)
-            .arg("-install_name")
-            .arg("@rpath/libanswer.dylib")
             .arg("-o")
-            .arg(root.join("native/libanswer.dylib"));
+            .arg(root.join("native").join(&library));
         run(command, "fixture library").unwrap();
         let directory = root.join(format!("generated-{answer}"));
         std::fs::create_dir_all(&directory).unwrap();
@@ -1134,7 +1139,7 @@ fn selected_library_content_invalidates_digest_and_rpath_resolves_facade_depende
                 .interface
                 .package
                 .build_inputs
-                .contains_key("link:sdk:native/libanswer.dylib")
+                .contains_key(&format!("link:sdk:native/{library}"))
         );
         descriptors.push(descriptor);
         final_artifact = Some(built.artifact);

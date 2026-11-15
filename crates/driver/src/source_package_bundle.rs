@@ -293,7 +293,10 @@ fn artifacts(manifest: &Path) -> Result<Vec<SourcePackageArtifact>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rinzu_bindgen::source_package::{FunctionKind, SourceInterface, generate_source_package};
+    use rinzu_abi::target::Target;
+    use rinzu_bindgen::source_package::{
+        BackendRecord, FunctionKind, SourceInterface, generate_source_package,
+    };
 
     #[test]
     fn saved_bundle_rejects_modified_files_and_paths_before_publication() {
@@ -305,6 +308,10 @@ mod tests {
             "../../../tests/fixtures/source-package/interface.json"
         ))
         .unwrap();
+        let target = Target::host().unwrap();
+        interface.package.target = target.triple().into();
+        interface.package.data_layout = target.llvm_data_layout().into();
+        interface.backend = BackendRecord::for_target(target);
         let function = &mut interface.functions[0];
         function.symbol = None;
         function.service = Some("reactor.timer".to_owned());

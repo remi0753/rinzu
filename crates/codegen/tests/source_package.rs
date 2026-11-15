@@ -1,17 +1,30 @@
-#![cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#![cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
+
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::ffi::{CString, c_void};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use rinzu_abi::target::Target;
 use rinzu_abi::{SourceImportV2, SourcePackageDescriptorV2};
 use rinzu_bindgen::source_package::*;
 use rinzu_codegen::source_package::*;
 
 fn interface() -> SourceInterface {
-    serde_json::from_str(include_str!(
+    let mut interface: SourceInterface = serde_json::from_str(include_str!(
         "../../../tests/fixtures/source-package/interface.json"
     ))
-    .unwrap()
+    .unwrap();
+    let target = Target::host().unwrap();
+    interface.package.target = target.triple().into();
+    interface.package.data_layout = target.llvm_data_layout().into();
+    interface.backend = BackendRecord::for_target(target);
+    interface
 }
 
 struct Fixture {
@@ -44,15 +57,13 @@ fn fixture(
         "#include <stdint.h>\nint64_t add(int64_t a,int64_t b){return a+b;}\n",
     )
     .unwrap();
-    let library = dir.join("facade.dylib");
+    let (mut compiler, library) = native::shared_library("facade", &dir);
     let include = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../include");
-    let result = std::process::Command::new("clang")
-        .args(["-Wall", "-Wextra", "-Werror", "-dynamiclib", "-I"])
+    let result = compiler
+        .args(["-Wall", "-Wextra", "-Werror", "-I"])
         .arg(include)
         .arg(dir.join("table.c"))
         .arg(dir.join("math.c"))
-        .arg("-o")
-        .arg(&library)
         .output()
         .unwrap();
     assert!(

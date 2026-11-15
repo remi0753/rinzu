@@ -1,4 +1,11 @@
-#![cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#![cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
+
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::process::Command;
 
 #[test]
@@ -8,9 +15,9 @@ fn retired_controls_keep_late_entries_distinct_with_unknowns_and_concurrent_owne
     std::fs::create_dir_all(&directory).unwrap();
     for mode in ["plain", "address,undefined", "thread"] {
         let binary = directory.join(mode);
-        let mut command = Command::new("clang");
+        let mut command = native::clang();
         command.args([
-            "-std=c11", "-O1", "-g", "-pthread", "-Wall", "-Wextra", "-Werror",
+            "-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror", "-pthread",
         ]);
         if mode != "plain" {
             command.arg(format!("-fsanitize={mode}"));
@@ -18,7 +25,7 @@ fn retired_controls_keep_late_entries_distinct_with_unknowns_and_concurrent_owne
         let output = command
             .arg(root.join("tests/fixtures/callback_retire.c"))
             .arg(root.join("src/callback_entry.c"))
-            .arg(root.join("src/callback_template.S"))
+            .arg(native::callback_template(root))
             .arg("-I")
             .arg(root.join("../../include"))
             .arg("-o")

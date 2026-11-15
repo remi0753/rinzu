@@ -1,4 +1,7 @@
 #![cfg(unix)]
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::process::Command;
 
 #[test]
@@ -64,7 +67,7 @@ fn c_error_groups_preserve_order_deduplicate_per_scope_grow_and_reject_control()
         ),
     ] {
         let binary = root.join(name);
-        let compiled = Command::new("clang")
+        let compiled = native::clang()
             .args(["-std=c11", "-Wall", "-Wextra", "-Werror"])
             .args(flags)
             .arg("-I")

@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 #[test]
 fn indexed_maps_preserve_collisions_order_immutability_gc_and_accounting() {
     use std::path::Path;
@@ -7,7 +10,7 @@ fn indexed_maps_preserve_collisions_order_immutability_gc_and_accounting() {
     std::fs::create_dir_all(&directory).unwrap();
     for sanitized in [false, true] {
         let binary = directory.join(if sanitized { "sanitized" } else { "plain" });
-        let mut build = Command::new("clang");
+        let mut build = native::clang();
         build.args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread"]);
         if sanitized {
             build.args(["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]);

@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::failure::{Diagnostic, ErrorKind, Failure, FailureCause as C, SourcePosition};
 use rinzu_runtime::failure_transport::{failure_descriptor, failure_value, materialize_failure};
 use rinzu_runtime::scalar::{ScalarKind, ScalarValue};
@@ -284,7 +287,7 @@ fn aot_failure_packets_match_rust_and_reject_partial_publication() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("test.c"), program).unwrap();
     for sanitizer in [false, true] {
-        let mut command = std::process::Command::new("clang");
+        let mut command = native::clang();
         command.args(["-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror"]);
         if sanitizer {
             command.arg("-fsanitize=address,undefined");

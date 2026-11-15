@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::process::Command;
 
 #[test]
@@ -7,7 +10,7 @@ fn future_index_survives_growth_collisions_retirement_and_repeated_batches() {
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     for sanitized in [false, true] {
         let executable = directory.join(if sanitized { "san" } else { "plain" });
-        let mut compiler = Command::new("clang");
+        let mut compiler = native::clang();
         compiler.args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread"]);
         if sanitized {
             compiler.args(["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]);
@@ -157,7 +160,7 @@ int main(int argc, char **argv) {
 "#,
     )
     .unwrap();
-    let output = Command::new("clang")
+    let output = native::clang()
         .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread"])
         .arg("-I")
         .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../include"))
@@ -287,7 +290,7 @@ int main(int argc, char **argv) {
   assert(!runtime.records && !runtime.domains && !runtime.in_flight && !runtime.transport_bytes);
 }
 "#).unwrap();
-    let output = Command::new("clang")
+    let output = native::clang()
         .args([
             "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread", "-I",
         ])

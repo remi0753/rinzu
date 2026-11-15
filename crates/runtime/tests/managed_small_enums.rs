@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn small_enum_cache_preserves_weak_lifetimes_quota_ownership_and_physical_cleanup() {
@@ -15,7 +18,7 @@ fn small_enum_cache_preserves_weak_lifetimes_quota_ownership_and_physical_cleanu
         ("tsan", &["-fsanitize=thread"][..]),
     ] {
         let binary = directory.join(mode);
-        let output = Command::new("clang")
+        let output = native::clang()
             .args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread"])
             .args(flags)
             .arg("-I")

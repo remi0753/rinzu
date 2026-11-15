@@ -1,4 +1,7 @@
 #![cfg(unix)]
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::path::Path;
 use std::process::Command;
 
@@ -14,7 +17,7 @@ fn notified_native_carriers_preserve_registration_races_and_target_lifetime() {
                 "{fixture}-{}",
                 if sanitized { "sanitized" } else { "plain" }
             ));
-            let mut build = Command::new("clang");
+            let mut build = native::clang();
             build.args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread"]);
             if sanitized {
                 build.args(["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]);

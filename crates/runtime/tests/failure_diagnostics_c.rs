@@ -1,4 +1,7 @@
 #![cfg(unix)]
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::process::Command;
 
 #[test]
@@ -8,7 +11,7 @@ fn c_diagnostic_order_preserves_records_and_rejects_corruption_and_oom() {
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     for sanitized in [false, true] {
         let binary = root.join(if sanitized { "san" } else { "plain" });
-        let mut compiler = Command::new("clang");
+        let mut compiler = native::clang();
         compiler.args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror"]);
         if sanitized {
             compiler.args(["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]);

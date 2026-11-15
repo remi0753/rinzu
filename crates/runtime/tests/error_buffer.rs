@@ -1,4 +1,7 @@
 #![cfg(unix)]
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -17,7 +20,7 @@ fn error_encoding_grows_amortized_and_keeps_self_appends_graphs_and_overflow_gua
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for sanitized in [false, true] {
         let binary = directory.0.join("probe");
-        let mut build = Command::new("clang");
+        let mut build = native::clang();
         build.args([
             "-std=c11",
             "-O2",

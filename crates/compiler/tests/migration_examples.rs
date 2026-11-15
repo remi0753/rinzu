@@ -1,3 +1,4 @@
+use rinzu_abi::target::Target;
 use rinzu_compiler::check_package;
 
 #[test]
@@ -5,6 +6,7 @@ fn sdk_usage_fixtures_check_as_real_entries() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut failures = Vec::new();
     let filter = std::env::var("RINZU_MIGRATION_FILTER").unwrap_or_default();
+    let target = Target::host().unwrap_or(Target::Aarch64AppleDarwin);
     for name in [
         "sdk/process/tests/app/src/main.rinzu",
         "sdk/socket/tests/app/src/main.rinzu",
@@ -71,7 +73,7 @@ native {
                 &root.join(name),
                 &rinzu_compiler::CompilationOptions {
                     language: None,
-                    target: rinzu_compiler::standard_library::TARGET.into(),
+                    target: target.triple().into(),
                 },
                 &rinzu_compiler::NativeCliInputs::default(),
             )
@@ -105,17 +107,23 @@ fn regression_programs_check_as_real_entries() {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/programs");
     let mut failures = Vec::new();
     let filter = std::env::var("RINZU_MIGRATION_FILTER").unwrap_or_default();
-    for name in [
+    let macos: &[&str] = if Target::host() == Some(Target::Aarch64AppleDarwin) {
+        &[
+            "editor",
+            "macos-charts",
+            "macos-data-browser",
+            "macos-image-viewer",
+            "macos-metal",
+            "macos-notepad",
+            "macos-task-list",
+            "macos-widgets",
+            "source-callback",
+        ]
+    } else {
+        &[]
+    };
+    let common = [
         "file-copy",
-        "editor",
-        "macos-charts",
-        "macos-data-browser",
-        "macos-image-viewer",
-        "macos-metal",
-        "macos-notepad",
-        "macos-task-list",
-        "macos-widgets",
-        "source-callback",
         "async-spawn",
         "async-services",
         "formatted-strings",
@@ -138,7 +146,8 @@ fn regression_programs_check_as_real_entries() {
         "records",
         "try-all",
         "try-all-control",
-    ] {
+    ];
+    for name in common.into_iter().chain(macos.iter().copied()) {
         if !name.contains(&filter) {
             continue;
         }

@@ -1,4 +1,7 @@
 #![cfg(unix)]
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -17,7 +20,7 @@ fn c_value_leaves_keep_canonical_bits_float_equality_and_owner_checks() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for sanitized in [false, true] {
         let binary = directory.0.join("probe");
-        let mut build = Command::new("clang");
+        let mut build = native::clang();
         build.args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread"]);
         if sanitized {
             build.args([
@@ -78,7 +81,7 @@ fn c_map_indexes_compare_colliding_keys_and_validate_unmatched_tails() {
     )
     .unwrap();
     let binary = directory.0.join("probe");
-    let result = Command::new("clang")
+    let result = native::clang()
         .args([
             "-DRINZU_VERIFY_ALLOCATIONS=1",
             "-std=c11",

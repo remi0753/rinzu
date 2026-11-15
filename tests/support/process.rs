@@ -4,7 +4,12 @@ pub fn bounded(command: &mut Command) -> Output {
     bounded_for(command, 60)
 }
 pub fn bounded_tool(command: &mut Command) -> Output {
-    bounded_for(command, 300)
+    let seconds = std::env::var("RINZU_TEST_TOOL_TIMEOUT").map_or(300, |timeout| {
+        timeout
+            .parse()
+            .expect("RINZU_TEST_TOOL_TIMEOUT must be a number of seconds")
+    });
+    bounded_for(command, seconds)
 }
 fn bounded_for(command: &mut Command, seconds: u64) -> Output {
     #[cfg(unix)]

@@ -1,4 +1,7 @@
 #![cfg(unix)]
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::process::{Command, Output, Stdio};
@@ -156,7 +159,7 @@ fn c_fatal_matches_rust_with_blocked_stdio_and_output_and_sanitizers() {
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     for sanitized in [false, true] {
         let binary = root.join(if sanitized { "sanitized" } else { "normal" });
-        let mut clang = Command::new("clang");
+        let mut clang = native::clang();
         clang
             .args([
                 "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread", "-I",

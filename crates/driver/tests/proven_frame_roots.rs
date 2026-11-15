@@ -17,7 +17,7 @@ fn proven_vectors_keep_owner_gc_poll_and_failure_semantics() {
         ],
     ] {
         let binary = scratch.join("helpers");
-        let build = Command::new("clang")
+        let build = native::clang()
             .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread"])
             .args(flags)
             .arg("-I")
@@ -46,3 +46,6 @@ fn proven_vectors_keep_owner_gc_poll_and_failure_semantics() {
     }
     std::fs::remove_dir_all(scratch).unwrap();
 }
+#[cfg(unix)]
+#[path = "../../../tests/support/native.rs"]
+mod native;

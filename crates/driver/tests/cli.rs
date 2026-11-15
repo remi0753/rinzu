@@ -2,6 +2,8 @@
 mod checked_entry;
 #[path = "fixtures/frozen_cli.rs"]
 mod frozen_cli;
+#[path = "support/target.rs"]
+mod target;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[allow(dead_code)]
@@ -9,6 +11,7 @@ mod frozen_cli;
 mod scratch;
 
 use std::process::Command;
+use target::build_directory as target_build;
 
 fn assert_static_rejection(root: &std::path::Path, code: &str) {
     for command in ["check", "run", "build", "verify-aot"] {
@@ -848,7 +851,7 @@ fn build_generates_source_sdk_facade_without_handwritten_metadata() {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::create_dir_all(root.join("include")).unwrap();
-    std::fs::write(root.join("rinzu.toml"), "[package]\nname = \"api\"\nlanguage = \"0.2\"\nkind = \"sdk\"\nentry = \"src/api.rinzu\"\n[native]\nsources = [\"api.c\"]\nheaders = [\"include/api.h\"]\ninclude-dirs = [\"include\"]\nframeworks = [\"Foundation\"]\n").unwrap();
+    std::fs::write(root.join("rinzu.toml"), "[package]\nname = \"api\"\nlanguage = \"0.2\"\nkind = \"sdk\"\nentry = \"src/api.rinzu\"\n[native]\nsources = [\"api.c\"]\nheaders = [\"include/api.h\"]\ninclude-dirs = [\"include\"]\n[native.platform.macos]\nframeworks = [\"Foundation\"]\n").unwrap();
     std::fs::write(
         root.join("src/api.rinzu"),
         "native { fn answer() -> CInt symbol \"answer\"; } export answer;",
@@ -884,7 +887,7 @@ fn build_generates_source_sdk_facade_without_handwritten_metadata() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let directory = root.join("build/api");
+    let directory = target_build(&root).join("api");
     assert!(directory.join("source-package-v2.json").is_file());
     assert!(directory.join("source-package.h").is_file());
     assert!(directory.join("source-table.c").is_file());
@@ -948,7 +951,9 @@ fn source_sdk_dependency_changes_invalidate_parent_descriptor() {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        let wire = std::fs::read(root.join("parent/build/parent/source-package-v2.json")).unwrap();
+        let wire =
+            std::fs::read(target_build(&root.join("parent")).join("parent/source-package-v2.json"))
+                .unwrap();
         let descriptor: serde_json::Value = serde_json::from_slice(&wire).unwrap();
         assert!(descriptor["interface"]["package"]["build_inputs"]["dependency:child"].is_string());
         wires.push(descriptor);
@@ -1103,7 +1108,7 @@ fn source_sdk_cache_reuses_verified_facade_and_regenerates_corrupt_or_changed_in
             String::from_utf8_lossy(&output.stderr)
         );
         serde_json::from_slice::<serde_json::Value>(
-            &std::fs::read(root.join("build/cache/source-cache-report.json")).unwrap(),
+            &std::fs::read(target_build(&root).join("cache/source-cache-report.json")).unwrap(),
         )
         .unwrap()
     };
@@ -1129,9 +1134,10 @@ fn source_sdk_cache_reuses_verified_facade_and_regenerates_corrupt_or_changed_in
             .collect::<Vec<_>>()
     };
     let entries = matching_entries(&first["descriptorDigest"]);
+    let facade_name = format!("facade{}", std::env::consts::DLL_SUFFIX);
     let completed = entries
         .iter()
-        .find(|path| !path.join("facade.dylib").exists())
+        .find(|path| !path.join(&facade_name).exists())
         .unwrap();
     let receipt: serde_json::Value =
         serde_json::from_slice(&std::fs::read(completed.join("receipt.json")).unwrap()).unwrap();
@@ -1139,7 +1145,7 @@ fn source_sdk_cache_reuses_verified_facade_and_regenerates_corrupt_or_changed_in
         .as_object()
         .unwrap()
         .keys()
-        .find(|name| name.starts_with("source-") && name.ends_with(".dylib"))
+        .find(|name| name.starts_with("source-") && name.ends_with(std::env::consts::DLL_SUFFIX))
         .unwrap();
     std::fs::write(completed.join(library), b"corrupt completed image").unwrap();
     assert_ne!(build()["completed"], true);
@@ -1152,9 +1158,9 @@ fn source_sdk_cache_reuses_verified_facade_and_regenerates_corrupt_or_changed_in
     std::fs::write(completed.join(library), b"corrupt completed image").unwrap();
     let facade = entries
         .iter()
-        .find(|path| path.join("facade.dylib").exists())
+        .find(|path| path.join(&facade_name).exists())
         .unwrap();
-    std::fs::write(facade.join("facade.dylib"), b"corrupt facade").unwrap();
+    std::fs::write(facade.join(&facade_name), b"corrupt facade").unwrap();
     assert_eq!(build()["hit"], false);
     assert_eq!(build()["completed"], true);
     std::fs::write(root.join("api.c"), "int answer(void) { return 43; }\n").unwrap();
@@ -1209,7 +1215,8 @@ fn jit_and_aot_save_the_same_generated_source_sdk_interface() {
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    let output = Command::new(root.join("app/build/app")).output().unwrap();
+    let build = target_build(&root.join("app"));
+    let output = Command::new(build.join("app")).output().unwrap();
     assert!(
         output.status.success(),
         "{}",
@@ -1217,7 +1224,7 @@ fn jit_and_aot_save_the_same_generated_source_sdk_interface() {
     );
     assert!(String::from_utf8_lossy(&output.stderr).contains("RINZU_FAILURE=none"));
     let jit = root.join("app/.rinzu/generated/source-packages-v2");
-    let aot = root.join("app/build/app.source-packages");
+    let aot = build.join("app.source-packages");
     let jit_manifest: serde_json::Value =
         serde_json::from_slice(&std::fs::read(jit.join("manifest.json")).unwrap()).unwrap();
     let aot_manifest: serde_json::Value =
@@ -1257,8 +1264,7 @@ fn jit_and_aot_save_the_same_generated_source_sdk_interface() {
         std::fs::read(aot.join("sdk-14c2529eb4498c5d1ffd6915/source-package.h")).unwrap()
     );
     let metadata: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(root.join("app/build/app.metadata.json")).unwrap())
-            .unwrap();
+        serde_json::from_slice(&std::fs::read(build.join("app.metadata.json")).unwrap()).unwrap();
     assert_eq!(metadata["sourcePackages"]["version"], 2);
     assert_eq!(
         metadata["sourcePackages"]["manifest"],

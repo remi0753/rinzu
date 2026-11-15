@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::{error_trace::TraceStack, failure::SourcePosition};
 
 fn at(byte: u32) -> Option<SourcePosition> {
@@ -152,7 +155,7 @@ int main(void) {
 }
 "#).unwrap();
     for sanitized in [false, true] {
-        let mut compiler = std::process::Command::new("clang");
+        let mut compiler = native::clang();
         compiler.args(["-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror"]);
         if sanitized {
             compiler.arg("-fsanitize=address,undefined");

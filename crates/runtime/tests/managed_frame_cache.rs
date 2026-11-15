@@ -1,4 +1,7 @@
 #![cfg(unix)]
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::{path::Path, process::Command};
 
 #[test]
@@ -9,7 +12,7 @@ fn c_domain_frame_reuse_preserves_live_chains_and_retained_accounting() {
     for sanitizer in ["none", "address,undefined", "thread"] {
         for capacity in [64, 0, 2] {
             let binary = work.join("frames");
-            let mut command = Command::new("clang");
+            let mut command = native::clang();
             command
                 .args([
                     "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread", "-I",

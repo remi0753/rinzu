@@ -1,4 +1,7 @@
 #![cfg(unix)]
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::path::Path;
 use std::process::Command;
 
@@ -10,7 +13,7 @@ fn dead_control_blocks_preserve_bounds_zeroing_identity_and_cleanup() {
     std::fs::create_dir_all(&directory).unwrap();
     for sanitized in [false, true] {
         let binary = directory.join(if sanitized { "san" } else { "plain" });
-        let mut build = Command::new("clang");
+        let mut build = native::clang();
         build.args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread"]);
         if sanitized {
             build.args(["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]);

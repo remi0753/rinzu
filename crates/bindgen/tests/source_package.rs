@@ -1,5 +1,8 @@
 use rinzu_bindgen::source_package::*;
 
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 #[test]
 fn accelerated_sha256_preserves_standard_digest_vectors() {
     assert_eq!(
@@ -356,10 +359,14 @@ fn rejects_unimplemented_registration_guarantees_before_generating_an_image() {
 
 #[test]
 fn generated_table_compiles_and_contains_only_v2_entry() {
-    if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+    let Some(target) = rinzu_abi::target::Target::host() else {
         return;
-    }
-    let generated = generate_source_package(interface(), b"input").unwrap();
+    };
+    let mut model = interface();
+    model.package.target = target.triple().into();
+    model.package.data_layout = target.llvm_data_layout().into();
+    model.backend = BackendRecord::for_target(target);
+    let generated = generate_source_package(model, b"input").unwrap();
     let dir = std::env::temp_dir().join(format!("rinzu-source-generation-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("source-package.h"), generated.header).unwrap();
@@ -370,13 +377,12 @@ fn generated_table_compiles_and_contains_only_v2_entry() {
     )
     .unwrap();
     let include = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../include");
-    let result = std::process::Command::new("clang")
-        .args(["-Wall", "-Wextra", "-Werror", "-dynamiclib", "-I"])
+    let (mut compiler, library) = native::shared_library("package", &dir);
+    let result = compiler
+        .args(["-Wall", "-Wextra", "-Werror", "-I"])
         .arg(include)
         .arg(dir.join("table.c"))
         .arg(dir.join("math.c"))
-        .arg("-o")
-        .arg(dir.join("package.dylib"))
         .output()
         .unwrap();
     assert!(
@@ -384,14 +390,19 @@ fn generated_table_compiles_and_contains_only_v2_entry() {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
-    let symbols = std::process::Command::new("nm")
-        .arg("-gU")
-        .arg(dir.join("package.dylib"))
-        .output()
-        .unwrap();
+    let mut nm = std::process::Command::new("nm");
+    let prefix = if cfg!(target_os = "macos") {
+        nm.arg("-gU");
+        "_"
+    } else {
+        nm.args(["--defined-only", "--extern-only"]);
+        ""
+    };
+    let symbols = nm.arg(library).output().unwrap();
+    assert!(symbols.status.success(), "{symbols:?}");
     let symbols = String::from_utf8(symbols.stdout).unwrap();
-    assert!(symbols.contains("_rinzu_source_package_v2"));
-    assert!(!symbols.contains("_rinzu_native_package_v1"));
+    assert!(symbols.contains(&format!("{prefix}rinzu_source_package_v2")));
+    assert!(!symbols.contains(&format!("{prefix}rinzu_native_package_v1")));
     std::fs::remove_dir_all(dir).unwrap();
 }
 

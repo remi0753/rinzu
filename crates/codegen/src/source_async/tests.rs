@@ -138,6 +138,8 @@ async fn main() {
 
 #[test]
 fn worker_traps_and_cancellation_return_transport_and_admission_to_baseline() {
+    use rinzu_runtime::failure_transport::{failure_descriptor, failure_value};
+
     for (body, cancel) in [
         (
             "let byte: CUInt8 = 255; let overflow = byte + 1; return count;",
@@ -173,10 +175,24 @@ fn worker_traps_and_cancellation_return_transport_and_admission_to_baseline() {
         assert_eq!(snapshot.worker_domains, 0);
         assert_eq!(snapshot.in_flight_for_origin, 0);
         assert_eq!(snapshot.transport_bytes, 0);
-        if cancel {
-            assert!([8, 26].contains(&snapshot.peak_transport_bytes));
+        let cause = if cancel {
+            FailureCause::Cancelled
         } else {
-            assert_eq!(snapshot.peak_transport_bytes, 34);
+            FailureCause::ArithmeticTrap
+        };
+        let failure_bytes = rinzu_runtime::transport::preflight(
+            &failure_descriptor(),
+            &failure_value(&Failure::new(cause)),
+        )
+        .unwrap();
+        if cancel {
+            // A Worker skipped before execution releases only the input packet.
+            assert!(
+                [size_of::<i64>(), failure_bytes].contains(&snapshot.peak_transport_bytes),
+                "{snapshot:?}"
+            );
+        } else {
+            assert_eq!(snapshot.peak_transport_bytes, failure_bytes);
         }
     }
 }

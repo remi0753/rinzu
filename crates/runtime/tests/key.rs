@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::key::{KeyHasher, string_hash};
 use rinzu_runtime::scalar::{ScalarError, ScalarKind, ScalarValue};
 use std::process::Command;
@@ -87,7 +90,7 @@ fn integer_and_string_key_hashes_match_c_and_remain_stable_through_moving_gc() {
     );
     program.push_str("rinzu_managed_publish(&roots, NULL, 0); rinzu_managed_collect(&data, &roots); assert(!data.objects); rinzu_managed_leave(&roots); rinzu_managed_dispose(&roots); rinzu_managed_data_dispose(&data); return 0; }\n");
     std::fs::write(root.join("test.c"), program).unwrap();
-    let compile = Command::new("clang")
+    let compile = native::clang()
         .args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-I"])
         .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../include"))
         .arg(root.join("test.c"))

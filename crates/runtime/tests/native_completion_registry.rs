@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 #[test]
 fn completed_native_futures_do_not_remain_in_the_active_registry() {
     let directory =
@@ -10,7 +13,7 @@ fn completed_native_futures_do_not_remain_in_the_active_registry() {
     )
     .unwrap();
     let binary = directory.join("registry");
-    let output = std::process::Command::new("clang")
+    let output = native::clang()
         .args([
             "-std=c11",
             "-O2",

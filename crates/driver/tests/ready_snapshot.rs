@@ -1,4 +1,7 @@
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn ready_snapshot_keeps_order_and_isolates_nested_turns_at_stack_heap_boundary() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 #[test]
 fn weak_lookup_hints_survive_relocation_and_expire_on_gc_and_rollback() {
     use std::path::Path;
@@ -5,7 +8,7 @@ fn weak_lookup_hints_survive_relocation_and_expire_on_gc_and_rollback() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let binary = std::env::temp_dir().join(format!("rinzu-lookup-cache-{}", std::process::id()));
     for sanitized in [false, true] {
-        let mut build = Command::new("clang");
+        let mut build = native::clang();
         build.args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread"]);
         if sanitized {
             build.args(["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]);

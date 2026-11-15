@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::scalar::{ScalarKind as K, ScalarValue as V};
 use rinzu_runtime::transport::{
     TransferDescriptor, TransferKind, TransferValue, TransportBudget, TransportDirection, encode,
@@ -169,7 +172,7 @@ fn aot_scalar_transport_matches_rust_bytes_and_rejects_partial_parameters() {
     let root = std::env::temp_dir().join(format!("rinzu-c-transport-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("test.c"), program).unwrap();
-    let output = std::process::Command::new("clang")
+    let output = native::clang()
         .args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-I"])
         .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../include"))
         .arg(root.join("test.c"))

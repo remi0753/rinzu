@@ -502,6 +502,10 @@ pub fn is_standard_manifest(manifest: &crate::Manifest) -> Result<bool, String> 
 }
 
 #[cfg(all(test, unix))]
+#[path = "../../../tests/support/native.rs"]
+mod test_native;
+
+#[cfg(all(test, unix))]
 mod gc_resource_tests {
     #[test]
     fn exported_toolchain_headers_compile_and_run_the_gc_pacing_fixture() {
@@ -514,7 +518,7 @@ mod gc_resource_tests {
         let binary = root.join("gc-pacing");
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../runtime/tests/fixtures/gc_pacing.c");
-        let build = Command::new("clang")
+        let build = super::test_native::clang()
             .args([
                 "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread", "-I",
             ])

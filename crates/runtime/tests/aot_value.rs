@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::scalar::{ScalarKind as K, ScalarValue as S};
 use rinzu_runtime::value::{Value as V, ValueError as E, ValueSchema, ValueType as T};
 use std::process::Command;
@@ -473,7 +476,7 @@ fn aot_composite_validation_equality_and_map_settlement_match_rust() {
             vec!["-O1", "-g", "-fsanitize=address,undefined"],
         ),
     ] {
-        let compile = Command::new("clang")
+        let compile = native::clang()
             .arg("-std=c11")
             .args(flags)
             .arg("-I")

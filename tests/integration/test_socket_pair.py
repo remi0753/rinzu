@@ -8,6 +8,8 @@ import subprocess
 import sys
 import tempfile
 
+from native_toolchain import tool_timeout
+
 ROOT = Path(__file__).resolve().parents[2]
 TESTS = ROOT / "sdk/socket/tests"
 CLEANUP = "CLEANUP:0:0:0:0:"
@@ -19,7 +21,7 @@ def replay(rinzu, work):
         source = work / f"{side}-source"
         shutil.copytree(TESTS / side, source, ignore=shutil.ignore_patterns("build", ".rinzu"))
         subprocess.run([rinzu, "build", source, "--output", work / side],
-                       cwd=work, env=env, check=True, timeout=120)
+                       cwd=work, env=env, check=True, timeout=tool_timeout(120))
     with tempfile.TemporaryFile(dir=work) as errors:
         with subprocess.Popen([work / "server"], cwd=work, env=env,
                               stdout=subprocess.PIPE, stderr=errors) as server:
@@ -33,9 +35,9 @@ def replay(rinzu, work):
                 assert 0 < port <= 65535, port
                 client = subprocess.run([work / "client"], cwd=work,
                                         env=dict(env, SOCKET_PORT=str(port)),
-                                        capture_output=True, text=True, timeout=30)
+                                        capture_output=True, text=True, timeout=tool_timeout(30))
                 assert client.returncode == 0 and CLEANUP in client.stdout, client
-                stdout, _ = server.communicate(timeout=30)
+                stdout, _ = server.communicate(timeout=tool_timeout(30))
                 errors.seek(0)
                 assert server.returncode == 0 and CLEANUP.encode() in stdout, (
                     server.returncode, stdout, errors.read()

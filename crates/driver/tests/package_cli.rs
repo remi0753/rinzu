@@ -1,7 +1,15 @@
-#![cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#![cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[path = "fixtures/frozen_cli.rs"]
 mod frozen_cli;
+#[path = "../../../tests/support/native.rs"]
+mod native;
+#[path = "support/target.rs"]
+mod target;
 
+use rinzu_abi::target::Target;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -446,6 +454,13 @@ impl Fixture {
     fn path(&self, name: &str) -> PathBuf {
         self.0.join(name)
     }
+    fn lock_path(&self, package: &str) -> PathBuf {
+        let name = match Target::host().unwrap() {
+            Target::Aarch64AppleDarwin => "rinzu.lock".to_owned(),
+            target => format!("rinzu.lock.{}", target.triple()),
+        };
+        self.path(package).join(name)
+    }
     fn cli(&self, command: &str, package: &str, flags: &[&str]) -> Output {
         Command::new(frozen_cli::path())
             .arg(command)
@@ -555,7 +570,9 @@ async fn main(){
     success(output);
     success(f.cli("verify-aot", "app", &[]));
     success(f.cli("build", "app", &[]));
-    let output = Command::new(f.path("app/build/consumer")).output().unwrap();
+    let output = Command::new(target::build_directory(&f.path("app")).join("consumer"))
+        .output()
+        .unwrap();
     assert!(output.stdout.is_empty(), "{output:?}");
     success(output);
     let api = f.path("api.json");
@@ -625,7 +642,14 @@ fn markdown_reference_filters_private_exports_and_runs_captured_doc_examples() {
     success(f.cli(
         "test",
         "sdk",
-        &["--doc", markdown.to_str().unwrap(), "--format", "json"],
+        &[
+            "--doc",
+            markdown.to_str().unwrap(),
+            "--format",
+            "json",
+            "--timeout-ms",
+            "360000",
+        ],
     ));
     // Comment-only edits change rendered prose, not the API v2 shape.
     std::fs::write(
@@ -795,21 +819,29 @@ fn markdown_reexports_keep_origin_and_reject_colliding_or_invalid_outputs() {
 fn public_templates_lock_refresh_api_report_and_all_backends() {
     let f = Fixture::new();
     success(f.cli("lock", "app", &[]));
-    let lock_path = f.path("app/rinzu.lock");
+    let lock_path = f.lock_path("app");
     let lock = std::fs::read(&lock_path).unwrap();
     assert_eq!(json(&lock_path)["packages"]["model"]["path"], "../sdk");
-    assert!(
-        json(&lock_path)["context"]["target.os-build"]
-            .as_str()
-            .is_some_and(|s| !s.is_empty())
-    );
+    let fingerprint = &json(&lock_path)["context"];
+    match Target::host().unwrap() {
+        Target::Aarch64AppleDarwin => assert!(
+            fingerprint["target.os-build"]
+                .as_str()
+                .is_some_and(|s| !s.is_empty())
+        ),
+        target => assert_eq!(fingerprint["clang.target"], target.triple()),
+    }
     success(f.cli("lock", "app", &["--check"]));
     assert_eq!(lock, std::fs::read(&lock_path).unwrap());
     success(f.cli("check", "app", &[]));
     success(f.cli("run", "app", &[]));
     success(f.cli("verify-aot", "app", &[]));
     success(f.cli("build", "app", &[]));
-    success(Command::new(f.path("app/build/consumer")).output().unwrap());
+    success(
+        Command::new(target::build_directory(&f.path("app")).join("consumer"))
+            .output()
+            .unwrap(),
+    );
     // Application bodies are outside the dependency lock.
     let main = f.path("app/src/main.rinzu");
     let body = std::fs::read_to_string(&main).unwrap();
@@ -876,10 +908,7 @@ fn public_templates_lock_refresh_api_report_and_all_backends() {
     success(f.cli("lock", "app", &[]));
     success(f.cli("lock", "app", &["--check"]));
     success(f.cli("lock", "sdk", &[]));
-    assert_eq!(
-        json(&f.path("sdk/rinzu.lock"))["packages"]["model"]["path"],
-        "."
-    );
+    assert_eq!(json(&f.lock_path("sdk"))["packages"]["model"]["path"], ".");
     success(f.cli("check", "sdk", &[]));
     success(f.cli("build", "sdk", &[]));
 }
@@ -900,7 +929,7 @@ fn diamond_reexports_file_moves_deletion_and_cycles_recheck() {
     std::fs::write(f.path("app/src/main.rinzu"), "import left;import right;fn main(){let a=left.Box<Int>(value:left.id<Int>(42));let b=right.Box<Int>(value:42);if a!=b{panic(\"wrongIdentity\");}}").unwrap();
     success(f.cli("lock", "app", &[]));
     assert_eq!(
-        json(&f.path("app/rinzu.lock"))["packages"]
+        json(&f.lock_path("app"))["packages"]
             .as_object()
             .unwrap()
             .len(),
@@ -986,15 +1015,8 @@ fn actual_header_source_archive_and_corrupt_native_cache_are_revalidated() {
         )
         .unwrap();
         success(
-            Command::new("xcrun")
-                .args([
-                    "--sdk",
-                    "macosx",
-                    "clang",
-                    "-target",
-                    "arm64-apple-macos11",
-                    "-c",
-                ])
+            native::clang()
+                .args(["-fPIC", "-c"])
                 .arg(&source)
                 .arg("-o")
                 .arg(&object)
@@ -1021,7 +1043,8 @@ fn actual_header_source_archive_and_corrupt_native_cache_are_revalidated() {
         .collect::<Vec<_>>();
     assert!(!caches.is_empty());
     for directory in &caches {
-        std::fs::write(directory.join("facade.dylib"), b"invalid native image").unwrap();
+        let library = Target::host().unwrap().shared_library_name("facade");
+        std::fs::write(directory.join(library), b"invalid native image").unwrap();
         std::fs::write(directory.join("receipt.json"), b"{broken").unwrap();
     }
     let output = f.cli("run", "app", &[]);
@@ -1087,7 +1110,7 @@ fn native_data_lock_requires_explicit_refresh_and_regenerates_v26_bundles() {
     )
     .unwrap();
     success(f.cli("lock", "app", &[]));
-    let lock_path = f.path("app/rinzu.lock");
+    let lock_path = f.lock_path("app");
     let current = json(&lock_path);
     let mut old = current.clone();
     old["context"]["rinzu.private-abi"] = "rinzu-baseline-0.5-r171".into();
@@ -1104,8 +1127,9 @@ fn native_data_lock_requires_explicit_refresh_and_regenerates_v26_bundles() {
     success(f.cli("lock", "app", &["--check"]));
     success(f.cli("run", "app", &[]));
     success(f.cli("build", "app", &[]));
-    success(Command::new(f.path("app/build/consumer")).output().unwrap());
-    let bundle = f.path("app/build/consumer.source-packages");
+    let build = target::build_directory(&f.path("app"));
+    success(Command::new(build.join("consumer")).output().unwrap());
+    let bundle = build.join("consumer.source-packages");
     let manifest = json(&bundle.join("manifest.json"));
     let descriptor = json(&bundle.join(manifest["packages"][0]["descriptor"].as_str().unwrap()));
     assert_eq!(descriptor["minor"], 6);

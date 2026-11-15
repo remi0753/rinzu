@@ -1,3 +1,6 @@
+#[path = "../../../../tests/support/native.rs"]
+mod native;
+
 use std::{fs, path::PathBuf, process::Command};
 
 struct Scratch(PathBuf);
@@ -15,7 +18,7 @@ fn control_poll_preserves_events_source_masks_counters_and_worker_atomic_observa
     let file = dir.0.join("poll.c");
     let binary = dir.0.join("poll");
     fs::write(&file, super::poll_fixture::source()).unwrap();
-    let output = Command::new("clang")
+    let output = native::clang()
         .args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror"])
         .arg(&file)
         .arg("-o")

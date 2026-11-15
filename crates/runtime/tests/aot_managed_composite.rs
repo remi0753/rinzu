@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::data::{DataError, ManagedData, ManagedHandle, ManagedSlot as Slot};
 use rinzu_runtime::failure::{ErrorKind, Failure, FailureCause};
 use rinzu_runtime::heap::{CollectionKind, DomainHeap};
@@ -524,7 +527,7 @@ int main(int argc,char **argv) {
             vec!["-O1", "-g", "-fsanitize=address,undefined"],
         ),
     ] {
-        let compile = Command::new("clang")
+        let compile = native::clang()
             .arg("-std=c11")
             .args(flags)
             .arg("-I")

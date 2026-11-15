@@ -2,11 +2,17 @@
 //! This builds native inputs but never executes native event loops or the test programs.
 use std::path::Path;
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[path = "../../tests/fixtures/ready_snapshot.rs"]
 mod ready_snapshot;
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 pub(crate) fn write_sources(directory: &Path) -> Result<(), String> {
     use super::*;
 
@@ -15,13 +21,35 @@ pub(crate) fn write_sources(directory: &Path) -> Result<(), String> {
         .join("../..")
         .canonicalize()
         .map_err(|error| error.to_string())?;
-    let package = root.join("tests/fixtures/programs/source-callback");
+    let toolchain = crate::native_clang::TargetClang::resolve()?;
+    let command = toolchain.command();
+    let arguments = command
+        .get_args()
+        .map(|arg| arg.to_str().ok_or("Clang argument is not UTF-8"))
+        .collect::<Result<Vec<_>, _>>()?;
+    let metadata = json!({
+        "target": toolchain.target.triple(),
+        "compiler": command.get_program().to_str().ok_or("Clang path is not UTF-8")?,
+        "arguments": arguments,
+        "sdl2": crate::native_config::resolve("sdl2-config")?.flags,
+    });
+    fs::write(
+        directory.join("toolchain.json"),
+        serde_json::to_vec(&metadata).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    let package = root.join(match toolchain.target {
+        Target::Aarch64AppleDarwin => "tests/fixtures/programs/source-callback",
+        Target::X86_64UnknownLinuxGnu => "sdk/sqlite/tests/rows",
+    });
     let context = crate::input::check(
         &package,
         &crate::input::Options::default(),
         &rinzu_compiler::NativeCliInputs::default(),
     )?;
-    build_checked_input(&context, Some(directory.join("source-platform")))?;
+    if toolchain.target == Target::Aarch64AppleDarwin {
+        build_checked_input(&context, Some(directory.join("source-platform")))?;
+    }
     let artifact = &context.artifact;
     let imports = artifact
         .sdk_packages
@@ -47,6 +75,10 @@ pub(crate) fn write_sources(directory: &Path) -> Result<(), String> {
         &native.source_packages,
         &scratch.0.join("source-packages"),
     )?;
+    if toolchain.target == Target::X86_64UnknownLinuxGnu {
+        fs::write(directory.join("source-platform.runtime.c"), &source)
+            .map_err(|error| error.to_string())?;
+    }
     fs::write(
         directory.join("compiled-async.c"),
         crate::compiled_async::runtime_source(&object, &source, true),
@@ -119,7 +151,10 @@ pub(crate) fn write_sources(directory: &Path) -> Result<(), String> {
     write_fixture_sources(&root, directory)
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 fn write_fixture_sources(root: &Path, directory: &Path) -> Result<(), String> {
     use super::*;
 
@@ -203,7 +238,10 @@ fn write_fixture_sources(root: &Path, directory: &Path) -> Result<(), String> {
     .map_err(|error| error.to_string())
 }
 
-#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(not(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+)))]
 pub(crate) fn write_sources(_directory: &Path) -> Result<(), String> {
-    Err("native C lint contexts require the supported macOS arm64 target".into())
+    Err("native C lint contexts require a supported host target".into())
 }

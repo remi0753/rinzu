@@ -1,4 +1,7 @@
 #![cfg(unix)]
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::process::Command;
 
 #[test]
@@ -9,7 +12,7 @@ fn root_registration_preserves_domain_uniqueness_and_detaches_in_any_order() {
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     for sanitized in [false, true] {
         let executable = directory.join(if sanitized { "san" } else { "plain" });
-        let mut compiler = Command::new("clang");
+        let mut compiler = native::clang();
         compiler.args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread"]);
         if sanitized {
             compiler.args(["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]);

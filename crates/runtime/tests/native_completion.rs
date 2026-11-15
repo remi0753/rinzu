@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::native_completion::{
     CompletionPointer, NativeCompletion, NotifiedNativeCompletion, TransferNativeCompletion,
 };
@@ -204,7 +207,7 @@ fn c_shared_reactor_preserves_publication_and_settles_cancelled_metadata() {
     let source = directory.join("completion.c");
     std::fs::write(&source, include_str!("fixtures/native_completion.c")).unwrap();
     let binary = directory.join("completion");
-    let output = std::process::Command::new("clang")
+    let output = native::clang()
         .args([
             "-std=c11",
             "-Wall",

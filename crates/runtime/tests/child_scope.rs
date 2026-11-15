@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::child_scope::{ChildScope, ChildScopeError};
 use rinzu_runtime::failure::{Diagnostic, ErrorKind, Failure, FailureCause as C, SourcePosition};
 use rinzu_runtime::failure_transport::{failure_descriptor, failure_value};
@@ -37,7 +40,7 @@ fn child_tail_preserves_order_after_handoff_retirement_and_rollback() {
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     for sanitized in [false, true] {
         let executable = directory.join(if sanitized { "san" } else { "plain" });
-        let mut compiler = std::process::Command::new("clang");
+        let mut compiler = native::clang();
         compiler.args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread"]);
         if sanitized {
             compiler.args(["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]);
@@ -282,7 +285,7 @@ int main(int argc, char **argv) { (void)argv;
     let directory = std::env::temp_dir().join(format!("rinzu-child-scope-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
     std::fs::write(directory.join("test.c"), program).unwrap();
-    let output = std::process::Command::new("clang")
+    let output = native::clang()
         .args([
             "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread", "-I",
         ])

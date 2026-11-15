@@ -1,4 +1,7 @@
-#![cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#![cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 
 #[path = "fixtures/frozen_cli.rs"]
 mod frozen_cli;
@@ -13,7 +16,9 @@ use scratch::Scratch;
 use std::ffi::OsString;
 use std::fs;
 use std::os::unix::ffi::OsStringExt;
-use std::os::unix::fs::{PermissionsExt, symlink};
+#[cfg(target_os = "macos")]
+use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -48,12 +53,25 @@ fn cli(command: &str, path: &Path, cwd: &Path) -> Command {
 fn socket_packages_cover_wire_decoding_and_loopback_transfer() {
     let work = Scratch::new("rinzu-socket-programs");
     let tests = stage_sdk(&work, "socket").join("tests");
-    for path in ["transfer-decode.rinzu", "transfer-receipt.rinzu"] {
-        run_source(
-            &mut cli("verify-aot", &tests.join(path), work.path()),
-            "JIT/AOT equivalent:",
-        );
-    }
+    run_source(
+        &mut cli(
+            "verify-aot",
+            &tests.join("transfer-decode.rinzu"),
+            work.path(),
+        ),
+        "JIT/AOT equivalent:",
+    );
+    let receipt = tests.join("transfer-receipt.rinzu");
+    let marker = "N03:public-SDK:fixed-transfer:OK";
+    // An immediately readable socket may settle without admitting a Future.
+    run_source(&mut cli("run", &receipt, work.path()), marker);
+    let executable = work.path().join("transfer-receipt");
+    platform::success(&platform::bounded_tool(
+        cli("build", &receipt, work.path())
+            .arg("--output")
+            .arg(&executable),
+    ));
+    run_source(&mut Command::new(executable), marker);
     run_source(
         &mut cli("run", &tests.join("app"), work.path()),
         "CLEANUP:0:0:0:0:",
@@ -180,6 +198,7 @@ fn io_whole_file_public_contracts_match_on_jit_and_aot() {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn stage_whole_probe(work: &Scratch) -> PathBuf {
     let sdk = stage_sdk(work, "io");
     let manifest = sdk.join("rinzu.toml");
@@ -245,6 +264,7 @@ whole_io_probe = { path = "../sdk/io" }
     app
 }
 
+#[cfg(target_os = "macos")]
 #[test]
 fn io_whole_file_faults_and_cancel_install_races_match_on_jit_and_aot() {
     let work = Scratch::new("rinzu-io-whole-faults");

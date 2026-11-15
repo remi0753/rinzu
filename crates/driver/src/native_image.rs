@@ -280,6 +280,7 @@ mod tests {
         assert!(report_uuid(&format!("{one}01234567-89AB-CDEF-0123-456789ABCDEF\n")).is_err());
     }
 
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     #[test]
     fn direct_mach_uuid_matches_target_tool_and_current_bytes() {
         let path = std::env::current_exe().unwrap().canonicalize().unwrap();

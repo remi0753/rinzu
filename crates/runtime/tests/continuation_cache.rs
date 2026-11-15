@@ -1,4 +1,11 @@
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#![cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
+
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 #[test]
 fn continuation_cache_preserves_parked_frames_guards_owner_and_shutdown() {
     use std::os::unix::process::ExitStatusExt;
@@ -7,7 +14,11 @@ fn continuation_cache_preserves_parked_frames_guards_owner_and_shutdown() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let binary =
         std::env::temp_dir().join(format!("rinzu-continuation-cache-{}", std::process::id()));
-    let output = Command::new("clang")
+    let mut compiler = native::clang();
+    if cfg!(target_os = "linux") {
+        compiler.arg(root.join("crates/runtime/src/arch/x86_64/continuation.S"));
+    }
+    let output = compiler
         .args([
             "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread", "-I",
         ])
@@ -38,7 +49,7 @@ fn continuation_cache_preserves_parked_frames_guards_owner_and_shutdown() {
             .output()
             .unwrap();
         assert!(
-            matches!(output.status.signal(), Some(10 | 11)),
+            matches!(output.status.signal(), Some(libc::SIGBUS | libc::SIGSEGV)),
             "{guard}: {output:?}"
         );
     }

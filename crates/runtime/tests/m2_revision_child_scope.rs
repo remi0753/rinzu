@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::child_scope::ChildScope;
 use rinzu_runtime::failure::{ErrorKind, Failure, FailureCause};
 
@@ -60,7 +63,7 @@ int main(void) {
 "#;
     std::fs::write(directory.join("all.c"), source).unwrap();
     let executable = directory.join("all");
-    let build = std::process::Command::new("clang")
+    let build = native::clang()
         .args([
             "-std=c11",
             "-Werror",

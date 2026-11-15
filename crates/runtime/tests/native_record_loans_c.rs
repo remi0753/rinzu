@@ -1,4 +1,7 @@
 #![cfg(unix)]
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::path::Path;
 use std::process::Command;
 
@@ -9,7 +12,7 @@ fn c_loans_share_aliases_pin_gc_commit_atomically_and_enforce_fatal_phases() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     for sanitize in [false, true] {
         let binary = root.join(if sanitize { "sanitized" } else { "normal" });
-        let mut command = Command::new("clang");
+        let mut command = native::clang();
         command
             .args([
                 "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread", "-I",

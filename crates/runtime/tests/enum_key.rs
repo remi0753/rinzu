@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::key::{KeyError, KeySchema, KeyType, KeyValue};
 use rinzu_runtime::scalar::{ScalarKind as K, ScalarValue as V};
 use std::process::Command;
@@ -336,7 +339,7 @@ fn closed_enum_keys_use_all_variants_nominal_identity_and_typed_payloads_in_rust
     expected.push(deep_schema.hash(0, &deep).unwrap());
     program.push_str(&format!("rinzu_key_schema_t deep_schema={{0}}; assert(!rinzu_key_schema_init(&deep_schema,deep_types,sizeof(deep_types)/sizeof(*deep_types))); {{ uint64_t hash=0; int equal=0; assert(!rinzu_key_hash(&deep_schema,0,&{name},&hash)); assert(!rinzu_key_equal(&deep_schema,0,&{name},&{name},&equal) && equal); printf(\"%llu\\n\",(unsigned long long)hash); }} rinzu_key_schema_dispose(&deep_schema); rinzu_key_schema_dispose(&schema); assert(!schema.allowed && !schema.types && !schema.count); return 0; }}\n"));
     std::fs::write(root.join("test.c"), program).unwrap();
-    let compile = Command::new("clang")
+    let compile = native::clang()
         .args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-I"])
         .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../include"))
         .arg(root.join("test.c"))
@@ -361,7 +364,7 @@ fn closed_enum_keys_use_all_variants_nominal_identity_and_typed_payloads_in_rust
         .map(|line| line.parse::<u64>().unwrap())
         .collect::<Vec<_>>();
     assert_eq!(actual, expected);
-    let sanitized = Command::new("clang")
+    let sanitized = native::clang()
         .args([
             "-std=c11",
             "-O1",
@@ -542,7 +545,7 @@ fn adopted_bool_bytes_and_records_match_candidate_hashes_and_validate_complete_i
     std::fs::write(directory.join("test.c"), program).unwrap();
     for sanitized in [false, true] {
         let binary = directory.join(if sanitized { "sanitized" } else { "test" });
-        let mut command = Command::new("clang");
+        let mut command = native::clang();
         command
             .args(["-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror", "-I"])
             .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../include"))

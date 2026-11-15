@@ -9,7 +9,10 @@ use rinzu_codegen::{
 };
 use serde_json::json;
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 use rinzu_codegen::emit_source_async_aot_object;
 
 mod equivalence;
@@ -23,7 +26,11 @@ pub(crate) use equivalence::{
     compare_async_task_traces, compare_source_async_failures,
     compare_source_async_values_and_transport, verify_equivalence_with_options,
 };
-#[cfg(any(all(test, unix), all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(any(
+    all(test, unix),
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 mod poll_fixture;
 
 #[derive(Clone, Debug)]

@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::data::{DataError, ManagedData, ManagedHandle};
 use rinzu_runtime::failure::{
     Diagnostic, ErrorKind as E, Failure, FailureCause as C, SourcePosition,
@@ -289,7 +292,7 @@ int main(int argc, char **argv) {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("test.c"), program).unwrap();
     let include = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../include");
-    let output = std::process::Command::new("clang")
+    let output = native::clang()
         .args(["-O2", "-Wall", "-Wextra", "-Werror", "-I"])
         .arg(include)
         .arg(root.join("test.c"))
@@ -403,7 +406,7 @@ int main(int argc, char **argv) {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("test.c"), program).unwrap();
     let include = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../include");
-    let output = std::process::Command::new("clang")
+    let output = native::clang()
         .args(["-O2", "-Wall", "-Wextra", "-Werror", "-I"])
         .arg(include)
         .arg(root.join("test.c"))

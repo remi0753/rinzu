@@ -25,12 +25,14 @@ class NativeQualityTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def tidy(self, source):
+        toolchain = json.loads((quality.DATABASE / "toolchain.json").read_text())
         with tempfile.TemporaryDirectory(dir=quality.DATABASE) as directory:
             file = Path(directory) / "probe.c"
             file.write_text(source)
             result = subprocess.run([quality.tool("clang-tidy"), "--quiet",
                                      "--config-file=" + str(quality.ROOT / ".clang-tidy"),
-                                     str(file), "--", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                                     str(file), "--", *toolchain["arguments"],
+                                     "-std=c11", "-Wall", "-Wextra", "-Werror",
                                      "-I", str(quality.ROOT / "include")],
                                     capture_output=True, text=True)
             result.stdout = quality.remap_diagnostics(result.stdout, file)
@@ -69,8 +71,9 @@ class NativeQualityTests(unittest.TestCase):
     def test_database_covers_all_native_files_and_full_fragment_units(self):
         commands = json.loads((quality.DATABASE / "compile_commands.json").read_text())
         by_file = {entry["file"]: entry for entry in commands}
-        self.assertTrue({str(file) for file in quality.native_files()} <= by_file.keys())
         manifest = json.loads((quality.DATABASE / "units.json").read_text())
+        self.assertTrue({str(file) for file in quality.compilation_files(manifest["target"])}
+                        <= by_file.keys())
         self.assertTrue(set(manifest["contexts"].values()) <= set(manifest["units"]))
         for file, context in manifest["contexts"].items():
             self.assertIn(str(file), Path(context).read_text())

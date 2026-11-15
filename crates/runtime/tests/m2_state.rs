@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::data::{DataError, ManagedData, ManagedSlot};
 use rinzu_runtime::heap::{CollectionKind, DomainHeap};
 use rinzu_runtime::scalar::{ScalarKind, ScalarValue};
@@ -181,7 +184,7 @@ fn generated_c_state_updates_enforce_domain_owner_and_collect_cycles() {
     std::fs::create_dir_all(&directory).unwrap();
     for sanitizer in [false, true] {
         let binary = directory.join(if sanitizer { "san" } else { "plain" });
-        let mut command = std::process::Command::new("clang");
+        let mut command = native::clang();
         command
             .args([
                 "-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror", "-pthread", "-I",

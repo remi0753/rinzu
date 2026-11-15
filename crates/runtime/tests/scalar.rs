@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::scalar::{
     Arithmetic as A, Comparison as C, ScalarError as E, ScalarKind as K, ScalarValue as V,
 };
@@ -290,7 +293,7 @@ fn aot_c_integer_arithmetic_matches_runtime_with_and_without_sanitizers() {
             "-fno-sanitize-recover=all",
         ],
     ] {
-        let output = std::process::Command::new("clang")
+        let output = native::clang()
             .args(flags)
             .args(["-Wall", "-Wextra", "-Werror", "-I"])
             .arg(&include)
@@ -392,7 +395,7 @@ fn aot_c_scalar_conversions_match_runtime_boundaries_and_rounding() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("test.c"), program).unwrap();
     let include = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../include");
-    let output = std::process::Command::new("clang")
+    let output = native::clang()
         .arg("-O2")
         .arg("-Wall")
         .arg("-Wextra")

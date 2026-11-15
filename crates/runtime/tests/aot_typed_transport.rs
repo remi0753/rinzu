@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::scalar::{ScalarKind as K, ScalarValue as S};
 use rinzu_runtime::transport::{TransportBudget, TransportDirection, typed::Descriptor};
 use rinzu_runtime::value::{Value as V, ValueSchema, ValueType as T};
@@ -368,7 +371,7 @@ int main(void) {
             vec!["-O1", "-g", "-fsanitize=address,undefined"],
         ),
     ] {
-        let compile = Command::new("clang")
+        let compile = native::clang()
             .arg("-std=c11")
             .args(flags)
             .arg("-I")

@@ -1,4 +1,7 @@
 #![cfg(unix)]
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::path::Path;
 use std::process::Command;
 
@@ -9,7 +12,7 @@ fn native_wake_target_outlives_publication_and_reactor_callback_return() {
     std::fs::create_dir_all(&directory).unwrap();
     for sanitized in [false, true] {
         let binary = directory.join(if sanitized { "sanitized" } else { "plain" });
-        let mut build = Command::new("clang");
+        let mut build = native::clang();
         build.args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread"]);
         if sanitized {
             build.args(["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]);

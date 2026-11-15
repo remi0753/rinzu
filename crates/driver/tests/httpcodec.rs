@@ -1,3 +1,7 @@
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[path = "fixtures/frozen_cli.rs"]
 mod frozen_cli;
 #[cfg(unix)]
@@ -5,7 +9,10 @@ mod frozen_cli;
 #[path = "support/scratch.rs"]
 mod scratch;
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn native_http_codec_preserves_request_line_fields_status_and_gc() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));

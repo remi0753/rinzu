@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn explicitly_charged_empty_lists_preserve_weak_ownership_and_fresh_callers() {
@@ -14,7 +17,7 @@ fn explicitly_charged_empty_lists_preserve_weak_ownership_and_fresh_callers() {
         ("tsan", &["-fsanitize=thread"][..]),
     ] {
         let binary = directory.join(mode);
-        let output = Command::new("clang")
+        let output = native::clang()
             .args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread"])
             .args(flags)
             .arg("-I")

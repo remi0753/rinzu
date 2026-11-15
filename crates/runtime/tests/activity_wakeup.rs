@@ -1,4 +1,8 @@
 #![cfg(unix)]
+
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -32,7 +36,7 @@ fn activity_notifications_keep_idle_wake_active_ticks_foreign_publication_and_sh
     }
     for (name, flags) in variants {
         let binary = directory.0.join(name);
-        let built = Command::new("clang")
+        let built = native::clang()
             .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread"])
             .args(flags)
             .arg("-I")

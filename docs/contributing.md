@@ -24,7 +24,7 @@ On Apple Silicon, Cargo can build the Linux toolchain executable for `x86_64-unk
 
 ### Test suite
 
-`cargo xtask test` runs the workspace with all targets and features, the Rust doctests, the standalone runtime model, the VS Code diagnostics unit tests, and the signed trampoline fixture on macOS arm64. The driver suite executes the published `rinzu-test` examples. The test command uses Python 3, Node.js, and the native toolchain. The Socket and HTTP SDK tests use local loopback listeners.
+`cargo xtask test` runs the workspace with all targets and features, the Rust doctests, the standalone runtime model, and the VS Code diagnostics unit tests on macOS arm64 and x86_64 Linux. Both platforms exercise the C callback and continuation fixtures and the Python Socket and HTTP loopback tests. macOS arm64 also runs the signed trampoline fixture and the driver tests for published `rinzu-test` examples. The test command uses Python 3, Node.js, and the native toolchain with its address and undefined-behavior sanitizers. Set `RINZU_TEST_TOOL_TIMEOUT` in seconds to give compiler invocations and the Socket transfer fixture more time on an emulated host.
 
 ## Source and native quality tools
 
@@ -39,7 +39,7 @@ cargo xtask c-lint
 
 The Rinzu checks use the actual parser, formatter, package contexts, and diagnostic fixtures. `fmt`, `fmt-write`, and `lint` combine Rinzu, Rust, and native gates. The formatting commands include the standalone runtime model and fuzz packages.
 
-C, C++, Objective-C, and headers use LLVM 21 clang-format/clang-tidy. `tools/native_quality.py` builds compilation contexts for generated runtime fragments and SDK manifests; `tools/clangd` starts the corresponding language server. The `.vscode` settings select these tools. Native linting also needs SDK dependencies such as SDL2.
+C, C++, Objective-C, and headers use LLVM 21 clang-format/clang-tidy. `tools/native_quality.py` builds compilation contexts for the host target using Clang settings from the driver. The contexts cover generated runtime fragments and the target's SDK sources. `tools/clangd` starts the corresponding language server, and the `.vscode` settings select these tools. Native linting also needs SDK dependencies such as SDL2.
 
 `tools/native_consumption.cpp` is compiled by the driver for supported closed-consumer analysis. Keep it as a compiler input. `tools/new_sdk.py` generates typed SDK scaffolds. Integration runners belong in `tests/integration`, not in the public language examples.
 

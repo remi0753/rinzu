@@ -14,8 +14,7 @@ fn check(condition: Bool) {
     }
 }
 
-// Each read consumes exactly one byte. No timer or segmentation-dependent loop
-// changes the number of admitted tasks between Source, C-JIT and AOT.
+// Consume one byte at a time and verify EOF and the release of owner resources.
 async fn main() {
     try {
         let listener = await rinzu.socket.listen(rinzu.socket.address("127.0.0.1", 0), 4);

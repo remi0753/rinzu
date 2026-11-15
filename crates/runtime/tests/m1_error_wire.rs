@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::{
     error_value::ErrorValue,
     failure::{Diagnostic, ErrorKind, Failure, FailureCause, SourcePosition},
@@ -80,7 +83,7 @@ int main(void) {
         ("plain", vec!["-O2", "-Wall", "-Wextra", "-Werror"]),
         ("san", vec!["-O1", "-g", "-fsanitize=address,undefined"]),
     ] {
-        let compiled = Command::new("clang")
+        let compiled = native::clang()
             .arg("-std=c11")
             .args(flags)
             .arg("-I")

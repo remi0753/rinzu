@@ -22,7 +22,10 @@ use cranelift_jit::{JITBuilder, JITModule};
 ))]
 use cranelift_module::default_libcall_names;
 use cranelift_module::{FuncId, Linkage, Module};
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use rinzu_compiler::{AbiScalar, SourceAbiType, SourceNativeSignature};
 
@@ -146,13 +149,19 @@ pub(crate) fn declare<M: Module>(
     Ok(functions)
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 pub struct NativeAbiObject {
     pub object: Vec<u8>,
     pub symbols: BTreeMap<String, String>,
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 pub fn emit_object(signatures: &[SourceNativeSignature]) -> Result<NativeAbiObject> {
     let isa = crate::native_isa(true)?;
     let builder = ObjectBuilder::new(isa, "rinzu-source-native", default_libcall_names())?;

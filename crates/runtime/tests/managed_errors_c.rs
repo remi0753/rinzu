@@ -1,4 +1,7 @@
 #![cfg(unix)]
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::process::Command;
 
 #[test]
@@ -20,7 +23,7 @@ fn c_first_error_sources_and_lazy_locations_survive_gc() {
         ),
     ] {
         let binary = root.join(name);
-        let compiled = Command::new("clang")
+        let compiled = native::clang()
             .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread"])
             .args(flags)
             .arg("-I")
@@ -167,7 +170,7 @@ fn c_failure_leases_and_list_patterns_preserve_payload_gc_and_domain_boundaries(
         ),
     ] {
         let binary = root.join(name);
-        let compiled = Command::new("clang")
+        let compiled = native::clang()
             .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread"])
             .args(flags)
             .arg("-I")

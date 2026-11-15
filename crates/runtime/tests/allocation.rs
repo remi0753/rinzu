@@ -1,4 +1,7 @@
 #![cfg(unix)]
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::allocation::FatalAllocator;
 use rinzu_runtime::data::ManagedData;
 use rinzu_runtime::failure::PendingFailure;
@@ -345,7 +348,7 @@ int main(void){
 "#).unwrap();
     for sanitized in [false, true] {
         let binary = root.join(if sanitized { "sanitized" } else { "ordinary" });
-        let mut command = Command::new("clang");
+        let mut command = native::clang();
         command
             .args(["-std=c11", "-O1", "-g", "-pthread", "-Werror"])
             .arg(&path)

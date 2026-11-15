@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::gc::MIN_ALLOCATION_BUDGET;
 use rinzu_runtime::heap::{CollectionKind, DomainHeap, FinalizerPolicy, HeapValue};
 
@@ -77,7 +80,7 @@ fn run_c_fixture_with_arguments(name: &str, arguments: &[&str]) {
     use std::process::Command;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let binary = std::env::temp_dir().join(format!("rinzu-{name}-{}", std::process::id()));
-    let build = Command::new("clang")
+    let build = native::clang()
         .args([
             "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread", "-I",
         ])

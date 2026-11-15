@@ -66,6 +66,10 @@ fn read_file(path: &Path) -> Option<Vec<u8>> {
     std::fs::read(path).ok()
 }
 
+fn facade_name() -> String {
+    format!("facade{}", std::env::consts::DLL_SUFFIX)
+}
+
 pub fn restore(
     directory: &Path,
     key: &str,
@@ -94,7 +98,11 @@ pub fn restore(
         }
     }
     if let Some(destination) = facade {
-        let Some(bytes) = read_file(&directory.join("facade.dylib")) else {
+        let bytes = read_file(&directory.join(facade_name()));
+        // Preserve Linux entries written before the host suffix was used.
+        #[cfg(target_os = "linux")]
+        let bytes = bytes.or_else(|| read_file(&directory.join("facade.dylib")));
+        let Some(bytes) = bytes else {
             return Ok(false);
         };
         if receipt.facade.as_deref() != Some(sha256(&bytes).as_str()) {
@@ -129,7 +137,7 @@ pub fn store(
         .map(|path| std::fs::read(path).map_err(|error| error.to_string()))
         .transpose()?;
     if let Some(bytes) = &facade {
-        replace(directory, "facade.dylib", bytes)?;
+        replace(directory, &facade_name(), bytes)?;
     }
     let receipt = Receipt {
         schema: "rinzu.source-cache-v4".to_owned(),

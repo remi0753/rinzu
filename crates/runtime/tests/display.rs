@@ -1,4 +1,7 @@
 #![cfg(unix)]
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_runtime::data::display::{DisplaySchema, DisplayType as D};
 use rinzu_runtime::data::{ManagedData, ManagedSlot as S};
 use rinzu_runtime::heap::{CollectionKind, DomainHeap};
@@ -57,7 +60,7 @@ fn shared_display_engine_passes_address_and_undefined_behavior_sanitizers() {
     std::fs::create_dir_all(&root).unwrap();
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let binary = root.join("display");
-    let compiled = std::process::Command::new("clang")
+    let compiled = native::clang()
         .args([
             "-std=c11",
             "-O2",

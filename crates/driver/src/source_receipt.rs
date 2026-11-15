@@ -766,6 +766,7 @@ mod tests {
             std::fs::create_dir(temporary.0.join(name)).unwrap();
         }
         let clang = crate::native_clang::TargetClang::resolve().unwrap();
+        let library = clang.target.shared_library_name("libanswer");
         for (name, value) in [("low", 42), ("pending", 43)] {
             let source = temporary.0.join(format!("{name}.c"));
             std::fs::write(
@@ -775,11 +776,10 @@ mod tests {
             .unwrap();
             assert!(
                 clang
-                    .command()
-                    .args(["-dynamiclib", "-install_name", "@rpath/libanswer.dylib"])
+                    .shared_command(&library)
                     .arg(&source)
                     .arg("-o")
-                    .arg(temporary.0.join(name).join("libanswer.dylib"))
+                    .arg(temporary.0.join(name).join(&library))
                     .status()
                     .unwrap()
                     .success()
@@ -803,8 +803,8 @@ mod tests {
         let _scratch = crate::verify_capture::TemporaryDirectory(built.directory.clone());
         built.verify_inputs().unwrap();
         std::fs::rename(
-            temporary.0.join("pending/libanswer.dylib"),
-            temporary.0.join("high/libanswer.dylib"),
+            temporary.0.join("pending").join(&library),
+            temporary.0.join("high").join(&library),
         )
         .unwrap();
         assert!(

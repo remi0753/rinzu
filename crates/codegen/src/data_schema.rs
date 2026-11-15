@@ -635,6 +635,10 @@ pub(crate) fn c_string(text: &str) -> String {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/support/native.rs"]
+mod test_native;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use rinzu_compiler::{FileId, SourceFile, compile_source};
@@ -687,7 +691,7 @@ mod tests {
             std::env::temp_dir().join(format!("rinzu-typed-catalog-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(directory.join("test.c"), c).unwrap();
-        let compiled = std::process::Command::new("clang")
+        let compiled = test_native::clang()
             .args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-I"])
             .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../include"))
             .arg(directory.join("test.c"))

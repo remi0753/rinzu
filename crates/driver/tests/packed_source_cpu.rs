@@ -1,4 +1,8 @@
 #![cfg(unix)]
+
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -97,7 +101,7 @@ int main(void) {{
     .unwrap();
     for sanitized in [false, true] {
         let binary = directory.0.join("probe");
-        let mut build = Command::new("clang");
+        let mut build = native::clang();
         build.args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror"]);
         if sanitized {
             build.args([

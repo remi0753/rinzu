@@ -8,6 +8,8 @@ import random
 import struct
 import subprocess
 
+from native_toolchain import clang, tool_timeout
+
 ROOT = Path(__file__).resolve().parents[2]
 TOKENS = b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
@@ -54,12 +56,12 @@ def main():
     sdk = ROOT / 'sdk/httpcodec'
     for sanitized in [False, True]:
         binary = args.workdir / ('san' if sanitized else 'plain')
-        command = ['clang', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
+        command = [*clang(), '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
                    '-I', str(sdk / 'native'), str(sdk / 'native/request_line.c'),
                    str(sdk / 'tests/native.c'), '-o', str(binary)]
         if sanitized:
             command += ['-fsanitize=address,undefined', '-fno-sanitize-recover=all']
-        subprocess.run(command, check=True)
+        subprocess.run(command, check=True, timeout=tool_timeout(120))
         run = subprocess.run([str(binary), str(corpus)], check=True, capture_output=True, text=True)
         rows.append(dict(sanitized=sanitized, passed=True, stdout=run.stdout, command=command))
     args.output.write_text(json.dumps(dict(passed=True, cases=len(cases), runs=rows,

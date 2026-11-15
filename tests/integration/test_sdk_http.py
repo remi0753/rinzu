@@ -11,6 +11,8 @@ import tempfile
 import threading
 import time
 
+from native_toolchain import clang, tool_timeout
+
 ROOT = Path(__file__).resolve().parents[2]
 SDK = ROOT / "sdk/http"
 BINARY = bytes(range(256)) * 32
@@ -68,9 +70,9 @@ def server(tls=None):
             thread.join()
 
 
-def checked(args, work, marker=None, status=0):
+def checked(args, work, marker=None, status=0, timeout=120):
     env = dict(os.environ, TMPDIR=str(work), RINZU_CACHE_DIR=str(work / "cache"))
-    result = subprocess.run(args, cwd=work, env=env, capture_output=True, text=True, timeout=120)
+    result = subprocess.run(args, cwd=work, env=env, capture_output=True, text=True, timeout=timeout)
     if result.returncode != status or (marker is not None and marker not in result.stdout):
         raise AssertionError((args, result.returncode, result.stdout, result.stderr))
     return result
@@ -91,9 +93,9 @@ def replay(rinzu, work):
 
     with server() as http, server(tls) as https:
         native = work / "native"
-        checked(["clang", "-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread",
+        checked([*clang(), "-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread",
                  "-I", ROOT / "include", "-I", SDK / "native/include",
-                 SDK / "tests/fault.c", "-lcurl", "-o", native], work)
+                 SDK / "tests/fault.c", "-lcurl", "-o", native], work, timeout=tool_timeout(120))
         mismatched = https.replace("127.0.0.1", "localhost")
         checked([native, f"{https}/binary", f"{mismatched}/binary", cert], work, "http-fault-ok")
         for name, marker, status in [("main", "http-basic-ok", 0), ("stress", "http-stress-ok", 1)]:
@@ -101,9 +103,10 @@ def replay(rinzu, work):
             original = (SDK / f"tests/{name}.rinzu").read_text()
             source.write_text(original.replace("SSLBASE", https).replace("BASE", http))
             binary = work / name
-            checked([rinzu, "build", source, "--output", binary], work)
+            checked([rinzu, "build", source, "--output", binary], work, timeout=tool_timeout(120))
             for command in ([rinzu, "run", source], [binary]):
-                result = checked(command, work, marker, status)
+                timeout = 120 if command[0] == binary else tool_timeout(120)
+                result = checked(command, work, marker, status, timeout=timeout)
                 if status == 1:
                     assert "RINZU_FAILURE=cancelled" in result.stderr, result
 

@@ -1,4 +1,7 @@
 #![cfg(unix)]
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::{path::PathBuf, process::Command};
 
 struct Scratch(PathBuf);
@@ -16,7 +19,7 @@ fn scratch(name: &str) -> Scratch {
 
 fn compile(fixture: &str, binary: &std::path::Path, flags: &[&str]) {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let out = Command::new("clang")
+    let out = native::clang()
         .args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread"])
         .args(flags)
         .arg("-I")

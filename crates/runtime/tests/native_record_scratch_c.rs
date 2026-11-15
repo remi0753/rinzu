@@ -1,4 +1,7 @@
 #![cfg(unix)]
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use std::path::Path;
 use std::process::Command;
 #[test]
@@ -8,7 +11,7 @@ fn c_native_record_scratch_has_zero_warm_allocations_and_bounded_reference_free_
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     for sanitized in [false, true] {
         let binary = root.join(if sanitized { "sanitized" } else { "normal" });
-        let mut command = Command::new("clang");
+        let mut command = native::clang();
         command
             .args([
                 "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread", "-I",

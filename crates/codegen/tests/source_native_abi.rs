@@ -1,4 +1,11 @@
-#![cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#![cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
+
+#[path = "../../../tests/support/native.rs"]
+mod native;
+
 use rinzu_codegen::source_native_abi::{NativeAbiStubs, emit_object};
 use rinzu_compiler::{FileId, SourceFile, compile_source};
 use rinzu_runtime::callback_entry::{LengthCallback, LengthKind};
@@ -27,12 +34,10 @@ fn signature_stubs_preserve_c_registers_stack_widths_bits_and_one_pointer_callba
     let directory =
         std::env::temp_dir().join(format!("rinzu-native-abi-jit-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
-    let library = directory.join("fixture.dylib");
-    let output = Command::new("clang")
-        .args(["-O2", "-Wall", "-Wextra", "-Werror", "-dynamiclib"])
+    let (mut compiler, library) = native::shared_library("fixture", &directory);
+    let output = compiler
+        .args(["-O2", "-Wall", "-Wextra", "-Werror"])
         .arg(root.join("tests/fixtures/native_abi.c"))
-        .arg("-o")
-        .arg(&library)
         .output()
         .unwrap();
     assert!(
@@ -153,7 +158,7 @@ fn native_abi_validation_refuses_missing_arity_null_entry_and_duplicate_identity
 }
 
 #[test]
-fn shared_signature_stubs_pass_signed_aot_and_native_sanitizers_on_main_and_workers() {
+fn shared_signature_stubs_pass_aot_and_native_sanitizers_on_main_and_workers() {
     let object = emit_object(&signatures()).unwrap();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let directory =
@@ -168,8 +173,8 @@ fn shared_signature_stubs_pass_signed_aot_and_native_sanitizers_on_main_and_work
     assert!(!source.contains("STUB_"));
     std::fs::write(directory.join("main.c"), source).unwrap();
     for sanitize in [false, true] {
-        let binary = directory.join(if sanitize { "sanitized" } else { "signed" });
-        let mut command = Command::new("clang");
+        let binary = directory.join(if sanitize { "sanitized" } else { "aot" });
+        let mut command = native::clang();
         command
             .args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread"])
             .arg("-I")
@@ -177,7 +182,7 @@ fn shared_signature_stubs_pass_signed_aot_and_native_sanitizers_on_main_and_work
             .arg(directory.join("main.c"))
             .arg(directory.join("stubs.o"))
             .arg(root.join("../runtime/src/callback_entry.c"))
-            .arg(root.join("../runtime/src/callback_template.S"));
+            .arg(native::callback_template(&root.join("../runtime")));
         if sanitize {
             command.args(["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]);
         }
@@ -187,7 +192,7 @@ fn shared_signature_stubs_pass_signed_aot_and_native_sanitizers_on_main_and_work
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        if !sanitize {
+        if cfg!(target_os = "macos") && !sanitize {
             for args in [
                 vec!["--force", "--sign", "-", "--options", "runtime"],
                 vec!["--verify", "--strict"],

@@ -24,6 +24,36 @@ MARKERS = {
     "CURRENT_ASYNC_HELPERS": "RINZU_TOOLING_POLL_ASYNC_HELPERS",
     "CURRENT_POLL_BODY": "RINZU_TOOLING_POLL_BODY",
 }
+MACOS_ONLY = (
+    "crates/driver/src/aot_supplant.c",
+    "crates/driver/tests/fixtures/macos_interrupt",
+    "crates/driver/tests/fixtures/native_capsule_sdk",
+    "crates/driver/tests/fixtures/native_dispatcher_sdk",
+    "crates/driver/tests/fixtures/native_foreign_sdk",
+    "crates/driver/tests/fixtures/native_performance_sdk",
+    "crates/driver/tests/fixtures/native_supplant_sdk",
+    "crates/driver/tests/fixtures/native_termination_sdk",
+    "crates/driver/tests/fixtures/native_thread_sdk",
+    "crates/runtime/src/owner_dispatcher.c",
+    "crates/runtime/tests/fixtures/activity_clock.c",
+    "crates/runtime/tests/fixtures/owner_dispatcher.c",
+    "sdk/macos",
+    "sdk/io/native/src/file_metadata_macos.h",
+    "sdk/io/tests/whole_file.c",
+    "sdk/socket/native/src/readiness_macos.h",
+    "sdk/socket/bench/observer.c",
+    "sdk/socket/tests/boundaries.c",
+    "sdk/socket/tests/lookup.c",
+    "sdk/socket/tests/wake-coalescing.c",
+    "tests/fixtures/programs/source-callback",
+    "tests/fixtures/trampoline",
+)
+LINUX_ONLY = (
+    "crates/runtime/src/platform/linux",
+    "include/rinzu/elf_image.h",
+    "sdk/io/native/src/file_metadata_linux.h",
+    "sdk/socket/native/src/readiness_linux.h",
+)
 
 
 def run(arguments, **options):
@@ -60,8 +90,17 @@ def native_files():
                    and (ROOT / os.fsdecode(path)).is_file()})
 
 
-def selected_files(paths):
-    files = native_files()
+def compilation_files(target):
+    macos = target == "aarch64-apple-darwin"
+    excluded = LINUX_ONLY if macos else MACOS_ONLY
+    return [file for file in native_files()
+            if (macos or file.suffix not in {".m", ".mm"})
+            and not any(file.is_relative_to(ROOT / path) for path in excluded)]
+
+
+def selected_files(paths, files=None):
+    if files is None:
+        files = native_files()
     if not paths:
         return files
     selected = set()
@@ -90,9 +129,9 @@ def fragment_match(template, source):
     return re.search(expression, source, flags=re.DOTALL)
 
 
-def entry(file, flags):
+def entry(file, flags, compiler="clang"):
     return {"directory": str(ROOT), "file": str(file),
-            "arguments": ["clang", *flags, "-c", str(file)]}
+            "arguments": [compiler, *flags, "-c", str(file)]}
 
 
 def source_location(source, offset, unit):
@@ -111,10 +150,16 @@ def compilation_database(driver=None):
     command = ([str(driver.resolve())] if driver else
                ["cargo", "run", "--quiet", "--package", "rinzu-driver", "--"])
     run([*command, "native-quality-sources", str(DATABASE)])
-    sysroot = run(["xcrun", "--show-sdk-path"], capture_output=True, text=True).stdout.strip()
-    flags = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function",
-             "-pthread", "-I", str(ROOT / "include"), "-isysroot", sysroot]
-    sdl_flags = shlex.split(run(["sdl2-config", "--cflags"], capture_output=True, text=True).stdout)
+    toolchain = json.loads((DATABASE / "toolchain.json").read_text())
+    compiler = toolchain["compiler"]
+    target = toolchain["target"]
+    flags = [*toolchain["arguments"], "-std=c11", "-Wall", "-Wextra", "-Werror",
+             "-Wno-unused-function", "-pthread", "-I", str(ROOT / "include")]
+    sdl_arguments = toolchain["sdl2"]
+    sdl_flags = []
+    for option, value in zip(sdl_arguments[::2], sdl_arguments[1::2]):
+        if option in {"-I", "-D", "-F"}:
+            sdl_flags.extend([option, value])
     guard_names = json.loads((DATABASE / "fixture-sources.json").read_text())
     sources = {DATABASE / name: (DATABASE / name).read_text() for name in [
         "source-platform.runtime.c", "compiled-async.c", "async-wait.c",
@@ -122,7 +167,7 @@ def compilation_database(driver=None):
     ]}
     # The ready-snapshot test also accepts unreachable labels left by lowering.
     generated_flags = {"ready_snapshot_guards.c": ["-Wno-unused-label"]}
-    files = native_files()
+    files = compilation_files(target)
     fragments = [file for file in files if file.parent == ROOT / "crates/driver/src"]
     fragments += [ROOT / "crates/driver/tests/fixtures" / name
                   for name in ["async_wait_cycle.c", "typed_worker_resources.c", *guard_names]]
@@ -154,7 +199,7 @@ def compilation_database(driver=None):
             else:
                 extra += [f"-D{name}={value}" for name, value in
                           re.findall(r"#define (RINZU_JIT_\w+) (\d+)", replacement)]
-        commands.append(entry(file, flags + generated_flags.get(unit.name, []) + extra))
+        commands.append(entry(file, flags + generated_flags.get(unit.name, []) + extra, compiler))
         contexts[str(file)] = str(unit)
 
     for file in files:
@@ -172,7 +217,9 @@ def compilation_database(driver=None):
             manifest = parent / "rinzu.toml"
             if manifest.is_file():
                 inputs = tomllib.loads(manifest.read_text()).get("native", {})
-                for directory in inputs.get("include-dirs", []):
+                platform = "macos" if target == "aarch64-apple-darwin" else "linux"
+                platform_inputs = inputs.get("platform", {}).get(platform, {})
+                for directory in inputs.get("include-dirs", []) + platform_inputs.get("include-dirs", []):
                     extra += ["-I", str(parent / directory)]
                 break
         if "sdl2" in file.parts:
@@ -201,7 +248,7 @@ def compilation_database(driver=None):
         if file.relative_to(ROOT).as_posix() == "sdk/socket/tests/accounting-check.h":
             extra += ["-include", str(ROOT / "sdk/socket/native/src/socket.c")]
         language_flags = [flag for flag in flags if flag != "-std=c11"] + ["-std=c++17"] if file.suffix in {".cpp", ".mm"} else flags
-        commands.append(entry(file, language_flags + extra))
+        commands.append(entry(file, language_flags + extra, compiler))
         units.append(str(file))
 
     # Map generated lines back to the source templates so CLI diagnostics name
@@ -228,12 +275,14 @@ def compilation_database(driver=None):
         output = DATABASE / f"lint-{unit.name}"
         output.write_text(source)
         commands.append(entry(output, [flag for flag in flags if flag != "-Wno-unused-function"]
-                              + generated_flags.get(unit.name, [])))
+                              + generated_flags.get(unit.name, []), compiler))
         units.append(str(output))
         contexts = {file: str(output) if context == str(unit) else context
                     for file, context in contexts.items()}
     (DATABASE / "compile_commands.json").write_text(json.dumps(commands, indent=2) + "\n")
-    (DATABASE / "units.json").write_text(json.dumps({"units": units, "contexts": contexts}, indent=2) + "\n")
+    (DATABASE / "units.json").write_text(json.dumps({
+        "target": target, "units": units, "contexts": contexts,
+    }, indent=2) + "\n")
     print(f"C compilation database: {len(commands)} entries in {DATABASE}", flush=True)
     return units, contexts, commands
 
@@ -286,9 +335,10 @@ def lint_units(selected, units, contexts, commands):
 def lint_files(paths, driver=None):
     tidy = tool("clang-tidy")
     config = f"--config-file={ROOT / '.clang-tidy'}"
-    selected = selected_files(paths)
     units, contexts, commands = compilation_database(driver)
     if paths:
+        target = json.loads((DATABASE / "toolchain.json").read_text())["target"]
+        selected = selected_files(paths, compilation_files(target))
         units = lint_units(selected, units, contexts, commands)
     for unit in units:
         print(f"C lint: {os.path.relpath(unit, ROOT)}", flush=True)
