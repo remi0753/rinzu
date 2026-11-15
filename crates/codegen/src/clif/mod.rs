@@ -2,9 +2,15 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub(crate) mod isa;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 mod jit;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 mod jit_runtime;
 mod lowering;
 pub mod native_abi;
@@ -19,22 +25,40 @@ use rinzu_compiler::{
 
 use cranelift_codegen::ir::{AbiParam, InstBuilder, UserFuncName, Value, condcodes::IntCC, types};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch, Variable};
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataDescription, FuncId, Linkage, Module, default_libcall_names};
 use lowering::define_function;
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 use crate::baseline::{BaselineFailure, BaselineOptions, BaselineRun, CompiledAsyncJit};
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-use crate::jit_memory::macos::MacOsArm64JitMemory;
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
+use crate::jit_memory::JitMemory;
 use crate::{CompileEvidence, baseline::source_identities};
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 pub(crate) use jit::compile_async_jit;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 pub(crate) use jit_runtime::run;
 pub(crate) use object::emit_aot;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 use rinzu_runtime::failure::{ErrorKind, Failure, SourcePosition};
 
 pub(crate) fn uses_direct_c_context(target: Target) -> bool {

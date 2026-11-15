@@ -1,6 +1,6 @@
 # Installation and environment
 
-Rinzu supports Apple Silicon macOS (`aarch64-apple-darwin`) and AOT on x86_64 Linux with glibc (`x86_64-unknown-linux-gnu`). Building the compiler requires Rust 1.97.1. Native compilation uses Xcode Command Line Tools on macOS and Clang, an ELF linker, and the target C development files on Linux.
+Rinzu supports JIT and AOT on Apple Silicon macOS (`aarch64-apple-darwin`) and x86_64 Linux with glibc (`x86_64-unknown-linux-gnu`). Building the compiler requires Rust 1.97.1. Native compilation uses Xcode Command Line Tools on macOS and Clang, an ELF linker, and the target C development files on Linux.
 
 For a toolchain bundle matching your host, verify the archive, extract it to a new directory, and add its `bin/` to PATH. Run `rinzu doctor` from that installation to check the resource catalog. The distribution includes the official SDK sources for that target, so imports such as `import rinzu.codec;` resolve from that installation. See [Toolchain bundles](../tooling/distribution.md#export-the-toolchain).
 
@@ -25,7 +25,7 @@ cargo build --release -p rinzu-driver --bin rinzu
 ./target/release/rinzu doctor
 ```
 
-Check the target printed by `doctor`. On x86_64 Linux, use `rinzu build` and launch the resulting executable directly. Build all workspace tools from source with `cargo build --locked --workspace`.
+Check the target and available execution modes printed by `doctor`. On x86_64 Linux, async JIT builds its accompanying ELF runtime with Clang. Build all workspace tools from source with `cargo build --locked --workspace`.
 
 ## Make rinzu available
 

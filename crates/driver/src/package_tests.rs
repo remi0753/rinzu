@@ -85,7 +85,7 @@ pub(crate) fn observe_source(run: &rinzu_codegen::SourceAsyncRun) {
 
 pub(crate) fn observe_baseline(run: &rinzu_codegen::BaselineRun) {
     observe(|| {
-        json!({"engine":"baseline-jit", "status":if run.result.is_ok() {"pass"} else {"fail"},
+        json!({"engine":"baseline-jit", "status":if run.result.is_ok() && run.exit_status == 0 {"pass"} else {"fail"},
         "settlement":if run.heap_objects == 0 && run.native_calls.live_calls == 0 && run.native_calls.foreign.live == 0 {"confirmed"} else {"unconfirmed"},
         "failure":failure(run.failure_details.as_ref()),"sourceFiles":run.source_files,
         "heapObjects":run.heap_objects,"nativeCalls":run.native_calls.live_calls,
@@ -95,7 +95,10 @@ pub(crate) fn observe_baseline(run: &rinzu_codegen::BaselineRun) {
     });
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 pub(crate) fn observe_compiled(run: &crate::compiled_async::CompiledAsyncRun) {
     // Diagnostic capture reads this private buffer independently with finite limits.
     if !is_worker() {
@@ -488,14 +491,7 @@ pub(crate) fn worker(mut arguments: impl Iterator<Item = String>) -> Result<(), 
             path: scratch.join("resource.jsonl"),
             interval_ms: 0,
         };
-        let compiled = artifact
-            .checked
-            .functions
-            .iter()
-            .find(|f| f.declaration.name == "main")
-            .is_some_and(|f| f.declaration.is_async)
-            && !artifact.ir.source_native_signatures.is_empty()
-            && cfg!(all(target_os = "macos", target_arch = "aarch64"));
+        let compiled = crate::aot::uses_compiled_async(&artifact);
         let mut session = if compiled {
             None
         } else {

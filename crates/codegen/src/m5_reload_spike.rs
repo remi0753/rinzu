@@ -15,7 +15,7 @@ use rinzu_runtime::code::{CodeFrame, CodeVersion, CodeVersionId, CodeVersionStat
 use rinzu_runtime::dispatch::VersionedDispatchCell;
 
 use crate::function_reference::ReferenceTargets;
-use crate::jit_memory::macos::{JitMemoryAuditSnapshot, MacOsArm64JitMemory};
+use crate::jit_memory::{JitMemory, JitMemoryAuditSnapshot};
 
 fn checked(text: &str) -> (SourceFile, FrontendArtifact) {
     let file = SourceFile::new(FileId(1), "entry.rinzu", text);
@@ -120,7 +120,7 @@ impl Image {
     ) -> Result<Rc<Self>> {
         let value = literal_body(artifact)?;
         let mut builder = JITBuilder::with_isa(crate::native_isa(false)?, default_libcall_names());
-        let (memory, audit) = MacOsArm64JitMemory::new_with_audit()?;
+        let (memory, audit) = JitMemory::new_with_audit()?;
         builder.memory_provider(Box::new(memory));
         let mut module = JITModule::new(builder);
         let mut signature = module.make_signature();

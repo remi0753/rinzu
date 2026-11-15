@@ -365,7 +365,14 @@ pub(super) fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
 }
 
 pub(crate) fn main_uses_source_async(artifact: &rinzu_compiler::FrontendArtifact) -> bool {
-    rinzu_codegen::uses_async_runtime(&artifact.ir, Target::Aarch64AppleDarwin)
+    let target = Target::host().unwrap_or(Target::Aarch64AppleDarwin);
+    rinzu_codegen::uses_async_runtime(&artifact.ir, target)
+}
+
+pub(crate) fn uses_compiled_async(artifact: &rinzu_compiler::FrontendArtifact) -> bool {
+    main_uses_source_async(artifact)
+        && (Target::host() == Some(Target::X86_64UnknownLinuxGnu)
+            || !artifact.ir.source_native_signatures.is_empty())
 }
 
 fn async_scalar_kind(ty: &rinzu_compiler::Type) -> Result<u32, String> {

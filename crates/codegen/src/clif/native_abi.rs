@@ -3,14 +3,23 @@
 //! exactly the source declaration's C parameters and return convention.
 use std::collections::BTreeMap;
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 use anyhow::Context;
 use anyhow::{Result, anyhow, ensure};
 use cranelift_codegen::ir::{AbiParam, InstBuilder, MemFlagsData, Signature, Value, types};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 use cranelift_jit::{JITBuilder, JITModule};
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 use cranelift_module::default_libcall_names;
 use cranelift_module::{FuncId, Linkage, Module};
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -160,28 +169,31 @@ pub fn emit_object(signatures: &[SourceNativeSignature]) -> Result<NativeAbiObje
 
 /// Owned by the compiling thread. Each physical Worker can compile its own
 /// immutable stubs without sharing compiler state or touching another heap.
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 pub struct NativeAbiStubs {
     module: JITModule,
     functions: BTreeMap<String, (FuncId, usize)>,
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 impl NativeAbiStubs {
     pub fn new(signatures: &[SourceNativeSignature]) -> Result<Self> {
-        let mut builder = JITBuilder::with_isa(crate::native_isa(false)?, default_libcall_names());
-        let (memory, audit) = crate::jit_memory::macos::MacOsArm64JitMemory::new_with_audit()?;
+        let mut builder = JITBuilder::with_isa(super::isa::jit_isa()?, default_libcall_names());
+        let (memory, audit) = crate::jit_memory::JitMemory::new_with_audit()?;
         builder.memory_provider(Box::new(memory));
         let mut module = JITModule::new(builder);
         let functions = declare(&mut module, signatures)?;
         module
             .finalize_definitions()
             .context("finalize source native ABI stubs")?;
-        let audit = audit.snapshot();
         ensure!(
-            audit.rwx_mappings == 0
-                && audit.executable_mappings == audit.rx_transitions
-                && audit.executable_mappings == audit.icache_flushes,
+            audit.snapshot().is_published(),
             "source native stubs violated W^X publication"
         );
         let functions = functions

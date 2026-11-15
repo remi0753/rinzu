@@ -1,5 +1,11 @@
 //! Compiled Main continuations share the C runtime used by AOT, while managed
 //! bodies and physical ABI stubs are finalized Cranelift JIT code.
+use rinzu_abi::target::Target;
+#[cfg(any(
+    test,
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
+use rinzu_codegen::BaselineOptions;
 use rinzu_codegen::{
     BaselineAotObject, CompiledRuntimeLibrary, compile_source_async_jit,
     emit_source_async_aot_plans,
@@ -10,6 +16,8 @@ use std::ffi::{CString, OsString, c_char};
 
 pub struct CompiledAsyncRun {
     pub output: String,
+    #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+    pub source_files: BTreeMap<u64, String>,
     pub exit_code: i32,
     pub compile: rinzu_codegen::CompileEvidence,
     pub executable_mappings: usize,
@@ -89,6 +97,7 @@ pub(crate) fn runtime_source(
     );
     source=source.replace("const char *cancel = getenv(\"RINZU_CANCEL_AFTER_POLLS\"); if (cancel) context.cancel_after = strtoull(cancel, NULL, 10);", "context.cancel_after = rinzu_jit_cancel_after; context.shutdown_after=rinzu_jit_shutdown_after;");
     source=source.replace("const char *shutdown = getenv(\"RINZU_SHUTDOWN_AFTER_POLLS\"); if (shutdown) context.shutdown_after = strtoull(shutdown, NULL, 10);", "");
+    source=source.replace("const char *cancel = getenv(\"RINZU_CANCEL_WORKER_AFTER_POLLS\"); if (cancel) context.cancel_after = strtoull(cancel, NULL, 10);", "context.cancel_after = rinzu_jit_cancel_worker_after;");
     source = source.replace(
         "async.runtime.record_evidence = getenv(\"RINZU_TRANSPORT_EVIDENCE\") != NULL;",
         if record_evidence {
@@ -162,11 +171,36 @@ pub(crate) fn run_with_observation(
     )
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+pub(crate) fn run_for_equivalence(
+    manifest: &Manifest,
+    artifact: &FrontendArtifact,
+    options: BaselineOptions,
+    cancel_worker_after: Option<usize>,
+    arguments: &[OsString],
+) -> Result<CompiledAsyncRun, String> {
+    run_configured(
+        manifest,
+        artifact,
+        RunOptions {
+            cancel_after: options.cancel_after_polls,
+            cancel_worker_after,
+            shutdown_after: options.shutdown_after_polls,
+            record_evidence: true,
+            capture_error_trace: options.capture_error_trace,
+            arguments,
+            ..Default::default()
+        },
+    )
+}
+
 #[derive(Default)]
 struct RunOptions<'a> {
     cancel_after: Option<usize>,
+    cancel_worker_after: Option<usize>,
     shutdown_after: Option<usize>,
     record_evidence: bool,
+    capture_error_trace: bool,
     resource_config: Option<&'a rinzu_runtime::resource_report::Config>,
     arguments: &'a [OsString],
 }
@@ -178,9 +212,8 @@ fn run_configured(
 ) -> Result<CompiledAsyncRun, String> {
     let _timing = rinzu_compiler::timing::span("jit.total");
     let built = crate::native_package::build_artifact(manifest, artifact)?;
-    let outcome = run_built(manifest, artifact, &built, options);
-    let _ = std::fs::remove_dir_all(&built.directory);
-    outcome
+    let _scratch = crate::verify_capture::TemporaryDirectory(built.directory.clone());
+    run_built(manifest, artifact, &built, options)
 }
 fn run_built(
     manifest: &Manifest,
@@ -188,8 +221,10 @@ fn run_built(
     built: &crate::native_package::BuiltNativePackages,
     RunOptions {
         cancel_after,
+        cancel_worker_after,
         shutdown_after,
         record_evidence,
+        capture_error_trace,
         resource_config,
         arguments,
     }: RunOptions<'_>,
@@ -237,7 +272,8 @@ fn run_built(
     )?;
     let source = runtime_source(&aot, &source, record_evidence);
     #[cfg(test)]
-    let source = if ERROR_TRACE_PROBE.with(std::cell::Cell::take) {
+    let capture_error_trace = ERROR_TRACE_PROBE.with(std::cell::Cell::take) || capture_error_trace;
+    let source = if capture_error_trace {
         format!("#define RINZU_ERROR_TRACE_DEFAULT 1\n{source}")
     } else {
         source
@@ -277,33 +313,49 @@ fn run_built(
     drop(source_timing);
     let path = built.directory.join("compiled-async.runtime.c");
     checked(std::fs::write(&path, &source))?;
-    let library = built.directory.join("compiled-async.dylib");
     let resources = rinzu_compiler::standard_library::resource_root()?;
     let runtime = resources.join("runtime");
     let toolchain = crate::native_clang::TargetClang::resolve()?;
+    let library_name = aot.target.shared_library_name("compiled-async");
+    let library = built.directory.join(&library_name);
+    let linux = aot.target == Target::X86_64UnknownLinuxGnu;
     let compile_timing = rinzu_compiler::timing::span("jit.runtime.clang");
     let mut objects = Vec::new();
-    for (source, name, action) in [
-        (path, "runtime", "compile async runtime source"),
-        (
-            runtime.join("callback_entry.c"),
-            "callback-entry",
-            "compile callback entry",
-        ),
-        (
-            runtime.join("callback_template.S"),
-            "callback-template",
-            "compile callback template",
-        ),
-        (
+    let mut sources = vec![(path, "runtime", "compile async runtime source")];
+    if !linux || !aot.native_call_plans.is_empty() {
+        sources.extend([
+            (
+                runtime.join("callback_entry.c"),
+                "callback-entry",
+                "compile callback entry",
+            ),
+            (
+                runtime.join("callback_template.S"),
+                "callback-template",
+                "compile callback template",
+            ),
+        ]);
+    }
+    if linux {
+        sources.push((
+            runtime.join("continuation.S"),
+            "continuation",
+            "compile x86_64 continuation",
+        ));
+    } else {
+        sources.push((
             runtime.join("owner_dispatcher.c"),
             "owner-dispatcher",
             "compile owner dispatcher",
-        ),
-    ] {
+        ));
+    }
+    for (source, name, action) in sources {
         let output = built.directory.join(format!("compiled-async.{name}.o"));
         let mut command = toolchain.command();
         command.args(["-c", "-O1", "-g", "-Wall", "-Wextra", "-Werror", "-pthread"]);
+        if linux {
+            command.arg("-fPIC");
+        }
         if source.extension().is_some_and(|extension| extension == "c") {
             command.arg("-std=c11");
         }
@@ -327,13 +379,24 @@ fn run_built(
         )?;
         objects.push(output);
     }
-    let mut command = toolchain.command();
-    command
-        .args(["-dynamiclib", "-pthread"])
-        .args(&objects)
-        .args(["-framework", "CoreFoundation"]);
+    let mut command = if linux {
+        toolchain.shared_command(&library_name)
+    } else {
+        let mut command = toolchain.command();
+        command.args(["-dynamiclib", "-pthread"]);
+        command
+    };
+    command.args(&objects);
     for artifact in &built.artifacts {
         command.arg(&artifact.library);
+    }
+    if linux {
+        crate::platform::linux::link_runtime_libraries(&mut command);
+        if !aot.native_call_plans.is_empty() {
+            command.args(["-lcrypto", "-ldl"]);
+        }
+    } else {
+        command.args(["-framework", "CoreFoundation"]);
     }
     crate::cli_diagnostics::tool_output(
         command.arg("-o").arg(&library).output(),
@@ -525,6 +588,7 @@ fn run_built(
         *const c_char,
         u64,
         u64,
+        u64,
         extern "C" fn() -> u64,
         *mut RuntimeTimings,
         *mut *mut c_char,
@@ -547,7 +611,15 @@ fn run_built(
                 .map_err(|error| error.to_string())?,
         )
     };
-    library.retain_process_image();
+    if !linux
+        || aot
+            .native_call_plans
+            .iter()
+            .any(|plan| !plan.callbacks.is_empty())
+    {
+        // Closed physical callback entries can still reach their tombstone.
+        library.retain_process_image();
+    }
     let mut report = std::ptr::null_mut();
     let mut length = 0;
     let execute_timing = rinzu_compiler::timing::span("jit.execute");
@@ -564,6 +636,7 @@ fn run_built(
             directory.as_ptr(),
             cancel_after.unwrap_or(0) as u64,
             shutdown_after.unwrap_or(0) as u64,
+            cancel_worker_after.unwrap_or(0) as u64,
             rinzu_runtime::data::native_context_identity,
             if execute_timing.is_active() {
                 &mut runtime_timings
@@ -590,22 +663,24 @@ fn run_built(
     if report.is_null() {
         // SAFETY: an early startup/report error returned before managed entry;
         // no callbacks, tasks or roots were published by the C image.
-        unsafe { code.retire() };
+        unsafe { code.retire() }.map_err(|error| error.to_string())?;
         return Err("compiled async runtime returned no report".into());
     }
     // SAFETY: run returns its owned readable report buffer and exact byte count.
     let output = unsafe { std::slice::from_raw_parts(report.cast::<u8>(), length) }.to_vec();
     // SAFETY: report belongs to this image and has been copied exactly once.
     unsafe { free(report) };
-    let run = CompiledAsyncRun {
+    let mut run = CompiledAsyncRun {
         output: String::from_utf8(output).map_err(|error| error.to_string())?,
+        #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+        source_files: aot.source_files,
         exit_code,
         compile: code.compile.clone(),
         executable_mappings: code.executable_mappings,
         icache_flushes: code.icache_flushes,
         rx_transitions: code.rx_transitions,
         rwx_mappings: code.rwx_mappings,
-        retired: true,
+        retired: false,
     };
     if !run.output.contains("\"resources\":\"baseline\"") {
         return Err(format!(
@@ -615,7 +690,17 @@ fn run_built(
     }
     // SAFETY: the shared runtime requires all tasks, Workers, callback gates,
     // roots and continuations to settle before returning its baseline report.
-    unsafe { code.retire() };
+    unsafe { code.retire() }.map_err(|error| error.to_string())?;
+    run.retired = true;
+    if run.rwx_mappings != 0
+        || run.executable_mappings == 0
+        || run.rx_transitions != run.executable_mappings
+        || run.icache_flushes
+            != run.executable_mappings * usize::from(aot.target.jit_flushes_instruction_cache())
+        || run.compile.code_size == 0
+    {
+        return Err("compiled async code publication failed".into());
+    }
     Ok(run)
 }
 

@@ -22,6 +22,16 @@ pub(crate) fn native_isa(pic: bool) -> Result<OwnedTargetIsa> {
         .context("build native Cranelift ISA")
 }
 
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
+pub(crate) fn jit_isa() -> Result<OwnedTargetIsa> {
+    // Cranelift's x86 JIT uses GOT entries and call veneers to reach symbols
+    // outside the code mapping's PC-relative range.
+    native_isa(cfg!(target_arch = "x86_64"))
+}
+
 pub(super) fn aot_isa(target: Target) -> Result<OwnedTargetIsa> {
     if target == Target::Aarch64AppleDarwin && Target::host() == Some(target) {
         // Preserve the existing Apple Silicon ISA configuration, including PAC.

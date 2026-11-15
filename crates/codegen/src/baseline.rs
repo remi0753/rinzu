@@ -35,6 +35,7 @@ pub struct BaselineOptions {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BaselineRun {
     pub stdout: Vec<u8>,
+    pub exit_status: u8,
     pub result: std::result::Result<i64, BaselineFailure>,
     pub failure_details: Option<Failure>,
     pub source_files: BTreeMap<u64, String>,
@@ -125,9 +126,13 @@ impl BaselineAotObject {
 /// Compiled async managed code uses the same word ABI and verified stack maps
 /// as AOT. The host must keep this module alive through all continuations and
 /// callback admissions, then retire it only after runtime settlement.
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 pub struct CompiledAsyncJit {
     pub(crate) module: Option<cranelift_jit::JITModule>,
+    pub(crate) audit: std::sync::Arc<crate::jit_memory::JitMemoryAudit>,
     pub symbols: BTreeMap<String, usize>,
     pub compile: CompileEvidence,
     pub executable_mappings: usize,
@@ -136,20 +141,31 @@ pub struct CompiledAsyncJit {
     pub rx_transitions: usize,
     pub rwx_mappings: usize,
 }
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 impl CompiledAsyncJit {
     /// # Safety
     /// Every continuation, Worker and callback using these entry addresses
     /// must have returned and released its code pins before retirement.
-    pub unsafe fn retire(mut self) {
+    pub unsafe fn retire(mut self) -> Result<()> {
         if let Some(module) = self.module.take() {
             // SAFETY: the caller proves runtime settlement for all entries.
             unsafe { module.free_memory() };
         }
+        ensure!(
+            self.audit.is_released(),
+            "async JIT retained memory mappings"
+        );
+        Ok(())
     }
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 pub fn compile_source_async_jit(
     module: &IrModule,
     external_symbols: &BTreeMap<String, usize>,
@@ -182,15 +198,19 @@ pub fn run_baseline_jit_with_options(
     options: BaselineOptions,
 ) -> Result<BaselineRun> {
     crate::ensure_scalar_backend(module, true)?;
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(not(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+    )))]
     {
         let _ = (module, entry, options);
-        Err(anyhow!(
-            "Rinzu v0.1 baseline JIT requires aarch64-apple-darwin"
-        ))
+        Err(anyhow!("baseline JIT is unavailable on this host"))
     }
 
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+    ))]
     {
         clif::run(module, entry, options, None, None, Vec::new())
     }
@@ -203,15 +223,19 @@ pub fn run_baseline_jit_with_native_packages(
     native_packages: LoadedNativePackages,
 ) -> Result<BaselineRun> {
     crate::ensure_scalar_backend(module, true)?;
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(not(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+    )))]
     {
         let _ = (module, entry, options, native_packages);
-        Err(anyhow!(
-            "Rinzu v0.2 native package JIT requires aarch64-apple-darwin"
-        ))
+        Err(anyhow!("native package JIT is unavailable on this host"))
     }
 
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+    ))]
     {
         clif::run(
             module,
@@ -250,7 +274,10 @@ pub fn run_baseline_jit_with_arguments(
     arguments: Vec<Vec<u8>>,
 ) -> Result<BaselineRun> {
     crate::ensure_scalar_backend(module, true)?;
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(not(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+    )))]
     {
         let _ = (
             module,
@@ -260,9 +287,12 @@ pub fn run_baseline_jit_with_arguments(
             source_packages,
             arguments,
         );
-        anyhow::bail!("source native package JIT requires macOS arm64")
+        anyhow::bail!("source native package JIT is unavailable on this host")
     }
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+    ))]
     {
         clif::run(
             module,
@@ -402,20 +432,15 @@ pub fn emit_source_async_aot_plans(
     native_imports: &HashMap<String, u64>,
 ) -> Result<BaselineAotObject> {
     crate::ensure_source_async_backend(module)?;
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    {
-        clif::emit_aot(
-            Target::Aarch64AppleDarwin,
-            module,
-            entry,
-            native_imports,
-            true,
-            false,
-        )
-    }
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-    {
-        let _ = (module, entry, native_imports);
-        anyhow::bail!("source async plans require macOS arm64")
-    }
+    let target = Target::host().ok_or_else(|| anyhow!("unsupported async JIT host"))?;
+    ensure!(
+        target.supports_supplant()
+            || !module
+                .source_native_signatures
+                .iter()
+                .any(|signature| signature.is_supplant),
+        "native supplant is unavailable for {}",
+        target.triple()
+    );
+    clif::emit_aot(target, module, entry, native_imports, true, false)
 }

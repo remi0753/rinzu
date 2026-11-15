@@ -15,7 +15,7 @@ fn main() {
 }
 ```
 
-Rinzu supports JIT and AOT on **macOS arm64** and AOT on **x86_64 Linux with glibc**. Both AOT targets support async tasks, Workers, and native SDKs. The source language version is `0.5` and the toolchain version is `0.3.0`.
+Rinzu supports JIT and AOT on **macOS arm64** and **x86_64 Linux with glibc**. Both targets support async tasks, Workers, and native SDKs. The source language version is `0.5` and the toolchain version is `0.3.0`.
 
 [Documentation](docs/README.md) · [Introduction](docs/introduction.md) · [Installation](docs/getting-started/installation.md) · [Quick start](docs/getting-started/quickstart.md) · [Changelog](CHANGELOG.md)
 
@@ -33,6 +33,8 @@ On x86_64 Linux, install Rust 1.97.1, Clang, an ELF linker, and the glibc and GC
 
 ```sh
 cargo build --locked --workspace
+./target/debug/rinzu run /path/to/hello.rinzu
+./target/debug/rinzu verify-aot /path/to/hello.rinzu
 ./target/debug/rinzu build /path/to/hello.rinzu --output ./hello
 ./hello
 ```

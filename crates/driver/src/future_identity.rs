@@ -59,13 +59,23 @@ fn parse(text: &str) -> Result<Vec<FutureAdmission>, String> {
 pub fn normalize(jit: &SourceAsyncRun, report: &str) -> Result<String, String> {
     normalize_rows(&jit.future_admissions, report)
 }
-fn normalize_rows(admissions: &[FutureAdmission], report: &str) -> Result<String, String> {
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+pub(crate) fn normalize_compiled(jit: &str, aot: &str) -> Result<String, String> {
+    normalize_rows(&admissions(jit)?, aot)
+}
+
+fn admissions(report: &str) -> Result<Vec<FutureAdmission>, String> {
     let raw = report
         .lines()
         .find_map(|line| line.strip_prefix("RINZU_FUTURE_ADMISSIONS="))
-        .ok_or("async AOT Future admission proof is missing")?;
+        .ok_or("async Future admission proof is missing")?;
+    parse(raw)
+}
+
+fn normalize_rows(admissions: &[FutureAdmission], report: &str) -> Result<String, String> {
     let expected = paths(admissions)?;
-    let actual = paths(&parse(raw)?)?;
+    let actual = paths(&self::admissions(report)?)?;
     if expected.keys().ne(actual.keys()) {
         return Err("async JIT/AOT admission trees differ".into());
     }

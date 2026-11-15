@@ -29,7 +29,10 @@ mod app_layout;
 mod appkit;
 mod cli_diagnostics;
 mod compile_cache;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 mod compiled_async;
 mod dev;
 mod diagnostics;
@@ -517,8 +520,7 @@ fn run_checked_package(
     resource_config: Option<&rinzu_runtime::resource_report::Config>,
     program_arguments: &[OsString],
 ) -> Result<(), String> {
-    let uses_c =
-        aot::main_uses_source_async(artifact) && !artifact.ir.source_native_signatures.is_empty();
+    let uses_c = aot::uses_compiled_async(artifact);
     let mut report = if !uses_c {
         resource_config
             .map(|config| {
@@ -594,8 +596,11 @@ fn run_package_engines(
                 .all(|requirement| represented_exports.contains(requirement.as_str()))
     });
     if source_async {
-        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        if !artifact.ir.source_native_signatures.is_empty() {
+        #[cfg(any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+        ))]
+        if aot::uses_compiled_async(artifact) {
             let execution = compiled_async::run_with_observation(
                 manifest,
                 artifact,
@@ -604,15 +609,6 @@ fn run_package_engines(
                 program_arguments,
             )?;
             diagnostics::observe_compiled(&execution);
-            if !execution.retired
-                || execution.rwx_mappings != 0
-                || execution.executable_mappings == 0
-                || execution.icache_flushes != execution.executable_mappings
-                || execution.rx_transitions != execution.executable_mappings
-                || execution.compile.code_size == 0
-            {
-                return Err("compiled async code publication or retirement failed".into());
-            }
             package_tests::observe_compiled(&execution);
             let failed = execution
                 .output
@@ -738,6 +734,7 @@ fn run_package_engines(
     let execution =
         if has_native_artifacts || has_source_packages || !artifact.native_inputs.is_empty() {
             let built = native_package::build_artifact(manifest, artifact)?;
+            let _scratch = verify_capture::TemporaryDirectory(built.directory.clone());
             built.validate_source_packages()?;
             source_package_bundle::save(
                 &built.source_packages,
@@ -745,7 +742,7 @@ fn run_package_engines(
             )?;
             let loaded = rinzu_codegen::LoadedNativePackages::load(&built.artifacts)
                 .map_err(|error| format!("load native SDK packages: {error:#}"))?;
-            let execution = rinzu_codegen::run_baseline_jit_with_arguments(
+            rinzu_codegen::run_baseline_jit_with_arguments(
                 &artifact.ir,
                 "main",
                 options,
@@ -753,9 +750,7 @@ fn run_package_engines(
                 Some(built.load_source_packages()?),
                 arguments,
             )
-            .map_err(jit_error);
-            let _ = std::fs::remove_dir_all(&built.directory);
-            execution?
+            .map_err(jit_error)?
         } else {
             rinzu_codegen::run_baseline_jit_with_arguments(
                 &artifact.ir,
@@ -782,8 +777,9 @@ fn run_package_engines(
     }
     match execution.result {
         Ok(value) => {
+            PROGRAM_EXIT_STATUS.with(|status| status.set(execution.exit_status));
             eprintln!("result: {value}");
-            eprintln!("exit status: 0");
+            eprintln!("exit status: {}", execution.exit_status);
             Ok(())
         }
         Err(failure) => {

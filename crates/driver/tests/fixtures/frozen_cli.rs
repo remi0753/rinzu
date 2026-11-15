@@ -20,7 +20,13 @@ pub fn path() -> &'static std::path::Path {
             std::env::temp_dir().join(format!("rinzu-integration-cli-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("rinzu");
-        std::fs::copy(env!("CARGO_BIN_EXE_rinzu"), &path).unwrap();
+        // A cross-built test binary and its CLI can move together to the target host.
+        let mut cli = std::path::PathBuf::from(env!("CARGO_BIN_EXE_rinzu"));
+        if !cli.is_file() {
+            let test = std::env::current_exe().unwrap();
+            cli = test.parent().unwrap().parent().unwrap().join("rinzu");
+        }
+        std::fs::copy(cli, &path).unwrap();
         #[cfg(unix)]
         // SAFETY: the callback reads a process-lifetime OnceLock and only
         // removes this process's private copy after its tests have exited.

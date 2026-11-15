@@ -1,14 +1,22 @@
 //! Validated native SDK package loading shared by JIT and AOT runners.
 
 use std::collections::HashMap;
-use std::ffi::{CStr, CString};
+#[cfg(any(test, target_os = "macos"))]
+use std::ffi::CStr;
+#[cfg(target_os = "macos")]
+use std::ffi::CString;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, anyhow, bail, ensure};
-use rinzu_abi::{
-    ABI_VERSION, NATIVE_PACKAGE_ENTRY_V1, NativeFunctionV1, NativeInvocationContextV1,
-    NativePackageDescriptorV1, NativePackageEntryV1, STATUS_OK, is_compatible,
-};
+#[cfg(any(test, target_os = "macos"))]
+use anyhow::Context;
+#[cfg(target_os = "macos")]
+use anyhow::bail;
+use anyhow::{Result, anyhow, ensure};
+#[cfg(any(test, target_os = "macos"))]
+use rinzu_abi::{ABI_VERSION, NativePackageDescriptorV1, is_compatible};
+#[cfg(target_os = "macos")]
+use rinzu_abi::{NATIVE_PACKAGE_ENTRY_V1, NativePackageEntryV1};
+use rinzu_abi::{NativeFunctionV1, NativeInvocationContextV1, STATUS_OK};
 use rinzu_compiler::NativeImport;
 
 #[derive(Clone, Debug)]
@@ -44,8 +52,14 @@ impl LoadedNativePackages {
     pub fn load(artifacts: &[NativePackageArtifact]) -> Result<Self> {
         #[cfg(not(target_os = "macos"))]
         {
-            let _ = artifacts;
-            bail!("native SDK package loading currently requires macOS")
+            ensure!(
+                artifacts.is_empty(),
+                "legacy native SDK packages require macOS"
+            );
+            Ok(Self {
+                imports: HashMap::new(),
+                exports: HashMap::new(),
+            })
         }
         #[cfg(target_os = "macos")]
         {
@@ -146,6 +160,7 @@ impl LoadedNativePackages {
         Ok(())
     }
 
+    #[cfg(any(test, target_os = "macos"))]
     fn validate_descriptor(
         &mut self,
         artifact: &NativePackageArtifact,

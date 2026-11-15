@@ -8,7 +8,7 @@ rinzu verify-aot ./my-app
 ./dist/my-app
 ```
 
-The build command accepts an explicit `.rinzu` entry file and compiles without executing Main. AOT targets the operating system and architecture running `rinzu`. On x86_64 Linux, use `rinzu build` and run the generated ELF directly. `verify-aot` compares AOT with JIT on macOS arm64.
+The build command accepts an explicit `.rinzu` entry file and compiles without executing Main. AOT targets the operating system and architecture running `rinzu`. `verify-aot` compares execution with JIT on macOS arm64 and x86_64 Linux, including program output and exit status.
 
 ## Keep the output set together
 

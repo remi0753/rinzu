@@ -4,10 +4,16 @@
 ))]
 #[path = "../test-support/library.rs"]
 mod test_library;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 use rinzu_codegen::emit_aot_object;
 use rinzu_codegen::run_jit_spike;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 use rinzu_codegen::{
     BaselineFailure, BaselineOptions, run_baseline_jit, run_baseline_jit_with_options,
 };
@@ -22,7 +28,10 @@ use rinzu_compiler::{FileId, SourceFile};
 ))]
 use test_library::compile_library;
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn captured_stdout_survives_moving_gc_and_keeps_exact_bytes() {
     let artifact = compile_library(&SourceFile::new(
@@ -52,7 +61,10 @@ fn main() { let text = "日本語\u{0}🙂"; rinzu.stdio.write(copy(text)); rinz
     assert_eq!(run.published_code_versions, run.retired_code_versions);
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn formatted_strings_keep_parts_and_return_values_through_moving_gc() {
     let source = SourceFile::new(
@@ -87,7 +99,10 @@ fn main() {}
     assert_eq!(run.published_code_versions, run.retired_code_versions);
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn compiled_return_and_loop_exits_run_finally_with_rooted_recursive_results() {
     let source = SourceFile::new(
@@ -135,7 +150,10 @@ fn main() {let result=execute();}
     assert!(run.peak_root_frames >= 6);
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn shared_lowering_emits_stack_maps_for_jit_and_aot() {
     let jit = run_jit_spike().unwrap();
@@ -150,7 +168,10 @@ fn shared_lowering_emits_stack_maps_for_jit_and_aot() {
     assert!(!aot.object.is_empty());
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn baseline_jit_executes_source_calls_control_flow_allocation_and_runtime_polls() {
     let source = SourceFile::new(
@@ -195,13 +216,21 @@ fn main() {
     assert_eq!(run.published_code_versions, run.retired_code_versions);
     assert!(run.peak_live_code_frames > 0);
     assert!(run.executable_mappings > 0);
-    assert_eq!(run.icache_flushes, run.executable_mappings);
+    let expected_flushes = if cfg!(target_os = "macos") {
+        run.executable_mappings
+    } else {
+        0
+    };
+    assert_eq!(run.icache_flushes, expected_flushes);
     assert_eq!(run.rx_transitions, run.executable_mappings);
     assert_eq!(run.rwx_mappings, 0);
     assert!(run.compile.code_size > 0);
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn baseline_jit_unwinds_arithmetic_failure_through_finally() {
     let source = SourceFile::new(
@@ -227,7 +256,10 @@ fn main() {
     assert!(run.function_trace.iter().any(|name| name == "cleanup"));
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn baseline_jit_collects_each_allocation_and_cancels_cpu_loop_through_finally() {
     let source = SourceFile::new(
@@ -268,7 +300,10 @@ fn main() {
     assert!(run.function_trace.iter().any(|name| name == "cleanup"));
 }
 
-#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(not(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+)))]
 #[test]
 fn unsupported_host_does_not_claim_v1_jit_support() {
     assert!(run_jit_spike().is_err());
@@ -298,7 +333,10 @@ fn explicit_x86_64_target_emits_an_elf_object() {
     assert_eq!(&output.object[16..20], &[1, 0, 62, 0]); // ET_REL, EM_X86_64.
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn compiled_composites_preserve_payload_dispatch_equality_and_moving_roots() {
     let artifact = compile_library(&SourceFile::new(
@@ -325,7 +363,10 @@ fn compiled_composites_preserve_payload_dispatch_equality_and_moving_roots() {
     assert_eq!(run.published_code_versions, run.retired_code_versions);
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn typed_scalar_values_execute_with_width_and_ieee_semantics() {
     let cases = [
@@ -363,7 +404,10 @@ fn typed_scalar_values_execute_with_width_and_ieee_semantics() {
     }
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn typed_integer_arithmetic_traps_at_each_width() {
     for (ty, value) in [
@@ -392,7 +436,10 @@ fn typed_integer_arithmetic_traps_at_each_width() {
     }
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn module_integer_constants_are_baked_into_executable_ir() {
     let source = SourceFile::new(
@@ -406,7 +453,10 @@ fn module_integer_constants_are_baked_into_executable_ir() {
     assert_eq!(run.allocation_count, 0);
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn source_native_calls_require_a_validated_physical_binding() {
     let file = rinzu_compiler::SourceFile::new(
@@ -423,7 +473,10 @@ fn source_native_calls_require_a_validated_physical_binding() {
     );
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn numeric_conversion_errors_are_caught_and_propagated_across_managed_calls() {
     for (body, expected) in [
@@ -461,7 +514,10 @@ fn numeric_conversion_errors_are_caught_and_propagated_across_managed_calls() {
     }
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn nested_finally_routes_errors_to_outer_catch_and_traps_past_catch() {
     for (operation, expected, caught) in [
@@ -502,7 +558,10 @@ fn main() {{
     }
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn finally_with_nested_control_flow_finishes_before_resuming_error() {
     let source = SourceFile::new(
@@ -533,7 +592,10 @@ fn main() {
     assert_eq!(relevant, ["first", "second", "third", "caught"]);
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn cleanup_failures_preserve_primary_and_do_not_become_catchable_traps() {
     use rinzu_runtime::failure::{ErrorKind as E, FailureCause as C};
@@ -601,7 +663,10 @@ fn main() {{ try {{ try {{ {primary} }} finally {{ {cleanup} skipped(); }} }} ca
     }
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn local_catch_in_finally_preserves_the_original_outer_unwind() {
     let source = SourceFile::new(
@@ -628,7 +693,10 @@ fn main() {
     );
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn cancellation_keeps_cleanup_error_diagnostics_and_bypasses_catch() {
     use rinzu_runtime::failure::{ErrorKind as E, FailureCause as C};
@@ -669,7 +737,10 @@ fn main() { try { try { while true { let tick = 1; } }
     );
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn diagnostic_message_and_strings_survive_calls_scopes_and_moving_gc() {
     let source = SourceFile::new(
@@ -724,7 +795,10 @@ fn main() {}
     assert!(run.collection_count > 500);
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn recursive_managed_calls_publish_roots_and_balance_each_frame() {
     let source = SourceFile::new(
@@ -747,7 +821,10 @@ fn main() {}
     );
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn typed_length_and_managed_references_keep_owner_roots_and_dispatch_versions() {
     let source = SourceFile::new(
@@ -785,7 +862,10 @@ fn typed_length_and_managed_references_keep_owner_roots_and_dispatch_versions() 
     );
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn primary_and_cleanup_diagnostics_keep_the_producing_source_across_calls() {
     use rinzu_runtime::failure::{Diagnostic, ErrorKind, FailureCause, SourcePosition};
@@ -829,7 +909,10 @@ fn main() { try { wrapper(); } catch error { let wrong = 42; } }
     assert!(run.caught_errors.is_empty());
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn compiled_fixed_bytes_padding_lengths_and_collection_keys_keep_exact_values() {
     let artifact = compile_library(&SourceFile::new(
@@ -853,7 +936,10 @@ fn compiled_fixed_bytes_padding_lengths_and_collection_keys_keep_exact_values() 
     assert!(run.collection_count >= run.allocation_count);
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[test]
 fn aggregate_stdout_keeps_caller_roots_through_moving_collections_and_callee_return() {
     let artifact = compile_library(&SourceFile::new(FileId(1),"display-gc.rinzu",r#"

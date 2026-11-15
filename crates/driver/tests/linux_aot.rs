@@ -1,5 +1,7 @@
 #![cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
 
+#[path = "fixtures/frozen_cli.rs"]
+mod frozen_cli;
 #[path = "support/scratch.rs"]
 #[allow(dead_code)]
 mod scratch;
@@ -10,12 +12,17 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
 
-fn build(root: &Path, input: &Path, executable: &Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_rinzu"))
-        .current_dir(root)
+fn cli(root: &Path, command: &str, input: &Path) -> Command {
+    let mut cli = Command::new(frozen_cli::path());
+    cli.current_dir(root)
         .env("RINZU_CACHE_DIR", root.join("cache"))
-        .arg("build")
-        .arg(input)
+        .arg(command)
+        .arg(input);
+    cli
+}
+
+fn build(root: &Path, input: &Path, executable: &Path) -> Output {
+    cli(root, "build", input)
         .arg("--target")
         .arg("x86_64-unknown-linux-gnu")
         .arg("--output")
@@ -33,7 +40,7 @@ fn assert_success(output: &Output) {
 }
 
 #[test]
-fn synchronous_file_and_package_emit_and_execute_x86_64_elf() {
+fn synchronous_file_and_package_match_baseline_jit_and_x86_64_elf() {
     let scratch = Scratch::new("rinzu-linux-aot");
     let root = scratch.path();
     let source = r#"
@@ -103,14 +110,26 @@ fn main() {
             String::from_utf8_lossy(&run.stderr)
         );
         assert_eq!(run.stdout, b"hello::42\n");
+        let jit = cli(root, "run", input)
+            .args(["--", "hello", ""])
+            .output()
+            .unwrap();
+        assert_eq!(jit.status.code(), run.status.code(), "{jit:?}");
+        assert_eq!(jit.stdout, run.stdout);
         let failed = Command::new(&executable).output().unwrap();
         assert_eq!(failed.status.code(), Some(1));
         assert!(String::from_utf8_lossy(&failed.stderr).contains("unexpected argument count"));
     }
+    let verified = cli(root, "verify-aot", &package)
+        .args(["--", "hello", ""])
+        .output()
+        .unwrap();
+    assert_success(&verified);
+    assert!(String::from_utf8_lossy(&verified.stdout).contains("outcome=success"));
 }
 
 #[test]
-fn async_aot_resumes_timer_and_worker_continuations() {
+fn async_jit_and_aot_resume_timer_and_worker_continuations() {
     let scratch = Scratch::new("rinzu-linux-async");
     let root = scratch.path();
     let file = root.join("async_main.rinzu");
@@ -144,6 +163,60 @@ async fn main() {
     let run = Command::new(executable).output().unwrap();
     assert_success(&run);
     assert_eq!(run.stdout, b"worker:42\n");
+    let jit = cli(root, "run", &file).arg("--trace").output().unwrap();
+    assert_success(&jit);
+    assert_eq!(jit.stdout, run.stdout);
+    assert!(String::from_utf8_lossy(&jit.stderr).contains("compiled JIT continuation runtime"));
+    let verified = cli(root, "verify-aot", &file).output().unwrap();
+    assert_success(&verified);
+    assert!(String::from_utf8_lossy(&verified.stdout).contains("outcome=success"));
+}
+
+#[test]
+fn test_cli_runs_package_main_and_confirms_unit_test_settlement() {
+    let scratch = Scratch::new("rinzu-linux-unit");
+    let root = scratch.path();
+    fs::create_dir(root.join("src")).unwrap();
+    fs::write(
+        root.join("rinzu.toml"),
+        "[package]\nname = \"sample_tests\"\nlanguage = \"0.5\"\n",
+    )
+    .unwrap();
+    let source = root.join("src/main.rinzu");
+    fs::write(&source, "fn main() {}\n").unwrap();
+    let legacy = cli(root, "test", root).output().unwrap();
+    assert_success(&legacy);
+    assert!(String::from_utf8_lossy(&legacy.stderr).contains("baseline JIT"));
+    fs::write(
+        source,
+        r#"
+import rinzu.timer;
+
+fn test_sync() {}
+
+async fn test_async() {
+    await rinzu.timer.sleep(1);
+}
+"#,
+    )
+    .unwrap();
+    let tested = cli(root, "test", root)
+        .args(["--unit", "--format", "json", "--timeout-ms", "360000"])
+        .output()
+        .unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&tested.stdout)
+        .unwrap_or_else(|error| panic!("{error}: {tested:?}"));
+    assert!(tested.status.success(), "{report:#}");
+    assert_eq!(report["summary"]["passed"], 2, "{report}");
+    let cases = report["cases"].as_array().unwrap();
+    for name in ["test_async", "test_sync"] {
+        let case = cases
+            .iter()
+            .find(|case| case["identity"].as_str().unwrap().ends_with(name))
+            .unwrap();
+        assert_eq!(case["worker"]["engine"], "compiled-jit", "{case}");
+        assert_eq!(case["settlement"], "confirmed", "{case}");
+    }
 }
 
 #[test]
@@ -300,6 +373,10 @@ async fn main() {
     )
     .unwrap();
     assert_success(&build(root, &app, &dist.join("app")));
+    let jit = cli(root, "run", &app).output().unwrap();
+    assert_success(&jit);
+    let verified = cli(root, "verify-aot", &app).output().unwrap();
+    assert_success(&verified);
     let relocated = root.join("relocated");
     fs::rename(dist, &relocated).unwrap();
     fs::write(sdk.join("api.h"), header.replace("int mode", "double mode")).unwrap();

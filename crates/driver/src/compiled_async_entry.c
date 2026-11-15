@@ -1,6 +1,6 @@
 int rinzu_jit_run(const uintptr_t *functions, size_t function_count, const uintptr_t *stubs,
                   size_t stub_count, int argc, char **argv, const char *directory,
-                  uint64_t cancel_after, uint64_t shutdown_after,
+                  uint64_t cancel_after, uint64_t shutdown_after, uint64_t cancel_worker_after,
                   uint64_t (*context_identity)(void), rinzu_jit_timing_t *timing, char **report,
                   size_t *length) {
   if (rinzu_jit_used || function_count != RINZU_JIT_FUNCTION_COUNT ||
@@ -23,6 +23,7 @@ int rinzu_jit_run(const uintptr_t *functions, size_t function_count, const uintp
   rinzu_jit_directory = directory;
   rinzu_jit_cancel_after = cancel_after;
   rinzu_jit_shutdown_after = shutdown_after;
+  rinzu_jit_cancel_worker_after = cancel_worker_after;
   uint64_t started = timing ? rinzu_jit_clock() : 0;
   int result = rinzu_jit_main(argc, argv);
   if (timing) {

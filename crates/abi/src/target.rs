@@ -42,6 +42,16 @@ impl Target {
         true
     }
 
+    pub const fn supports_jit(self) -> bool {
+        match self {
+            Self::Aarch64AppleDarwin | Self::X86_64UnknownLinuxGnu => true,
+        }
+    }
+
+    pub const fn jit_flushes_instruction_cache(self) -> bool {
+        matches!(self, Self::Aarch64AppleDarwin)
+    }
+
     pub const fn supports_supplant(self) -> bool {
         matches!(self, Self::Aarch64AppleDarwin)
     }

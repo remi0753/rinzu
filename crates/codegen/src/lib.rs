@@ -5,9 +5,15 @@ pub mod allocation_probe;
 mod baseline;
 mod c_lowering;
 mod clif;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 mod compiled_runtime;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 pub use compiled_runtime::CompiledRuntimeLibrary;
 mod data_schema;
 mod error_sources;
@@ -15,12 +21,13 @@ mod error_sources;
 mod json_schema;
 pub use error_sources::format_error_traces;
 mod function_reference;
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
+mod jit_memory;
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 mod m5_reload_spike;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-mod jit_memory {
-    pub(crate) mod macos;
-}
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
     all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
@@ -39,7 +46,10 @@ pub use native_record::source_native_record_layouts;
 mod scalar_backend;
 mod source_async;
 mod source_failure;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 pub use clif::native_abi as source_native_abi;
 pub mod source_package;
 mod task_error_origin;
@@ -57,7 +67,10 @@ pub use baseline::{
     run_baseline_jit_with_arguments, run_baseline_jit_with_native_packages,
     run_baseline_jit_with_options, run_baseline_jit_with_package_bindings, uses_async_runtime,
 };
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 pub use baseline::{CompiledAsyncJit, compile_source_async_jit};
 pub use native_package::{LoadedNativePackages, NativePackageArtifact};
 #[cfg(all(
@@ -88,7 +101,10 @@ use anyhow::{Context, Result, anyhow, ensure};
 use clif::isa::native_isa;
 use cranelift_codegen::ir::{AbiParam, InstBuilder, UserFuncName, types};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, default_libcall_names};
 use cranelift_object::{ObjectBuilder, ObjectModule};
@@ -124,7 +140,10 @@ pub struct AotEvidence {
     pub compile: CompileEvidence,
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 extern "C" fn spike_safepoint() {}
 
 fn define_spike<M: Module>(module: &mut M) -> Result<(FuncId, CompileEvidence)> {
@@ -207,18 +226,24 @@ pub fn run_jit_spike() -> Result<JitEvidence> {
 pub fn with_jit_spike_inspection<T>(
     inspect: impl FnOnce(&JitEvidence) -> Result<T>,
 ) -> Result<(JitEvidence, T)> {
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(not(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+    )))]
     {
         let _ = inspect;
-        return Err(anyhow!("Rinzu v1 JIT spike requires aarch64-apple-darwin"));
+        return Err(anyhow!("JIT spike is unavailable on this host"));
     }
 
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+    ))]
     {
-        let isa = native_isa(false)?;
+        let isa = clif::isa::jit_isa()?;
         let mut jit_builder = JITBuilder::with_isa(isa, default_libcall_names());
         jit_builder.symbol(SAFEPOINT_SYMBOL, spike_safepoint as *const u8);
-        let (jit_memory, memory_audit) = jit_memory::macos::MacOsArm64JitMemory::new_with_audit()?;
+        let (jit_memory, memory_audit) = jit_memory::JitMemory::new_with_audit()?;
         jit_builder.memory_provider(Box::new(jit_memory));
         let mut module = JITModule::new(jit_builder);
         let (function, compile) = define_spike(&mut module)?;
@@ -235,17 +260,25 @@ pub fn with_jit_spike_inspection<T>(
         let result = unsafe { callable(0x1000, 41) };
         ensure!(result == 42, "JIT returned {result}, expected 42");
 
-        let memory_audit = memory_audit.snapshot();
+        let memory = memory_audit.snapshot();
+        ensure!(
+            memory.executable_mappings > 0 && memory.is_published(),
+            "invalid spike publication"
+        );
         let evidence = JitEvidence {
             result,
             compile,
-            memory_policy: "MAP_JIT RW -> instruction-cache flush -> RX",
-            executable_mappings: memory_audit.executable_mappings,
-            executable_bytes: memory_audit.executable_bytes,
+            memory_policy: jit_memory::POLICY,
+            executable_mappings: memory.executable_mappings,
+            executable_bytes: memory.executable_bytes,
         };
         let inspected = inspect(&evidence)?;
         // SAFETY: callable is no longer used after freeing this module's memory.
         unsafe { module.free_memory() };
+        ensure!(
+            memory_audit.is_released(),
+            "spike JIT retained memory mappings"
+        );
         Ok((evidence, inspected))
     }
 }

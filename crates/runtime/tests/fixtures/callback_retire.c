@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 enum { ROUNDS = 8192, WORKERS = 4, PER_WORKER = 2048 };
 static uint64_t body(void *raw, const unsigned char *data) {
@@ -100,7 +101,9 @@ int main(int argc, char **argv) {
   size_t control_size = stats.released_control_bytes / stats.retired_entries;
   assert(stats.released_control_bytes == stats.retired_entries * control_size);
   assert(stats.tombstone_bytes == unknown * control_size);
-  assert(stats.control_bytes == stats.blocks * 16384 + stats.tombstone_bytes);
+  long page_size = sysconf(_SC_PAGESIZE);
+  assert(page_size > 0);
+  assert(stats.control_bytes == stats.blocks * (size_t)page_size + stats.tombstone_bytes);
   assert(!stats.live_connections && !stats.in_flight && !stats.live_diagnostics);
   printf(
       "PASS callback retirement entries=%zu retired=%zu unknown=%zu freed=%zu rw=%zu virtual=%zu\n",

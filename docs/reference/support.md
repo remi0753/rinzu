@@ -6,7 +6,7 @@
 | --- | --- |
 | Source language | 0.5 |
 | Toolchain crate / `rinzu --version` | 0.3.0 |
-| JIT runtime | macOS arm64, `aarch64-apple-darwin` |
+| JIT runtime | macOS arm64 and x86_64 Linux with glibc |
 | AOT targets | macOS arm64 and x86_64 Linux with glibc, `x86_64-unknown-linux-gnu` |
 | Build toolchain | Rust 1.97.1 |
 | Native ABI | C-compatible ABI 1.1 with checked source-package descriptors |
@@ -22,7 +22,7 @@ Older language numbers in manifests remain accepted where supported by the loade
 
 The [standard API migration](../libraries/core.md#compatibility-names) retains the legacy source spellings and reserves their ABI operation numbers. Compiled SDK descriptors and caches still follow the toolchain's compatibility fingerprints.
 
-On x86_64 Linux, `rinzu build` generates ELF executables for standalone files and application packages. It supports synchronous and async Main, Workers, and native SDKs with SysV AMD64 callbacks. Linux async AOT requires CET shadow stacks to be disabled for the process. JIT, `rinzu test`, `rinzu verify-aot`, native `supplant`, and the `rinzu.macos` SDK require macOS arm64. Other Linux targets, Windows, and macOS x86_64 remain portability compile targets.
+On x86_64 Linux, `rinzu run`, `rinzu test`, `rinzu build`, and `rinzu verify-aot` support synchronous and async Main, Workers, and native SDKs with SysV AMD64 callbacks. Linux async execution requires CET shadow stacks to be disabled for the process. Native `supplant` and the `rinzu.macos` SDK require macOS arm64. Other Linux targets, Windows, and macOS x86_64 remain portability compile targets.
 
 ## Language boundaries
 

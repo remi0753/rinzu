@@ -14,17 +14,26 @@ pub fn doctor(arguments: impl Iterator<Item = String>) -> Result<(), String> {
     } else {
         "unavailable"
     };
-    let support = if rinzu_runtime::validate_v1_target().is_ok() {
-        "supported"
-    } else if rinzu_abi::target::Target::host().is_some() {
-        "aot-only"
-    } else {
-        "portability-check-only"
-    };
+    let support =
+        if rinzu_abi::target::Target::host().is_some_and(rinzu_abi::target::Target::supports_jit) {
+            "supported"
+        } else if rinzu_abi::target::Target::host().is_some() {
+            "aot-only"
+        } else {
+            "portability-check-only"
+        };
     println!("Rinzu {}", rinzu_compiler::compatibility::RELEASE);
     println!("target: {target}");
     println!("v1 runtime: {support}");
     println!("AOT: {aot}");
+    println!(
+        "JIT: {}",
+        if support == "supported" {
+            "supported"
+        } else {
+            "unavailable"
+        }
+    );
     let root = rinzu_compiler::official_sdk::inspect_installation()?;
     if let Some(root) = &root {
         println!("toolchain resources: {}", root.display());

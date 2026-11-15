@@ -29,7 +29,10 @@ pub struct CallbackPoolEvidence {
 
 impl NativeProcessEvidence {
     pub fn capture() -> Self {
-        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        #[cfg(any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+        ))]
         {
             let pool = rinzu_runtime::callback_entry::stats();
             let returns = rinzu_runtime::callback_return::stats();
@@ -59,7 +62,10 @@ impl NativeProcessEvidence {
                 },
             }
         }
-        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+        #[cfg(not(any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+        )))]
         Self {
             userdata: rinzu_runtime::data::userdata_process_stats(),
             ..Default::default()

@@ -123,7 +123,10 @@ fn clipped(text: &str, limit: usize) -> String {
     text[..end].to_owned()
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 pub(crate) fn observe_compiled(run: &crate::compiled_async::CompiledAsyncRun) {
     if !is_active() {
         return;
@@ -444,7 +447,7 @@ pub(crate) fn run_package(
         phase:"prepared".into(),process_id:std::process::id(),digest_algorithm:"fnv1a64".into(),sources,
         inputs:receipts.iter().take(ROW_LIMIT).map(|(path,kind,length,digest)| InputReceipt{path:path.clone(),kind:(*kind).into(),byte_length:*length,digest:format!("{digest:016x}")}).collect(),
         resource_report:resources.map(|config| identity(&config.path)).transpose()?,
-        resource_producer:resources.map(|_| if crate::aot::main_uses_source_async(&artifact) && !artifact.ir.source_native_signatures.is_empty() {"c-compiled-jit".into()} else {"rust-jit".into()}),
+        resource_producer:resources.map(|_| if crate::aot::uses_compiled_async(&artifact) {"c-compiled-jit".into()} else {"rust-jit".into()}),
         outcome:None,driver_error:None,exit_code:None,
         omitted_sources:runtime_files.len().saturating_sub(ROW_LIMIT),omitted_inputs:receipts.len().saturating_sub(ROW_LIMIT),
         limitations:vec!["Unpublished logical task/scope/Owner/CodeVersion IDs remain unknown".into(),"Native activity logs have no run ID; full stack and SDK allocator attribution are unavailable".into(),"Fatal/signal/OOM can leave only this initial report; settlement then remains unconfirmed".into()]

@@ -59,7 +59,10 @@ pub(crate) fn scalar_fallback(
     })
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 pub(crate) fn callback_fallback(
     fallback: Option<&rinzu_compiler::FallbackConstant>,
     owner: Option<&std::sync::Arc<rinzu_runtime::callback_return::ReturnScope>>,

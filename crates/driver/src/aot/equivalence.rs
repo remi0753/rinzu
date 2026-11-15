@@ -1,5 +1,7 @@
 //! Compare JIT and AOT results, traces and resource lifetimes.
 use super::main_uses_source_async;
+use rinzu_abi::target::Target;
+use rinzu_bindgen::source_package::BackendRecord;
 use rinzu_codegen::{
     BaselineFailure, BaselineOptions, LoadedNativePackages, run_baseline_jit_with_arguments,
 };
@@ -8,6 +10,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+mod compiled;
 
 pub struct EquivalenceReport {
     pub result: i64,
@@ -52,13 +57,7 @@ pub(crate) fn verify_checked_input(
                 "async JIT/AOT equivalence does not accept terminal-control options".into(),
             );
         }
-        return verify_source_async_equivalence(
-            context,
-            options.cancel_after_polls,
-            None,
-            options.shutdown_after_polls,
-            program_arguments,
-        );
+        return verify_async_equivalence(context, options, None, program_arguments);
     }
     let options = BaselineOptions {
         capture_stdout: !crate::verify_capture::active(),
@@ -77,9 +76,10 @@ pub(crate) fn verify_checked_input(
     let arguments = crate::argument_bytes(program_arguments);
     let jit = if has_native_artifacts || has_source_packages || !artifact.native_inputs.is_empty() {
         let built = crate::input::build_native(context)?;
+        let _scratch = crate::verify_capture::TemporaryDirectory(built.directory.clone());
         let loaded = LoadedNativePackages::load(&built.artifacts)
             .map_err(|error| format!("load JIT native packages: {error:#}"))?;
-        let result = run_baseline_jit_with_arguments(
+        run_baseline_jit_with_arguments(
             &artifact.ir,
             "main",
             options,
@@ -87,9 +87,7 @@ pub(crate) fn verify_checked_input(
             Some(built.load_source_packages()?),
             arguments,
         )
-        .map_err(|error| format!("execute JIT equivalence side: {error:#}"));
-        let _ = fs::remove_dir_all(built.directory);
-        result?
+        .map_err(|error| format!("execute JIT equivalence side: {error:#}"))?
     } else {
         run_baseline_jit_with_arguments(&artifact.ir, "main", options, None, None, arguments)
             .map_err(|error| format!("execute JIT equivalence side: {error:#}"))?
@@ -157,12 +155,10 @@ pub(crate) fn verify_checked_input(
         .map_err(|error| format!("AOT normalized trace is invalid: {error}"))?;
     let jit_trace = crate::normalized_trace(&jit);
     let jit_failure = failure_name(&jit.result);
-    let expected_status_success =
-        jit.result.is_ok() || jit.result == Err(BaselineFailure::Shutdown);
-    if output.status.code() != Some(i32::from(!expected_status_success)) {
+    if output.status.code() != Some(i32::from(jit.exit_status)) {
         return Err(format!(
-            "JIT/AOT exit mismatch: JIT success={expected_status_success}, AOT status={}",
-            output.status
+            "JIT/AOT exit mismatch: JIT status={}, AOT status={}",
+            jit.exit_status, output.status
         ));
     }
     let jit_result = jit.result.as_ref().copied().unwrap_or(0);
@@ -201,14 +197,41 @@ pub(crate) fn verify_worker_cancel_checked(
     if manifest.language == "0.1" || !main_uses_source_async(artifact) {
         return Err("Worker cancellation equivalence requires a v0.2 source async main".into());
     }
-    verify_source_async_equivalence(context, None, Some(after_polls), None, program_arguments)
+    verify_async_equivalence(
+        context,
+        BaselineOptions::default(),
+        Some(after_polls),
+        program_arguments,
+    )
+}
+
+fn verify_async_equivalence(
+    context: &rinzu_compiler::CompilationContext,
+    options: BaselineOptions,
+    cancel_worker_after_polls: Option<usize>,
+    program_arguments: &[std::ffi::OsString],
+) -> Result<EquivalenceReport, String> {
+    #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+    if rinzu_abi::target::Target::host() == Some(rinzu_abi::target::Target::X86_64UnknownLinuxGnu) {
+        return compiled::verify(
+            context,
+            options,
+            cancel_worker_after_polls,
+            program_arguments,
+        );
+    }
+    verify_source_async_equivalence(
+        context,
+        options,
+        cancel_worker_after_polls,
+        program_arguments,
+    )
 }
 
 fn verify_source_async_equivalence(
     context: &rinzu_compiler::CompilationContext,
-    cancel_after_polls: Option<usize>,
+    controls: BaselineOptions,
     cancel_worker_after_polls: Option<usize>,
-    shutdown_after_polls: Option<usize>,
     program_arguments: &[std::ffi::OsString],
 ) -> Result<EquivalenceReport, String> {
     let manifest = &context.metadata;
@@ -228,59 +251,37 @@ fn verify_source_async_equivalence(
         &artifact.sdk_packages,
     )
     .map_err(|error| format!("configure async JIT equivalence side: {error:#}"))?;
-    options.cancel_after_polls = cancel_after_polls;
-    options.shutdown_after_polls = shutdown_after_polls;
+    options.cancel_after_polls = controls.cancel_after_polls;
+    options.shutdown_after_polls = controls.shutdown_after_polls;
     options.cancel_worker_after_polls = cancel_worker_after_polls;
     options.record_transport_evidence = true;
     options.capture_stdout = !crate::verify_capture::active();
     options.arguments = crate::argument_bytes(program_arguments);
-    let built = if has_native_artifacts || has_source_packages || !artifact.native_inputs.is_empty()
-    {
-        let built = crate::input::build_native(context)?;
-        options.native_packages = Some(
-            LoadedNativePackages::load(&built.artifacts)
-                .map_err(|error| format!("load async JIT native packages: {error:#}"))?,
-        );
-        options.source_packages = Some(built.load_source_packages()?);
-        Some(built)
-    } else {
-        None
-    };
+    let _scratch =
+        if has_native_artifacts || has_source_packages || !artifact.native_inputs.is_empty() {
+            let built = crate::input::build_native(context)?;
+            let scratch = crate::verify_capture::TemporaryDirectory(built.directory.clone());
+            options.native_packages = Some(
+                LoadedNativePackages::load(&built.artifacts)
+                    .map_err(|error| format!("load async JIT native packages: {error:#}"))?,
+            );
+            options.source_packages = Some(built.load_source_packages()?);
+            Some(scratch)
+        } else {
+            None
+        };
     let jit = rinzu_codegen::run_source_async_report(&artifact.ir, "main", options)
-        .map_err(|error| format!("execute async JIT equivalence side: {error:#}"));
-    if let Some(built) = built {
-        let _ = fs::remove_dir_all(built.directory);
-    }
-    let jit = jit?;
-    let directory = crate::verify_capture::TemporaryDirectory::new("async-equivalence")?;
-    let build = crate::verify_capture::build_aot(context, directory.0.join("program"))?;
-    let mut command = Command::new(&build.executable);
-    command.args(program_arguments);
-    crate::verify_capture::configure_aot(&mut command);
-    command
-        .env_remove("RINZU_CANCEL_AFTER_POLLS")
-        .env_remove("RINZU_SHUTDOWN_AFTER_POLLS")
-        .env_remove("RINZU_SHUTDOWN_WORKER_AFTER_POLLS")
-        .env_remove("RINZU_CANCEL_WORKER_AFTER_POLLS");
-    command.env("RINZU_TRANSPORT_EVIDENCE", "1");
-    if let Some(limit) = cancel_after_polls {
-        command.env("RINZU_CANCEL_AFTER_POLLS", limit.to_string());
-    }
-    if let Some(limit) = shutdown_after_polls {
-        command.env("RINZU_SHUTDOWN_AFTER_POLLS", limit.to_string());
-    }
-    if let Some(limit) = cancel_worker_after_polls {
-        command.env("RINZU_CANCEL_WORKER_AFTER_POLLS", limit.to_string());
-    }
-    let output = command
-        .output()
-        .map_err(|error| format!("execute async AOT equivalence side: {error}"))?;
-    let stdout = String::from_utf8(crate::verify_capture::evidence(&output)?)
-        .map_err(|error| format!("async AOT output is not UTF-8: {error}"))?;
+        .map_err(|error| format!("execute async JIT equivalence side: {error:#}"))?;
+    let (output, report, source_files) = execute_async_aot(
+        context,
+        controls,
+        cancel_worker_after_polls,
+        program_arguments,
+    )?;
     if !crate::verify_capture::active() && output.stdout != jit.stdout {
         return Err("async JIT/AOT program stdout bytes differ".into());
     }
-    let stdout = crate::future_identity::normalize(&jit, &stdout)?;
+    let stdout = crate::future_identity::normalize(&jit, &report)?;
     let result = parse_i64_line(&stdout, "RINZU_RESULT=")?;
     let failure = parse_line(&stdout, "RINZU_FAILURE=")?;
     let trace_json = parse_line(&stdout, "RINZU_TRACE=")?;
@@ -294,12 +295,7 @@ fn verify_source_async_equivalence(
             jit.result, output.status
         ));
     }
-    let metadata: serde_json::Value =
-        serde_json::from_slice(&fs::read(&build.metadata).map_err(|error| error.to_string())?)
-            .map_err(|error| error.to_string())?;
-    if metadata["sourceFiles"]
-        != serde_json::to_value(&jit.source_files).map_err(|error| error.to_string())?
-    {
+    if source_files != serde_json::to_value(&jit.source_files).map_err(|error| error.to_string())? {
         return Err("async JIT/AOT diagnostic source identities differ".into());
     }
     compare_source_async_values_and_transport(&jit, &stdout)?;
@@ -322,6 +318,46 @@ fn verify_source_async_equivalence(
             Some(_) => "failure",
         },
     })
+}
+
+fn execute_async_aot(
+    context: &rinzu_compiler::CompilationContext,
+    options: BaselineOptions,
+    cancel_worker_after_polls: Option<usize>,
+    program_arguments: &[std::ffi::OsString],
+) -> Result<(std::process::Output, String, serde_json::Value), String> {
+    let directory = crate::verify_capture::TemporaryDirectory::new("async-equivalence")?;
+    let build = crate::verify_capture::build_aot(context, directory.0.join("program"))?;
+    let mut command = Command::new(&build.executable);
+    command.args(program_arguments);
+    crate::verify_capture::configure_aot(&mut command);
+    command
+        .env_remove("RINZU_CANCEL_AFTER_POLLS")
+        .env_remove("RINZU_SHUTDOWN_AFTER_POLLS")
+        .env_remove("RINZU_SHUTDOWN_WORKER_AFTER_POLLS")
+        .env_remove("RINZU_CANCEL_WORKER_AFTER_POLLS");
+    command.env("RINZU_TRANSPORT_EVIDENCE", "1");
+    if options.capture_error_trace {
+        command.env("RINZU_ERROR_TRACE", "1");
+    }
+    if let Some(limit) = options.cancel_after_polls {
+        command.env("RINZU_CANCEL_AFTER_POLLS", limit.to_string());
+    }
+    if let Some(limit) = options.shutdown_after_polls {
+        command.env("RINZU_SHUTDOWN_AFTER_POLLS", limit.to_string());
+    }
+    if let Some(limit) = cancel_worker_after_polls {
+        command.env("RINZU_CANCEL_WORKER_AFTER_POLLS", limit.to_string());
+    }
+    let output = command
+        .output()
+        .map_err(|error| format!("execute async AOT equivalence side: {error}"))?;
+    let report = String::from_utf8(crate::verify_capture::evidence(&output)?)
+        .map_err(|error| format!("async AOT output is not UTF-8: {error}"))?;
+    let mut metadata: serde_json::Value =
+        serde_json::from_slice(&fs::read(&build.metadata).map_err(|error| error.to_string())?)
+            .map_err(|error| error.to_string())?;
+    Ok((output, report, metadata["sourceFiles"].take()))
 }
 
 pub(crate) fn compare_source_async_failures(
@@ -463,11 +499,19 @@ fn compare_native_call_evidence(
             ));
         }
     }
-    validate_callback_resource_evidence(stdout)?;
+    let target = Target::host().ok_or("native JIT host is unavailable")?;
+    validate_callback_resource_evidence(target, stdout)?;
     Ok(())
 }
 
-fn validate_callback_resource_evidence(stdout: &str) -> Result<(), String> {
+fn validate_callback_resource_evidence(target: Target, stdout: &str) -> Result<(), String> {
+    let backend = BackendRecord::for_target(target);
+    let page: usize = backend.page_size.parse().expect("callback page size");
+    let stride: usize = backend
+        .control_stride
+        .parse()
+        .expect("callback control stride");
+    let entry_stride: usize = backend.entry_stride.parse().expect("callback entry stride");
     let pool = parse_resource_numbers(parse_line(stdout, "RINZU_NATIVE_ENTRIES=")?)?;
     let process = parse_resource_numbers(parse_line(stdout, "RINZU_CALLBACK_PROCESS=")?)?;
     let temporary = parse_resource_numbers(parse_line(stdout, "RINZU_CALLBACK_TEMPORARY=")?)?;
@@ -481,7 +525,7 @@ fn validate_callback_resource_evidence(stdout: &str) -> Result<(), String> {
         && pool.len() == 6
         && process.len() == 3
         && retired[0] <= pool[0]
-        && retired[0].checked_mul(32) == Some(retired[1])
+        && retired[0].checked_mul(entry_stride) == Some(retired[1])
         && if retired[0] == 0 {
             retired[2] == 0 && (pool[0] == 0 || process[1] > 0)
         } else {
@@ -498,10 +542,10 @@ fn validate_callback_resource_evidence(stdout: &str) -> Result<(), String> {
         && if pool[0] == 0 {
             pool[..4] == [0; 4] && process == [0; 3]
         } else {
-            pool[1] == pool[0].div_ceil(512)
-                && pool[1].checked_mul(32768) == Some(pool[2])
+            pool[1] == pool[0].div_ceil(page / stride)
+                && pool[1].checked_mul(2 * page) == Some(pool[2])
                 && pool[1]
-                    .checked_mul(16384)
+                    .checked_mul(page)
                     .and_then(|pages| pool[3].checked_sub(pages))
                     == Some(process[1])
                 && process[2] > 0

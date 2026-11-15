@@ -513,7 +513,12 @@ fn async_equivalence_rejects_changed_type_bits_order_and_resource_evidence() {
 #[test]
 fn callback_resource_equivalence_keeps_retention_and_temporary_baseline_separate() {
     let correct = "RINZU_NATIVE_ENTRIES=780,2,65536,157568,0,0\nRINZU_CALLBACK_PROCESS=780,124800,48\nRINZU_CALLBACK_TEMPORARY=0,0\n";
-    validate_callback_resource_evidence(correct).unwrap();
+    let macos = Target::Aarch64AppleDarwin;
+    let linux = Target::X86_64UnknownLinuxGnu;
+    let linux_report = correct.replace("780,2,65536,157568", "780,7,57344,153472");
+    validate_callback_resource_evidence(macos, correct).unwrap();
+    validate_callback_resource_evidence(linux, &linux_report).unwrap();
+    assert!(validate_callback_resource_evidence(linux, correct).is_err());
     for broken in [
         correct.replace("780,124800,48", "779,124800,48"),
         correct.replace("780,124800,48", "780,124799,48"),
@@ -527,7 +532,7 @@ fn callback_resource_equivalence_keeps_retention_and_temporary_baseline_separate
         correct.replace("780,2,65536", "780,1,65536"),
     ] {
         assert!(
-            validate_callback_resource_evidence(&broken).is_err(),
+            validate_callback_resource_evidence(macos, &broken).is_err(),
             "{broken}"
         );
     }
@@ -542,7 +547,7 @@ fn callback_resource_equivalence_accepts_retired_and_mixed_controls() {
         let correct = format!(
             "RINZU_NATIVE_ENTRIES=780,2,65536,{control},0,0\nRINZU_CALLBACK_PROCESS=780,{tombstone},48\nRINZU_CALLBACK_TEMPORARY=0,0\nRINZU_CALLBACK_RETIREMENT={retired},{slots},{released}\n"
         );
-        validate_callback_resource_evidence(&correct).unwrap();
+        validate_callback_resource_evidence(Target::Aarch64AppleDarwin, &correct).unwrap();
         for broken in [
             correct.replace(&format!("{retired},{slots},{released}"), "781,24992,124960"),
             correct.replace(
@@ -559,7 +564,7 @@ fn callback_resource_equivalence_accepts_retired_and_mixed_controls() {
             ),
         ] {
             assert!(
-                validate_callback_resource_evidence(&broken).is_err(),
+                validate_callback_resource_evidence(Target::Aarch64AppleDarwin, &broken).is_err(),
                 "{broken}"
             );
         }

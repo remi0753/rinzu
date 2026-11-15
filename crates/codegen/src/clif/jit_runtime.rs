@@ -62,7 +62,7 @@ pub(crate) fn run(
             "native managed result requires the R3 receiver backend"
         );
     }
-    let isa = crate::native_isa(false)?;
+    let isa = isa::jit_isa()?;
     let mut jit_builder = JITBuilder::with_isa(isa, default_libcall_names());
     jit_builder.symbol(SOURCE_SYMBOL, baseline_set_source as *const u8);
     jit_builder.symbol(OBSERVE_SOURCE_SYMBOL, baseline_observe_source as *const u8);
@@ -133,7 +133,7 @@ pub(crate) fn run(
     ] {
         jit_builder.symbol(format!("rinzu_baseline_source_native_{name}"), address);
     }
-    let (jit_memory, memory_audit) = MacOsArm64JitMemory::new_with_audit()?;
+    let (jit_memory, memory_audit) = JitMemory::new_with_audit()?;
     jit_builder.memory_provider(Box::new(jit_memory));
     let mut module = JITModule::new(jit_builder);
     let runtime_functions = declare_runtime_functions(&mut module, module_ir, false, false, false)?;
@@ -167,15 +167,13 @@ pub(crate) fn run(
     module
         .finalize_definitions()
         .context("finalize baseline JIT definitions")?;
-    let memory_audit = memory_audit.snapshot();
+    let memory = memory_audit.snapshot();
     ensure!(
-        memory_audit.executable_mappings > 0,
+        memory.executable_mappings > 0,
         "baseline JIT published no executable mapping"
     );
     ensure!(
-        memory_audit.icache_flushes == memory_audit.executable_mappings
-            && memory_audit.rx_transitions == memory_audit.executable_mappings
-            && memory_audit.rwx_mappings == 0,
+        memory.is_published(),
         "baseline JIT violated its W^X publication protocol"
     );
     let entry = functions
@@ -298,6 +296,11 @@ pub(crate) fn run(
     );
     let run = BaselineRun {
         stdout: runtime.stdout.take(),
+        exit_status: if result.is_ok() || result == Err(BaselineFailure::Shutdown) {
+            runtime.exit_status
+        } else {
+            1
+        },
         result,
         failure_details,
         source_files: source_identities(module_ir).1,
@@ -316,12 +319,12 @@ pub(crate) fn run(
         published_code_versions,
         retired_code_versions,
         peak_live_code_frames,
-        executable_mappings: memory_audit.executable_mappings,
-        icache_flushes: memory_audit.icache_flushes,
-        rx_transitions: memory_audit.rx_transitions,
-        rwx_mappings: memory_audit.rwx_mappings,
+        executable_mappings: memory.executable_mappings,
+        icache_flushes: memory.icache_flushes,
+        rx_transitions: memory.rx_transitions,
+        rwx_mappings: memory.rwx_mappings,
         compile,
-        memory_policy: "MAP_JIT RW -> instruction-cache flush -> RX",
+        memory_policy: crate::jit_memory::POLICY,
         host_trace: runtime.host_trace,
         native_calls: runtime.source_native.evidence,
         native_process: crate::NativeProcessEvidence::capture(),
@@ -330,6 +333,10 @@ pub(crate) fn run(
     };
     // SAFETY: no generated code pointer is used after this point.
     unsafe { module.free_memory() };
+    ensure!(
+        memory_audit.is_released(),
+        "baseline JIT retained memory mappings"
+    );
     Ok(run)
 }
 
@@ -366,6 +373,7 @@ struct BaselineRuntime {
     caught_errors: Vec<Failure>,
     data: ManagedData,
     arguments: rinzu_runtime::data::ProgramArguments,
+    exit_status: u8,
     data_roots: ManagedRoots,
     root_publications: usize,
     peak_root_frames: usize,
@@ -429,6 +437,7 @@ impl BaselineRuntime {
             caught_errors: Vec::new(),
             data,
             arguments: rinzu_runtime::data::ProgramArguments::new(arguments),
+            exit_status: 0,
             data_roots: ManagedRoots::default(),
             root_publications: 0,
             peak_root_frames: 0,
@@ -774,14 +783,17 @@ extern "C" fn baseline_stdout(
     })
 }
 
-extern "C" fn baseline_task_control(
-    context: *mut BaselineRuntime,
-    _kind: i64,
-    _future: i64,
-) -> i64 {
+extern "C" fn baseline_task_control(context: *mut BaselineRuntime, kind: i64, value: i64) -> i64 {
     with_runtime(context, 0, |runtime| {
-        runtime.fail(BaselineFailure::Unsupported);
-        0
+        if kind != rinzu_compiler::TaskControlKind::ExitStatus as i64 {
+            runtime.fail(BaselineFailure::Unsupported);
+            return 0;
+        }
+        let Ok(status) = u8::try_from(value) else {
+            return 0;
+        };
+        runtime.exit_status = status;
+        1
     })
 }
 

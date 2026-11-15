@@ -18,7 +18,7 @@ static uint64_t rinzu_jit_clock(void) {
 /* JIT_ENTRY_COUNTS */
 static uintptr_t rinzu_jit_functions[RINZU_JIT_FUNCTION_COUNT ? RINZU_JIT_FUNCTION_COUNT : 1];
 static uintptr_t rinzu_jit_stubs[RINZU_JIT_STUB_COUNT ? RINZU_JIT_STUB_COUNT : 1];
-static uint64_t rinzu_jit_cancel_after, rinzu_jit_shutdown_after;
+static uint64_t rinzu_jit_cancel_after, rinzu_jit_shutdown_after, rinzu_jit_cancel_worker_after;
 static const char *rinzu_jit_directory;
 static char *rinzu_jit_report;
 static size_t rinzu_jit_report_size, rinzu_jit_report_capacity;

@@ -6,16 +6,18 @@ pub(crate) fn compile_async_jit(
     external_symbols: &BTreeMap<String, usize>,
     native_imports: &HashMap<String, u64>,
 ) -> Result<CompiledAsyncJit> {
-    let isa = isa::native_isa(false)?;
+    let target = Target::host().ok_or_else(|| anyhow!("unsupported async JIT host"))?;
+    let isa = isa::jit_isa()?;
     let mut builder = JITBuilder::with_isa(isa, default_libcall_names());
     for (symbol, address) in external_symbols {
         ensure!(*address != 0, "null async runtime symbol");
         builder.symbol(symbol, address.to_owned() as *const u8);
     }
-    let (memory, audit) = MacOsArm64JitMemory::new_with_audit()?;
+    let (memory, audit) = JitMemory::new_with_audit()?;
     builder.memory_provider(Box::new(memory));
     let mut module = JITModule::new(builder);
-    let runtime = declare_runtime_functions(&mut module, ir, true, true, true)?;
+    let runtime =
+        declare_runtime_functions(&mut module, ir, true, true, uses_direct_c_context(target))?;
     let functions = declare_managed_functions(&mut module, ir, Linkage::Export)?;
     let mut compile = CompileEvidence {
         stack_map_count: 0,
@@ -41,10 +43,7 @@ pub(crate) fn compile_async_jit(
         .context("finalize compiled async JIT")?;
     let memory = audit.snapshot();
     ensure!(
-        memory.executable_mappings > 0
-            && memory.icache_flushes == memory.executable_mappings
-            && memory.rx_transitions == memory.executable_mappings
-            && memory.rwx_mappings == 0,
+        memory.executable_mappings > 0 && memory.is_published(),
         "compiled async JIT violated W^X publication"
     );
     let symbols = module
@@ -60,6 +59,7 @@ pub(crate) fn compile_async_jit(
         .collect();
     Ok(CompiledAsyncJit {
         module: Some(module),
+        audit,
         symbols,
         compile,
         executable_mappings: memory.executable_mappings,
