@@ -1,8 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
-- Register the separately versioned `rinzu.macos` SDK with `rinzu modules add`. SDK archives can include native inputs covered by the modules lock and checked during builds. Keep `import rinzu.macos;`, refresh the application lock, and rebuild native and AOT artifacts. The toolchain bundle retains codec, log, SQLite, and SDL2 on both hosts. [macOS SDK migration](docs/libraries/macos.md)
+Rinzu 0.4.0 adds x86_64 Linux with glibc and supports native SDK archives in the module manager. The source language remains `0.5`.
+
+### Upgrade from 0.3.0
+
+- Register the separately versioned `rinzu.macos` v0.1.0 with `rinzu modules add`. Keep `import rinzu.macos;` and commit the application manifest and modules lock. [macOS SDK migration](docs/libraries/macos.md)
+- Update exact `[toolchain]` pins, refresh native build locks with `rinzu lock`, and rebuild generated SDK and AOT artifacts. [Manifests and dependencies](docs/packages/manifest.md)
+- Install a toolchain bundle for your host. Both bundles include codec, log, SQLite, and SDL2. [Toolchain bundles](docs/tooling/distribution.md#export-the-toolchain)
+
+### New and improved
+
+- **Native SDK archives.** Register native source packages with `rinzu modules add`. The modules lock pins the archive and file inventory. Builds check the native inputs, including headers discovered through include paths, and `rinzu modules sync --offline` can restore cached packages. [Source archives](docs/packages/manifest.md#add-a-source-archive)
+- **x86_64 Linux.** Run JIT and AOT with synchronous and asynchronous Main, Workers, and native SDKs. Keep the executable and ELF source-package sidecars together when distributing applications. [Installation](docs/getting-started/installation.md) · [Supported platforms](docs/reference/support.md)
 
 ## 0.3.0
 

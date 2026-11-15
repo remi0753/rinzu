@@ -15,7 +15,7 @@ fn main() {
 }
 ```
 
-Rinzu supports JIT and AOT on **macOS arm64** and **x86_64 Linux with glibc**. Both targets support async tasks, Workers, and native SDKs. The source language version is `0.5` and the toolchain version is `0.3.0`.
+Rinzu supports JIT and AOT on **macOS arm64** and **x86_64 Linux with glibc**. Both targets support async tasks, Workers, and native SDKs. The source language version is `0.5` and the toolchain version is `0.4.0`.
 
 [Documentation](docs/README.md) · [Introduction](docs/introduction.md) · [Installation](docs/getting-started/installation.md) · [Quick start](docs/getting-started/quickstart.md) · [Changelog](CHANGELOG.md)
 

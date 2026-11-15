@@ -5,7 +5,7 @@
 | Interface | Current form |
 | --- | --- |
 | Source language | 0.5 |
-| Toolchain crate / `rinzu --version` | 0.3.0 |
+| Toolchain crate / `rinzu --version` | 0.4.0 |
 | JIT runtime | macOS arm64 and x86_64 Linux with glibc |
 | AOT targets | macOS arm64 and x86_64 Linux with glibc, `x86_64-unknown-linux-gnu` |
 | Build toolchain | Rust 1.97.1 |

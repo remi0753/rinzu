@@ -1,7 +1,7 @@
 {
   "schema": "rinzu.standard-library-license-inventory-v1",
   "revision": 4,
-  "toolchainVersion": "0.3.0",
+  "toolchainVersion": "0.4.0",
   "ownSource": {
     "includes": [
       "Rinzu standard source",
@@ -42,9 +42,48 @@
       ],
       "bundled": false,
       "licenseSource": "platform distribution; no third-party license text supplied by this repository"
+    },
+    {
+      "name": "glibc",
+      "provider": "Linux host",
+      "use": "toolchain and generated executables",
+      "bundled": false,
+      "licenseSource": "platform distribution"
+    },
+    {
+      "name": "libgcc_s",
+      "provider": "Linux host",
+      "use": "toolchain and generated executables",
+      "bundled": false,
+      "licenseSource": "platform distribution"
+    },
+    {
+      "name": "libcrypto",
+      "provider": "Linux host",
+      "use": "native image verification in the compiled runtime",
+      "bundled": false,
+      "licenseSource": "platform distribution"
+    },
+    {
+      "name": "libacl",
+      "provider": "Linux host",
+      "owners": [
+        "rinzu.io"
+      ],
+      "bundled": false,
+      "licenseSource": "platform distribution"
+    },
+    {
+      "name": "libcurl",
+      "provider": "Linux host",
+      "owners": [
+        "rinzu.http"
+      ],
+      "bundled": false,
+      "licenseSource": "platform distribution"
     }
   ],
-  "additionalSdkPolicy": "Toolchain bundles ship the official codec, log, macos, sqlite, and sdl2 SDK sources separately from the standard resources. Their native platform libraries and SDL2 are supplied by the host. The shim and consumption example SDKs remain outside the toolchain bundle.",
+  "additionalSdkPolicy": "Toolchain bundles ship the official codec, log, sqlite, and sdl2 SDK sources separately from the standard resources. The host supplies their platform libraries and SDL2. The macOS SDK is a separately distributed module. The shim and consumption example SDKs remain outside the toolchain bundle.",
   "generatedAotDependencies": "The deployment inventory records actual selected images and their hashes/UUIDs; it is not a substitute for license texts.",
   "bundledDependencies": [
     {

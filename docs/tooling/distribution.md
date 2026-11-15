@@ -57,12 +57,13 @@ On macOS arm64 or x86_64 Linux, choose a new directory whose parent exists. The 
 
 The bundled executable resolves official SDKs such as `rinzu.codec` and `rinzu.sqlite` from source imports. It checks that the installation catalog matches its release and target, and verifies inputs for each SDK it uses. Use `rinzu doctor --sdk rinzu.sdl2` to check the installed catalog and SDL2 configuration. Native SDK builds use the local development toolchain. Both hosts bundle `rinzu.codec`, `rinzu.log`, `rinzu.sqlite`, and `rinzu.sdl2`. For macOS GUI applications, register the published `rinzu.macos` module. [macOS SDK setup](../libraries/macos.md)
 
-For a tagged release, build from the tagged source with the lockfile and record the source commit in the bundle.
+For a tagged release, build from the tagged source with the lockfile and record the source commit in the bundle. Use the host target in each archive name.
 
 ```sh
 RINZU_SOURCE_COMMIT="$(git rev-parse HEAD)" cargo build --release --locked -p rinzu-driver --bin rinzu
 release="$(./target/release/rinzu --version | cut -d ' ' -f 2)"
-bundle="rinzu-${release}-aarch64-apple-darwin"
+target="$(rustc --print host-tuple)"
+bundle="rinzu-${release}-${target}"
 ./target/release/rinzu toolchain-bundle --output "$bundle"
 tar -czf "$bundle.tar.gz" "$bundle"
 shasum -a 256 "$bundle.tar.gz" > "$bundle.tar.gz.sha256"

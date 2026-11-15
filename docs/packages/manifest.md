@@ -54,7 +54,7 @@ toolchain = "0.3.0"
 
 `modules add` checks manifest requirements throughout the dependency graph before updating the project. `modules sync` restores the pinned sources. Compilation checks those requirements again and resolves the official API in the active toolchain. Published archives can use standard modules and archive-compatible official SDKs such as `rinzu.codec` and `rinzu.log`. Applications and local SDKs can also import official SDKs with additional native inputs.
 
-An optional `[toolchain]` section with `version = "0.3.0"` in the root project requires that exact release. Invoke the matching executable; the manifest does not install or switch toolchains. After changing the declared language level, run `rinzu modules relock` to refresh declaration fingerprints using the same installed and pinned sources.
+An optional `[toolchain]` section with `version = "0.4.0"` in the root project requires that exact release. Invoke the matching executable; the manifest does not install or switch toolchains. After changing the declared language level, run `rinzu modules relock` to refresh declaration fingerprints using the same installed and pinned sources.
 
 ## SDK manifests
 

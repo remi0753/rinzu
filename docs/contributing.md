@@ -56,7 +56,7 @@ cargo xtask differential
 
 Sanitizer fixtures are under `tests/fixtures/c-abi`. The standalone runtime model is under `tests/runtime-model`. Run it separately with `cargo xtask model`. Use `CARGO_TARGET_DIR` for an isolated Cargo build and `BUILD_DIR` for an isolated C sanitizer build.
 
-The [VS Code host tests](tooling/editor.md) need a desktop session. The external macOS SDK repository runs Window, frame clock, sheet, and Metal checks. Use its `--ui` and `--require-gpu` flags for the desktop and GPU checks. The Rinzu suite exercises the native runtime and a relocatable signed `.app` using its own fixtures. [SDK validation commands](https://github.com/remi0753/rinzu-macos/blob/v0.1.0/README.md#verify-the-sdk)
+The [VS Code host tests](tooling/editor.md) need a desktop session. The external macOS SDK repository runs Window, frame clock, sheet, and Metal checks. Use its `--ui` and `--require-gpu` flags for the desktop and GPU checks. The Rinzu suite exercises the native runtime and a relocatable signed `.app` using its own fixtures. [SDK validation commands](https://github.com/remi0753/rinzu-macos/blob/1aafc9967fdafcfdb3e44f2def3b2c6ee4f7640f/README.md#verify-the-sdk)
 
 ## Fuzzing and extended checks
 

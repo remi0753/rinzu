@@ -36,7 +36,7 @@ export PATH="$PWD/target/release:$PATH"
 rinzu --version
 ```
 
-The remaining pages use `rinzu` in commands. Toolchain version `0.3.0` and source language version `0.5` describe different interfaces. See the [migration notes](../../CHANGELOG.md#upgrade-from-020) when upgrading from toolchain `0.2.0`.
+The remaining pages use `rinzu` in commands. Toolchain version `0.4.0` and source language version `0.5` describe different interfaces. See the [migration notes](../../CHANGELOG.md#upgrade-from-030) when upgrading from toolchain `0.3.0`.
 
 ## Optional dependencies
 
