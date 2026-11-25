@@ -235,12 +235,13 @@ fn manifest_and_native_input_diagnostics_name_their_own_input() {
         )
     );
 
-    fixture.app("fn main() {}\nfn test_unit() {}");
+    fixture.app("fn main() {}");
+    fixture.file("app/tests/fixture.test.rinzu", "fn main() {}");
     fixture.file("app/bad.txt", "");
     for args in [
         vec!["check", "app", "--native-object", "bad.txt"],
         vec!["test", "app", "--native-object", "bad.txt"],
-        vec!["test", "app", "--unit", "--native-object", "bad.txt"],
+        vec!["test", "app/tests", "--native-object", "bad.txt"],
         vec!["lock", "app", "--native-object", "bad.txt"],
     ] {
         let output = fixture.cli(&args);
@@ -282,25 +283,28 @@ fn import_errors_point_into_the_dependency_and_back_to_the_import() {
 }
 
 #[test]
-fn unit_and_doc_text_diagnostics_match_the_json_source_locations() {
+fn file_and_doc_text_diagnostics_match_the_json_source_locations() {
     let fixture = Fixture::new();
-    fixture.app("fn main() {}\nfn test_wrong() {\n    let value: Int = \"no\";\n}");
+    fixture.app("fn main() {}");
+    fixture.file(
+        "app/tests/wrong.test.rinzu",
+        "fn main() {\n    let value: Int = \"no\";\n}",
+    );
     fixture.file(
         "app/説明 文.md",
         "# 😀\r\n\r\n```rinzu-test\r\nfn main() {\r\n    let value: Int = \"no\";\r\n}\r\n```\r\n",
     );
     for (flags, path, line) in [
-        (vec!["--unit"], "app/src/main.rinzu", 3),
-        (vec!["--doc", "説明 文.md"], "app/説明 文.md", 5),
+        (vec!["test", "app/tests"], "app/tests/wrong.test.rinzu", 2),
+        (
+            vec!["test", "app", "--doc", "説明 文.md"],
+            "app/説明 文.md",
+            5,
+        ),
     ] {
-        if flags[0] == "--doc" {
-            fixture.app("fn main() {}");
-        }
-        let mut args = vec!["test", "app"];
-        args.extend(flags);
+        let mut args = flags;
         let output = fixture.cli(&args);
         assert_eq!(output.status.code(), Some(1));
-        assert_eq!(output.stdout, b"tests: 0 selected, 0 passed, 0 failed\n");
         let stderr = String::from_utf8(output.stderr).unwrap();
         let heading = format!("{path}:{line}:22: RZ0301:");
         assert!(stderr.starts_with(&heading), "{stderr}");
@@ -311,6 +315,10 @@ fn unit_and_doc_text_diagnostics_match_the_json_source_locations() {
         assert!(output.stderr.is_empty(), "{output:?}");
         let report: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(report["schema"], "rinzu.test-report");
+        if line == 2 {
+            assert_eq!(report["summary"]["failed"], 1);
+            assert_eq!(report["entries"][0]["status"], "compile-error");
+        }
         let rows = report["diagnostics"].as_array().unwrap();
         assert_eq!(rows.len(), 1, "{report:#}");
         let d = &rows[0];
@@ -904,19 +912,27 @@ fn import_cycle_renders_the_closing_edge_and_the_earlier_edge_once() {
 #[test]
 fn test_worker_resolves_diagnostics_from_its_own_check_in_each_mode() {
     let fixture = Fixture::new();
-    fixture.app(&format!("{DUPLICATE}fn test_changed() {{}}\n"));
+    fixture.app("fn main() {}");
+    let relative = "app/tests/changed.test.rinzu";
+    fixture.file(relative, DUPLICATE);
     for json_mode in [false, true] {
         let scratch = fixture.0.join(format!("worker-{json_mode}"));
         fs::create_dir(&scratch).unwrap();
         let request = json!({
             "root":fixture.0.join("app"),
-            "unit":true,
-            "documents":[],
-            "identity":"unit:main::test_changed",
+            "identity":"file:tests/changed.test.rinzu",
+            "input":{
+                "kind":"file",
+                "path":fixture.0.join(relative),
+                "case":null,
+                "inputs":{
+                    "manifest":rinzu_bindgen::source_package::sha256(PACKAGE.as_bytes()),
+                    "modules_lock":null
+                },
+            },
             "native_flags":[],
             "json":json_mode,
-            "diagnostic_cwd":fixture.0,
-            "receipts":[]
+            "diagnostic_cwd":fixture.0
         });
         let mut child = fixture
             .command(&["__test-worker", scratch.to_str().unwrap()])
@@ -941,14 +957,17 @@ fn test_worker_resolves_diagnostics_from_its_own_check_in_each_mode() {
             let diagnostics = result["diagnostics"].as_array().unwrap();
             assert_eq!(diagnostics.len(), 1, "{result:#}");
             assert_eq!(diagnostics[0]["code"], "RZ0201");
-            let expected_path = fixture.0.join("app/src/main.rinzu");
+            let expected_path = fixture.0.join(relative);
             assert_eq!(diagnostics[0]["location"]["path"], json!(expected_path));
             assert_eq!(diagnostics[0]["location"]["line"], 3);
             assert_eq!(diagnostics[0]["location"]["column"], 5);
             assert_eq!(diagnostics[0]["related"][0]["location"]["line"], 2);
             assert!(result.get("diagnosticBlocks").is_none(), "{result:#}");
         } else {
-            assert_eq!(result["diagnosticBlocks"], json!([DUPLICATE_BLOCK]));
+            assert_eq!(
+                result["diagnosticBlocks"],
+                json!([DUPLICATE_BLOCK.replace("app/src/main.rinzu", relative)]),
+            );
             assert!(result.get("diagnostics").is_none(), "{result:#}");
         }
     }

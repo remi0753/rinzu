@@ -107,6 +107,14 @@ pub struct OperationTicket {
 }
 
 impl OperationTicket {
+    #[cfg(feature = "test-native-lifetime-trace")]
+    pub(crate) fn observe(&self, p: Option<Arc<crate::lifetime_trace::Probe>>) {
+        self.resolver.observe(p);
+    }
+    #[cfg(feature = "test-native-lifetime-trace")]
+    pub(crate) fn lifetime_event(&self, kind: &'static str, a: i64) {
+        self.resolver.lifetime_event(kind, a);
+    }
     /// Bind on the physical Worker before entry and keep registration through
     /// its cleanup. Origin requests cannot see managed Worker state.
     #[cfg(unix)]
@@ -275,6 +283,11 @@ impl OperationMailbox {
             (ResourceKind::PendingOperation, 1),
             (ResourceKind::QueueSlot, 1),
         ])?;
+        #[cfg(feature = "test-native-lifetime-trace")]
+        resolver.lifetime_event(
+            "owner_settle",
+            i64::from(!matches!(resolution, Resolution::Completed(_))),
+        );
         Ok(resolution)
     }
 

@@ -65,7 +65,7 @@ impl Evaluated {
 
 pub(super) struct Analyzer<'a> {
     pub(super) checked: &'a CheckedModule,
-    summaries: &'a BTreeMap<String, Summary>,
+    summaries: &'a EffectSummaries,
     pub(super) bound: usize,
     diagnose: bool,
     editor_effects: Option<&'a mut EditorEffects>,
@@ -83,7 +83,7 @@ pub(super) struct Analyzer<'a> {
 impl<'a> Analyzer<'a> {
     pub fn new(
         checked: &'a CheckedModule,
-        summaries: &'a BTreeMap<String, Summary>,
+        summaries: &'a EffectSummaries,
         bound: usize,
         diagnose: bool,
     ) -> Self {
@@ -189,7 +189,10 @@ impl<'a> Analyzer<'a> {
                 .collect();
             sites.sort_by_key(|(range, _)| (range.file_id.0, range.start_byte));
             for (range, paths) in sites {
-                let selection = &self.checked.rethrows[&range];
+                let selection = &self
+                    .checked
+                    .fact_rethrows(&range)
+                    .expect("checked rethrows");
                 let start = selection.tail.unwrap() as usize;
                 if paths.is_empty()
                     || paths
@@ -278,14 +281,13 @@ impl<'a> Analyzer<'a> {
         if self.proof
             && self
                 .checked
-                .error_conversions
-                .contains_key(&expression.range)
+                .fact_error_conversions(&expression.range)
+                .is_some()
         {
             return Value::Plain;
         }
         self.checked
-            .error_upcasts
-            .get(&expression.range)
+            .fact_error_upcasts(&expression.range)
             .or_else(|| self.checked.expression_type(expression.range))
             .map_or(Value::Plain, |ty| self.typed(ty))
     }
@@ -381,7 +383,10 @@ impl<'a> Analyzer<'a> {
                 }
             }
             StatementKind::Rethrow { .. } => {
-                let selection = &self.checked.rethrows[&statement.range];
+                let selection = &self
+                    .checked
+                    .fact_rethrows(&statement.range)
+                    .expect("checked rethrows");
                 let mut catches = self.caught.iter();
                 let mut paths = catches
                     .find(|(scope, _)| *scope == selection.handler)
@@ -752,7 +757,7 @@ impl<'a> Analyzer<'a> {
                     }
                 }
             }
-            if !self.checked.rethrows.is_empty() {
+            if self.checked.memo_has_rethrow() {
                 self.caught
                     .push((handler.body.range, language::accepted(&remaining, &pattern)));
             }
@@ -760,7 +765,7 @@ impl<'a> Analyzer<'a> {
             self.dead |= matched.is_empty();
             let mut caught = self.block(&handler.body, &mut catch_env);
             self.dead = dead;
-            if !self.checked.rethrows.is_empty() {
+            if self.checked.memo_has_rethrow() {
                 self.caught.pop();
             }
             caught.errors = language::conditioned(&caught.errors, &matched);
@@ -827,7 +832,7 @@ impl<'a> Analyzer<'a> {
         if self.proof
             && self.diagnose
             && evaluated.success
-            && let Some(conversion) = self.checked.error_conversions.get(&expression.range)
+            && let Some(conversion) = self.checked.fact_error_conversions(&expression.range)
         {
             let actual = self.proven_bound(&evaluated.value);
             if actual
@@ -851,9 +856,8 @@ impl<'a> Analyzer<'a> {
             Value::BoundedCallable(types) => bound.extend(types.iter().cloned()),
             Value::Callable(targets) => {
                 for target in targets {
-                    if self.checked.functions.iter().any(|function| {
-                        function.declaration.name == *target && function.declaration.is_async
-                    }) || crate::core::reference_signature(target).is_some()
+                    if self.checked.memo_is_async(target)
+                        || crate::core::reference_signature(target).is_some()
                     {
                         continue;
                     }
@@ -897,9 +901,10 @@ impl<'a> Analyzer<'a> {
                 Evaluated::pure(self.expression_value(expression))
             }
             ExpressionKind::Name(path) => {
-                let value = if let Some(ty) = self.checked.error_narrowings.get(&expression.range) {
+                let value = if let Some(ty) = self.checked.fact_error_narrowings(&expression.range)
+                {
                     self.typed(ty)
-                } else if let Some(name) = self.checked.static_references.get(&expression.range) {
+                } else if let Some(name) = self.checked.fact_static_references(&expression.range) {
                     Value::Callable(BTreeSet::from([name.clone()]))
                 } else if path.len() == 1 {
                     env.get(&path[0])
@@ -926,7 +931,7 @@ impl<'a> Analyzer<'a> {
                         result
                     }
                 };
-                if self.checked.native_record_reads.contains(&expression.range) {
+                if self.checked.fact_native_record_reads(&expression.range) {
                     result.errors.extend(self.at(
                         one(Tag::Any),
                         expression.range,
@@ -971,8 +976,7 @@ impl<'a> Analyzer<'a> {
                 let value = self.expression(value, env, false);
                 let expected = self
                     .checked
-                    .error_tests
-                    .get(&expression.range)
+                    .fact_error_tests(&expression.range)
                     .and_then(|ty| tag(self.checked, ty));
                 let known = if let (Value::Error(tags), Some(expected)) = (&value.value, expected) {
                     if tags.iter().all(|tag| *tag == expected) {
@@ -1042,7 +1046,7 @@ impl<'a> Analyzer<'a> {
             ExpressionKind::Bind { arguments, .. } => {
                 let (_, errors, success) = self.arguments(arguments, env);
                 Evaluated {
-                    value: self.checked.bindings.get(&expression.range).map_or_else(
+                    value: self.checked.fact_bindings(&expression.range).map_or_else(
                         || self.expression_value(expression),
                         |binding| Value::Callable(BTreeSet::from([binding.target.clone()])),
                     ),
@@ -1053,9 +1057,9 @@ impl<'a> Analyzer<'a> {
             ExpressionKind::FormatString(values) => {
                 let mut result = self.sequence(expression, values.iter(), env);
                 if values.iter().any(|value| {
-                    self.checked.expression_type(value.range).is_some_and(|ty| {
-                        crate::sema::display_reads_native_record(&self.checked.source_types, ty)
-                    })
+                    self.checked
+                        .expression_type(value.range)
+                        .is_some_and(|ty| self.checked.memo_display_native(ty))
                 }) {
                     result.errors.extend(self.at(
                         one(Tag::Any),
@@ -1119,24 +1123,22 @@ impl<'a> Analyzer<'a> {
     }
 
     fn await_reception(&mut self, operand: &Expression, at: SourceRange) -> Option<Arc<Reception>> {
+        let trace = self.catch_trace.as_mut()?;
         let target = match &operand.kind {
             ExpressionKind::Call { target, .. } | ExpressionKind::GenericCall { target, .. } => {
                 target
             }
             _ => return None,
         };
-        if self.checked.indirect_fields.contains_key(&operand.range) {
+        if self.checked.fact_indirect_fields(&operand.range).is_some() {
             return None;
         }
         let name = target.join(".");
         let function = self
             .checked
-            .functions
-            .iter()
-            .find(|f| f.declaration.name == name && f.declaration.is_async)?;
-        self.catch_trace
-            .as_mut()
-            .map(|trace| trace.direct(at, &function.declaration))
+            .memo_function(&name)
+            .filter(|f| f.declaration.is_async)?;
+        Some(trace.direct(at, &function.declaration))
     }
 
     fn call(
@@ -1152,8 +1154,8 @@ impl<'a> Analyzer<'a> {
         // CheckLocal in IR. try all can continue after its initializer failed.
         let unbound = self
             .checked
-            .indirect_calls
-            .contains_key(&expression.range)
+            .fact_indirect_calls(&expression.range)
+            .is_some()
             .then(|| env.get(&target[0]))
             .flatten();
         if matches!(unbound, Some(Value::Unbound(inner)) if **inner == Value::Bottom) {
@@ -1164,7 +1166,8 @@ impl<'a> Analyzer<'a> {
             };
         }
         let (values, mut argument_errors, argument_success) = self.arguments(arguments, env);
-        if self.checked.data_operations.get(&expression.range) == Some(&crate::DataOperation::Panic)
+        if self.checked.fact_data_operations(&expression.range)
+            == Some(&crate::DataOperation::Panic)
         {
             if argument_success {
                 self.editor_effect(expression.range, &Language::new(), false);
@@ -1189,8 +1192,7 @@ impl<'a> Analyzer<'a> {
         };
         let invocation = self
             .checked
-            .indirect_signatures
-            .get(&expression.range)
+            .fact_indirect_signatures(&expression.range)
             .and_then(|call| {
                 if self.proof {
                     let value = self.project_name(target, env, Value::Plain);
@@ -1222,7 +1224,7 @@ impl<'a> Analyzer<'a> {
                 reception,
             ));
         }
-        let indirect = self.checked.indirect_calls.get(&expression.range);
+        let indirect = self.checked.fact_indirect_calls(&expression.range);
         let mut targets = indirect.cloned().unwrap_or_else(|| vec![name.clone()]);
         if targets.is_empty() {
             targets.push(name.clone());
@@ -1256,15 +1258,7 @@ impl<'a> Analyzer<'a> {
                 super::operations::scalar_constructor(self.checked, expression, target).is_none()
             }) {
                 let summary = instantiate(summary, name, &values, self.bound);
-                let function = if spawn {
-                    None
-                } else {
-                    self.checked
-                        .functions
-                        .iter()
-                        .find(|function| function.declaration.name == *name)
-                };
-                let asynchronous = spawn || function.is_some_and(|f| f.declaration.is_async);
+                let asynchronous = spawn || self.checked.memo_is_async(name);
                 if asynchronous {
                     let future = self.condition_value(
                         Value::Future {
@@ -1283,8 +1277,11 @@ impl<'a> Analyzer<'a> {
                             None
                         } else {
                             self.catch_trace.as_mut().map(|trace| {
-                                if let Some(function) = function
-                                    && !self.checked.indirect_fields.contains_key(&expression.range)
+                                if let Some(function) = self.checked.memo_function(name)
+                                    && !self
+                                        .checked
+                                        .fact_indirect_fields(&expression.range)
+                                        .is_some()
                                 {
                                     trace.direct(expression.range, &function.declaration)
                                 } else {
@@ -1387,7 +1384,7 @@ impl Reads<'_> {
             && self.env.get(name).is_some_and(|value| {
                 !matches!(value, Value::Unbound(_) | Value::Union(_) | Value::Bottom)
             })
-            && !self.checked.native_record_reads.contains(&expression.range)
+            && !self.checked.fact_native_record_reads(&expression.range)
             && self
                 .checked
                 .expression_type(expression.range)
@@ -1421,8 +1418,7 @@ impl Visitor for Reads<'_> {
         if self.env.contains_key(&target[0])
             || !self
                 .checked
-                .source_types
-                .get(&target.join("."))
+                .memo_schema(&target.join("."))
                 .is_some_and(|ty| ty.kind == "error")
         {
             return;

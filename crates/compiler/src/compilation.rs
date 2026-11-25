@@ -22,7 +22,7 @@ pub struct CompilationOptions {
     pub target: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CompilationContext {
     pub mode: CompilationMode,
     pub entry: PathBuf,
@@ -75,6 +75,39 @@ pub fn check_input_with_sources(
     native: &NativeCliInputs,
     sources: &mut SourceSnapshot<'_>,
 ) -> Result<CompilationContext, Vec<Diagnostic>> {
+    check_input_with_sdk_observer(start, options, native, sources, &mut |_, _| {})
+}
+
+/// Observe fully checked SDK interfaces while the application is still being
+/// checked. The observer cannot publish a result for the application.
+pub fn check_input_with_sdk_observer<'a>(
+    start: &Path,
+    options: &CompilationOptions,
+    native: &NativeCliInputs,
+    sources: &mut SourceSnapshot<'_>,
+    observe: &'a mut dyn FnMut(&Manifest, &[crate::ResolvedSdkPackage]),
+) -> Result<CompilationContext, Vec<Diagnostic>> {
+    check_input_with_sdk_progress(start, options, native, sources, &mut |manifest, event| {
+        if let SdkCheckProgress::Ready(packages) = event {
+            observe(manifest, packages);
+        }
+    })
+}
+
+pub enum SdkCheckProgress<'a> {
+    Checked(&'a crate::ResolvedSdkPackage),
+    Ready(&'a [crate::ResolvedSdkPackage]),
+}
+
+/// Report checked dependencies as they become available and the final SDK order
+/// before checking the application body.
+pub fn check_input_with_sdk_progress<'a>(
+    start: &Path,
+    options: &CompilationOptions,
+    native: &NativeCliInputs,
+    sources: &mut SourceSnapshot<'_>,
+    observe: &'a mut dyn FnMut(&Manifest, SdkCheckProgress<'_>),
+) -> Result<CompilationContext, Vec<Diagnostic>> {
     let cwd = std::env::current_dir().map_err(|error| input_error(start, error.to_string()))?;
     let absolute = if start.is_absolute() {
         start.to_owned()
@@ -123,8 +156,12 @@ pub fn check_input_with_sources(
                 "--language cannot override package language; edit the manifest or specify a source file",
             ));
         }
-        let (mut manifest, mut artifact) =
-            crate::package::check_with_sources_for_target(&canonical, sources, sdk_target)?;
+        let (mut manifest, mut artifact) = crate::package::check_with_sources_for_target(
+            &canonical,
+            sources,
+            sdk_target,
+            Some(observe),
+        )?;
         artifact.native_inputs = native.normalize(&manifest)?;
         manifest
             .native

@@ -3,7 +3,9 @@ mod dead_roots;
 mod proven_owner;
 pub use proven_owner::proven_data_owner_operations;
 mod proven_roots;
-pub use proven_roots::{proven_frame_memberships, proven_frame_roots};
+pub use proven_roots::{
+    FrameProofs, proven_frame_memberships, proven_frame_plans, proven_frame_roots,
+};
 mod fresh_futures;
 pub use fresh_futures::fresh_return_consuming_awaits;
 mod errors;
@@ -11,7 +13,7 @@ mod native_calls;
 mod virtual_options;
 pub use dead_roots::{dead_local_roots, dead_temporary_roots};
 use std::collections::{HashMap, HashSet};
-pub use virtual_options::virtual_bytes_options;
+pub use virtual_options::{VirtualOptions, virtual_bytes_options, virtual_options};
 
 use crate::ast::{
     Arguments, BinaryOperator, Block, Expression, ExpressionKind, Literal, Statement,
@@ -20,45 +22,45 @@ use crate::ast::{
 use crate::sema::{CheckedFunction, CheckedModule, FunctionFacts, NativeCallClass, Type};
 use crate::{Diagnostic, DiagnosticCode, SourceRange};
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BlockId(pub u32);
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValueId(pub u32);
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ResumeDomain {
     Origin,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum AwaitReadyPath {
     ContinueInline,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum AwaitPendingPath {
     SuspendAndResume,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum SpawnAdmission {
     Required,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum NativeTransition {
     NativeSafe,
     OwnerThreadSync,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ReservationId(pub u32);
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NativeCallId(pub u32);
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CallbackArgumentPlan {
     pub index: usize,
     pub targets: Vec<String>,
@@ -66,13 +68,13 @@ pub struct CallbackArgumentPlan {
     pub capture: Option<Type>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum NativeEntryDomain {
     CurrentCaller,
     ProcessMain,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ExitReason {
     Normal,
     Return,
@@ -82,7 +84,7 @@ pub enum ExitReason {
     Cancellation,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum PollReason {
     FunctionEntry,
     LoopBackedge,
@@ -93,18 +95,18 @@ pub enum PollReason {
     Spawn,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum StackRoot {
     Value { value: ValueId, ty: Type },
     Local { name: String, ty: Type },
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StackMap {
     pub roots: Vec<StackRoot>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct IrModule {
     pub functions: Vec<IrFunction>,
     /// Canonical nominal identities with fields and variants in declaration order.
@@ -118,7 +120,7 @@ pub struct IrModule {
     pub native_records: std::collections::BTreeMap<String, Vec<(String, crate::AbiScalar)>>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct IrFunction {
     pub name: String,
     pub is_async: bool,
@@ -133,7 +135,7 @@ pub struct IrFunction {
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BasicBlock {
     pub id: BlockId,
     pub operations: Vec<Operation>,
@@ -142,7 +144,7 @@ pub struct BasicBlock {
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ScopeInfo {
     pub scope: SourceRange,
     pub parent: Option<SourceRange>,
@@ -151,14 +153,14 @@ pub struct ScopeInfo {
 }
 
 /// Call roots release first; finally then runs before lexical roots and storage release.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct UnwindPlan {
     pub finally: Vec<BlockId>,
     pub release_scopes: Vec<SourceRange>,
     pub release_native_calls: Vec<NativeCallId>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Operation {
     pub result: Option<TypedValue>,
     pub kind: OperationKind,
@@ -166,13 +168,13 @@ pub struct Operation {
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TypedValue {
     pub id: ValueId,
     pub ty: Type,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ConstantValue {
     Unit,
     Bool(bool),
@@ -183,7 +185,7 @@ pub enum ConstantValue {
 }
 
 /// Only operation Error takes this edge; traps and cancellation use failure/cleanup_chain.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ErrorEdge {
     pub target: BlockId,
     pub cleanup_chain: Vec<BlockId>,
@@ -191,7 +193,7 @@ pub struct ErrorEdge {
     pub release_native_calls: Vec<NativeCallId>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum OperationKind {
     EnterErrorGroup {
         scope: SourceRange,
@@ -514,7 +516,7 @@ pub enum OperationKind {
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Terminator {
     Pending,
     Goto {
@@ -543,6 +545,18 @@ pub enum Terminator {
 }
 
 pub(crate) fn lower(checked: &CheckedModule) -> IrModule {
+    lower_cached(checked, None)
+}
+
+pub(crate) fn lower_cached(
+    checked: &CheckedModule,
+    mut cache: Option<&mut crate::FunctionFrontendCache>,
+) -> IrModule {
+    let mut timing = crate::timing::span("frontend.lower.functions");
+    let facts = cache
+        .is_some()
+        .then(|| crate::function_cache::Facts::new(checked));
+    let mut restored = 0;
     let mut ir = IrModule {
         source_locations: Default::default(),
         source_files: checked
@@ -580,9 +594,28 @@ pub(crate) fn lower(checked: &CheckedModule) -> IrModule {
         functions: checked
             .functions
             .iter()
-            .map(|function| Builder::new(checked, function).lower())
+            .map(|function| {
+                let compute = || Builder::new(checked, function).lower();
+                let Some((memos, facts)) = cache.as_mut().zip(facts.as_ref()) else {
+                    return compute();
+                };
+                let name = &function.declaration.name;
+                let (lowered, reused) = crate::function_cache::evaluate(
+                    &mut memos.lowering,
+                    name,
+                    || facts.body(name),
+                    |read| facts.resolve(read),
+                    None,
+                    |_| (),
+                    compute,
+                );
+                restored += u64::from(reused);
+                lowered
+            })
             .collect(),
     };
+    timing.set_counter("restored", restored);
+    timing.set_counter("lowered", checked.functions.len() as u64 - restored);
     let collections = crate::collections::source_file();
     if ir
         .functions
@@ -1182,7 +1215,10 @@ impl<'a> Builder<'a> {
                 let Type::Named(identity) = self.type_of(base) else {
                     unreachable!("checked state receiver")
                 };
-                let field = self.checked.source_types[&identity]
+                let field = self
+                    .checked
+                    .memo_schema(&identity)
+                    .expect("checked source types")
                     .fields
                     .iter()
                     .position(|(name, _)| name == field)
@@ -1317,7 +1353,11 @@ impl<'a> Builder<'a> {
                 let Type::Named(identity) = self.type_of(value) else {
                     unreachable!("checked closed enum switch")
                 };
-                let schema = self.checked.source_types[&identity].clone();
+                let schema = self
+                    .checked
+                    .memo_schema(&identity)
+                    .expect("checked source types")
+                    .clone();
                 let value = self.lower_expression(value);
                 let saved = format!("$switch{}", value.0);
                 self.local_types
@@ -1518,12 +1558,11 @@ impl<'a> Builder<'a> {
     }
 
     fn lower_expression(&mut self, expression: &Expression) -> ValueId {
-        let coercion = self.checked.byte_coercions.get(&expression.range).copied();
+        let coercion = self.checked.fact_byte_coercions(&expression.range).copied();
         let ty = coercion.map_or_else(
             || {
                 self.checked
-                    .error_upcasts
-                    .get(&expression.range)
+                    .fact_error_upcasts(&expression.range)
                     .cloned()
                     .unwrap_or_else(|| self.type_of(expression))
             },
@@ -1541,7 +1580,7 @@ impl<'a> Builder<'a> {
                 Type::FixedBytes(to),
                 expression.range,
             )
-        } else if self.checked.error_upcasts.contains_key(&expression.range) {
+        } else if self.checked.fact_error_upcasts(&expression.range).is_some() {
             self.emit_value(
                 OperationKind::ErrorCast { operand: value },
                 Type::Error,
@@ -1559,7 +1598,11 @@ impl<'a> Builder<'a> {
                 self.emit_value(
                     OperationKind::ErrorIs {
                         operand,
-                        target: self.checked.error_tests[&expression.range].clone(),
+                        target: self
+                            .checked
+                            .fact_error_tests(&expression.range)
+                            .expect("checked error tests")
+                            .clone(),
                     },
                     Type::Bool,
                     expression.range,
@@ -1579,9 +1622,9 @@ impl<'a> Builder<'a> {
                     .map(|part| (self.lower_expression(part), self.type_of(part)))
                     .collect();
                 self.emit_poll(PollReason::Allocation, expression.range);
-                let native_display = parts.iter().any(|(_, ty)| {
-                    crate::sema::display_reads_native_record(&self.checked.source_types, ty)
-                });
+                let native_display = parts
+                    .iter()
+                    .any(|(_, ty)| self.checked.memo_display_native(ty));
                 self.emit_value(
                     OperationKind::FormatString {
                         parts,
@@ -1635,8 +1678,8 @@ impl<'a> Builder<'a> {
                 if (path.len() > 1
                     || self
                         .checked
-                        .error_narrowings
-                        .contains_key(&expression.range))
+                        .fact_error_narrowings(&expression.range)
+                        .is_some())
                     && self.local_types.contains_key(&path[0])
                 {
                     let mut current_type = self.local_types[&path[0]].clone();
@@ -1647,7 +1690,7 @@ impl<'a> Builder<'a> {
                         current_type.clone(),
                         expression.range,
                     );
-                    if let Some(narrowed) = self.checked.error_narrowings.get(&expression.range) {
+                    if let Some(narrowed) = self.checked.fact_error_narrowings(&expression.range) {
                         current_type = narrowed.clone();
                         operand = self.emit_value(
                             OperationKind::ErrorCast { operand },
@@ -1656,7 +1699,7 @@ impl<'a> Builder<'a> {
                         );
                     }
                     for name in &path[1..] {
-                        let concrete_error = matches!(&current_type, Type::Named(identity) if self.checked.source_types.get(identity).is_some_and(|schema|schema.kind=="error"));
+                        let concrete_error = matches!(&current_type, Type::Named(identity) if self.checked.memo_schema(identity).is_some_and(|schema|schema.kind=="error"));
                         if (current_type == Type::Error || (concrete_error && name == "source"))
                             && ["name", "message", "source", "cause"].contains(&name.as_str())
                         {
@@ -1690,7 +1733,11 @@ impl<'a> Builder<'a> {
                             let Type::Named(identity) = &current_type else {
                                 unreachable!("checked record field")
                             };
-                            let fields = &self.checked.source_types[identity].fields;
+                            let fields = &self
+                                .checked
+                                .memo_schema(identity)
+                                .expect("checked source types")
+                                .fields;
                             let field = fields
                                 .iter()
                                 .position(|(field, _)| field == name)
@@ -1701,13 +1748,25 @@ impl<'a> Builder<'a> {
                                     operand,
                                     identity: identity.clone(),
                                     field: field as u32,
-                                    error: (self.checked.source_types[identity].kind
+                                    error: (self
+                                        .checked
+                                        .memo_schema(identity)
+                                        .expect("checked source types")
+                                        .kind
                                         == "native-record")
                                         .then(|| self.error_edge()),
-                                    failure: (self.checked.source_types[identity].kind
+                                    failure: (self
+                                        .checked
+                                        .memo_schema(identity)
+                                        .expect("checked source types")
+                                        .kind
                                         == "native-record")
                                         .then_some(self.failure),
-                                    cleanup_chain: if self.checked.source_types[identity].kind
+                                    cleanup_chain: if self
+                                        .checked
+                                        .memo_schema(identity)
+                                        .expect("checked source types")
+                                        .kind
                                         == "native-record"
                                     {
                                         self.cleanup_chain()
@@ -1723,7 +1782,7 @@ impl<'a> Builder<'a> {
                     }
                     operand
                 } else if let Some(constant) =
-                    self.checked.constant_references.get(&expression.range)
+                    self.checked.fact_constant_references(&expression.range)
                 {
                     self.emit_value(
                         OperationKind::Constant(ConstantValue::Int(constant.value as i64)),
@@ -1735,7 +1794,11 @@ impl<'a> Builder<'a> {
                 {
                     self.emit_value(
                         OperationKind::FunctionReference {
-                            target: self.checked.reference_targets[&expression.range][0].clone(),
+                            target: self
+                                .checked
+                                .fact_reference_targets(&expression.range)
+                                .expect("checked reference targets")[0]
+                                .clone(),
                         },
                         ty,
                         expression.range,
@@ -1820,7 +1883,7 @@ impl<'a> Builder<'a> {
                 )
             }
             ExpressionKind::Call { target, arguments } => {
-                if let Some(kind) = self.checked.task_controls.get(&expression.range).copied() {
+                if let Some(kind) = self.checked.fact_task_controls(&expression.range).copied() {
                     let Arguments::Positional(values) = arguments else {
                         unreachable!("checked task control")
                     };
@@ -1834,7 +1897,10 @@ impl<'a> Builder<'a> {
                     self.emit_poll(PollReason::ManagedCall, expression.range);
                     return result;
                 }
-                if let Some(mut kind) = self.checked.data_operations.get(&expression.range).copied()
+                if let Some(mut kind) = self
+                    .checked
+                    .fact_data_operations(&expression.range)
+                    .copied()
                 {
                     let Arguments::Positional(values) = arguments else {
                         unreachable!("checked data operation")
@@ -1875,7 +1941,7 @@ impl<'a> Builder<'a> {
                         expression.range,
                     );
                 }
-                if let Some(newline) = self.checked.stdout_calls.get(&expression.range).copied() {
+                if let Some(newline) = self.checked.fact_stdout_calls(&expression.range).copied() {
                     let Arguments::Positional(values) = arguments else {
                         unreachable!("checked stdout")
                     };
@@ -1894,7 +1960,7 @@ impl<'a> Builder<'a> {
                         expression.range,
                     );
                 }
-                if let Some(kind) = self.checked.core_lengths.get(&expression.range).copied() {
+                if let Some(kind) = self.checked.fact_core_lengths(&expression.range).copied() {
                     let Arguments::Positional(values) = arguments else {
                         unreachable!("checked core length")
                     };
@@ -1908,7 +1974,10 @@ impl<'a> Builder<'a> {
                 if target.len() == 1
                     && crate::AbiScalar::from_name(&target[0])
                         .is_some_and(|scalar| scalar != crate::AbiScalar::Bool)
-                    && !self.checked.indirect_calls.contains_key(&expression.range)
+                    && !self
+                        .checked
+                        .fact_indirect_calls(&expression.range)
+                        .is_some()
                 {
                     let Arguments::Positional(values) = arguments else {
                         unreachable!("validated numeric conversion")
@@ -1930,7 +1999,7 @@ impl<'a> Builder<'a> {
                         expression.range,
                     );
                 }
-                if let Some(targets) = self.checked.indirect_calls.get(&expression.range) {
+                if let Some(targets) = self.checked.fact_indirect_calls(&expression.range) {
                     let callee_type = self
                         .local_types
                         .get(&target.join("."))
@@ -1971,8 +2040,7 @@ impl<'a> Builder<'a> {
                     && target.join(".") == *identity
                     && self
                         .checked
-                        .source_types
-                        .get(identity)
+                        .memo_schema(identity)
                         .is_some_and(|schema| schema.kind == "error")
                 {
                     return self.lower_error_constructor(
@@ -1982,7 +2050,7 @@ impl<'a> Builder<'a> {
                         expression.range,
                     );
                 }
-                if let Some(signature) = self.checked.source_native_calls.get(&expression.range) {
+                if let Some(signature) = self.checked.fact_source_native_calls(&expression.range) {
                     self.lower_source_native_call(
                         signature,
                         source_arguments,
@@ -1990,7 +2058,7 @@ impl<'a> Builder<'a> {
                         ty,
                         expression.range,
                     )
-                } else if let Some(call_class) = self.checked.native_calls.get(&expression.range) {
+                } else if let Some(call_class) = self.checked.fact_native_calls(&expression.range) {
                     self.emit_poll(PollReason::NativeCall, expression.range);
                     let transition = match call_class {
                         NativeCallClass::NativeSafe => NativeTransition::NativeSafe,
@@ -2025,7 +2093,10 @@ impl<'a> Builder<'a> {
                     let Type::Named(identity) = &ty else {
                         unreachable!("checked nominal constructor")
                     };
-                    let schema = &self.checked.source_types[identity];
+                    let schema = &self
+                        .checked
+                        .memo_schema(identity)
+                        .expect("checked source types");
                     let variant = (schema.kind == "enum").then(|| {
                         schema
                             .variants
@@ -2070,7 +2141,12 @@ impl<'a> Builder<'a> {
                 for (name, value, _) in fields {
                     replacements.insert(name, self.lower_expression(value));
                 }
-                let layout = self.checked.source_types[identity].fields.clone();
+                let layout = self
+                    .checked
+                    .memo_schema(identity)
+                    .expect("checked source types")
+                    .fields
+                    .clone();
                 let mut arguments = Vec::with_capacity(layout.len());
                 for (index, (name, field_ty)) in layout.into_iter().enumerate() {
                     arguments.push(if let Some(value) = replacements.get(&name) {
@@ -2142,7 +2218,7 @@ impl<'a> Builder<'a> {
                 )
             }
             ExpressionKind::Await(future) => {
-                if let Some(call) = self.checked.supplant_calls.get(&future.range) {
+                if let Some(call) = self.checked.fact_supplant_calls(&future.range) {
                     let ExpressionKind::Call { arguments, .. } = &future.kind else {
                         unreachable!("direct await checked")
                     };
@@ -2209,21 +2285,17 @@ impl<'a> Builder<'a> {
                     ExpressionKind::Spawn { .. } => true,
                     ExpressionKind::Call { target, .. } => {
                         self.checked
-                            .source_native_calls
-                            .get(&future.range)
+                            .fact_source_native_calls(&future.range)
                             .is_some_and(|s| s.is_async)
-                            || if let Some(targets) = self.checked.indirect_calls.get(&future.range)
+                            || if let Some(targets) =
+                                self.checked.fact_indirect_calls(&future.range)
                             {
                                 !targets.is_empty()
-                                    && targets.iter().all(|target| {
-                                        self.checked.functions.iter().any(|f| {
-                                            f.declaration.name == *target && f.declaration.is_async
-                                        })
-                                    })
+                                    && targets
+                                        .iter()
+                                        .all(|target| self.checked.memo_is_async(target))
                             } else {
-                                self.checked.functions.iter().any(|f| {
-                                    f.declaration.name == target.join(".") && f.declaration.is_async
-                                })
+                                self.checked.memo_is_async(&target.join("."))
                             }
                     }
                     _ => false,
@@ -2401,10 +2473,7 @@ impl<'a> Builder<'a> {
     }
 
     fn function_named(&self, name: &str) -> bool {
-        self.checked
-            .functions
-            .iter()
-            .any(|function| function.declaration.name == name)
+        self.checked.memo_has_function(name)
     }
 
     fn emit_poll(&mut self, reason: PollReason, range: SourceRange) {

@@ -1,6 +1,6 @@
 //! Possible membership and complete coverage of pending task families differ.
 use super::*;
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
 pub(super) struct FutureMembers {
     // Map insertion requires a scoped proof of unique keys. This is never a
     // snapshot identity: two widened maps may contain different key sets.

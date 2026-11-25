@@ -2,7 +2,7 @@
 use crate::{IrModule, SourceFile};
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SourceCoordinates {
     pub line: u32,
     pub column: u32,

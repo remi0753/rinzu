@@ -8,13 +8,14 @@ rust-version.workspace = true
 test-allocation-probe = []
 test-c-lowering-probe = []
 test-dispatcher-probe = ["rinzu-runtime/test-dispatcher-probe"]
+test-native-lifetime-trace = ["rinzu-runtime/test-native-lifetime-trace"]
 
 [dependencies]
 anyhow.workspace = true
-cranelift-codegen.workspace = true
+cranelift-codegen = { workspace = true, features = ["incremental-cache"] }
 cranelift-frontend.workspace = true
 cranelift-jit.workspace = true
-cranelift-module.workspace = true
+cranelift-module = { workspace = true, features = ["enable-serde"] }
 cranelift-native.workspace = true
 cranelift-object.workspace = true
 libc.workspace = true
@@ -23,12 +24,14 @@ rinzu-abi = { path = "../abi" }
 rinzu-compiler = { path = "../compiler" }
 rinzu-runtime = { path = "../runtime" }
 rinzu-trace = { path = "../trace" }
+serde.workspace = true
 target-lexicon.workspace = true
 
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
 cranelift-codegen = { workspace = true, features = ["x86"] }
 
 [dev-dependencies]
+rinzu-runtime-model = { path = "../../tests/runtime-model" }
 serde_json.workspace = true
 
 [lints]

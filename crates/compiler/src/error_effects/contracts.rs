@@ -7,8 +7,7 @@ pub(super) fn allowed(checked: &CheckedModule, contract: &ErrorContract) -> BTre
         .iter()
         .filter_map(|source| {
             checked
-                .type_references
-                .get(&source.range)
+                .fact_type_references(&source.range)
                 .and_then(|ty| tag(checked, ty))
                 .or_else(|| match &source.kind {
                     TypeRefKind::Named(path) if path.join(".") == "Error" => Some(Tag::Any),

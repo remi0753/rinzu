@@ -1,4 +1,5 @@
 //! Source declaration validation shared by semantic checking and artifact planning.
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::ast::{Module, NativeBinding, NativeFunctionDecl, NativeMember, TypeRef, TypeRefKind};
@@ -114,7 +115,7 @@ fn duplicate(name: &str, range: SourceRange, previous: SourceRange) -> Diagnosti
 }
 
 /// A closed source ABI shape; each pointer corresponds to one physical C argument.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum SourceAbiType {
     Unit,
     Scalar(AbiScalar),
@@ -134,7 +135,7 @@ pub enum SourceAbiType {
     },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SourceNativeSignature {
     pub name: String,
     pub binding: NativeBinding,
@@ -250,12 +251,14 @@ pub(crate) fn source_native_signatures_with_records(
         let NativeMember::Function(function) = member else {
             continue;
         };
-        let mut signature_constants = constants.clone();
+        let mut signature_constants = Cow::Borrowed(&constants);
         for parameter in &function.parameters {
-            signature_constants.remove(&parameter.name);
+            if signature_constants.contains_key(&parameter.name) {
+                signature_constants.to_mut().remove(&parameter.name);
+            }
         }
         let mut resolver = AbiResolver {
-            types: types.clone(),
+            types: &types,
             constants: signature_constants,
             record: &mut record,
         };
@@ -311,8 +314,8 @@ enum AbiPosition {
 type RecordResolver<'a> = dyn FnMut(&TypeRef, &std::collections::BTreeMap<String, crate::IntegerConstant>) -> Option<String>
     + 'a;
 struct AbiResolver<'a> {
-    types: HashMap<String, SourceAbiType>,
-    constants: std::collections::BTreeMap<String, crate::IntegerConstant>,
+    types: &'a HashMap<String, SourceAbiType>,
+    constants: Cow<'a, std::collections::BTreeMap<String, crate::IntegerConstant>>,
     record: &'a mut RecordResolver<'a>,
 }
 impl AbiResolver<'_> {

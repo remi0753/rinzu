@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <time.h>
 
+/* RINZU_JIT_SHARED_BEGIN */
 /* Private AOT source runtime; native physical entry points use their own ABI. */
 enum {
   RINZU_EVENT_TASK_START,
@@ -54,8 +55,6 @@ typedef struct RinzuTaskScope {
 } RinzuTaskScope;
 #ifdef RINZU_AOT_HAS_SUPPLANT
 typedef struct RinzuSupplant RinzuSupplant;
-static int rinzu_aot_supplant_drive(RinzuContext *);
-static int rinzu_aot_supplant_cancel(RinzuContext *, rinzu_async_future_t *);
 #endif
 typedef struct RinzuCompletionTurn {
   uint64_t identity;
@@ -90,6 +89,12 @@ struct RinzuAsyncTask {
   rinzu_managed_frame_t argument_frame;
   uint64_t argument_storage[];
 };
+/* RINZU_JIT_SHARED_END */
+#ifdef RINZU_AOT_HAS_SUPPLANT
+static int rinzu_aot_supplant_drive(RinzuContext *);
+static int rinzu_aot_supplant_cancel(RinzuContext *, rinzu_async_future_t *);
+#endif
+
 static RinzuAsyncTask *rinzu_aot_async_allocate_task(rinzu_async_runtime_t *runtime,
                                                      const uint64_t *arguments, size_t count) {
   if ((count && !arguments) || count > (SIZE_MAX - sizeof(RinzuAsyncTask)) / (2 * sizeof(uint64_t)))
@@ -120,6 +125,7 @@ static void rinzu_aot_async_detach_argument_frame(RinzuAsyncTask *task) {
     rinzu_failure_fatal();
   roots->free_frames = task->argument_frame.previous;
 }
+/* RINZU_JIT_SHARED_BEGIN */
 struct RinzuAsyncState {
   rinzu_async_runtime_t runtime;
   rinzu_async_future_t *retired_evidence;
@@ -154,6 +160,7 @@ struct RinzuAsyncState {
   rinzu_owner_dispatcher_t *dispatcher;
 #endif
 };
+/* RINZU_JIT_SHARED_END */
 enum { RINZU_TASK_READY_ASCENDING = 1, RINZU_TASK_READY_DESCENDING = 2 };
 static int rinzu_aot_async_runnable(const RinzuAsyncTask *task) {
   return !task->continuation.running &&
@@ -218,7 +225,7 @@ static void rinzu_aot_async_waiter_ready(rinzu_async_ready_waiter_t *waiter) {
     rinzu_failure_fatal();
   rinzu_aot_async_queue_ready(task);
 }
-static void rinzu_aot_async_event(void *raw, unsigned kind, uint64_t future) {
+RINZU_PROGRAM_API void rinzu_aot_async_event(void *raw, unsigned kind, uint64_t future) {
   RinzuAsyncState *state = ((RinzuContext *)raw)->async;
   if (!state || !state->runtime.record_evidence)
     return;
@@ -235,7 +242,7 @@ static void rinzu_aot_async_event(void *raw, unsigned kind, uint64_t future) {
   state->events_tail = event;
 }
 #define ASYNC_EVENT(raw, kind, future) rinzu_aot_async_event(raw, kind, future)
-static void rinzu_aot_async_admission(rinzu_async_future_t *future, void *raw) {
+RINZU_PROGRAM_API void rinzu_aot_async_admission(rinzu_async_future_t *future, void *raw) {
   RinzuAsyncState *state = raw;
   if (state->runtime.records > state->peak_future_records)
     state->peak_future_records = state->runtime.records;
@@ -293,7 +300,7 @@ static int rinzu_aot_async_cancelled(RinzuContext *context) {
          (context->worker &&
           atomic_load_explicit(&context->worker->cancel_requested, memory_order_acquire));
 }
-static void rinzu_aot_async_credit_evidence(RinzuAsyncState *state) {
+RINZU_PROGRAM_API void rinzu_aot_async_credit_evidence(RinzuAsyncState *state) {
   if (!state->runtime.record_evidence)
     return;
   printf("RINZU_CREDITS=");
@@ -332,8 +339,8 @@ static void rinzu_aot_async_observe(RinzuContext *context, const rinzu_failure_t
   error->next = report->observed;
   report->observed = error;
 }
-static rinzu_async_future_t *rinzu_aot_worker_request(RinzuContext *, int64_t, const uint64_t *,
-                                                      int64_t);
+RINZU_PROGRAM_API rinzu_async_future_t *rinzu_aot_worker_request(RinzuContext *, int64_t,
+                                                                 const uint64_t *, int64_t);
 /* A rejected reservation is never exposed as a Future. Settle its private
    resources, but route the control failure through this call's context. */
 static int64_t rinzu_aot_async_reject(RinzuContext *context, rinzu_async_future_t *future) {
@@ -382,8 +389,8 @@ int64_t rinzu_baseline_async_spawn(void *raw, int64_t index, const uint64_t *arg
   return (int64_t)rinzu_async_handle(future);
 }
 static void rinzu_aot_async_close_scope(RinzuContext *, rinzu_child_scope_t *, int);
-static void rinzu_aot_async_prepare(RinzuAsyncTask *);
-static int64_t rinzu_aot_async_entry(RinzuAsyncTask *);
+RINZU_PROGRAM_API void rinzu_aot_async_prepare(RinzuAsyncTask *);
+RINZU_PROGRAM_API int64_t rinzu_aot_async_entry(RinzuAsyncTask *);
 void rinzu_baseline_leave_dispatch(void *);
 static RinzuAsyncTask *rinzu_aot_async_task(RinzuAsyncState *state,
                                             const rinzu_async_future_t *future) {
@@ -408,7 +415,7 @@ static void rinzu_aot_async_release_result(RinzuAsyncState *state, RinzuAsyncRes
   rinzu_managed_dispose(&root->roots);
   free(root);
 }
-static uint64_t rinzu_aot_future_mark(void *raw, uint64_t handle) {
+RINZU_PROGRAM_API uint64_t rinzu_aot_future_mark(void *raw, uint64_t handle) {
   RinzuAsyncState *state = raw;
   rinzu_async_future_t *future = rinzu_async_lookup(&state->runtime, handle);
   if (future) {
@@ -420,7 +427,7 @@ static uint64_t rinzu_aot_future_mark(void *raw, uint64_t handle) {
   /* A direct consuming await may leave a stale, statically dead root word. */
   return 0;
 }
-static void rinzu_aot_future_begin(void *raw) {
+RINZU_PROGRAM_API void rinzu_aot_future_begin(void *raw) {
   RinzuAsyncState *state = raw;
   for (rinzu_async_future_t *future = state->runtime.futures; future; future = future->next)
     future->gc_reached = 0;
@@ -455,7 +462,7 @@ static void rinzu_aot_future_evidence(RinzuAsyncState *state, const rinzu_async_
   snapshot->next = state->retired_evidence;
   state->retired_evidence = snapshot;
 }
-static void rinzu_aot_future_sweep(void *raw) {
+RINZU_PROGRAM_API void rinzu_aot_future_sweep(void *raw) {
   RinzuAsyncState *state = raw;
   rinzu_async_future_t *future = state->runtime.futures;
   while (future) {
@@ -479,7 +486,7 @@ static void rinzu_aot_future_sweep(void *raw) {
   if (state->next_future_gc < 1024)
     state->next_future_gc = 1024;
 }
-static int rinzu_aot_future_due(void *raw) {
+RINZU_PROGRAM_API int rinzu_aot_future_due(void *raw) {
   RinzuAsyncState *state = raw;
   return state->runtime.records >= (state->next_future_gc ? state->next_future_gc : 1024);
 }
@@ -670,7 +677,7 @@ static void rinzu_aot_read_file(rinzu_async_future_t *future) {
   } else
     future->result_slot = size;
 }
-static int64_t rinzu_baseline_async_file(void *raw, int64_t string) {
+RINZU_PROGRAM_API int64_t rinzu_baseline_async_file(void *raw, int64_t string) {
   RinzuContext *context = raw;
   RinzuAsyncState *state = rinzu_aot_async_state(context);
   rinzu_managed_value_t *path =
@@ -905,17 +912,12 @@ static void rinzu_aot_async_finish_completion_turn(RinzuCompletionTurn *turn) {
    These turns share the same identity order as timers, Workers and native I/O. */
 static int rinzu_aot_async_collect_ready(RinzuAsyncState *state) {
   RinzuCompletionTurn *turn = state->completion_head;
-  uint64_t oldest = turn ? turn->identity : UINT64_MAX;
-  rinzu_async_future_t *ready = NULL;
-  for (rinzu_async_future_t *future = state->runtime.futures; future; future = future->next)
-    if (future->identity < oldest && !future->settled &&
-        (future->operation == RINZU_ASYNC_WORKER || future->operation == RINZU_ASYNC_FILE ||
-         future->operation == RINZU_ASYNC_TIMER || future->operation == RINZU_ASYNC_COMPLETION) &&
-        atomic_load_explicit(&future->physical_done, memory_order_acquire)) {
-      oldest = future->identity;
-      ready = future;
-    }
+  rinzu_async_future_t *ready =
+      rinzu_async_oldest_ready_before(&state->runtime, turn ? turn->identity : UINT64_MAX);
   if (ready) {
+#ifdef RINZU_AOT_OWNER_SELECTION_EVENT
+    RINZU_AOT_OWNER_SELECTION_EVENT(ready->identity);
+#endif
     if (!rinzu_async_try_collect(ready))
       _Exit(86);
     rinzu_async_adopt_observed(ready, &state->root->pending);
@@ -1019,8 +1021,12 @@ int64_t rinzu_baseline_task_control(void *raw, int64_t kind, int64_t handle) {
   int ready = future->settled || atomic_load_explicit(&future->physical_done, memory_order_acquire);
   if (kind == 0)
     return ready;
-  if (ready || atomic_load_explicit(&future->terminal, memory_order_acquire) != RINZU_ASYNC_PENDING)
+  if (ready ||
+      atomic_load_explicit(&future->terminal, memory_order_acquire) != RINZU_ASYNC_PENDING) {
+    RINZU_NATIVE_CONTROL_EVENT("control_begin", future, kind);
+    RINZU_NATIVE_CONTROL_EVENT("control_end", future, 0);
     return 0;
+  }
   int won = kind == 2 ? rinzu_async_timeout(future) : rinzu_async_cancel(future);
   if (!won)
     return 0;
@@ -1147,6 +1153,9 @@ static void rinzu_aot_async_wait(RinzuContext *context, rinzu_async_future_t *fu
         rinzu_owner_ready_prepare(rinzu_context_transitions(context), task->function_label,
                                   task->function_source.file, task->function_source.start_byte,
                                   task->function_source.end_byte));
+#ifdef RINZU_AOT_AWAIT_PARK_EVENT
+    RINZU_AOT_AWAIT_PARK_EVENT(task->future->identity + 1, future->identity);
+#endif
     rinzu_continuation_yield(&context->task->continuation);
     context->task->waiting = NULL;
   } else {
@@ -1463,7 +1472,7 @@ void rinzu_baseline_task_scope(void *raw, int64_t identity, int64_t phase) {
   rinzu_child_dispose(&group->cleanup);
   free(group);
 }
-static void rinzu_aot_async_close(RinzuContext *context) {
+RINZU_PROGRAM_API void rinzu_aot_async_close(RinzuContext *context) {
   RinzuAsyncState *state = rinzu_aot_async_state(context);
   if (context != state->root || state->runtime.scope != &state->children)
     rinzu_failure_fatal();
@@ -1474,7 +1483,7 @@ static void rinzu_aot_async_close(RinzuContext *context) {
   while (state->result_roots)
     rinzu_aot_async_release_result(state, state->result_roots);
 }
-static void rinzu_aot_async_print(RinzuAsyncState *state, int baseline) {
+RINZU_PROGRAM_API void rinzu_aot_async_print(RinzuAsyncState *state, int baseline) {
   if (getenv("RINZU_CONTINUATION_DIAGNOSTICS"))
     printf("RINZU_CONTINUATION_CACHE=%zu,%zu,%zu\n", state->continuations.allocations,
            state->continuations.reuses, state->continuations.cache_limit);

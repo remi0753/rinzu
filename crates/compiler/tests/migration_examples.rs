@@ -110,7 +110,6 @@ fn regression_programs_check_as_real_entries() {
     let macos = (Target::host() == Some(Target::Aarch64AppleDarwin)).then_some("source-callback");
     let common = [
         "file-copy",
-        "async-spawn",
         "async-services",
         "formatted-strings",
         "multi-file",

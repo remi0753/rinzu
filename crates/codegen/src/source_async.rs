@@ -435,6 +435,10 @@ fn resolve_indirect<'a>(
 
 #[derive(Debug)]
 enum PendingRequest {
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     NativeCompletion {
         completion: rinzu_runtime::native_completion::CompletionPointer,
         transfer: bool,
@@ -977,6 +981,7 @@ impl CancellationState {
             masked: self.masked,
         }
     }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     fn callback(&self) -> Self {
         Self {
             polls: Rc::clone(&self.polls),
@@ -2699,7 +2704,22 @@ pub fn run_source_async(
     entry: &str,
     options: SourceAsyncOptions,
 ) -> Result<SourceAsyncRun> {
-    run_source_async_admitted(module, entry, options, SpawnAdmissionController::new())
+    run_source_async_with_startup(module, entry, options, None)
+}
+
+pub fn run_source_async_with_startup(
+    module: &IrModule,
+    entry: &str,
+    options: SourceAsyncOptions,
+    on_ready: Option<&mut dyn FnMut()>,
+) -> Result<SourceAsyncRun> {
+    run_source_async_admitted(
+        module,
+        entry,
+        options,
+        SpawnAdmissionController::new(),
+        on_ready,
+    )
 }
 
 /// Run with immutable failure and resource evidence even when the root fails.
@@ -2708,7 +2728,22 @@ pub fn run_source_async_report(
     entry: &str,
     options: SourceAsyncOptions,
 ) -> Result<SourceAsyncRun> {
-    run_source_async_report_admitted(module, entry, options, SpawnAdmissionController::new())
+    run_source_async_report_with_startup(module, entry, options, None)
+}
+
+pub fn run_source_async_report_with_startup(
+    module: &IrModule,
+    entry: &str,
+    options: SourceAsyncOptions,
+    on_ready: Option<&mut dyn FnMut()>,
+) -> Result<SourceAsyncRun> {
+    run_source_async_report_admitted(
+        module,
+        entry,
+        options,
+        SpawnAdmissionController::new(),
+        on_ready,
+    )
 }
 
 fn run_source_async_admitted(
@@ -2716,8 +2751,9 @@ fn run_source_async_admitted(
     entry: &str,
     options: SourceAsyncOptions,
     admission: SpawnAdmissionController,
+    on_ready: Option<&mut dyn FnMut()>,
 ) -> Result<SourceAsyncRun> {
-    let run = run_source_async_report_admitted(module, entry, options, admission)?;
+    let run = run_source_async_report_admitted(module, entry, options, admission, on_ready)?;
     if let Some(failure) = &run.failure_details
         && !run.shutdown_complete
     {
@@ -2731,6 +2767,7 @@ fn run_source_async_report_admitted(
     entry: &str,
     mut options: SourceAsyncOptions,
     admission: SpawnAdmissionController,
+    on_ready: Option<&mut dyn FnMut()>,
 ) -> Result<SourceAsyncRun> {
     crate::ensure_source_async_backend(module)?;
     if options.record_transport_evidence {
@@ -2839,6 +2876,9 @@ fn run_source_async_report_admitted(
     let main_task = runtime
         .start_main(Box::new(task))
         .context("start source async main")?;
+    if let Some(ready) = on_ready {
+        ready();
+    }
     let origin = OriginDomainId(0);
     let mut root_control_sent = false;
 

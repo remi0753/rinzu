@@ -1,5 +1,5 @@
 //! Private compiler/runtime intrinsic catalog; not an exported native ABI.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 #[repr(u32)]
 pub enum DataOperation {
     ListLength = 0,
@@ -99,10 +99,11 @@ pub enum DataOperation {
     ErrorContextOption = 94,
     ErrorWithContextOption = 95,
     ErrorWithCauseOption = 96,
+    BytesPackInt64LE = 97,
 }
 
 impl DataOperation {
-    pub const ALL: [Self; 97] = [
+    pub const ALL: [Self; 98] = [
         Self::ListLength,
         Self::ListGet,
         Self::ListAppend,
@@ -200,6 +201,7 @@ impl DataOperation {
         Self::ErrorContextOption,
         Self::ErrorWithContextOption,
         Self::ErrorWithCauseOption,
+        Self::BytesPackInt64LE,
     ];
 
     pub const fn is_json(self) -> bool {
@@ -282,6 +284,7 @@ impl DataOperation {
             Self::BytesSlice => "bytesSlice",
             Self::BytesConcat => "bytesConcat",
             Self::BytesConcatAll => "bytesConcatAll",
+            Self::BytesPackInt64LE => "bytesPackInt64LE",
             Self::BytesCopy => "bytesCopy",
             Self::BytesXor => "bytesXor",
             Self::BytesFindAny => "bytesFindAny",
@@ -383,6 +386,7 @@ impl DataOperation {
             Self::BytesSlice => 3,
             Self::BytesConcat => 2,
             Self::BytesConcatAll => 1,
+            Self::BytesPackInt64LE => 1,
             Self::BytesCopy => 1,
             Self::BytesXor => 2,
             Self::BytesFindAny | Self::BytesFindNotAny => 3,
@@ -485,6 +489,7 @@ impl DataOperation {
             Self::BytesSlice => "RINZU_DATA_BYTES_SLICE",
             Self::BytesConcat => "RINZU_DATA_BYTES_CONCAT",
             Self::BytesConcatAll => "RINZU_DATA_BYTES_CONCAT_ALL",
+            Self::BytesPackInt64LE => "RINZU_DATA_BYTES_PACK_INT64_LE",
             Self::BytesCopy => "RINZU_DATA_BYTES_COPY",
             Self::BytesXor => "RINZU_DATA_BYTES_XOR",
             Self::BytesFindAny => "RINZU_DATA_BYTES_FIND_ANY",

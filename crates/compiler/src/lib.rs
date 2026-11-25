@@ -28,6 +28,8 @@ mod editor_index;
 mod error_effects;
 mod fallback;
 mod formatter;
+mod function_cache;
+pub use function_cache::FunctionFrontendCache;
 mod generics;
 mod interfaces;
 mod ir;
@@ -54,7 +56,8 @@ mod value_constants;
 pub use ast::{BinaryOperator, UnaryOperator};
 pub use ast::{Module, TypeRef};
 pub use compilation::{
-    CompilationContext, CompilationInput, CompilationMode, CompilationOptions, check_input,
+    CompilationContext, CompilationInput, CompilationMode, CompilationOptions, SdkCheckProgress,
+    check_input, check_input_with_sdk_observer, check_input_with_sdk_progress,
     check_input_with_sources,
 };
 pub use constants::{IntegerConstant, evaluate_module_constants};
@@ -69,11 +72,12 @@ pub use editor_index::{
 pub use fallback::FallbackConstant;
 pub use formatter::format_source;
 pub use ir::{
-    BasicBlock, BlockId, CallbackArgumentPlan, ConstantValue, ErrorEdge, IrFunction, IrModule,
-    NativeCallId, NativeEntryDomain, Operation, OperationKind, PollReason, ReservationId,
-    ScopeInfo, StackMap, StackRoot, Terminator, TypedValue, UnwindPlan, ValueId, dead_local_roots,
-    dead_temporary_roots, fresh_return_consuming_awaits, proven_data_owner_operations,
-    proven_frame_memberships, proven_frame_roots, verify_module, virtual_bytes_options,
+    BasicBlock, BlockId, CallbackArgumentPlan, ConstantValue, ErrorEdge, FrameProofs, IrFunction,
+    IrModule, NativeCallId, NativeEntryDomain, Operation, OperationKind, PollReason, ReservationId,
+    ScopeInfo, StackMap, StackRoot, Terminator, TypedValue, UnwindPlan, ValueId, VirtualOptions,
+    dead_local_roots, dead_temporary_roots, fresh_return_consuming_awaits,
+    proven_data_owner_operations, proven_frame_memberships, proven_frame_plans, proven_frame_roots,
+    verify_module, virtual_bytes_options, virtual_options,
 };
 pub use manifest::{
     ArchiveDependency, Dependency, DependencySource, Manifest, ManifestError, NativeManifest,
@@ -85,9 +89,9 @@ pub use native_interface::{
     SourceAbiType, SourceNativeSignature, source_native_signatures, validate_native_declarations,
 };
 pub use package::{
-    ResolvedSdkPackage, ResolvedSourceImport, ResolvedSourceModule, SourceNativeInterface,
-    SourceSdkInterface, load_manifest_with_sources, load_resolved_manifest, refresh_modules_lock,
-    resolve_installed_graph,
+    ResolvedSdkPackage, ResolvedSourceImport, ResolvedSourceModule, SdkFrontendCache,
+    SourceNativeInterface, SourceSdkInterface, load_manifest_with_sources, load_resolved_manifest,
+    refresh_modules_lock, resolve_installed_graph,
 };
 pub use package_graph::{
     PackageId, PackageLocation, PackageProvider, PackageSource, ResolvedGraph, ResolvedPackage,
@@ -95,7 +99,10 @@ pub use package_graph::{
 };
 pub use package_metadata::{NativeImport, canonical_import_key, fnv1a64};
 pub use package_templates::SourceTemplateSchema;
-pub use package_tests::{PackageTestCase, PackageTestOptions, check_package_tests};
+pub use package_tests::{
+    PackageTestCase, PackageTestOptions, check_package_test_file, check_package_tests,
+    test_file_path, test_source_root,
+};
 pub use scalar::AbiScalar;
 pub use sema::{
     CheckedFunction, CheckedModule, CompilerOptions, ExternalType, FunctionFacts,
@@ -104,10 +111,12 @@ pub use sema::{
 };
 pub use source::{FileId, SourceFile, SourceRange, Utf16Position};
 pub use source_locations::SourceCoordinates;
-pub use source_provider::{SourceCache, SourceFreshness, SourceSnapshot};
+pub use source_provider::{
+    DiskSourceEvidence, FrontendProgress, SourceCache, SourceFreshness, SourceSnapshot,
+};
 
 /// Complete result of compiling one Rinzu source file through verified typed IR.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct FrontendArtifact {
     /// File input has no package lock, even if one is present near its sources.
     pub is_file_input: bool,

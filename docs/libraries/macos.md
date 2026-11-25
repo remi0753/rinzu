@@ -55,14 +55,14 @@ The low-level run handler is synchronous and receives a RunContext containing a 
 
 ## Choose an API layer
 
-| Feature | Public concepts |
-| --- | --- |
-| Native controls | Window, View, buttons, text controls, layout, accessibility, themes |
-| Data views | List/table/tree DataView, stable row IDs, columns, selection and sort events |
-| Text editing | Document state, undo/redo, selection, snapshots and file saving |
-| Sheets | Open/save panels and alerts with asynchronous completion |
-| GPU | Device, buffers, textures, samplers, pipelines, command submission and waits |
-| 2D drawing | Batch2D, images, shaped text, canvas jobs, frame clocks |
+| Feature         | Public concepts                                                              |
+| --------------- | ---------------------------------------------------------------------------- |
+| Native controls | Window, View, buttons, text controls, layout, accessibility, themes          |
+| Data views      | List/table/tree DataView, stable row IDs, columns, selection and sort events |
+| Text editing    | Document state, undo/redo, selection, snapshots and file saving              |
+| Sheets          | Open/save panels and alerts with asynchronous completion                     |
+| GPU             | Device, buffers, textures, samplers, pipelines, command submission and waits |
+| 2D drawing      | Batch2D, images, shaped text, canvas jobs, frame clocks                      |
 
 Data models are bounded: datasets have at most 100000 rows, 32 columns, and 16 MiB of UTF-8 cell data; trees have at most 64 levels. Updates yield during generation and commit the complete model. Serialize competing async updates to one view in application code.
 

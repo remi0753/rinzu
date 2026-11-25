@@ -9,17 +9,73 @@ use crate::ast::{
     Statement, StatementKind, TypeRef, TypeRefKind,
 };
 use crate::modules_lock::{self, FILE as MODULES_LOCK};
+use crate::package_tests::TestInput;
 use crate::{
     ArchiveReceipt, CompilerOptions, DependencySource, Diagnostic, DiagnosticCode, FileId,
-    FrontendArtifact, Manifest, ModulesLock, NativeImport, NativeManifest, PackageId, PackageKind,
-    PackageLocation, PackageProvider, PackageSource, ResolvedGraph, ResolvedPackage, SourceCache,
-    SourceRange, SourceSnapshot, Type, find_manifest, resolve_package_graph, verify_module,
+    FrontendArtifact, FrontendProgress, Manifest, ModulesLock, NativeImport, NativeManifest,
+    PackageId, PackageKind, PackageLocation, PackageProvider, PackageSource, PackageTestCase,
+    ResolvedGraph, ResolvedPackage, SourceCache, SourceRange, SourceSnapshot, Type, find_manifest,
+    resolve_package_graph, verify_module,
 };
 
 mod toolchain;
 use toolchain::CheckGraph;
 
-#[derive(Clone, Debug)]
+pub(crate) type SdkPackageObserver<'a> = dyn FnMut(&Manifest, crate::SdkCheckProgress<'_>) + 'a;
+type CheckedRoot = (Manifest, FrontendArtifact, Vec<PackageTestCase>);
+
+struct CheckedSdk {
+    package: ResolvedSdkPackage,
+    dependencies: Vec<ResolvedSdkPackage>,
+    frontend_key: Option<String>,
+}
+
+enum CheckedPackage {
+    Root(Box<CheckedRoot>),
+    Sdk(Box<CheckedSdk>),
+}
+
+impl CheckedPackage {
+    fn root(self) -> CheckedRoot {
+        match self {
+            Self::Root(root) => *root,
+            Self::Sdk(_) => unreachable!("expected the checked root"),
+        }
+    }
+
+    fn sdk(self) -> CheckedSdk {
+        match self {
+            Self::Sdk(sdk) => *sdk,
+            Self::Root(_) => unreachable!("expected a checked dependency"),
+        }
+    }
+
+    fn dependency(
+        manifest: Manifest,
+        source: Option<Arc<SourceSdkInterface>>,
+        dependencies: Vec<ResolvedSdkPackage>,
+        frontend_key: Option<String>,
+    ) -> Self {
+        Self::Sdk(Box::new(CheckedSdk {
+            package: ResolvedSdkPackage {
+                manifest,
+                native_imports: Vec::new(),
+                source,
+            },
+            dependencies,
+            frontend_key,
+        }))
+    }
+}
+
+/// Storage for individually checked SDK frontends. Resolution and
+/// validation of the current package inputs remain with the compiler.
+pub trait SdkFrontendCache: Send {
+    fn load(&mut self, key: &str, name: &str) -> Option<SourceSdkInterface>;
+    fn stage(&mut self, key: &str, name: &str, source: Arc<SourceSdkInterface>);
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ResolvedSdkPackage {
     pub manifest: Manifest,
     pub native_imports: Vec<NativeImport>,
@@ -27,8 +83,10 @@ pub struct ResolvedSdkPackage {
 }
 
 /// Checked source/native contracts shared by applications, files and SDKs.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SourceNativeInterface {
+    /// Provenance of a dependency checked against the project's module lock.
+    pub archive_pin: Option<crate::ArchivePin>,
     pub syntax: Module,
     pub modules: HashMap<String, HashMap<String, String>>,
     pub signatures: Vec<crate::SourceNativeSignature>,
@@ -56,7 +114,7 @@ pub struct SourceNativeInterface {
 pub type SourceSdkInterface = SourceNativeInterface;
 
 /// Physical module identity and the bindings consumed by this frontend.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ResolvedSourceModule {
     pub path: PathBuf,
     pub key: String,
@@ -66,14 +124,14 @@ pub struct ResolvedSourceModule {
     pub exports: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ResolvedSourceImport {
     pub qualifier: String,
     pub target: String,
     pub target_path: Option<PathBuf>,
     /// Absolute spelling consumed by resolution, retained for symlink invalidation.
     pub requested_path: Option<PathBuf>,
-    pub kind: &'static str,
+    pub kind: String,
     pub range: SourceRange,
     pub path_range: Option<SourceRange>,
     pub alias_range: Option<SourceRange>,
@@ -90,15 +148,16 @@ pub(crate) fn check_with_sources(
     start: &Path,
     sources: &mut SourceSnapshot<'_>,
 ) -> Result<(Manifest, FrontendArtifact), Vec<Diagnostic>> {
-    check_with_sources_for_target(start, sources, crate::standard_library::host_target())
+    check_with_sources_for_target(start, sources, crate::standard_library::host_target(), None)
 }
 
-pub(crate) fn check_with_sources_for_target(
+pub(crate) fn check_with_sources_for_target<'a>(
     start: &Path,
     sources: &mut SourceSnapshot<'_>,
     target: Target,
+    observe: Option<&'a mut SdkPackageObserver<'a>>,
 ) -> Result<(Manifest, FrontendArtifact), Vec<Diagnostic>> {
-    let (manifest, artifact, _) = check_request(start, sources, None, target)?;
+    let (manifest, artifact, _) = check_request(start, sources, None, target, observe)?;
     Ok((manifest, artifact))
 }
 
@@ -201,7 +260,13 @@ pub(crate) fn check_file_with_sources(
         toolchain::import_names()?.map(str::to_owned).collect(),
         sources,
     );
+    loader
+        .sources
+        .report_progress(FrontendProgress::ParsingApplicationSources);
     loader.load("entry", path.to_owned(), None)?;
+    loader
+        .sources
+        .report_progress(FrontendProgress::ResolvingDependencies);
     let sdk_packages = graph.imports(
         ResolvedGraph::ROOT,
         &loader.modules,
@@ -229,10 +294,12 @@ pub(crate) fn check_file_with_sources(
     }
     let sema_timing =
         crate::timing::span("frontend.sema").detail(path.to_str().unwrap_or("<file>"));
+    sources.report_progress(FrontendProgress::CheckingApplicationTypes);
     let checked = sources
         .check_module(&syntax, &options)
         .map_err(|errors| import_context(errors, &module_graph))?;
     drop(sema_timing);
+    sources.report_progress(FrontendProgress::PreparingAndVerifyingIr);
     let lower_timing =
         crate::timing::span("frontend.lower").detail(path.to_str().unwrap_or("<file>"));
     let mut ir = crate::ir::lower(&checked);
@@ -252,6 +319,7 @@ pub(crate) fn check_file_with_sources(
         None
     } else {
         let mut source = SourceNativeInterface {
+            archive_pin: None,
             syntax: own_syntax.clone(),
             modules: HashMap::new(),
             signatures: Vec::new(),
@@ -374,27 +442,31 @@ fn load_manifest_snapshot(
 pub(crate) fn check_tests(
     start: &Path,
     sources: &mut SourceSnapshot<'_>,
-    tests: &crate::PackageTestOptions,
+    tests: TestInput<'_>,
 ) -> Result<(Manifest, FrontendArtifact, Vec<crate::PackageTestCase>), Vec<Diagnostic>> {
     check_request(
         start,
         sources,
         Some(tests),
         crate::standard_library::host_target(),
+        None,
     )
 }
 
-fn check_request(
+fn check_request<'a>(
     start: &Path,
     sources: &mut SourceSnapshot<'_>,
-    tests: Option<&crate::PackageTestOptions>,
+    tests: Option<TestInput<'_>>,
     target: Target,
+    observe: Option<&'a mut SdkPackageObserver<'a>>,
 ) -> Result<(Manifest, FrontendArtifact, Vec<crate::PackageTestCase>), Vec<Diagnostic>> {
+    sources.report_progress(FrontendProgress::ResolvingDependencies);
     let manifest_path = find_manifest(start).map_err(|error| vec![error.into_diagnostic()])?;
     let manifest = read_package_manifest(&manifest_path, sources, target)?;
     let graph = resolve_locked_graph(manifest, sources, false, target)?;
     crate::compatibility::validate_graph(&graph)?;
-    let (manifest, mut artifact, cases) = CheckGraph::new(graph, target).check(sources, tests)?;
+    let (manifest, mut artifact, cases) =
+        CheckGraph::new(graph, target).check(sources, tests, observe)?;
     artifact.checked_inputs = sources.input_bytes();
     Ok((manifest, artifact, cases))
 }
@@ -422,15 +494,18 @@ fn read_package_manifest(
 }
 
 fn check_loaded(
-    graph: &mut CheckGraph,
+    graph: &mut CheckGraph<'_>,
     owner: PackageId,
     namespace: &str,
     mut sdk_packages: Vec<ResolvedSdkPackage>,
     direct: &[ResolvedSdkPackage],
     sources: &mut SourceSnapshot<'_>,
-    tests: Option<&crate::PackageTestOptions>,
-) -> Result<(Manifest, FrontendArtifact, Vec<crate::PackageTestCase>), Vec<Diagnostic>> {
+    tests: Option<TestInput<'_>>,
+) -> Result<CheckedPackage, Vec<Diagnostic>> {
     let manifest = graph.manifest(owner).clone();
+    if owner != ResolvedGraph::ROOT {
+        sources.report_progress(FrontendProgress::CheckingDependency(&manifest.name));
+    }
     let manifest_path = manifest.root.join("rinzu.toml");
     let _timing = crate::timing::span("frontend.package").detail(&manifest.name);
     let entry_module = module_name_from_entry(&manifest.entry).map_err(|errors| {
@@ -450,6 +525,7 @@ fn check_loaded(
             sources,
             None,
         )?
+        .root()
         .1
         .source_interface
     } else {
@@ -505,10 +581,22 @@ fn check_loaded(
             }
         }
     }
+    let cache_frontend = owner != ResolvedGraph::ROOT && sources.has_sdk_frontend_cache();
+    let application = owner == ResolvedGraph::ROOT && manifest.kind == PackageKind::Application;
+    if application {
+        sources.report_progress(FrontendProgress::ParsingApplicationSources);
+    }
     let mut loader = Loader::new(&manifest, &entry_module, external_packages, sources);
+    let mut discovered_sources = Vec::new();
     let mut public_files = HashSet::new();
     let mut public_bindings = BTreeMap::new();
-    loader.load(&entry_module, manifest.root.join(&manifest.entry), None)?;
+    let test_file = match tests {
+        Some(TestInput::File(file)) => Some(file),
+        _ => None,
+    };
+    if test_file.is_none() || manifest.kind == PackageKind::Sdk {
+        loader.load(&entry_module, manifest.root.join(&manifest.entry), None)?;
+    }
     if manifest.kind == PackageKind::Sdk {
         let public_modules = if manifest.exports.modules.is_empty() {
             vec![entry_module.clone()]
@@ -549,7 +637,10 @@ fn check_loaded(
         collect_source_paths(&loader.source_root, &mut source_paths, loader.sources)?;
         source_paths.sort();
         for path in source_paths {
-            loader.load_path(path, None)?;
+            let module = loader.load_path(&path, None, false)?;
+            if cache_frontend {
+                discovered_sources.push((path, module));
+            }
         }
         public_files.extend(
             loader
@@ -563,74 +654,67 @@ fn check_loaded(
             .sdk_files
             .extend(loader.modules.iter().map(|module| module.syntax.file_id));
     }
-    if tests.is_some_and(|tests| tests.unit) && manifest.kind != PackageKind::Sdk {
-        let mut paths = Vec::new();
-        collect_source_paths(&loader.source_root, &mut paths, loader.sources)?;
-        paths.sort();
-        for path in paths {
-            loader.load_path(path, None)?;
-        }
-    }
     let mut cases = Vec::new();
     let mut link_entry = entry_module.clone();
     if let Some(tests) = tests {
-        if tests.unit {
-            for module in &loader.modules {
-                for declaration in &module.syntax.declarations {
-                    if let Declaration::Function(function) = declaration
-                        && function.name.starts_with("test_")
-                    {
-                        crate::package_tests::validate(function)?;
-                        cases.push(crate::PackageTestCase {
-                            identity: format!("unit:{}::{}", module.name, function.name),
-                            kind: "unit",
-                            path: loader
-                                .sources
-                                .path_for_id(function.range.file_id)
-                                .unwrap()
-                                .to_owned(),
-                            range: function.range,
-                            is_async: function.is_async,
-                            target: if manifest.kind == PackageKind::Sdk
-                                && module.name == entry_module
-                            {
-                                function.name.clone()
-                            } else {
-                                format!("{}::{}", module.name, function.name)
-                            },
-                        });
+        match tests {
+            TestInput::File(file) => {
+                let input_error = |error: std::io::Error| {
+                    vec![
+                        crate::package_tests::error(
+                            SourceRange::empty(FileId::MANIFEST, 0),
+                            error.to_string(),
+                        )
+                        .with_path(file),
+                    ]
+                };
+                let tests_root = crate::test_source_root(&manifest.root).map_err(input_error)?;
+                let path = loader.sources.canonical_path(file).map_err(input_error)?;
+                let relative = crate::test_file_path(&tests_root, &path).map_err(input_error)?;
+                loader.test_roots = Some(TestRoots {
+                    package: manifest.root.clone(),
+                    sources: tests_root,
+                });
+                let key = loader.load_path(&path, None, true)?;
+                let module = loader.modules.last().expect("loaded the test file");
+                debug_assert_eq!(module.name, key);
+                let main = crate::package_tests::main_function(&module.syntax, "test file")?;
+                cases.push(PackageTestCase {
+                    identity: format!("file:{relative}"),
+                    kind: "file",
+                    path,
+                    range: main.range,
+                    is_async: main.is_async,
+                    target: format!("{key}::main"),
+                });
+            }
+            TestInput::Documents(options) => {
+                for document in crate::package_tests::documents(
+                    &options.documents,
+                    &manifest.root,
+                    loader.sources,
+                )? {
+                    if loader.loaded.contains(&document.name) {
+                        return Err(vec![crate::package_tests::error(
+                            document.syntax.range,
+                            "reserved doc module name conflicts with source",
+                        )]);
                     }
+                    validate_import_aliases(&document.syntax)?;
+                    let imports = loader.load_imports(&document.syntax, &document.case.path)?;
+                    loader.loaded.insert(document.name.clone());
+                    loader.modules.push(ParsedModule {
+                        name: document.name,
+                        source_path: document.case.path.display().to_string(),
+                        canonical_path: document.case.path.clone(),
+                        imports,
+                        syntax: document.syntax,
+                    });
+                    cases.push(document.case);
                 }
+                cases.sort_by(|a, b| a.identity.cmp(&b.identity));
             }
         }
-        for document in
-            crate::package_tests::documents(&tests.documents, &manifest.root, loader.sources)?
-        {
-            if loader.loaded.contains(&document.name) {
-                return Err(vec![crate::package_tests::error(
-                    document.syntax.range,
-                    "reserved doc module name conflicts with source",
-                )]);
-            }
-            validate_import_aliases(&document.syntax)?;
-            let imports = loader.load_imports(&document.syntax, &document.case.path)?;
-            loader.loaded.insert(document.name.clone());
-            loader.modules.push(ParsedModule {
-                name: document.name,
-                source_path: document.case.path.display().to_string(),
-                canonical_path: document.case.path.clone(),
-                imports,
-                syntax: document.syntax,
-            });
-            cases.push(document.case);
-        }
-        if cases.len() > 256 {
-            return Err(vec![
-                package_diagnostic("test case limit exceeded (256)", "split the test package")
-                    .with_path(&manifest_path),
-            ]);
-        }
-        cases.sort_by(|a, b| a.identity.cmp(&b.identity));
         if manifest.kind != PackageKind::Sdk {
             link_entry = "rinzu_test_entry".into();
             if loader.loaded.contains(&link_entry) {
@@ -683,6 +767,11 @@ fn check_loaded(
             )
         })
         .collect();
+    if application {
+        loader
+            .sources
+            .report_progress(FrontendProgress::ResolvingDependencies);
+    }
     let toolchain_packages = graph.imports(
         owner,
         &loader.modules,
@@ -691,6 +780,47 @@ fn check_loaded(
         loader.sources,
     )?;
     merge_packages(&mut sdk_packages, toolchain_packages)?;
+    if owner != ResolvedGraph::ROOT {
+        loader
+            .sources
+            .report_progress(FrontendProgress::CheckingDependency(&manifest.name));
+    }
+    let frontend_key = if cache_frontend {
+        graph.sdk_frontend_key(
+            owner,
+            &loader,
+            &discovered_sources,
+            &sdk_packages,
+            &external_symbols,
+        )
+    } else {
+        None
+    };
+    let cache_key = frontend_key
+        .as_deref()
+        .filter(|_| !graph.is_toolchain(owner));
+    if let Some(key) = cache_key
+        && let Some(source) = loader.sources.load_sdk_frontend(key, &manifest.name)
+        && verify_restored_sdk(
+            &source,
+            graph.archive_pin(owner),
+            &loader,
+            &public_files,
+            &manifest.name,
+        )
+    {
+        let mut hit = crate::timing::span("frontend.sdk-cache.hit").detail(&manifest.name);
+        hit.set_counter("ir_functions", source.lowered_functions.len() as u64);
+        return Ok(CheckedPackage::dependency(
+            manifest,
+            Some(Arc::new(source)),
+            sdk_packages,
+            frontend_key,
+        ));
+    }
+    if cache_key.is_some() {
+        let _miss = crate::timing::span("frontend.sdk-cache.miss").detail(&manifest.name);
+    }
     let source_inputs = loader.source_inputs;
     // Authenticate the exact embedded source when checking either SDK directly.
     let is_intrinsic_package = manifest.kind == PackageKind::Sdk
@@ -741,21 +871,24 @@ fn check_loaded(
                 "SDK main declaration conflicts with the test entry; use a separate test application",
             )]);
         }
-        let selected = tests
-            .selected
-            .as_ref()
-            .map(|identity| {
-                cases
-                    .iter()
-                    .find(|case| &case.identity == identity)
-                    .ok_or_else(|| {
-                        vec![crate::package_tests::error(
-                            syntax.range,
-                            format!("test case disappeared: {identity}"),
-                        )]
-                    })
-            })
-            .transpose()?;
+        let selected = match tests {
+            TestInput::File(_) => cases.first(),
+            TestInput::Documents(options) => options
+                .selected
+                .as_ref()
+                .map(|identity| {
+                    cases
+                        .iter()
+                        .find(|case| &case.identity == identity)
+                        .ok_or_else(|| {
+                            vec![crate::package_tests::error(
+                                syntax.range,
+                                format!("test case disappeared: {identity}"),
+                            )]
+                        })
+                })
+                .transpose()?,
+        };
         let range = selected.map_or(syntax.range, |case| case.range);
         syntax
             .declarations
@@ -813,6 +946,7 @@ fn check_loaded(
             modules.entry(module).or_default();
         }
         Some(SourceSdkInterface {
+            archive_pin: graph.archive_pin(owner).cloned(),
             syntax: syntax.clone(),
             modules,
             signatures: Vec::new(),
@@ -865,13 +999,37 @@ fn check_loaded(
             }));
         }
     }
+    if owner == ResolvedGraph::ROOT && manifest.kind == PackageKind::Application {
+        graph.sdk_packages_ready(&sdk_packages);
+    }
     let sema_timing = crate::timing::span("frontend.sema").detail(&manifest.name);
-    let checked = sources
-        .check_module(&syntax, &options)
-        .map_err(|errors| import_context(errors, &module_graph))?;
+    if application {
+        sources.report_progress(FrontendProgress::CheckingApplicationTypes);
+    }
+    let checks_responsibility = sources.checks_responsibility();
+    let uses_function_cache = owner == ResolvedGraph::ROOT
+        && manifest.kind == PackageKind::Application
+        && tests.is_none();
+    let checked = {
+        let cache = if uses_function_cache {
+            sources.function_frontend_cache()
+        } else {
+            None
+        };
+        crate::sema::check_module_cached(&syntax, &options, checks_responsibility, cache)
+            .map_err(|errors| import_context(errors, &module_graph))?
+    };
     drop(sema_timing);
+    if application {
+        sources.report_progress(FrontendProgress::PreparingAndVerifyingIr);
+    }
     let lower_timing = crate::timing::span("frontend.lower").detail(&manifest.name);
-    let mut ir = crate::ir::lower(&checked);
+    let cache = if uses_function_cache {
+        sources.function_frontend_cache()
+    } else {
+        None
+    };
+    let mut ir = crate::ir::lower_cached(&checked, cache);
     drop(lower_timing);
     ir.source_files.extend(source_files);
     for package in &sdk_packages {
@@ -904,6 +1062,18 @@ fn check_loaded(
     retain_reachable_functions(&mut ir, roots);
     verify_module(&ir)?;
     drop(verify_timing);
+    if owner != ResolvedGraph::ROOT {
+        let source = source_interface.map(Arc::new);
+        if let (Some(key), Some(source)) = (cache_key, &source) {
+            sources.stage_sdk_frontend(key, &manifest.name, Arc::clone(source));
+        }
+        return Ok(CheckedPackage::dependency(
+            manifest,
+            source,
+            sdk_packages,
+            frontend_key,
+        ));
+    }
     if let Some(source) = original_sdk {
         sdk_packages.push(ResolvedSdkPackage {
             manifest: manifest.clone(),
@@ -914,7 +1084,7 @@ fn check_loaded(
     if tests.is_some() && manifest.kind == PackageKind::Sdk {
         source_interface = None;
     }
-    Ok((
+    Ok(CheckedPackage::Root(Box::new((
         manifest,
         FrontendArtifact {
             is_file_input: false,
@@ -928,7 +1098,51 @@ fn check_loaded(
             checked_inputs: BTreeMap::new(),
         },
         cases,
-    ))
+    ))))
+}
+
+fn verify_restored_sdk(
+    source: &SourceSdkInterface,
+    pin: Option<&crate::ArchivePin>,
+    loader: &Loader<'_, '_>,
+    public_files: &HashSet<FileId>,
+    name: &str,
+) -> bool {
+    let _timing = crate::timing::span("frontend.sdk-cache.verify").detail(name);
+    if source.archive_pin.as_ref() != pin
+        || source.source_inputs != loader.source_inputs
+        || source.module_graph.len() != loader.modules.len()
+        || !source
+            .module_graph
+            .iter()
+            .zip(&loader.modules)
+            .all(|(saved, current)| {
+                saved.path == current.canonical_path && saved.file_id == current.syntax.file_id
+            })
+    {
+        return false;
+    }
+    // The interface also keeps bodies used by native callback metadata. Run
+    // the same reachable-IR verification used by a fresh SDK check.
+    let mut ir = crate::IrModule {
+        functions: source.lowered_functions.clone(),
+        source_types: source.types.clone(),
+        source_files: source.source_files.clone(),
+        source_locations: source.source_locations.clone(),
+        source_native_signatures: source.lowered_native_signatures.clone(),
+        native_records: source.native_records.clone(),
+    };
+    retain_reachable_functions(
+        &mut ir,
+        source
+            .syntax
+            .exports
+            .iter()
+            .filter(|export| public_files.contains(&export.range.file_id))
+            .map(|export| export.path.join("."))
+            .collect(),
+    );
+    verify_module(&ir).is_ok()
 }
 
 fn complete_source_interface(
@@ -1658,6 +1872,7 @@ impl PackageProvider for SnapshotPackages<'_, '_> {
                         let modules = self.project.join("modules");
                         let root = modules_lock::archive_package_root(&modules, &pin.sha256)
                             .map_err(|error| provider_error(format!("SDK `{}` is not available: {error}; run `rinzu modules sync`", dependency.name), &modules))?;
+                        self.sources.record_archive_location(&modules, &pin.sha256, &root);
                         self.archive_roots.insert(pin.sha256.clone(), root.clone());
                         root
                     };
@@ -1707,6 +1922,8 @@ fn load_resolved_manifest_for_target(
     }) {
         return Err(provider_error("invalid published SDK manifest", &path));
     }
+    sources.record_regular_input(&receipt_path);
+    sources.record_regular_input(&path);
     sources.register_archive(location.root.clone(), receipt);
     let manifest = read_package_manifest(&path, sources, target)?;
     if manifest.native != NativeManifest::default() {
@@ -1776,11 +1993,17 @@ struct ImportBindings {
     requested_paths: BTreeMap<u32, PathBuf>,
 }
 
+struct TestRoots {
+    package: PathBuf,
+    sources: PathBuf,
+}
+
 struct Loader<'a, 'b> {
     sources: &'a mut SourceSnapshot<'b>,
     source_inputs: BTreeMap<String, Vec<u8>>,
     source_root: PathBuf,
     canonical_root: Option<PathBuf>,
+    test_roots: Option<TestRoots>,
     entry_path: PathBuf,
     entry_name: String,
     modules: Vec<ParsedModule>,
@@ -1808,6 +2031,7 @@ impl<'a, 'b> Loader<'a, 'b> {
             source_inputs: BTreeMap::new(),
             source_root: canonical_root.clone().unwrap_or(source_root),
             canonical_root,
+            test_roots: None,
             entry_path,
             entry_name: entry_name.into(),
             modules: Vec::new(),
@@ -1829,6 +2053,7 @@ impl<'a, 'b> Loader<'a, 'b> {
             source_inputs: BTreeMap::new(),
             source_root: path.parent().unwrap().to_owned(),
             canonical_root: None,
+            test_roots: None,
             entry_path: path.to_owned(),
             entry_name: "entry".into(),
             modules: Vec::new(),
@@ -1847,7 +2072,7 @@ impl<'a, 'b> Loader<'a, 'b> {
         import_range: Option<SourceRange>,
     ) -> Result<String, Vec<Diagnostic>> {
         validate_module_name(name, import_range)?;
-        let key = self.load_path(path, import_range)?;
+        let key = self.load_path(&path, import_range, false)?;
         self.requested.insert(name.to_owned(), key.clone());
         self.loaded.insert(name.to_owned());
         Ok(key)
@@ -1955,18 +2180,35 @@ impl<'a, 'b> Loader<'a, 'b> {
 
     fn load_path(
         &mut self,
-        path: PathBuf,
+        path: &Path,
         range: Option<SourceRange>,
+        allow_tests: bool,
     ) -> Result<String, Vec<Diagnostic>> {
-        let canonical = self.sources.canonical_path(&path).map_err(|error| {
+        let canonical = self.sources.canonical_path(path).map_err(|error| {
             self.error(
                 DiagnosticCode::PackageIo,
                 range,
-                &path,
+                path,
                 format!("cannot read module at `{}`: {error}", path.display()),
             )
         })?;
-        if let Some(root) = &self.canonical_root
+        let test_relative = if allow_tests
+            && let Some(roots) = &self.test_roots
+            && let Ok(relative) = canonical.strip_prefix(&roots.sources)
+        {
+            crate::package_tests::require_test_owner(&roots.package, &canonical).map_err(
+                |error| self.error(DiagnosticCode::InvalidModulePath, range, &canonical, error),
+            )?;
+            Some(relative)
+        } else {
+            None
+        };
+        let root = self
+            .canonical_root
+            .as_ref()
+            .or(self.test_roots.as_ref().map(|_| &self.source_root));
+        if test_relative.is_none()
+            && let Some(root) = root
             && !canonical.starts_with(root)
         {
             return Err(self.error(
@@ -2019,7 +2261,9 @@ impl<'a, 'b> Loader<'a, 'b> {
         let imports = self.load_imports(&syntax, &canonical)?;
         self.visiting.pop();
         self.loaded.insert(key.clone());
-        let source_path = if self.canonical_root.is_some() {
+        let source_path = if let Some(relative) = test_relative {
+            format!("tests/{}", relative.display())
+        } else if self.canonical_root.is_some() {
             format!(
                 "src/{}",
                 canonical.strip_prefix(&self.source_root).unwrap().display()
@@ -2063,8 +2307,11 @@ impl<'a, 'b> Loader<'a, 'b> {
     ) -> Result<String, Vec<Diagnostic>> {
         if let Some(file) = &import.file {
             return self.load_path(
-                importer.parent().unwrap().join(&file.path),
+                &importer.parent().unwrap().join(&file.path),
                 Some(file.path_range),
+                self.test_roots
+                    .as_ref()
+                    .is_some_and(|roots| importer.starts_with(&roots.sources)),
             );
         }
         let name = import.path.join(".");
@@ -2309,7 +2556,8 @@ fn resolved_graph(
                                 "dotted"
                             } else {
                                 "sdk"
-                            },
+                            }
+                            .to_owned(),
                             range: import.range,
                             path_range: import.file.as_ref().map(|file| file.path_range),
                             alias_range: import.alias_range(),

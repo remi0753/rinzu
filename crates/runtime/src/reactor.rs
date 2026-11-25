@@ -83,22 +83,32 @@ impl ReactorOperation {
             .map(|value| value.load(Ordering::Acquire))
     }
     pub fn request_cancel(&self) -> ResolveResult {
+        #[cfg(feature = "test-native-lifetime-trace")]
+        self.ticket.lifetime_event("control_begin", 1);
         let resolution = self.ticket.cancel();
         if resolution == ResolveResult::Won
             && let Some(completion) = self.native_completion
         {
             completion.cancel();
         }
+        #[cfg(feature = "test-native-lifetime-trace")]
+        self.ticket
+            .lifetime_event("control_end", i64::from(resolution == ResolveResult::Won));
         resolution
     }
 
     pub fn request_timeout(&self) -> ResolveResult {
+        #[cfg(feature = "test-native-lifetime-trace")]
+        self.ticket.lifetime_event("control_begin", 2);
         let resolution = self.ticket.timeout();
         if resolution == ResolveResult::Won
             && let Some(completion) = self.native_completion
         {
             completion.cancel();
         }
+        #[cfg(feature = "test-native-lifetime-trace")]
+        self.ticket
+            .lifetime_event("control_end", i64::from(resolution == ResolveResult::Won));
         resolution
     }
 }
@@ -122,6 +132,8 @@ impl std::error::Error for ReactorError {}
 
 enum ReactorCommand {
     Progress,
+    #[cfg(feature = "test-native-lifetime-trace")]
+    TraceProgress,
     Shutdown,
     NativeCompletion {
         ticket: OperationTicket,
@@ -155,6 +167,8 @@ impl ReactorCommand {
     fn ticket(&self) -> &OperationTicket {
         match self {
             Self::Progress | Self::Shutdown => unreachable!("control commands have no ticket"),
+            #[cfg(feature = "test-native-lifetime-trace")]
+            Self::TraceProgress => unreachable!("trace progress has no ticket"),
             Self::Timer { ticket, .. }
             | Self::FileRead { ticket, .. }
             | Self::NativeCompletion { ticket, .. } => ticket,
@@ -164,6 +178,8 @@ impl ReactorCommand {
     fn kind(&self) -> ReactorOperationKind {
         match self {
             Self::Progress | Self::Shutdown => unreachable!("control commands have no operation"),
+            #[cfg(feature = "test-native-lifetime-trace")]
+            Self::TraceProgress => unreachable!("trace progress has no operation"),
             Self::Timer { .. } => ReactorOperationKind::Timer,
             Self::FileRead { .. } => ReactorOperationKind::FileRead,
             Self::NativeCompletion { .. } => ReactorOperationKind::NativeCompletion,
@@ -176,6 +192,8 @@ pub struct AsyncReactor {
     completions: Receiver<ReactorCompletion>,
     trace: Arc<Mutex<Vec<ReactorTraceEvent>>>,
     worker: Option<JoinHandle<()>>,
+    #[cfg(feature = "test-native-lifetime-trace")]
+    lifetime: Option<Arc<crate::lifetime_trace::Probe>>,
 }
 
 impl AsyncReactor {
@@ -188,6 +206,29 @@ impl AsyncReactor {
     /// native metadata. The caller retains the target until reactor shutdown.
     #[must_use]
     pub fn with_completion_wake(wake: Arc<dyn Fn() + Send + Sync>) -> Self {
+        #[cfg(feature = "test-native-lifetime-trace")]
+        {
+            Self::with_completion_wake_inner(wake, None)
+        }
+        #[cfg(not(feature = "test-native-lifetime-trace"))]
+        {
+            Self::with_completion_wake_inner(wake)
+        }
+    }
+    #[cfg(feature = "test-native-lifetime-trace")]
+    #[must_use]
+    pub fn with_lifetime_trace(
+        wake: Arc<dyn Fn() + Send + Sync>,
+        probe: Arc<crate::lifetime_trace::Probe>,
+    ) -> Self {
+        Self::with_completion_wake_inner(wake, Some(probe))
+    }
+    fn with_completion_wake_inner(
+        wake: Arc<dyn Fn() + Send + Sync>,
+        #[cfg(feature = "test-native-lifetime-trace")] lifetime: Option<
+            Arc<crate::lifetime_trace::Probe>,
+        >,
+    ) -> Self {
         let (command_sender, command_receiver) = mpsc::channel::<ReactorCommand>();
         let notification_sender = command_sender.clone();
         let native_wake = crate::native_completion::NativeCompletionWake::new(move || {
@@ -195,6 +236,17 @@ impl AsyncReactor {
             // the closed native channel then safely fails without heap access.
             let _ = notification_sender.send(ReactorCommand::Progress);
         });
+        #[cfg(feature = "test-native-lifetime-trace")]
+        let native_wake = {
+            let mut target = native_wake;
+            crate::native_completion::NativeCompletionWake::observe(&mut target, lifetime.clone());
+            crate::lifetime_trace::RuntimeTarget {
+                target,
+                probe: lifetime.clone(),
+            }
+        };
+        #[cfg(feature = "test-native-lifetime-trace")]
+        let worker_lifetime = lifetime.clone();
         let (completion_sender, completion_receiver) = mpsc::channel();
         let trace = Arc::new(Mutex::new(Vec::new()));
         let worker_trace = Arc::clone(&trace);
@@ -202,6 +254,8 @@ impl AsyncReactor {
             thread::Builder::new()
                 .name("rinzu-io-reactor".into())
                 .spawn(move || {
+                    #[cfg(feature = "test-native-lifetime-trace")]
+                    let _lifetime = crate::lifetime_trace::WorkerGuard(worker_lifetime);
                     let mut timers: Vec<PendingTimer> = Vec::new();
                     let mut native: Vec<(
                         OperationTicket,
@@ -216,6 +270,8 @@ impl AsyncReactor {
                                 let (ticket, completion, transfer) = native.remove(index);
                                 if let Some(value) = transfer {
                                     value.store(completion.transfer_result(), Ordering::Release);
+                                    #[cfg(feature = "test-native-lifetime-trace")]
+                                    ticket.lifetime_event("copied", value.load(Ordering::Acquire));
                                 }
                                 if !complete(
                                     &completion_sender,
@@ -284,7 +340,30 @@ impl AsyncReactor {
                             }
                         };
                         match command {
-                            ReactorCommand::Progress => continue,
+                            ReactorCommand::Progress => {
+                                #[cfg(feature = "test-native-lifetime-trace")]
+                                if let Some(probe) = &native_wake.probe {
+                                    probe.domain_event(
+                                        "sdk_progress",
+                                        0,
+                                        Arc::as_ptr(&native_wake) as usize,
+                                        0,
+                                    );
+                                }
+                                continue;
+                            }
+                            #[cfg(feature = "test-native-lifetime-trace")]
+                            ReactorCommand::TraceProgress => {
+                                if let Some(probe) = &native_wake.probe {
+                                    probe.domain_event(
+                                        "trace_progress_refs",
+                                        0,
+                                        Arc::as_ptr(&native_wake) as usize,
+                                        Arc::strong_count(&native_wake),
+                                    );
+                                }
+                                continue;
+                            }
                             ReactorCommand::Shutdown => {
                                 closed = true;
                                 continue;
@@ -301,7 +380,19 @@ impl AsyncReactor {
                                 ..
                             } => {
                                 if completion.supports_notification() {
-                                    completion.register_wake(&native_wake);
+                                    let registered =
+                                        completion.register_wake(&native_wake, ticket.operation.0);
+                                    #[cfg(feature = "test-native-lifetime-trace")]
+                                    if let Some(p) = &native_wake.probe {
+                                        p.record(
+                                            "registered",
+                                            ticket.operation.0,
+                                            i64::from(registered),
+                                            i64::try_from(Arc::strong_count(&native_wake)).unwrap(),
+                                        );
+                                    }
+                                    #[cfg(not(feature = "test-native-lifetime-trace"))]
+                                    let _ = registered;
                                 }
                                 native.push((ticket, completion, transfer));
                                 continue;
@@ -324,6 +415,8 @@ impl AsyncReactor {
                                 completion
                             }
                             ReactorCommand::Progress | ReactorCommand::Shutdown => unreachable!(),
+                            #[cfg(feature = "test-native-lifetime-trace")]
+                            ReactorCommand::TraceProgress => unreachable!(),
                         };
                         if !complete(
                             &completion_sender,
@@ -344,6 +437,8 @@ impl AsyncReactor {
             completions: completion_receiver,
             trace,
             worker: Some(worker),
+            #[cfg(feature = "test-native-lifetime-trace")]
+            lifetime,
         }
     }
 
@@ -394,6 +489,14 @@ impl AsyncReactor {
         completion: crate::native_completion::CompletionPointer,
         transfer: Option<Arc<AtomicI64>>,
     ) -> Result<ReactorOperation, ReactorError> {
+        #[cfg(feature = "test-native-lifetime-trace")]
+        {
+            if let Some(p) = &self.lifetime {
+                p.bind_receipt(ticket.operation.0, completion.address());
+            }
+            ticket.observe(self.lifetime.clone());
+            ticket.lifetime_event("admit", 0);
+        }
         push_trace(
             &self.trace,
             &ticket,
@@ -448,6 +551,17 @@ impl AsyncReactor {
                 RecvTimeoutError::Disconnected => ReactorError::Closed,
             })
     }
+    #[cfg(feature = "test-native-lifetime-trace")]
+    /// Nudge the existing native command channel without synthesizing completion.
+    /// # Errors
+    /// Returns Closed after shutdown.
+    pub fn trace_progress(&self) -> Result<(), ReactorError> {
+        self.commands
+            .as_ref()
+            .ok_or(ReactorError::Closed)?
+            .send(ReactorCommand::TraceProgress)
+            .map_err(|_| ReactorError::Closed)
+    }
 
     pub fn try_completion(&self) -> Result<Option<ReactorCompletion>, ReactorError> {
         match self.completions.try_recv() {
@@ -475,6 +589,8 @@ fn complete(
     result: Result<(), String>,
 ) -> bool {
     let resolution = ticket.complete(result);
+    #[cfg(feature = "test-native-lifetime-trace")]
+    ticket.lifetime_event("physical", 0);
     push_trace(trace, ticket, kind, ReactorTracePhase::Completed);
     if sender
         .send(ReactorCompletion {
@@ -488,7 +604,11 @@ fn complete(
         return false;
     }
     ticket.publish_readiness();
+    #[cfg(feature = "test-native-lifetime-trace")]
+    ticket.lifetime_event("worker_wake_begin", 0);
     wake();
+    #[cfg(feature = "test-native-lifetime-trace")]
+    ticket.lifetime_event("worker_wake_end", 0);
     true
 }
 
@@ -500,13 +620,24 @@ impl Default for AsyncReactor {
 
 impl AsyncReactor {
     pub fn shutdown(&mut self) {
+        #[cfg(feature = "test-native-lifetime-trace")]
+        if self.commands.is_some()
+            && let Some(p) = &self.lifetime
+        {
+            p.record("shutdown", 0, 0, 0);
+        }
         if let Some(sender) = self.commands.take() {
             // Notification targets retain a channel sender beyond teardown, so
             // shutdown is explicit rather than relying on sender disconnection.
             let _ = sender.send(ReactorCommand::Shutdown);
         }
         if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
+            let result = worker.join();
+            #[cfg(feature = "test-native-lifetime-trace")]
+            if let Some(p) = &self.lifetime {
+                p.record("joined", 0, i64::from(result.is_err()), 0);
+            }
+            let _ = result;
         }
     }
 }

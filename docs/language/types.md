@@ -2,19 +2,19 @@
 
 Rinzu checks the types of bindings, parameters, and results before execution. Numeric width and signedness changes require explicit conversion. There is no `null`; use `Option<T>` for an ordinary missing value.
 
-| Type | Meaning |
-| --- | --- |
-| `Unit` | Result of a function without a value |
-| `Bool` | Boolean |
-| `Int`, `Float` | Signed 64-bit integer and 64-bit floating point |
-| `CInt8/16/32/64`, `CUInt8/16/32/64` | Integers with explicit widths and signedness |
-| `CInt`, `CUInt` | 32-bit integers on the execution target |
-| `CSize` | Unsigned 64-bit size on the execution target |
-| `CFloat`, `CDouble`, `CBool` | Native scalar types |
-| `String` | Immutable UTF-8 text |
-| `Bytes(N)`, `ByteArray` | Fixed-size and variable-length bytes |
-| `List<T>`, `Map<K,V>` | Immutable collections |
-| `Option<T>`, `Future<T>`, `Error` | Absence, asynchronous completion, and ordinary failure |
+| Type                                | Meaning                                                |
+| ----------------------------------- | ------------------------------------------------------ |
+| `Unit`                              | Result of a function without a value                   |
+| `Bool`                              | Boolean                                                |
+| `Int`, `Float`                      | Signed 64-bit integer and 64-bit floating point        |
+| `CInt8/16/32/64`, `CUInt8/16/32/64` | Integers with explicit widths and signedness           |
+| `CInt`, `CUInt`                     | 32-bit integers on the execution target                |
+| `CSize`                             | Unsigned 64-bit size on the execution target           |
+| `CFloat`, `CDouble`, `CBool`        | Native scalar types                                    |
+| `String`                            | Immutable UTF-8 text                                   |
+| `Bytes(N)`, `ByteArray`             | Fixed-size and variable-length bytes                   |
+| `List<T>`, `Map<K,V>`               | Immutable collections                                  |
+| `Option<T>`, `Future<T>`, `Error`   | Absence, asynchronous completion, and ordinary failure |
 
 Records, classes, enums, function types, and native opaque/record declarations add further types.
 

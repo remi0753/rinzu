@@ -7,12 +7,18 @@ use rinzu_abi::target::Target;
 ))]
 use rinzu_codegen::BaselineOptions;
 use rinzu_codegen::{
-    BaselineAotObject, CompiledRuntimeLibrary, compile_source_async_jit,
-    emit_source_async_aot_plans,
+    BaselineAotObject, CompiledRuntimeLibrary, PreparedAsyncJit, emit_source_async_aot_plans,
 };
 use rinzu_compiler::{FrontendArtifact, Manifest, SourceNativeSignature};
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::{CString, OsString, c_char};
+use std::path::{Path, PathBuf};
+
+mod managed_cache;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+mod native_preload;
+mod runtime_cache;
+pub(crate) mod source;
 
 pub struct CompiledAsyncRun {
     pub output: String,
@@ -28,7 +34,7 @@ pub struct CompiledAsyncRun {
 }
 #[cfg(test)]
 thread_local! {static PREPARATION_PROBE: std::cell::Cell<bool> = const {std::cell::Cell::new(false)};}
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub(crate) fn enable_preparation_probe() {
     PREPARATION_PROBE.with(|probe| probe.set(true));
 }
@@ -36,11 +42,11 @@ pub(crate) fn enable_preparation_probe() {
 thread_local! {static FOREIGN_RETURN_PROBE: std::cell::Cell<Option<usize>> = const {std::cell::Cell::new(None)};}
 #[cfg(test)]
 thread_local! {static ERROR_TRACE_PROBE: std::cell::Cell<bool> = const {std::cell::Cell::new(false)};}
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub(crate) fn configure_error_trace_probe() {
     ERROR_TRACE_PROBE.with(|probe| probe.set(true));
 }
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub(crate) fn configure_foreign_return_probe(count: usize) {
     FOREIGN_RETURN_PROBE.with(|probe| probe.set(Some(count)));
 }
@@ -58,8 +64,22 @@ pub(crate) fn runtime_source(
     source: &str,
     record_evidence: bool,
 ) -> String {
+    runtime_source_with_locations(aot, source, record_evidence, None)
+}
+
+pub(crate) fn runtime_source_with_locations(
+    aot: &BaselineAotObject,
+    source: &str,
+    record_evidence: bool,
+    locations: Option<&Path>,
+) -> String {
     let signatures = native_signatures(aot);
-    let mut prelude = include_str!("compiled_async.c").replace(
+    let mut prelude = source::template(
+        "compiled_async.c",
+        include_str!("compiled_async.c"),
+        locations,
+    )
+    .replace(
         "/* JIT_ENTRY_COUNTS */",
         &format!(
             "#define RINZU_JIT_FUNCTION_COUNT {}\n#define RINZU_JIT_STUB_COUNT {}\n",
@@ -67,21 +87,26 @@ pub(crate) fn runtime_source(
             signatures.len()
         ),
     );
+    // Cast at the C call sites so Clang only compiles the actual dispatches.
+    // The generated table and Cranelift share the same function indices.
     for function in &aot.functions {
-        let mut parameters = vec!["void *context".to_owned()];
-        parameters
-            .extend((0..function.parameter_count).map(|index| format!("int64_t argument_{index}")));
-        let types = std::iter::once("void *".to_owned())
-            .chain((0..function.parameter_count).map(|_| "int64_t".to_owned()))
+        let types = std::iter::once("void *")
+            .chain(std::iter::repeat_n("int64_t", function.parameter_count))
             .collect::<Vec<_>>()
             .join(",");
-        let arguments = (0..function.parameter_count)
-            .map(|index| format!(",argument_{index}"))
-            .collect::<String>();
-        prelude.push_str(&format!("int64_t {}({}) {{return ((int64_t (*)({types}))(uintptr_t)rinzu_jit_functions[{}])(context{arguments});}}\n",function.symbol,parameters.join(","),function.index));
+        prelude.push_str(&format!(
+            "#define {} (*(int64_t (*)({types}))rinzu_jit_functions[{}])\n",
+            function.symbol, function.index
+        ));
     }
-    for (index, _) in signatures.iter().enumerate() {
-        prelude.push_str(&format!("uint64_t rinzu_source_native_{index}(uint64_t address,const uint64_t *words) {{return ((uint64_t (*)(uint64_t,const uint64_t *))(uintptr_t)rinzu_jit_stubs[{index}])(address,words);}}\n"));
+    // Supplant plans store a constant C function pointer. Keep a wrapper for
+    // those physical ABI stubs; managed calls use their JIT addresses directly.
+    for (index, _) in signatures
+        .iter()
+        .enumerate()
+        .filter(|(_, signature)| signature.is_supplant)
+    {
+        prelude.push_str(&format!("uint64_t rinzu_source_native_{index}(uint64_t address,const uint64_t *words) {{return ((uint64_t (*)(uint64_t,const uint64_t *))rinzu_jit_stubs[{index}])(address,words);}}\n"));
     }
     // This library executes inside its host process. Only the CLI's standalone
     // startup owns SIGINT policy; embedding must not replace a host handler.
@@ -90,7 +115,11 @@ pub(crate) fn runtime_source(
         "int main(int argc, char **argv) {",
         "static int rinzu_jit_main(int argc,char **argv) {",
     );
-    source = source.replace("rinzu_aot_source_native_startup();", "{ uint64_t started = rinzu_jit_timing ? rinzu_jit_clock() : 0; rinzu_aot_source_native_startup(); if (rinzu_jit_timing) { uint64_t ended = rinzu_jit_clock(); rinzu_jit_timing->native_startup = started && ended >= started ? ended - started : 0; } }");
+    assert_eq!(
+        source.matches("rinzu_aot_source_native_startup();").count(),
+        1
+    );
+    source = source.replace("rinzu_aot_source_native_startup();", "{ uint64_t started = rinzu_jit_timing ? rinzu_jit_clock() : 0; rinzu_aot_source_native_startup(); if (rinzu_jit_timing) { uint64_t ended = rinzu_jit_clock(); rinzu_jit_timing->native_startup = started && ended >= started ? ended - started : 0; } rinzu_jit_publish(); }");
     source = source.replace(
         "char *executable_directory = rinzu_source_executable_directory();",
         "char *executable_directory = rinzu_jit_directory_copy();",
@@ -110,7 +139,7 @@ pub(crate) fn runtime_source(
         .replace("\"rinzu-aot\"", "\"rinzu-jit\"")
         .replace("\\\"rinzu-aot\\\"", "\\\"rinzu-jit\\\"");
     if !aot.native_call_plans.is_empty() {
-        prelude.push_str("static char *rinzu_jit_directory_copy(void) {size_t length=strlen(rinzu_jit_directory);if(length==SIZE_MAX)_Exit(71);char *copy=malloc(length+1);if(!copy)_Exit(71);memcpy(copy,rinzu_jit_directory,length+1);return copy;}\n");
+        prelude.push_str("RINZU_PROGRAM_API char *rinzu_jit_directory_copy(void) {size_t length=strlen(rinzu_jit_directory);if(length==SIZE_MAX)_Exit(71);char *copy=malloc(length+1);if(!copy)_Exit(71);memcpy(copy,rinzu_jit_directory,length+1);return copy;}\n");
     }
     /* Keep the executable-path utility referenced while replacing its source
     bundle caller with the runtime's explicit, validated directory. */
@@ -119,13 +148,17 @@ pub(crate) fn runtime_source(
     }
     format!(
         "{prelude}\n{source}\n{}",
-        include_str!("compiled_async_entry.c")
+        source::template(
+            "compiled_async_entry.c",
+            include_str!("compiled_async_entry.c"),
+            locations
+        )
     )
 }
 fn checked<T>(value: std::io::Result<T>) -> Result<T, String> {
     rinzu_runtime::allocation::checked_io(value).map_err(|error| error.to_string())
 }
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub fn run(
     manifest: &Manifest,
     artifact: &FrontendArtifact,
@@ -144,13 +177,20 @@ pub fn run(
         },
     )
 }
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub fn run_with_resource_report(
     manifest: &Manifest,
     artifact: &FrontendArtifact,
     resource_config: Option<&rinzu_runtime::resource_report::Config>,
 ) -> Result<CompiledAsyncRun, String> {
-    run_with_observation(manifest, artifact, resource_config, false, &[])
+    run_with_observation(
+        manifest,
+        artifact,
+        resource_config,
+        false,
+        &[],
+        Default::default(),
+    )
 }
 pub(crate) fn run_with_observation(
     manifest: &Manifest,
@@ -158,11 +198,15 @@ pub(crate) fn run_with_observation(
     resource_config: Option<&rinzu_runtime::resource_report::Config>,
     show_trace: bool,
     arguments: &[OsString],
+    preparation: crate::RunPreparation<'_>,
 ) -> Result<CompiledAsyncRun, String> {
     run_configured(
         manifest,
         artifact,
         RunOptions {
+            dependencies: preparation.dependencies,
+            frontend_generation: preparation.frontend_generation,
+            on_ready: preparation.on_ready,
             record_evidence: show_trace,
             resource_config,
             arguments,
@@ -171,7 +215,10 @@ pub(crate) fn run_with_observation(
     )
 }
 
-#[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+#[cfg(any(
+    test,
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 pub(crate) fn run_for_equivalence(
     manifest: &Manifest,
     artifact: &FrontendArtifact,
@@ -195,7 +242,10 @@ pub(crate) fn run_for_equivalence(
 }
 
 #[derive(Default)]
-struct RunOptions<'a> {
+struct RunOptions<'a, 'ready> {
+    dependencies: Option<crate::native_package::PreparedDependencies>,
+    frontend_generation: Option<&'a str>,
+    on_ready: Option<&'ready mut dyn FnMut()>,
     cancel_after: Option<usize>,
     cancel_worker_after: Option<usize>,
     shutdown_after: Option<usize>,
@@ -208,44 +258,17 @@ struct RunOptions<'a> {
 fn run_configured(
     manifest: &Manifest,
     artifact: &FrontendArtifact,
-    options: RunOptions<'_>,
+    mut options: RunOptions<'_, '_>,
 ) -> Result<CompiledAsyncRun, String> {
+    let dependencies = options.dependencies.take();
     let _timing = rinzu_compiler::timing::span("jit.total");
-    let built = crate::native_package::build_artifact(manifest, artifact)?;
-    let _scratch = crate::verify_capture::TemporaryDirectory(built.directory.clone());
-    run_built(manifest, artifact, &built, options)
-}
-fn run_built(
-    manifest: &Manifest,
-    artifact: &FrontendArtifact,
-    built: &crate::native_package::BuiltNativePackages,
-    RunOptions {
-        cancel_after,
-        cancel_worker_after,
-        shutdown_after,
-        record_evidence,
-        capture_error_trace,
-        resource_config,
-        arguments,
-    }: RunOptions<'_>,
-) -> Result<CompiledAsyncRun, String> {
-    // The C startup transaction validates every saved descriptor, digest,
-    // table and image before publishing any managed entry. Opening the source
-    // facade here as well would register native classes/run initializers again
-    // when startup opens its bundle copy.
+    crate::jit_progress::phase("Compiling JIT code");
     let native_bindings = artifact
         .sdk_packages
         .iter()
         .flat_map(|package| &package.native_imports)
         .map(|import| (import.export_name.clone(), import.import_key))
         .collect::<HashMap<_, _>>();
-    let imports = artifact
-        .sdk_packages
-        .iter()
-        .flat_map(|package| &package.native_imports)
-        .filter(|import| import.runtime_service.is_none())
-        .cloned()
-        .collect::<Vec<_>>();
     let plans_timing = rinzu_compiler::timing::span("jit.plans");
     let aot =
         emit_source_async_aot_plans(&artifact.ir, "main", &native_bindings).map_err(|error| {
@@ -259,134 +282,436 @@ fn run_built(
     let plan =
         crate::aot::async_aot_plan(artifact, &aot)?.ok_or("compiled async requires async Main")?;
     drop(plans_timing);
+    // Lowering does not resolve symbols or publish executable memory. Native
+    // preparation stays on the caller's thread, as do linking and execution.
+    let symbols = runtime_symbol_names(&aot);
+    let (runtime, (code, pending)) = std::thread::scope(|scope| {
+        let prepare_managed = || {
+            let _timing = rinzu_compiler::timing::span("jit.managed");
+            managed_cache::prepare(
+                manifest,
+                artifact,
+                &aot,
+                &native_bindings,
+                &symbols,
+                options.frontend_generation,
+            )
+            .map_err(|error| {
+                crate::cli_diagnostics::stage_failure(
+                    None,
+                    "async JIT code generation",
+                    None,
+                    &format!("{error:#}"),
+                )
+            })
+        };
+        let worker = if std::thread::available_parallelism().is_ok_and(|count| count.get() > 1) {
+            std::thread::Builder::new()
+                .name("rinzu-jit".into())
+                .stack_size(8 * 1024 * 1024)
+                .spawn_scoped(scope, prepare_managed)
+                .ok()
+        } else {
+            None
+        };
+        let runtime = prepare_runtime(manifest, artifact, &aot, &plan, &options, dependencies);
+        let managed = match worker {
+            Some(worker) => worker
+                .join()
+                .map_err(|_| "async JIT preparation panicked".to_owned())?,
+            None => prepare_managed(),
+        };
+        Ok::<_, String>((runtime?, managed?))
+    })?;
+    run_image(
+        &manifest.root,
+        aot,
+        runtime,
+        code,
+        symbols,
+        pending,
+        options,
+    )
+}
+
+struct PreparedRuntime {
+    directory: crate::verify_capture::TemporaryDirectory,
+    library: PathBuf,
+    sdk_cache: Vec<crate::source_native_package::PendingEarlySdkCache>,
+    runtime_cache: Option<runtime_cache::Pending>,
+}
+
+/// C calls this transaction once, after its native startup has validated all
+/// descriptors/providers and before managed Main can run or terminate us.
+struct Publication<'runtime, 'ready> {
+    managed: Option<managed_cache::Pending>,
+    runtime: &'runtime mut PreparedRuntime,
+    on_ready: Option<&'ready mut dyn FnMut()>,
+}
+
+extern "C" fn publish_caches(raw: *mut std::ffi::c_void) {
+    // SAFETY: run_image retains this exclusive stack value throughout the
+    // synchronous rinzu_jit_run call; the private C API calls it only once.
+    let publication = unsafe { &mut *raw.cast::<Publication<'_, '_>>() };
+    if let Some(cache) = publication.managed.take() {
+        cache.store();
+    }
+    for cache in publication.runtime.sdk_cache.drain(..) {
+        cache.store();
+    }
+    if let Some(cache) = publication.runtime.runtime_cache.take() {
+        cache.store();
+    }
+    if let Some(publish) = publication.on_ready.take() {
+        publish();
+    }
+}
+
+fn prepare_runtime(
+    manifest: &Manifest,
+    artifact: &FrontendArtifact,
+    aot: &BaselineAotObject,
+    plan: &crate::aot::AsyncAotPlan,
+    options: &RunOptions<'_, '_>,
+    dependencies: Option<crate::native_package::PreparedDependencies>,
+) -> Result<PreparedRuntime, String> {
+    crate::jit_progress::phase("Preparing native dependencies");
+    let mut built =
+        crate::native_package::build_artifact_with_dependencies(manifest, artifact, dependencies)?;
+    crate::jit_progress::phase("Preparing JIT runtime");
+    let sdk_cache = built
+        .source_packages
+        .iter_mut()
+        .filter_map(|package| package.pending_early_cache.take())
+        .collect();
+    let directory = crate::verify_capture::TemporaryDirectory(built.directory.clone());
+    let imports = artifact
+        .sdk_packages
+        .iter()
+        .flat_map(|package| &package.native_imports)
+        .filter(|import| import.runtime_service.is_none())
+        .cloned()
+        .collect::<Vec<_>>();
     let bundle = built.directory.join("source-packages");
     let publication = crate::input::publication_directory(manifest, artifact, &built.directory);
-    crate::source_package_bundle::save_to(&built.source_packages, &[&bundle, &publication])?;
-    let source_timing = rinzu_compiler::timing::span("jit.runtime.generate");
-    let source = crate::aot::runtime_shim_with_source_packages(
-        &aot,
-        &imports,
-        Some(&plan),
-        &built.source_packages,
-        &bundle,
-    )?;
-    let source = runtime_source(&aot, &source, record_evidence);
-    #[cfg(test)]
-    let capture_error_trace = ERROR_TRACE_PROBE.with(std::cell::Cell::take) || capture_error_trace;
-    let source = if capture_error_trace {
-        format!("#define RINZU_ERROR_TRACE_DEFAULT 1\n{source}")
-    } else {
-        source
+    let publish = || {
+        crate::source_package_bundle::save_to(&built.source_packages, &[&bundle, &publication])
+            .map(|_| ())
     };
-    let startup = if let Some(config) = resource_config {
-        format!(
-            "if (rinzu_resource_report_start({}, UINT64_C({}))) return 1;",
-            crate::resource_report::c_string(
-                config
-                    .path
-                    .to_str()
-                    .ok_or("resource report path must be UTF-8")?
-            ),
-            config.interval_ms
-        )
-    } else {
-        String::new()
-    };
-    let source = format!(
-        "#define RINZU_RESOURCE_PRODUCER \"c-compiled-jit\"\n{}",
-        source.replace("if (rinzu_resource_report_from_env()) return 1;", &startup)
-    );
-    #[cfg(test)]
-    let foreign_return_probe = FOREIGN_RETURN_PROBE.with(std::cell::Cell::take);
-    #[cfg(test)]
-    let source = if let Some(count) = foreign_return_probe {
-        foreign_return_probe::instrument(source, count)
-    } else {
-        source
-    };
-    #[cfg(test)]
-    let source = if PREPARATION_PROBE.with(std::cell::Cell::take) {
-        preparation_probe::instrument(source)
-    } else {
-        source
-    };
-    drop(source_timing);
-    let path = built.directory.join("compiled-async.runtime.c");
-    checked(std::fs::write(&path, &source))?;
     let resources = rinzu_compiler::standard_library::resource_root()?;
-    let runtime = resources.join("runtime");
     let toolchain = crate::native_clang::TargetClang::resolve()?;
-    let library_name = aot.target.shared_library_name("compiled-async");
-    let library = built.directory.join(&library_name);
-    let linux = aot.target == Target::X86_64UnknownLinuxGnu;
-    let compile_timing = rinzu_compiler::timing::span("jit.runtime.clang");
-    let mut objects = Vec::new();
-    let mut sources = vec![(path, "runtime", "compile async runtime source")];
-    if !linux || !aot.native_call_plans.is_empty() {
-        sources.extend([
-            (
-                runtime.join("callback_entry.c"),
-                "callback-entry",
-                "compile callback entry",
-            ),
-            (
-                runtime.join("callback_template.S"),
-                "callback-template",
-                "compile callback template",
-            ),
-        ]);
-    }
-    if linux {
-        sources.push((
-            runtime.join("continuation.S"),
-            "continuation",
-            "compile x86_64 continuation",
+    let compile = || -> Result<(PathBuf, Option<runtime_cache::Pending>), String> {
+        let directory = &built.directory;
+        let source_path = directory.join("compiled-async.runtime.c");
+        let units = RuntimeUnit::all(aot, &source_path, directory, &resources);
+        let objects: Vec<_> = units.iter().map(|unit| unit.object.clone()).collect();
+        let library_name = aot.target.shared_library_name("compiled-async");
+        let library = directory.join(&library_name);
+        let command = runtime_link_command(&built, aot, &toolchain, &library_name, &objects);
+        let exact = options
+            .frontend_generation
+            .filter(|_| !cfg!(test))
+            .and_then(|generation| {
+                runtime_cache::Exact::open(
+                    (
+                        generation,
+                        options.record_evidence,
+                        options.capture_error_trace,
+                        options
+                            .resource_config
+                            .map(|config| (&config.path, config.interval_ms)),
+                    ),
+                    &built,
+                    &resources,
+                    &toolchain,
+                )
+            });
+        if let Some(entry) = &exact
+            && entry.restore(
+                runtime_cache::RestoreInputs {
+                    command: &command,
+                    library: &library,
+                    objects: &objects,
+                    source: &source_path,
+                    resources: &resources,
+                    toolchain: &toolchain,
+                },
+                || {
+                    units
+                        .iter()
+                        .map(|unit| unit.input_key(directory, &resources, &toolchain))
+                        .collect()
+                },
+            )
+        {
+            toolchain.verify()?;
+            rinzu_compiler::standard_library::verify(&resources)?;
+            return Ok((library, None));
+        }
+        let source_timing = rinzu_compiler::timing::span("jit.runtime.generate");
+        let source = crate::aot::runtime_shim_with_source_packages(
+            aot,
+            &imports,
+            Some(plan),
+            &built.source_packages,
+            &bundle,
+        )?;
+        let source = runtime_source(aot, &source, options.record_evidence);
+        let capture_error_trace = options.capture_error_trace;
+        #[cfg(test)]
+        let capture_error_trace =
+            ERROR_TRACE_PROBE.with(std::cell::Cell::take) || capture_error_trace;
+        let source = if capture_error_trace {
+            format!("#define RINZU_ERROR_TRACE_DEFAULT 1\n{source}")
+        } else {
+            source
+        };
+        let startup = if let Some(config) = options.resource_config {
+            format!(
+                "if (rinzu_resource_report_start({}, UINT64_C({}))) return 1;",
+                crate::resource_report::c_string(
+                    config
+                        .path
+                        .to_str()
+                        .ok_or("resource report path must be UTF-8")?
+                ),
+                config.interval_ms
+            )
+        } else {
+            String::new()
+        };
+        let source = format!(
+            "#define RINZU_RESOURCE_PRODUCER \"c-compiled-jit\"\n{}",
+            source.replace("if (rinzu_resource_report_from_env()) return 1;", &startup)
+        );
+        #[cfg(test)]
+        let foreign_return_probe = FOREIGN_RETURN_PROBE.with(std::cell::Cell::take);
+        #[cfg(test)]
+        let source = if let Some(count) = foreign_return_probe {
+            foreign_return_probe::instrument(source, count)
+        } else {
+            source
+        };
+        #[cfg(test)]
+        let preparation_probe = PREPARATION_PROBE.with(std::cell::Cell::take);
+        drop(source_timing);
+        let sources = source::Sources::split(aot, source, options.resource_config.is_some())?;
+        #[cfg(test)]
+        let sources = {
+            let mut sources = sources;
+            if preparation_probe {
+                let common = sources.files.remove(source::COMMON).unwrap();
+                let header = sources.files.remove(source::HEADER).unwrap();
+                let (common, header) = preparation_probe::instrument_shared(common, header);
+                sources.files.insert(source::COMMON.into(), common);
+                sources.files.insert(source::HEADER.into(), header);
+            }
+            sources
+        };
+        for (name, contents) in &sources.files {
+            checked(std::fs::write(directory.join(name), contents))?;
+        }
+        #[cfg(test)]
+        let test_dispatcher = foreign_return_probe.is_some();
+        #[cfg(not(test))]
+        let test_dispatcher = false;
+        let compile_timing = rinzu_compiler::timing::span("jit.runtime.clang");
+        let unit_keys =
+            compile_runtime(&units, directory, &resources, &toolchain, test_dispatcher)?;
+        let exact = exact.and_then(|entry| entry.capture(sources.files, unit_keys));
+        let runtime_cache = runtime_cache::link(
+            command, &library, &objects, &built, &resources, &toolchain, exact,
+        )?;
+        drop(compile_timing);
+        toolchain.verify()?;
+        rinzu_compiler::standard_library::verify(&resources)?;
+        Ok((library, runtime_cache))
+    };
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    let (library, runtime_cache) =
+        native_preload::during_compile(&built, &bundle, &toolchain, publish, compile)?;
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    let (library, runtime_cache) = {
+        publish()?;
+        compile()?
+    };
+    Ok(PreparedRuntime {
+        directory,
+        library,
+        sdk_cache,
+        runtime_cache,
+    })
+}
+
+struct RuntimeUnit {
+    source: PathBuf,
+    object: PathBuf,
+    action: &'static str,
+}
+
+impl RuntimeUnit {
+    fn all(
+        aot: &BaselineAotObject,
+        source: &Path,
+        directory: &Path,
+        resources: &Path,
+    ) -> Vec<Self> {
+        let runtime = resources.join("runtime");
+        let linux = aot.target == Target::X86_64UnknownLinuxGnu;
+        let unit = |source, name, action| Self {
+            source,
+            object: directory.join(format!("compiled-async.{name}.o")),
+            action,
+        };
+        let mut units = vec![unit(
+            source.to_owned(),
+            "runtime",
+            "compile async runtime source",
+        )];
+        units.push(unit(
+            directory.join(source::PROGRAM),
+            "program",
+            "compile async program tables",
         ));
-    } else {
-        sources.push((
-            runtime.join("owner_dispatcher.c"),
-            "owner-dispatcher",
-            "compile owner dispatcher",
-        ));
+        if !linux || !aot.native_call_plans.is_empty() {
+            units.extend([
+                unit(
+                    runtime.join("callback_entry.c"),
+                    "callback-entry",
+                    "compile callback entry",
+                ),
+                unit(
+                    runtime.join("callback_template.S"),
+                    "callback-template",
+                    "compile callback template",
+                ),
+            ]);
+        }
+        units.push(if linux {
+            unit(
+                runtime.join("continuation.S"),
+                "continuation",
+                "compile x86_64 continuation",
+            )
+        } else {
+            unit(
+                runtime.join("owner_dispatcher.c"),
+                "owner-dispatcher",
+                "compile owner dispatcher",
+            )
+        });
+        units
     }
-    for (source, name, action) in sources {
-        let output = built.directory.join(format!("compiled-async.{name}.o"));
+
+    fn command(
+        &self,
+        resources: &Path,
+        toolchain: &crate::native_clang::TargetClang,
+    ) -> std::process::Command {
         let mut command = toolchain.command();
-        command.args(["-c", "-O1", "-g", "-Wall", "-Wextra", "-Werror", "-pthread"]);
-        if linux {
+        command.args([
+            "-c",
+            "-O1",
+            "-gline-tables-only",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-pthread",
+        ]);
+        if toolchain.target == Target::X86_64UnknownLinuxGnu {
             command.arg("-fPIC");
         }
-        if source.extension().is_some_and(|extension| extension == "c") {
+        if self
+            .source
+            .extension()
+            .is_some_and(|extension| extension == "c")
+        {
             command.arg("-std=c11");
         }
         command
             .arg("-I")
             .arg(resources.join("include"))
-            .arg(&source)
+            .arg(&self.source)
             .arg("-o")
-            .arg(&output);
-        #[cfg(test)]
-        if foreign_return_probe.is_some() {
+            .arg(&self.object);
+        command
+    }
+
+    fn input_key(
+        &self,
+        directory: &Path,
+        resources: &Path,
+        toolchain: &crate::native_clang::TargetClang,
+    ) -> Option<String> {
+        let mut command = self.command(resources, toolchain);
+        crate::compile_cache::map_generated_paths(&mut command, directory);
+        crate::compile_cache::input_key(
+            toolchain,
+            &command,
+            directory,
+            &self.object.with_extension("cache.d"),
+        )
+    }
+}
+
+fn compile_runtime(
+    units: &[RuntimeUnit],
+    directory: &Path,
+    resources: &Path,
+    toolchain: &crate::native_clang::TargetClang,
+    test_dispatcher: bool,
+) -> Result<Vec<Option<String>>, String> {
+    let compile = |unit: &RuntimeUnit| {
+        let mut command = unit.command(resources, toolchain);
+        if test_dispatcher {
             command.arg("-DRINZU_DISPATCHER_TESTING");
         }
         crate::compile_cache::compile(
-            &toolchain,
+            toolchain,
             command,
-            &built.directory,
-            &output,
-            &source,
-            action,
-        )?;
-        objects.push(output);
-    }
-    let mut command = if linux {
-        toolchain.shared_command(&library_name)
-    } else {
-        let mut command = toolchain.command();
-        command.args(["-dynamiclib", "-pthread"]);
-        command
+            directory,
+            &unit.object,
+            &unit.source,
+            unit.action,
+        )
     };
-    command.args(&objects);
+    let (runtime, helpers) = units.split_first().expect("async runtime source");
+    std::thread::scope(|scope| {
+        let compile_helpers = || helpers.iter().map(compile).collect::<Result<Vec<_>, _>>();
+        let worker = if std::thread::available_parallelism().is_ok_and(|count| count.get() > 1) {
+            std::thread::Builder::new()
+                .name("rinzu-runtime-helpers".into())
+                .spawn_scoped(scope, compile_helpers)
+                .ok()
+        } else {
+            None
+        };
+        let runtime = compile(runtime);
+        let helpers = match worker {
+            Some(worker) => worker
+                .join()
+                .map_err(|_| "async runtime helper compilation panicked".to_owned())?,
+            None => compile_helpers(),
+        };
+        let mut keys = vec![runtime?];
+        keys.extend(helpers?);
+        Ok(keys)
+    })
+}
+
+fn runtime_link_command(
+    built: &crate::native_package::BuiltNativePackages,
+    aot: &BaselineAotObject,
+    toolchain: &crate::native_clang::TargetClang,
+    library_name: &str,
+    objects: &[PathBuf],
+) -> std::process::Command {
+    let linux = aot.target == Target::X86_64UnknownLinuxGnu;
+    let mut command = toolchain.shared_command(library_name);
+    if !linux {
+        command.arg("-pthread");
+    }
+    command.args(objects);
     for artifact in &built.artifacts {
         command.arg(&artifact.library);
     }
@@ -398,18 +723,12 @@ fn run_built(
     } else {
         command.args(["-framework", "CoreFoundation"]);
     }
-    crate::cli_diagnostics::tool_output(
-        command.arg("-o").arg(&library).output(),
-        Some(&library),
-        "async runtime linking",
-        "clang",
-    )?;
-    drop(compile_timing);
-    toolchain.verify()?;
-    rinzu_compiler::standard_library::verify(&resources)?;
-    let mut library = CompiledRuntimeLibrary::open(&library)
-        .map_err(|error| format!("load async runtime: {error:#}"))?;
-    let mut symbols = BTreeMap::new();
+    command.arg("-o").arg(built.directory.join(library_name));
+    command
+}
+
+fn runtime_symbol_names(aot: &BaselineAotObject) -> Vec<String> {
+    let mut symbols = Vec::new();
     for symbol in [
         "poll",
         "set_source",
@@ -432,12 +751,14 @@ fn run_built(
         "construct_owner_proven",
         "data_operation_owner_proven",
         "bytes_slice_payload_owner_proven",
+        "indexed_option_owner_proven",
         "bytes_int_length_owner_proven",
         "string_scalar_length_owner_proven",
         "collection_length_owner_proven",
         "construct",
         "data_operation",
         "bytes_slice_payload",
+        "indexed_option",
         "bytes_int_length",
         "string_scalar_length",
         "collection_length",
@@ -478,21 +799,13 @@ fn run_built(
         "record_task_error",
         "take_task_errors",
     ] {
-        let symbol = format!("rinzu_baseline_{symbol}");
-        symbols.insert(
-            symbol.clone(),
-            library.symbol(&symbol).map_err(|error| error.to_string())?,
-        );
+        symbols.push(format!("rinzu_baseline_{symbol}"));
     }
     if !aot.native_call_plans.is_empty() {
         for helper in [
             "prepare", "address", "words", "returned", "close", "settle", "read", "release",
         ] {
-            let symbol = format!("rinzu_baseline_source_native_{helper}");
-            symbols.insert(
-                symbol.clone(),
-                library.symbol(&symbol).map_err(|error| error.to_string())?,
-            );
+            symbols.push(format!("rinzu_baseline_source_native_{helper}"));
         }
     }
     if aot
@@ -501,24 +814,53 @@ fn run_built(
         .any(|plan| plan.signature.is_supplant)
     {
         for helper in ["reserve", "start", "settle"] {
-            let symbol = format!("rinzu_baseline_supplant_{helper}");
-            symbols.insert(
-                symbol.clone(),
-                library.symbol(&symbol).map_err(|error| error.to_string())?,
-            );
+            symbols.push(format!("rinzu_baseline_supplant_{helper}"));
         }
     }
-    let managed_timing = rinzu_compiler::timing::span("jit.managed");
-    let code =
-        compile_source_async_jit(&artifact.ir, &symbols, &native_bindings).map_err(|error| {
-            crate::cli_diagnostics::stage_failure(
-                None,
-                "async JIT code generation",
-                None,
-                &format!("{error:#}"),
-            )
-        })?;
-    drop(managed_timing);
+    symbols
+}
+
+fn run_image(
+    package_root: &Path,
+    aot: BaselineAotObject,
+    mut runtime: PreparedRuntime,
+    managed: PreparedAsyncJit,
+    symbol_names: Vec<String>,
+    pending: Option<managed_cache::Pending>,
+    options: RunOptions<'_, '_>,
+) -> Result<CompiledAsyncRun, String> {
+    let RunOptions {
+        cancel_after,
+        cancel_worker_after,
+        shutdown_after,
+        arguments,
+        on_ready,
+        ..
+    } = options;
+    let linux = aot.target == Target::X86_64UnknownLinuxGnu;
+    crate::jit_progress::phase("Loading and validating JIT code");
+    // The startup transaction validates the saved descriptors and native
+    // images before executing the program. Open only the runtime image here.
+    let mut library = {
+        let _timing = rinzu_compiler::timing::span("jit.runtime.dlopen");
+        CompiledRuntimeLibrary::open(&runtime.library)
+            .map_err(|error| format!("load async runtime: {error:#}"))?
+    };
+    let symbols = symbol_names
+        .into_iter()
+        .map(|symbol| {
+            let address = library.symbol(&symbol).map_err(|error| error.to_string())?;
+            Ok((symbol, address))
+        })
+        .collect::<Result<_, String>>()?;
+    let code = managed.publish(symbols).map_err(|error| {
+        crate::cli_diagnostics::stage_failure(
+            None,
+            "async JIT code publication",
+            None,
+            &format!("{error:#}"),
+        )
+    })?;
     let functions = aot
         .functions
         .iter()
@@ -539,10 +881,31 @@ fn run_built(
                 .ok_or("missing physical JIT stub".to_owned())
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let anchor = built.directory.join("jit-entry");
+    let mut result = CompiledAsyncRun {
+        output: String::new(),
+        #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+        source_files: aot.source_files,
+        exit_code: 0,
+        compile: code.compile.clone(),
+        executable_mappings: code.executable_mappings,
+        icache_flushes: code.icache_flushes,
+        rx_transitions: code.rx_transitions,
+        rwx_mappings: code.rwx_mappings,
+        retired: false,
+    };
+    if result.rwx_mappings != 0
+        || result.executable_mappings == 0
+        || result.rx_transitions != result.executable_mappings
+        || result.icache_flushes
+            != result.executable_mappings * usize::from(aot.target.jit_flushes_instruction_cache())
+        || result.compile.code_size == 0
+    {
+        return Err("compiled async code publication failed".into());
+    }
+    let anchor = runtime.directory.0.join("jit-entry");
     // Symlink targets are resolved relative to the generated runtime directory,
     // while CLI package paths can be relative to the caller's working directory.
-    let package_root = checked(manifest.root.canonicalize())?;
+    let package_root = checked(package_root.canonicalize())?;
     checked(std::os::unix::fs::symlink(
         &package_root,
         anchor.with_file_name("jit-entry.resources"),
@@ -564,7 +927,7 @@ fn run_built(
         .map(|value| value.as_ptr().cast_mut())
         .chain(std::iter::once(std::ptr::null_mut()))
         .collect();
-    let canonical_directory = checked(built.directory.canonicalize())?;
+    let canonical_directory = checked(runtime.directory.0.canonicalize())?;
     let directory = CString::new(
         canonical_directory
             .to_str()
@@ -575,6 +938,8 @@ fn run_built(
     #[repr(C)]
     struct RuntimeTimings {
         native_startup: u64,
+        native_dlopen: u64,
+        native_images: u64,
         main: u64,
     }
     let mut runtime_timings = RuntimeTimings::default();
@@ -591,6 +956,8 @@ fn run_built(
         u64,
         extern "C" fn() -> u64,
         *mut RuntimeTimings,
+        extern "C" fn(*mut std::ffi::c_void),
+        *mut std::ffi::c_void,
         *mut *mut c_char,
         *mut usize,
     ) -> i32;
@@ -622,6 +989,11 @@ fn run_built(
     }
     let mut report = std::ptr::null_mut();
     let mut length = 0;
+    let mut publication = Publication {
+        managed: pending,
+        runtime: &mut runtime,
+        on_ready,
+    };
     let execute_timing = rinzu_compiler::timing::span("jit.execute");
     // SAFETY: tables point at finalized code retained through all C runtime
     // settlement; strings, output slots and arrays remain valid for this call.
@@ -643,11 +1015,18 @@ fn run_built(
             } else {
                 std::ptr::null_mut()
             },
+            publish_caches,
+            (&mut publication as *mut Publication<'_, '_>).cast(),
             &mut report,
             &mut length,
         )
     };
     if execute_timing.is_active() {
+        let mut images = rinzu_compiler::timing::span("jit.execute.native_dlopen");
+        images.set_counter("images", runtime_timings.native_images);
+        images.finish_with_duration(std::time::Duration::from_nanos(
+            runtime_timings.native_dlopen,
+        ));
         rinzu_compiler::timing::span("jit.execute.native_startup").finish_with_duration(
             std::time::Duration::from_nanos(runtime_timings.native_startup),
         );
@@ -670,38 +1049,19 @@ fn run_built(
     let output = unsafe { std::slice::from_raw_parts(report.cast::<u8>(), length) }.to_vec();
     // SAFETY: report belongs to this image and has been copied exactly once.
     unsafe { free(report) };
-    let mut run = CompiledAsyncRun {
-        output: String::from_utf8(output).map_err(|error| error.to_string())?,
-        #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
-        source_files: aot.source_files,
-        exit_code,
-        compile: code.compile.clone(),
-        executable_mappings: code.executable_mappings,
-        icache_flushes: code.icache_flushes,
-        rx_transitions: code.rx_transitions,
-        rwx_mappings: code.rwx_mappings,
-        retired: false,
-    };
-    if !run.output.contains("\"resources\":\"baseline\"") {
+    result.output = String::from_utf8(output).map_err(|error| error.to_string())?;
+    result.exit_code = exit_code;
+    if !result.output.contains("\"resources\":\"baseline\"") {
         return Err(format!(
             "compiled async runtime leaked resources:\n{}",
-            run.output
+            result.output
         ));
     }
     // SAFETY: the shared runtime requires all tasks, Workers, callback gates,
     // roots and continuations to settle before returning its baseline report.
     unsafe { code.retire() }.map_err(|error| error.to_string())?;
-    run.retired = true;
-    if run.rwx_mappings != 0
-        || run.executable_mappings == 0
-        || run.rx_transitions != run.executable_mappings
-        || run.icache_flushes
-            != run.executable_mappings * usize::from(aot.target.jit_flushes_instruction_cache())
-        || run.compile.code_size == 0
-    {
-        return Err("compiled async code publication failed".into());
-    }
-    Ok(run)
+    result.retired = true;
+    Ok(result)
 }
 
 #[cfg(test)]

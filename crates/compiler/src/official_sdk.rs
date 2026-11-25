@@ -236,6 +236,7 @@ fn verify_catalog(root: &Path, sources: &mut SourceSnapshot<'_>) -> Result<(), S
     if !metadata.is_file() || metadata.len() > 1024 * 1024 {
         return Err("invalid toolchain bundle metadata".into());
     }
+    sources.record_regular_input(&path);
     let bytes = sources
         .read_config(&path)
         .map_err(|error| error.to_string())?;

@@ -1,5 +1,6 @@
 //! Source-package v2 wire format and generated C table (frontend-independent R1 boundary).
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -283,10 +284,7 @@ pub struct GeneratedSourcePackage {
 }
 
 pub fn sha256(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 fn json<T: Serialize>(value: &T) -> Result<Vec<u8>, String> {
@@ -1271,33 +1269,38 @@ fn header(interface: &SourceInterface) -> String {
 }
 
 fn keys(interface: &SourceInterface) -> Result<Vec<String>, String> {
+    if interface.functions.is_empty() {
+        return Ok(Vec::new());
+    }
+    // The key is SHA-256 of a JSON tuple beginning with the function.
+    // Every function shares the rest of the tuple, including its closing ']'.
+    let shared = json(&(
+        &interface.types,
+        &interface.backend,
+        &interface.package.target,
+        &interface.package.data_layout,
+        &interface.provided_header_digest,
+        &interface.constants,
+        &interface.constant_types,
+        &interface.source_types,
+        &interface.source_templates,
+        &interface.source_values,
+    ))?;
     interface
         .functions
         .iter()
         .map(|function| {
-            // Full source and external ABI, referenced layouts, callbacks and backend versions.
-            json(&(
-                function,
-                &interface.types,
-                &interface.backend,
-                &interface.package.target,
-                &interface.package.data_layout,
-                &interface.provided_header_digest,
-                &interface.constants,
-                &interface.constant_types,
-                &interface.source_types,
-                &interface.source_templates,
-                &interface.source_values,
-            ))
-            .map(|bytes| sha256(&bytes))
+            let mut digest = Sha256::new();
+            digest.update(b"[");
+            digest.update(json(function)?);
+            digest.update(b",");
+            digest.update(&shared[1..]);
+            Ok(format!("{:x}", digest.finalize()))
         })
         .collect()
 }
 
-pub fn generate_source_package(
-    mut interface: SourceInterface,
-    native_artifact: &[u8],
-) -> Result<GeneratedSourcePackage, String> {
+fn prepare_interface(interface: &mut SourceInterface) -> Result<(), String> {
     let plans = interface
         .functions
         .iter()
@@ -1307,7 +1310,20 @@ pub fn generate_source_package(
         function.conversion_plan = plan;
     }
     interface.canonicalize();
-    interface.validate()?;
+    interface.validate()
+}
+
+/// Emit the same canonical header without computing the descriptor or table.
+pub fn generate_source_package_header(mut interface: SourceInterface) -> Result<String, String> {
+    prepare_interface(&mut interface)?;
+    Ok(header(&interface))
+}
+
+pub fn generate_source_package(
+    mut interface: SourceInterface,
+    native_artifact: &[u8],
+) -> Result<GeneratedSourcePackage, String> {
+    prepare_interface(&mut interface)?;
     let header = header(&interface);
     let descriptor = SourceDescriptor {
         schema: "rinzu.source-package".into(),
@@ -1325,8 +1341,8 @@ pub fn generate_source_package(
         "/* Generated: do not edit. */\n#include \"rinzu/runtime.h\"\n#include \"source-package.h\"\n",
     );
     c_table.push_str(&format!(
-        "static const uint8_t descriptor_bytes[] = {{{}}};\n",
-        c_bytes(&wire)
+        "static const uint8_t descriptor_bytes[] =\n{};\n",
+        c_byte_string(&wire)
     ));
     let native = descriptor
         .interface
@@ -1346,7 +1362,7 @@ pub fn generate_source_package(
         }
         c_table.push_str("};\n");
     }
-    c_table.push_str(&format!("static const rinzu_source_package_descriptor_v2_t package = {{sizeof(package), RINZU_SOURCE_PACKAGE_MAJOR, RINZU_SOURCE_PACKAGE_MINOR, descriptor_bytes, sizeof(descriptor_bytes), {}, {}}};\n", native.len(), if native.is_empty() { "NULL" } else { "imports" }));
+    c_table.push_str(&format!("static const rinzu_source_package_descriptor_v2_t package = {{sizeof(package), RINZU_SOURCE_PACKAGE_MAJOR, RINZU_SOURCE_PACKAGE_MINOR, descriptor_bytes, sizeof(descriptor_bytes) - 1, {}, {}}};\n", native.len(), if native.is_empty() { "NULL" } else { "imports" }));
     c_table.push_str("RINZU_API const rinzu_source_package_descriptor_v2_t *rinzu_source_package_v2(void) { return &package; }\n");
     Ok(GeneratedSourcePackage {
         descriptor,
@@ -1356,12 +1372,39 @@ pub fn generate_source_package(
     })
 }
 
+/// C string-literal initializer for a byte array. Its implicit final NUL is
+/// separate from the payload and must be excluded from the wire length.
+pub fn c_byte_string(bytes: &[u8]) -> String {
+    if bytes.is_empty() {
+        return "\"\"".into();
+    }
+    let mut result = String::with_capacity(bytes.len());
+    for chunk in bytes.chunks(512) {
+        result.push('"');
+        for &byte in chunk {
+            match byte {
+                b'"' | b'\\' | b'?' => {
+                    result.push('\\');
+                    result.push(char::from(byte));
+                }
+                b' '..=b'~' => result.push(char::from(byte)),
+                _ => write!(result, "\\{byte:03o}").expect("String writes are infallible"),
+            }
+        }
+        result.push_str("\"\n");
+    }
+    result
+}
+
 fn c_bytes(bytes: &[u8]) -> String {
-    bytes
-        .iter()
-        .map(|byte| byte.to_string())
-        .collect::<Vec<_>>()
-        .join(",")
+    let mut result = String::with_capacity(bytes.len());
+    if let Some((first, rest)) = bytes.split_first() {
+        write!(result, "{first}").expect("String writes are infallible");
+        for byte in rest {
+            write!(result, ",{byte}").expect("String writes are infallible");
+        }
+    }
+    result
 }
 
 pub fn decode_key(key: &str) -> Result<[u8; 32], String> {

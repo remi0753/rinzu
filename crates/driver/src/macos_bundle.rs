@@ -32,7 +32,7 @@ pub fn run(arguments: impl Iterator<Item = String>) -> Result<(), String> {
         .path
         .unwrap_or(std::env::current_dir().map_err(|e| e.to_string())?);
     crate::input::require_package("bundle", &path)?;
-    let context = crate::input::check(&path, &parsed.input, &parsed.native)?;
+    let context = crate::input::check_for_build(&path, &parsed.input, &parsed.native)?;
     let bundle = build(&context, parsed.output, parsed.app_config)?;
     println!("application bundle: {}", bundle.display());
     println!(

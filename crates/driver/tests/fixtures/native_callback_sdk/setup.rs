@@ -3,8 +3,8 @@ pub fn create(root: &std::path::Path) {
     for name in ["app", "callbacks"] {
         std::fs::create_dir_all(root.join(name).join("src")).unwrap();
     }
-    std::fs::write(root.join("callbacks/rinzu.toml"), "[package]\nname=\"callbacks\"\nlanguage=\"0.2\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n[native]\nsources=[\"api.c\"]\nheaders=[\"api.h\"]\n").unwrap();
-    std::fs::write(root.join("app/rinzu.toml"), "[package]\nname=\"callback_app\"\nlanguage=\"0.2\"\n[dependencies]\ncallbacks={path=\"../callbacks\"}\n").unwrap();
+    std::fs::write(root.join("callbacks/rinzu.toml"), "[package]\nname=\"callbacks\"\nlanguage=\"0.5\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n[native]\nsources=[\"api.c\"]\nheaders=[\"api.h\"]\n").unwrap();
+    std::fs::write(root.join("app/rinzu.toml"), "[package]\nname=\"callback_app\"\nlanguage=\"0.5\"\n[dependencies]\ncallbacks={path=\"../callbacks\"}\n").unwrap();
     std::fs::write(
         root.join("callbacks/src/api.rinzu"),
         include_str!("api.rinzu"),

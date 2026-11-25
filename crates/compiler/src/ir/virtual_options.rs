@@ -1,15 +1,28 @@
-//! A bounded representation plan for a verified, nonescaping bytesSlice Option.
-//!
-//! This leaves semantic IR, safepoints and logical allocation sites intact. A C
-//! backend may hold the managed ByteArray handle (or zero for None) in the same
-//! reference root slots. No scalar payload or observable Option can use it.
+//! Representation plan for Options consumed by a verified immediate switch.
 
 use super::{IrFunction, OperationKind, Terminator, ValueId, operation_inputs, payload_is_guarded};
-use crate::Type;
+use crate::{AbiScalar, DataOperation, Type};
 use std::collections::HashSet;
+
+#[derive(Clone, Default)]
+pub struct VirtualOptions {
+    pub values: HashSet<ValueId>,
+    /// These Option-typed IR roots contain scalar bits in the C backend.
+    pub scalar_values: HashSet<ValueId>,
+    pub scalar_locals: HashSet<String>,
+}
+
+#[must_use]
+pub fn virtual_options(function: &IrFunction) -> VirtualOptions {
+    plan(function, true)
+}
 
 #[must_use]
 pub fn virtual_bytes_options(function: &IrFunction) -> HashSet<ValueId> {
+    plan(function, false).values
+}
+
+fn plan(function: &IrFunction, indexed: bool) -> VirtualOptions {
     // Start with closed leaf bodies: no task/native boundary can retain a
     // compiler temporary using the original Option schema during suspension.
     if function.is_async
@@ -33,27 +46,39 @@ pub fn virtual_bytes_options(function: &IrFunction) -> HashSet<ValueId> {
                 )
             })
     {
-        return HashSet::new();
+        return VirtualOptions::default();
     }
-    let mut plan = HashSet::new();
+    let mut plan = VirtualOptions::default();
     for producer in function.blocks.iter().flat_map(|b| &b.operations) {
         let OperationKind::DataOperation {
-            kind: crate::DataOperation::BytesSlice,
+            kind,
             argument_types,
             ..
         } = &producer.kind
         else {
             continue;
         };
-        if argument_types.as_slice() != [Type::Bytes, Type::Int, Type::Int] {
-            continue;
-        }
+        let payload = match (kind, argument_types.as_slice()) {
+            (DataOperation::BytesSlice, [Type::Bytes, Type::Int, Type::Int]) => Type::Bytes,
+            (DataOperation::BytesGet, [Type::Bytes, Type::Int]) if indexed => {
+                Type::Scalar(AbiScalar::U8)
+            }
+            (DataOperation::ListGet, [Type::List(element), Type::Int])
+                if indexed && !matches!(element.as_ref(), Type::Future(_)) =>
+            {
+                element.as_ref().clone()
+            }
+            _ => continue,
+        };
         let Some(result) = &producer.result else {
             continue;
         };
         let Type::Named(identity) = &result.ty else {
             continue;
         };
+        if *identity != crate::core::option_name(&payload) {
+            continue;
+        }
         let saved = format!("$switch{}", result.id.0);
         let writes: Vec<_> = function
             .blocks
@@ -103,7 +128,7 @@ pub fn virtual_bytes_options(function: &IrFunction) -> HashSet<ValueId> {
                     } => {
                         *operand != result.id
                             && owner == identity
-                            && op.result.as_ref().is_some_and(|v| v.ty == Type::Bytes)
+                            && op.result.as_ref().is_some_and(|v| v.ty == payload)
                             && payload_is_guarded(function, block, *operand, owner, 1)
                     }
                     _ => false,
@@ -131,7 +156,11 @@ pub fn virtual_bytes_options(function: &IrFunction) -> HashSet<ValueId> {
             }
         }
         if valid && switches == 1 {
-            plan.extend(values);
+            if !payload.is_managed_reference() {
+                plan.scalar_values.extend(values.iter().copied());
+                plan.scalar_locals.insert(saved);
+            }
+            plan.values.extend(values);
         }
     }
     plan

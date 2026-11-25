@@ -15,6 +15,35 @@ fn rejected(text: &str, code: DiagnosticCode) {
 }
 
 #[test]
+fn parallel_validations_preserve_diagnostic_priority_and_ranges() {
+    use std::fmt::Write;
+
+    let mut padding = String::new();
+    for index in 0..256 {
+        writeln!(padding, "fn padding{index}() {{}}").unwrap();
+    }
+    let declarations = r#"error A {} error B {}
+        async fn fail() { throw A(message: "failed"); }
+    "#;
+    for (body, expected) in [
+        (
+            "let pending = fail(); try { await fail(); } catch [B] {}",
+            DiagnosticCode::NonExhaustiveCatch,
+        ),
+        ("let pending = fail();", DiagnosticCode::FutureDiscarded),
+    ] {
+        let source = format!("{declarations} async fn main() {{ {body} }}");
+        let serial = compile(&source).unwrap_err();
+        assert!(serial.iter().any(|diagnostic| diagnostic.code == expected));
+        let large = compile(&format!("{source}\n{padding}")).unwrap_err();
+        assert_eq!(large, serial);
+    }
+    accepted(&format!(
+        "{declarations} async fn main() {{ try {{ await fail(); }} catch errors {{}} }}\n{padding}"
+    ));
+}
+
+#[test]
 fn singleton_catches_need_no_fallback_when_every_callee_error_is_covered() {
     accepted(
         r#"

@@ -212,11 +212,10 @@ impl Engine<'_> {
         state: State,
         spawn: bool,
     ) -> Vec<Evaluation> {
-        let indirect = self.checked.indirect_calls.get(&expression.range);
+        let indirect = self.checked.fact_indirect_calls(&expression.range);
         let invocation_bound = self
             .checked
-            .indirect_signatures
-            .get(&expression.range)
+            .fact_indirect_signatures(&expression.range)
             .and_then(|call| call.signature.error_bound.as_ref())
             .map(|bound| super::super::contracts::for_bound(bound, self.bound));
         let callee = if indirect.is_some() && state.env.contains_key(&target[0]) {
@@ -283,13 +282,7 @@ impl Engine<'_> {
                                 )
                                 .is_none()
                             }) {
-                                let asynchronous = spawn
-                                    || self
-                                        .checked
-                                        .functions
-                                        .iter()
-                                        .find(|function| function.declaration.name == name)
-                                        .is_some_and(|function| function.declaration.is_async);
+                                let asynchronous = spawn || self.checked.memo_is_async(&name);
                                 if asynchronous
                                     && !spawn
                                     && indirect.is_none()
@@ -301,11 +294,7 @@ impl Engine<'_> {
                                 }
                                 let calls = if !asynchronous
                                     && !self.stack.contains(&name)
-                                    && let Some(function) = self
-                                        .checked
-                                        .functions
-                                        .iter()
-                                        .find(|function| function.declaration.name == name)
+                                    && let Some(function) = self.checked.memo_function(&name)
                                     && function
                                         .declaration
                                         .error_contract
@@ -1114,12 +1103,7 @@ impl Engine<'_> {
         )]
     }
     fn structurally_smaller(&self, values: &[Tracked]) -> bool {
-        let Some(function) = self
-            .checked
-            .functions
-            .iter()
-            .find(|function| function.declaration.name == self.current)
-        else {
+        let Some(function) = self.checked.memo_function(self.current) else {
             return false;
         };
         values.iter().enumerate().any(|(index,value)|{
@@ -1127,8 +1111,8 @@ impl Engine<'_> {
             if parameter.owner!=self.current||parameter.index!=index||parameter.path.is_empty(){return false;}
             if !matches!(function.parameter_types.get(index),Some(Type::Named(name)) if effect.nominal()==Some(name.as_str())){return false;}
             parameter.path.iter().all(|access|match access {
-                Access::Field(owner,field)=>self.immutable_type(owner)||self.checked.source_types.get(owner).is_some_and(|schema|schema.fields.iter().position(|(name,_)|name==field).is_some_and(|index|schema.const_fields.contains(&(index as u32)))),
-                Access::Variant(owner,_,_)=>self.checked.source_types.get(owner).is_some_and(|schema|schema.kind=="enum"),
+                Access::Field(owner,field)=>self.immutable_type(owner)||self.checked.memo_schema(owner).is_some_and(|schema|schema.fields.iter().position(|(name,_)|name==field).is_some_and(|index|schema.const_fields.contains(&(index as u32)))),
+                Access::Variant(owner,_,_)=>self.checked.memo_schema(owner).is_some_and(|schema|schema.kind=="enum"),
                     Access::Await(_)|Access::Element(_,_,_)|Access::Each(_)|Access::MapValues(_)=>false,
             })
         })
@@ -1291,8 +1275,7 @@ impl Engine<'_> {
             value = if let Access::Field(owner, name) = access {
                 let ty = self
                     .checked
-                    .source_types
-                    .get(owner)
+                    .memo_schema(owner)
                     .and_then(|schema| schema.fields.iter().find(|(field, _)| field == name))
                     .map(|(_, ty)| ty.clone())
                     .unwrap_or(Type::Never);
@@ -1863,7 +1846,8 @@ impl Engine<'_> {
     ) -> Vec<Evaluation> {
         // Argument evaluation has already happened. Panic never returns and
         // bypasses catch handlers, but must still visit every enclosing finally.
-        if self.checked.data_operations.get(&expression.range) == Some(&crate::DataOperation::Panic)
+        if self.checked.fact_data_operations(&expression.range)
+            == Some(&crate::DataOperation::Panic)
         {
             return vec![Evaluation {
                 state,
@@ -1872,7 +1856,7 @@ impl Engine<'_> {
         }
         let mut state = state;
         if matches!(
-            self.checked.task_controls.get(&expression.range),
+            self.checked.fact_task_controls(&expression.range),
             Some(
                 crate::TaskControlKind::Cancel
                     | crate::TaskControlKind::Timeout
@@ -1880,7 +1864,7 @@ impl Engine<'_> {
             )
         ) {
             if matches!(
-                self.checked.task_controls.get(&expression.range),
+                self.checked.fact_task_controls(&expression.range),
                 Some(crate::TaskControlKind::Shutdown)
             ) {
                 state.cancel_receivers(None);
@@ -1908,13 +1892,18 @@ impl Engine<'_> {
         }
         // Flat native records can change without a callback. Their references
         // participate in alias/mutation analysis just like managed mutable data.
-        let mutating_entry = self.checked.native_calls.contains_key(&expression.range)
-            || self.checked.indirect_calls.contains_key(&expression.range)
-            || self.checked.supplant_calls.contains_key(&expression.range)
+        let mutating_entry = self.checked.fact_native_calls(&expression.range).is_some()
             || self
                 .checked
-                .source_native_calls
-                .get(&expression.range)
+                .fact_indirect_calls(&expression.range)
+                .is_some()
+            || self
+                .checked
+                .fact_supplant_calls(&expression.range)
+                .is_some()
+            || self
+                .checked
+                .fact_source_native_calls(&expression.range)
                 .is_some_and(|signature| {
                     signature.parameters.iter().any(|ty| {
                         matches!(
@@ -1950,16 +1939,19 @@ impl Engine<'_> {
                 state.cancel_receivers(None);
                 state.receiver_scope_control = true;
             }
-            if self.checked.native_calls.contains_key(&expression.range)
+            if self.checked.fact_native_calls(&expression.range).is_some()
                 || self
                     .checked
-                    .source_native_calls
-                    .contains_key(&expression.range)
-                || self.checked.supplant_calls.contains_key(&expression.range)
+                    .fact_source_native_calls(&expression.range)
+                    .is_some()
+                || self
+                    .checked
+                    .fact_supplant_calls(&expression.range)
+                    .is_some()
             {
                 self.check_native_entries(expression, &argument_values, values, &mut state);
                 for (argument, value) in argument_values.iter().zip(values) {
-                    let boundary = if self.checked.native_captures.contains_key(&argument.range) {
+                    let boundary = if self.checked.fact_native_captures(&argument.range).is_some() {
                         retention::Boundary::NativeCapture
                     } else {
                         retention::Boundary::Native
@@ -1976,14 +1968,19 @@ impl Engine<'_> {
             state.invalidate_watches(None);
             state.field_watch_blocked = true;
             self.mutates.set(true);
-            let asynchronous = self.checked.supplant_calls.contains_key(&expression.range)
-                || self.checked.indirect_calls.contains_key(&expression.range)
+            let asynchronous = self
+                .checked
+                .fact_supplant_calls(&expression.range)
+                .is_some()
                 || self
                     .checked
-                    .source_native_calls
-                    .get(&expression.range)
+                    .fact_indirect_calls(&expression.range)
+                    .is_some()
+                || self
+                    .checked
+                    .fact_source_native_calls(&expression.range)
                     .is_some_and(|signature| signature.is_async || signature.is_supplant)
-                || self.checked.native_calls.contains_key(&expression.range);
+                || self.checked.fact_native_calls(&expression.range).is_some();
             self.havoc_objects(&mut state, asynchronous);
             self.mutates_async
                 .set(self.mutates_async.get() || asynchronous);
@@ -2055,7 +2052,7 @@ impl Engine<'_> {
         values: &[Tracked],
         state: &mut State,
     ) -> Vec<Tracked> {
-        if let Some(operation) = self.checked.data_operations.get(&expression.range) {
+        if let Some(operation) = self.checked.fact_data_operations(&expression.range) {
             return self.collection(*operation, expression, values, state);
         }
         let ty = self.type_at(expression.range);
@@ -2069,7 +2066,7 @@ impl Engine<'_> {
             }];
         }
         let owner = ty.to_string();
-        if let Some(schema) = self.checked.source_types.get(&owner) {
+        if let Some(schema) = self.checked.memo_schema(&owner) {
             if schema.kind == "error" {
                 self.restrict_values(
                     retention::Boundary::ErrorPayload,
@@ -2191,7 +2188,11 @@ impl Engine<'_> {
                     unreachable!("checked entries result");
                 };
                 let entry = entry.to_string();
-                let fields = &self.checked.source_types[&entry].fields;
+                let fields = &self
+                    .checked
+                    .memo_schema(&entry)
+                    .expect("checked source types")
+                    .fields;
                 let key_effect = self.typed(&fields[0].1);
                 let record = |key, value| Tracked::Record {
                     ty: entry.clone(),
@@ -2287,8 +2288,7 @@ impl Engine<'_> {
                 let result = self.type_at(expression.range);
                 let field = self
                     .checked
-                    .source_types
-                    .get(&result.to_string())
+                    .memo_schema(&result.to_string())
                     .and_then(|schema| schema.variants.iter().find(|(name, _)| name == "Some"))
                     .and_then(|(_, fields)| fields.first())
                     .map(|(_, ty)| ty.clone())

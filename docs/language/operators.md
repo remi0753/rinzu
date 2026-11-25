@@ -1,13 +1,13 @@
 # Operators and numeric operations
 
-| Operator | Operation |
-| --- | --- |
-| `+ - * / %` | Arithmetic and remainder |
-| `-value`, `!condition` | Negation and Boolean inversion |
-| `< <= > >=` | Ordering |
-| `== !=` | Equality for types with Equality |
-| `&&`, `||` | Short-circuit Boolean operations |
-| `=` | Assignment to a binding or mutable field |
+| Operator               | Operation                                |
+| ---------------------- | ---------------------------------------- | --- | -------------------------------- |
+| `+ - * / %`            | Arithmetic and remainder                 |
+| `-value`, `!condition` | Negation and Boolean inversion           |
+| `< <= > >=`            | Ordering                                 |
+| `== !=`                | Equality for types with Equality         |
+| `&&`, `                |                                          | `   | Short-circuit Boolean operations |
+| `=`                    | Assignment to a binding or mutable field |
 
 Use parentheses when precedence would be unclear. Ordinary integer overflow and division by zero are traps. Use checked arithmetic when a range failure should be recoverable.
 
@@ -34,12 +34,12 @@ fn main() {
 
 Import `rinzu.number` for these operations.
 
-| API | Behavior |
-| --- | --- |
-| `rinzu.number.bitAnd(a,b)`, `rinzu.number.bitOr(a,b)`, `rinzu.number.bitXor(a,b)`, `rinzu.number.bitNot(a)` | Bit operations within the type's width |
-| `rinzu.number.shiftLeft(value,count)`, `rinzu.number.shiftRight(value,count)` | `count: Int`. Negative or excessive counts throw Error. |
-| `wrappingAdd/Sub/Mul(a,b)` | Arithmetic modulo the integer width |
-| `checkedAdd/Sub/Mul(a,b)` | Return the value, or throw Error on overflow |
+| API                                                                                                         | Behavior                                                |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `rinzu.number.bitAnd(a,b)`, `rinzu.number.bitOr(a,b)`, `rinzu.number.bitXor(a,b)`, `rinzu.number.bitNot(a)` | Bit operations within the type's width                  |
+| `rinzu.number.shiftLeft(value,count)`, `rinzu.number.shiftRight(value,count)`                               | `count: Int`. Negative or excessive counts throw Error. |
+| `wrappingAdd/Sub/Mul(a,b)`                                                                                  | Arithmetic modulo the integer width                     |
+| `checkedAdd/Sub/Mul(a,b)`                                                                                   | Return the value, or throw Error on overflow            |
 
 Binary numeric operands have the same type. Signed right shift is arithmetic; unsigned right shift is logical. Bit operations use named APIs instead of `&` or `|` operators.
 

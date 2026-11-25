@@ -1,12 +1,13 @@
 //! Semantic types, type-reference resolution and compiler-owned markers.
-use std::collections::HashSet;
+use std::borrow::Cow;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use super::{Checker, errors};
-use crate::ast::{Declaration, TypeRef, TypeRefKind};
+use crate::ast::{Declaration, Module, NativeMember, TypeRef, TypeRefKind};
 use crate::{AbiScalar, Diagnostic, DiagnosticCode, IntegerConstant, SourceRange};
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Type {
     Unit,
     Never,
@@ -27,7 +28,7 @@ pub enum Type {
     Error,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StaticHandlerType {
     pub parameters: Vec<Type>,
     pub result: Box<Type>,
@@ -35,7 +36,7 @@ pub struct StaticHandlerType {
     pub owner_sync: bool,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FunctionReferenceType {
     pub parameters: Vec<Type>,
     pub result: Box<Type>,
@@ -192,7 +193,48 @@ pub(crate) fn source_abi_type(abi: &crate::SourceAbiType) -> Type {
     }
 }
 
+pub(super) fn index_native_types(module: &Module) -> HashMap<String, Type> {
+    let mut types = HashMap::new();
+    for member in module.native_blocks.iter().flat_map(|block| &block.members) {
+        match member {
+            NativeMember::Opaque { name, .. } => {
+                types.entry(name.clone()).or_insert_with(|| Type::Native {
+                    name: name.clone(),
+                    call_only: false,
+                });
+            }
+            NativeMember::Record(record) => {
+                types
+                    .entry(record.name.clone())
+                    .or_insert_with(|| Type::Named(record.name.clone()));
+            }
+            _ => {}
+        }
+    }
+    types
+}
+
 impl Checker<'_> {
+    fn native_type(&self, path: &[String], include_records: bool) -> Option<Type> {
+        let qualified = match path {
+            [name] => Cow::Borrowed(name.as_str()),
+            _ => Cow::Owned(path.join(".")),
+        };
+        let native = self
+            .native_types
+            .get_or_init(|| Cow::Owned(index_native_types(self.module)));
+        if let Some(ty) = native.get(qualified.as_ref())
+            && (include_records || matches!(ty, Type::Native { .. }))
+        {
+            return Some(ty.clone());
+        }
+        let external = self.options.external_types.get(qualified.as_ref())?;
+        Some(Type::Native {
+            name: qualified.into_owned(),
+            call_only: external.call_only,
+        })
+    }
+
     pub(super) fn resolve_type(&mut self, type_ref: &TypeRef) -> Option<Type> {
         self.resolve_type_with_constants(type_ref, &self.constants.clone())
     }
@@ -212,33 +254,10 @@ impl Checker<'_> {
         type_ref: &TypeRef,
         values: &std::collections::BTreeMap<String, IntegerConstant>,
     ) -> Option<Type> {
-        if let TypeRefKind::Named(path) = &type_ref.kind {
-            let qualified = path.join(".");
-            for member in self
-                .module
-                .native_blocks
-                .iter()
-                .flat_map(|block| &block.members)
-            {
-                match member {
-                    crate::ast::NativeMember::Opaque { name, .. } if *name == qualified => {
-                        return Some(Type::Native {
-                            name: qualified,
-                            call_only: false,
-                        });
-                    }
-                    crate::ast::NativeMember::Record(record) if record.name == qualified => {
-                        return Some(Type::Named(qualified));
-                    }
-                    _ => {}
-                }
-            }
-            if let Some(external) = self.options.external_types.get(&qualified) {
-                return Some(Type::Native {
-                    name: qualified,
-                    call_only: external.call_only,
-                });
-            }
+        if let TypeRefKind::Named(path) = &type_ref.kind
+            && let Some(native) = self.native_type(path, true)
+        {
+            return Some(native);
         }
         match &type_ref.kind {
             TypeRefKind::Record(fields) => {
@@ -656,18 +675,10 @@ impl Checker<'_> {
     }
 
     pub(super) fn resolve_type_readonly(&self, type_ref: &TypeRef) -> Option<Type> {
-        if let TypeRefKind::Named(path) = &type_ref.kind {
-            let qualified = path.join(".");
-            if self.module.native_blocks.iter().flat_map(|block| &block.members).any(|member|
-                matches!(member, crate::ast::NativeMember::Opaque { name, .. } if *name == qualified)) {
-                return Some(Type::Native { name: qualified, call_only: false });
-            }
-            if let Some(external) = self.options.external_types.get(&qualified) {
-                return Some(Type::Native {
-                    name: qualified,
-                    call_only: external.call_only,
-                });
-            }
+        if let TypeRefKind::Named(path) = &type_ref.kind
+            && let Some(native) = self.native_type(path, false)
+        {
+            return Some(native);
         }
         match &type_ref.kind {
             TypeRefKind::Record(fields) => {

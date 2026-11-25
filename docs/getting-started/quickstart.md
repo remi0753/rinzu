@@ -54,19 +54,26 @@ Pass the package directory to the CLI:
 ```sh
 rinzu check ./hello
 rinzu run ./hello
-rinzu test ./hello
-rinzu test ./hello --unit
 rinzu build ./hello --output ./hello-app
 ```
 
-Plain `test` runs the package's `main`. `--unit` discovers `test_*` functions. See [Testing](../tooling/testing.md) to add cases.
+## Run tests
+
+Create test files under `hello/tests/` with names ending in `.test.rinzu`. Each file has its own `main` and can import modules from `hello/src/`. Once you have a test file, list and run the suite from the parent directory.
+
+```sh
+rinzu test ./hello/tests --list
+rinzu test ./hello/tests
+```
+
+Use `rinzu test ./hello` to run the package's application `main` as a smoke check. See [Testing](../tooling/testing.md#write-and-select-tests) for a file that runs multiple named cases.
 
 ## File input and package input
 
-| Input | Configuration |
-| --- | --- |
+| Input                   | Configuration                                                            |
+| ----------------------- | ------------------------------------------------------------------------ |
 | `rinzu run hello.rinzu` | Uses the explicit file as entry; does not read nearby manifests or locks |
-| `rinzu run ./hello` | Uses the package manifest, entry, dependencies, and existing lock |
+| `rinzu run ./hello`     | Uses the package manifest, entry, dependencies, and existing lock        |
 
 A standalone file can import standard modules, official SDKs from a matching toolchain bundle, and local source files. Dependencies declared in `rinzu.toml` require package input. Pass arguments with `rinzu run ./hello -- argument` and read them with `rinzu.process.arguments()`. See [CLI program arguments](../tooling/cli.md#program-arguments).
 

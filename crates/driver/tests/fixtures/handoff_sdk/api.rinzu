@@ -1,0 +1,14 @@
+native {
+    opaque HandoffCompletion;
+
+    fn start(callback: fn () -> CSize) -> HandoffCompletion symbol "handoff_start";
+
+    fn controlled() -> CInt symbol "handoff_controlled";
+
+    fn finish() -> CInt symbol "handoff_finish";
+}
+
+export start;
+export controlled;
+export finish;
+export HandoffCompletion;

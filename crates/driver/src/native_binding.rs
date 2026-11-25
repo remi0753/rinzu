@@ -9,6 +9,7 @@ use rinzu_bindgen::native_binding::{NativeBindingPlan, NativeBindingSlot, Native
 use rinzu_bindgen::source_package::sha256;
 use rinzu_compiler::ast::{NativeBinding, NativeMember};
 use rinzu_compiler::{NativeCliInputs, PackageKind, ResolvedSdkPackage, SourceNativeInterface};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -27,13 +28,34 @@ pub struct ReferenceIndex {
     inputs_only: bool,
     inspected_images: BTreeMap<String, Option<String>>,
     inspection_tool: Option<String>,
+    native_symbols: Option<BTreeSet<String>>,
     definitions: BTreeMap<String, BTreeMap<String, Definition>>,
     pub link_paths: Vec<PathBuf>,
     pub inputs: BTreeMap<String, String>,
     pub runtime_paths: BTreeSet<PathBuf>,
     files: BTreeMap<PathBuf, (String, String)>,
+    selection_links: Option<LinkSelection>,
+    record_links: bool,
+    object_link_options: bool,
 }
 mod elf;
+
+struct ReferenceMode {
+    inputs_only: bool,
+    record_links: bool,
+}
+
+struct ProviderOutput<'a> {
+    directory: &'a Path,
+    name: &'a str,
+    record: Option<&'a mut Option<String>>,
+}
+
+#[derive(Default)]
+struct DiscoveredPaths {
+    seen: BTreeSet<String>,
+    images: Vec<PathBuf>,
+}
 
 #[derive(Clone)]
 pub struct ReferenceCheck {
@@ -44,6 +66,42 @@ pub struct ReferenceCheck {
     inputs: BTreeMap<String, String>,
     paths: Vec<PathBuf>,
     images: BTreeSet<PathBuf>,
+    selection_links: Option<LinkSelection>,
+}
+
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct LinkSelection {
+    selected: BTreeMap<String, String>,
+    default: BTreeMap<String, String>,
+}
+
+#[derive(PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct ReferenceProof {
+    inputs: BTreeMap<String, String>,
+    paths: Vec<PathBuf>,
+    links: LinkSelection,
+}
+
+impl ReferenceProof {
+    pub(crate) fn covers(
+        &self,
+        inputs: &BTreeMap<String, String>,
+        toolchain: &TargetClang,
+    ) -> bool {
+        inputs
+            .iter()
+            .filter(|(name, _)| name.starts_with("link:"))
+            .all(|(name, digest)| {
+                [
+                    &self.inputs,
+                    &self.links.selected,
+                    &self.links.default,
+                    &toolchain.fingerprint,
+                ]
+                .iter()
+                .any(|trace| trace.get(name) == Some(digest))
+            })
+    }
 }
 
 impl ReferenceCheck {
@@ -65,6 +123,7 @@ impl ReferenceCheck {
             directory: directory.into(),
             inputs: index.inputs.clone(),
             paths: index.link_paths.clone(),
+            selection_links: index.selection_links.clone(),
             images: index
                 .inspected_images
                 .keys()
@@ -109,10 +168,16 @@ impl ReferenceCheck {
             &self.cli,
             &self.directory,
             toolchain,
-            true,
+            ReferenceMode {
+                inputs_only: true,
+                record_links: self.selection_links.is_some(),
+            },
             images,
         )?;
-        if current.inputs != self.inputs || current.link_paths != self.paths {
+        if current.inputs != self.inputs
+            || current.link_paths != self.paths
+            || current.selection_links != self.selection_links
+        {
             return Err(
                 "native reference selection changed before publication; check again".into(),
             );
@@ -135,6 +200,53 @@ pub(super) fn run(mut command: Command, action: &str) -> Result<String, String> 
     String::from_utf8(result.stdout).map_err(|error| error.to_string())
 }
 
+fn provider_source(
+    toolchain: &TargetClang,
+    package: &ResolvedSdkPackage,
+    directory: &Path,
+    provider_name: &str,
+) -> Result<Command, String> {
+    let mut command = if toolchain.target == Target::X86_64UnknownLinuxGnu {
+        toolchain.shared_command(provider_name)
+    } else {
+        toolchain.command()
+    };
+    command.args(["-fno-builtin", "-fno-lto"]);
+    command
+        .arg("-I")
+        .arg(directory)
+        .arg(directory.join("native-addresses.c"));
+    crate::source_native_package::add_package_flags(&mut command, package, false)?;
+    Ok(command)
+}
+
+pub(crate) fn provider_input_key(
+    toolchain: &TargetClang,
+    package: &ResolvedSdkPackage,
+    directory: &Path,
+    provider_name: &str,
+) -> Option<String> {
+    record_provider_input(
+        &mut provider_source(toolchain, package, directory, provider_name).ok()?,
+        toolchain,
+        directory,
+    )
+}
+
+fn record_provider_input(
+    command: &mut Command,
+    toolchain: &TargetClang,
+    directory: &Path,
+) -> Option<String> {
+    crate::compile_cache::map_generated_paths(command, directory);
+    crate::compile_cache::input_key(
+        toolchain,
+        command,
+        directory,
+        &directory.join("provider-cache.d"),
+    )
+}
+
 // Only immutable inspection results are reused. Every caller first reads a
 // fresh image UUID/content digest, and each index selects a fresh toolchain.
 // Keep the cache bounded for long-lived development/editor processes.
@@ -144,7 +256,7 @@ fn inspect_image(
     inputs_only: bool,
     tool: Option<&str>,
 ) -> Result<String, String> {
-    let cache = inspection_cache();
+    let cache = inspection_cache(inputs_only);
     let key = tool.map(|tool| {
         serde_json::to_string(&(image, inputs_only, tool)).expect("image identity is serializable")
     });
@@ -159,10 +271,12 @@ fn inspect_image(
     Ok(output)
 }
 
-fn inspection_cache() -> &'static std::sync::Mutex<BTreeMap<String, String>> {
-    static CACHE: std::sync::Mutex<BTreeMap<String, String>> =
+fn inspection_cache(inputs_only: bool) -> &'static std::sync::Mutex<BTreeMap<String, String>> {
+    static FULL: std::sync::Mutex<BTreeMap<String, String>> =
         std::sync::Mutex::new(BTreeMap::new());
-    &CACHE
+    static DEPENDENCIES: std::sync::Mutex<BTreeMap<String, String>> =
+        std::sync::Mutex::new(BTreeMap::new());
+    if inputs_only { &DEPENDENCIES } else { &FULL }
 }
 
 fn cache_inspection(
@@ -171,12 +285,16 @@ fn cache_inspection(
     tool: Option<&str>,
     output: &str,
 ) {
-    let cache = inspection_cache();
+    let cache = inspection_cache(inputs_only);
     if let Some(tool) = tool {
         let key = serde_json::to_string(&(image, inputs_only, tool))
             .expect("image identity is serializable");
-        const LIMIT: usize = 16 * 1024 * 1024;
-        if output.len() <= LIMIT
+        let limit = if inputs_only {
+            1024 * 1024
+        } else {
+            16 * 1024 * 1024
+        };
+        if output.len() <= limit
             && let Ok(mut cache) = cache.lock()
         {
             let replaced = cache.get(&key).map_or(0, |value| key.len() + value.len());
@@ -187,11 +305,11 @@ fn cache_inspection(
                 - replaced
                 + key.len()
                 + output.len()
-                > LIMIT
+                > limit
             {
                 cache.clear();
             }
-            if key.len() + output.len() <= LIMIT {
+            if key.len() + output.len() <= limit {
                 cache.insert(key, output.to_owned());
             }
         }
@@ -298,6 +416,23 @@ pub fn cli_belongs_to(
 }
 
 impl ReferenceIndex {
+    pub(crate) fn proof(&self, directory: &Path) -> Option<ReferenceProof> {
+        if self.object_link_options {
+            return None;
+        }
+        let directory = directory.canonicalize().ok()?;
+        let paths = self
+            .link_paths
+            .iter()
+            .map(|path| path.strip_prefix(&directory).unwrap_or(path).to_owned())
+            .collect();
+        Some(ReferenceProof {
+            inputs: self.inputs.clone(),
+            paths,
+            links: self.selection_links.clone()?,
+        })
+    }
+
     pub fn for_cli(
         root: &Path,
         inputs: &NativeCliInputs,
@@ -319,7 +454,14 @@ impl ReferenceIndex {
             native_imports: Vec::new(),
             source: None,
         };
-        Self::prepare(&package, root, inputs, directory, &TargetClang::resolve()?)
+        Self::prepare(
+            &package,
+            root,
+            inputs,
+            directory,
+            &TargetClang::resolve()?,
+            false,
+        )
     }
     fn insert(&mut self, symbol: String, definition: Definition) {
         self.definitions
@@ -330,6 +472,15 @@ impl ReferenceIndex {
     }
 
     fn object(&mut self, bytes: &[u8], identity: &str) -> Result<(), String> {
+        if self.record_links {
+            self.object_link_options |= !match self.target {
+                Some(Target::Aarch64AppleDarwin) => crate::platform::macos::closed_object(bytes),
+                Some(Target::X86_64UnknownLinuxGnu) => {
+                    crate::platform::linux::elf::closed_object(bytes)
+                }
+                None => false,
+            };
+        }
         if self.inputs_only {
             // The full index already validated the object. Its fresh byte
             // digest remains part of the inputs compared before publication.
@@ -381,15 +532,14 @@ impl ReferenceIndex {
         &mut self,
         supplied: &Path,
         label: &str,
-        seen: &mut BTreeSet<String>,
+        discovered: &mut DiscoveredPaths,
         sysroot: &Path,
-        images: &mut ImageProbe,
     ) -> Result<(), String> {
         let path = supplied
             .canonicalize()
             .map_err(|error| format!("native input {}: {error}", supplied.display()))?;
         let physical = physical(&path)?;
-        if !seen.insert(physical.clone()) {
+        if !discovered.seen.insert(physical.clone()) {
             return Ok(());
         }
         let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
@@ -426,9 +576,7 @@ impl ReferenceIndex {
                     path.display()
                 ));
             }
-            let runtime = stub_runtime(&path, sysroot)?;
-            let root = images.get(&runtime)?;
-            self.shared(&root, &root, &mut BTreeSet::new(), images)?;
+            discovered.images.push(stub_runtime(&path, sysroot)?);
         } else {
             if self.target == Some(Target::X86_64UnknownLinuxGnu) {
                 return self.elf_input(&path, &bytes, &input_identity);
@@ -452,8 +600,7 @@ impl ReferenceIndex {
                 }
                 object::ObjectKind::Dynamic => {
                     self.runtime_paths.insert(path.parent().unwrap().into());
-                    let root = images.get(&path)?;
-                    self.shared(&root, &root, &mut BTreeSet::new(), images)?;
+                    discovered.images.push(path);
                 }
                 kind => {
                     return Err(format!(
@@ -495,18 +642,17 @@ impl ReferenceIndex {
             command.args(["-exports", "-segments", "-function_starts"]);
         }
         command.arg(path);
-        let output = if !self.inputs_only
-            && let Some(report) = images.report(image)
-        {
+        let batch = (!self.inputs_only).then(|| images.report(image)).flatten();
+        let output = if let Some(report) = batch {
             let _hit = rinzu_compiler::timing::span("native.image.inspection.batch.hit");
-            report.to_owned()
+            Cow::Borrowed(report)
         } else {
-            inspect_image(
+            Cow::Owned(inspect_image(
                 command,
                 image,
                 self.inputs_only,
                 self.inspection_tool.as_deref(),
-            )?
+            )?)
         };
         if !self.inputs_only {
             // A current full inspection proves the dependency graph as well.
@@ -528,31 +674,74 @@ impl ReferenceIndex {
                 section = line;
                 continue;
             }
-            let fields: Vec<_> = line.split_whitespace().collect();
-            if section == "-linked_dylibs:" && fields.first() == Some(&"re-export") {
-                let dependent = line.strip_prefix("re-export").unwrap().trim();
-                reexports.push(resolve_reexport(path, dependent)?);
-            } else if section == "-segments:" && fields.get(1) == Some(&"__TEXT") {
-                base = fields.first().and_then(|value| number(value));
-            } else if section == "-function_starts:"
-                && let Some(address) = fields.first().and_then(|value| number(value))
-            {
-                starts.insert(address);
-            } else if section == "-exports:"
-                && fields.first().is_some_and(|value| value.starts_with("0x"))
-                && fields.len() >= 2
-            {
-                // Re-export aliases and resolver/stub records require a distinct proof.
-                // Accept ordinary address exports (including weak annotations) only.
-                let address = number(fields[0]).ok_or("invalid export offset")?;
-                let Some(symbol) = fields[1].strip_prefix('_') else {
-                    continue;
-                };
-                let ordinary = fields[2..]
-                    .iter()
-                    .all(|field| matches!(*field, "[weak-def]" | "[weak]" | "(weak-def)"));
-                exports.push((symbol.to_owned(), address, ordinary));
+            let mut fields = line.split_whitespace();
+            match section {
+                "-linked_dylibs:" if fields.next() == Some("re-export") => {
+                    reexports.push(resolve_reexport(
+                        path,
+                        line.strip_prefix("re-export").unwrap().trim(),
+                    )?);
+                }
+                "-segments:" => {
+                    if let Some(address) = fields.next()
+                        && fields.next() == Some("__TEXT")
+                    {
+                        base = number(address);
+                    }
+                }
+                "-function_starts:" => {
+                    if let Some(address) = fields.next().and_then(number) {
+                        starts.insert(address);
+                    }
+                }
+                "-exports:" => {
+                    let Some((offset, symbol)) = fields.next().zip(fields.next()) else {
+                        continue;
+                    };
+                    if !offset.starts_with("0x") {
+                        continue;
+                    }
+                    let address = number(offset).ok_or("invalid export offset")?;
+                    let Some(symbol) = symbol.strip_prefix('_') else {
+                        continue;
+                    };
+                    if self
+                        .native_symbols
+                        .as_ref()
+                        .is_some_and(|wanted| !wanted.contains(symbol))
+                    {
+                        continue;
+                    }
+                    // Re-export aliases and resolver/stub records require a distinct proof.
+                    let ordinary =
+                        fields.all(|field| matches!(field, "[weak-def]" | "[weak]" | "(weak-def)"));
+                    exports.push((symbol.to_owned(), address, ordinary));
+                }
+                _ => {}
             }
+        }
+        if batch.is_some() && exports.iter().any(|(_, _, ordinary)| *ordinary) {
+            // Most images supply no candidate for the checked declarations.
+            // A real address candidate still needs the physical entry proof.
+            let mut command = Command::new("xcrun");
+            command
+                .args([
+                    "dyld_info",
+                    "-arch",
+                    inspection_arch(path),
+                    "-function_starts",
+                ])
+                .arg(path);
+            let output = run(command, "inspect native export function starts")?;
+            starts.extend(
+                output
+                    .lines()
+                    .skip_while(|line| line.trim() != "-function_starts:")
+                    .skip(1)
+                    .map(str::trim)
+                    .take_while(|line| !line.starts_with('-'))
+                    .filter_map(|line| line.split_whitespace().next().and_then(number)),
+            );
         }
         let base = if self.inputs_only {
             0
@@ -584,6 +773,11 @@ impl ReferenceIndex {
                 },
             );
         }
+        if !self.inputs_only {
+            // Query siblings together. Walk them in the original re-export order
+            // so symbol ownership and duplicate detection use the same roots.
+            images.prime_for_index(&reexports);
+        }
         for dependent in reexports {
             let dependent = images.get(&dependent)?;
             self.shared(&dependent, root, visited, images)?;
@@ -597,6 +791,7 @@ impl ReferenceIndex {
         inputs: &NativeCliInputs,
         directory: &Path,
         toolchain: &TargetClang,
+        record_links: bool,
     ) -> Result<Self, String> {
         // Cached paths are advisory query hints, never reference/definition
         // inputs. Query their CURRENT UUIDs together; selection and re-export
@@ -643,7 +838,10 @@ impl ReferenceIndex {
             inputs,
             directory,
             toolchain,
-            false,
+            ReferenceMode {
+                inputs_only: false,
+                record_links,
+            },
             &mut images,
         )?;
         if let Some((cache, key)) = hints {
@@ -682,37 +880,50 @@ impl ReferenceIndex {
         inputs: &NativeCliInputs,
         directory: &Path,
         toolchain: &TargetClang,
-        inputs_only: bool,
+        mode: ReferenceMode,
         images: &mut ImageProbe,
     ) -> Result<Self, String> {
+        let ReferenceMode {
+            inputs_only,
+            record_links,
+        } = mode;
         // Revalidation needs the selected paths, image UUIDs, content digests
         // and re-export graph. Rebuilding every export/function index adds no
         // evidence once those identities are unchanged.
         let mut index = Self {
             target: Some(toolchain.target),
             inputs_only,
+            record_links,
+            native_symbols: package.source.as_ref().map(|source| {
+                source
+                    .signatures
+                    .iter()
+                    .filter_map(|signature| match &signature.binding {
+                        NativeBinding::Symbol(symbol) => Some(symbol.clone()),
+                        NativeBinding::Runtime(_) => None,
+                    })
+                    .collect()
+            }),
             inspection_tool: Some(sha256(
                 &serde_json::to_vec(&toolchain.fingerprint).map_err(|error| error.to_string())?,
             )),
             ..Self::default()
         };
-        let mut seen = BTreeSet::new();
+        let mut discovered = DiscoveredPaths::default();
         for position in 0..package.manifest.native.sources.len() {
             index.add_path(
                 &directory.join(format!("source-{position}.o")),
                 &format!("compiled:{position}"),
-                &mut seen,
+                &mut discovered,
                 &toolchain.sysroot,
-                images,
             )?;
         }
         for path in &package.manifest.native.objects {
             index.add_path(
                 &package.manifest.root.join(path),
                 &format!("owner-object:{}", path.display()),
-                &mut seen,
+                &mut discovered,
                 &toolchain.sysroot,
-                images,
             )?;
         }
         // CLI inputs belong to the application owner; an imported SDK has its own scope.
@@ -726,9 +937,8 @@ impl ReferenceIndex {
             index.add_path(
                 &application_root.join(path),
                 &format!("cli-object:{}", path.display()),
-                &mut seen,
+                &mut discovered,
                 &toolchain.sysroot,
-                images,
             )?;
         }
         let mut searches = package
@@ -759,16 +969,46 @@ impl ReferenceIndex {
                 }
             }
         }
-        std::fs::write(
-            directory.join("native-selection.c"),
-            "/* static linker selection only */\n",
-        )
-        .map_err(|error| error.to_string())?;
+        let selection_source = directory.join("native-selection.c");
+        std::fs::write(&selection_source, "/* static linker selection only */\n")
+            .map_err(|error| error.to_string())?;
         let selections: Vec<_> = libraries
             .iter()
             .map(|name| ("library", name))
             .chain(frameworks.iter().map(|name| ("framework", name)))
             .collect();
+        let link_inputs = |trace: &str| {
+            crate::native_fingerprint::link_inputs(
+                &package.manifest.root,
+                &toolchain.sysroot,
+                trace,
+            )
+            .ok()
+            .filter(|inputs| !inputs.is_empty())
+        };
+        let mut default_links = Some(BTreeMap::new());
+        let mut selected_links = Some(BTreeMap::new());
+        if record_links && (selections.is_empty() || !searches.is_empty()) {
+            // Real links receive explicit resolved library paths. A search
+            // directory used to find those paths may shadow implicit libraries
+            // only in the selection link; prove the toolchain defaults as well.
+            let output_name = toolchain
+                .target
+                .shared_library_name("native-default-inputs");
+            let mut command = toolchain.shared_command(&output_name);
+            command.arg("-Wl,-t").arg(&selection_source);
+            for directory in &framework_searches {
+                command.arg("-F").arg(directory);
+            }
+            command.arg("-o").arg(directory.join(output_name));
+            let _probe = rinzu_compiler::timing::span("native.references.default")
+                .detail(&package.manifest.name);
+            default_links = command
+                .output()
+                .ok()
+                .filter(|output| output.status.success())
+                .and_then(|output| link_inputs(std::str::from_utf8(&output.stdout).ok()?));
+        }
         if !selections.is_empty() {
             let linux = toolchain.target == Target::X86_64UnknownLinuxGnu;
             if linux && !frameworks.is_empty() {
@@ -782,9 +1022,7 @@ impl ReferenceIndex {
                 command.arg("-dynamiclib");
                 command
             };
-            command
-                .arg("-Wl,-t")
-                .arg(directory.join("native-selection.c"));
+            command.arg("-Wl,-t").arg(&selection_source);
             for search in &searches {
                 command.arg("-L").arg(search);
             }
@@ -801,13 +1039,19 @@ impl ReferenceIndex {
             command.arg("-o").arg(directory.join(output_name));
             // All selections use the same search paths and target. A single
             // linker trace still proves each explicit name unambiguously.
+            let selection = rinzu_compiler::timing::span("native.references.select")
+                .detail(&package.manifest.name);
             let output = crate::cli_diagnostics::tool_output(
                 command.output(),
                 None,
                 "native library selection (linking)",
                 "clang",
             )?;
+            drop(selection);
             let trace = String::from_utf8(output.stdout).map_err(|error| error.to_string())?;
+            if record_links {
+                selected_links = link_inputs(&trace);
+            }
             for (kind, name) in selections {
                 let selected: BTreeSet<_> = trace
                     .lines()
@@ -837,11 +1081,20 @@ impl ReferenceIndex {
                 index.add_path(
                     &selected,
                     &format!("{kind}:{name}"),
-                    &mut seen,
+                    &mut discovered,
                     &toolchain.sysroot,
-                    images,
                 )?;
             }
+        }
+        if record_links && let (Some(selected), Some(default)) = (selected_links, default_links) {
+            index.selection_links = Some(LinkSelection { selected, default });
+        }
+        if !inputs_only {
+            images.prime_for_index(&discovered.images);
+        }
+        for path in discovered.images {
+            let image = images.get(&path)?;
+            index.shared(&image, &image, &mut BTreeSet::new(), images)?;
         }
         let trace = index
             .link_paths
@@ -875,6 +1128,7 @@ impl ReferenceIndex {
         toolchain: &TargetClang,
         provider_name: &str,
         package: &ResolvedSdkPackage,
+        record_provider: Option<&mut Option<String>>,
     ) -> Result<(NativeBindingPlan, BTreeMap<String, String>), String> {
         let mut selections = Vec::new();
         let target = toolchain.target.triple();
@@ -921,11 +1175,14 @@ impl ReferenceIndex {
         if toolchain.target == Target::X86_64UnknownLinuxGnu {
             return self.bind_elf(
                 source,
-                directory,
                 toolchain,
-                provider_name,
                 package,
                 selections,
+                ProviderOutput {
+                    directory,
+                    name: provider_name,
+                    record: record_provider,
+                },
             );
         }
         let mut inputs = self.inputs.clone();
@@ -967,22 +1224,14 @@ impl ReferenceIndex {
             }
             std::fs::write(directory.join("native-addresses.c"), anchors)
                 .map_err(|error| error.to_string())?;
-            let mut command = toolchain.command();
+            let mut command = provider_source(toolchain, package, directory, provider_name)?;
+            if let Some(key) = record_provider {
+                *key = record_provider_input(&mut command, toolchain, directory);
+            }
             command
-                .args([
-                    "-dynamiclib",
-                    "-fno-builtin",
-                    "-fno-lto",
-                    "-Wl,-t",
-                    "-Wl,-fatal_warnings",
-                ])
+                .args(["-dynamiclib", "-Wl,-t", "-Wl,-fatal_warnings"])
                 .arg("-install_name")
                 .arg(format!("@rpath/{provider_name}"));
-            command
-                .arg("-I")
-                .arg(directory)
-                .arg(directory.join("native-addresses.c"));
-            crate::source_native_package::add_package_flags(&mut command, package, false)?;
             for path in &self.link_paths {
                 if path.extension().is_some_and(|extension| extension == "a") {
                     command
@@ -996,12 +1245,15 @@ impl ReferenceIndex {
                 command.args(["-Xlinker", "-rpath", "-Xlinker"]).arg(path);
             }
             command.arg("-o").arg(&output);
+            let link = rinzu_compiler::timing::span("native.package.link.provider")
+                .detail(&package.manifest.name);
             let linked = crate::cli_diagnostics::tool_output(
                 command.output(),
                 Some(&output),
                 "native provider linking",
                 "clang",
             )?;
+            drop(link);
             let trace = String::from_utf8(linked.stdout).map_err(|error| error.to_string())?;
             self.verify_inputs()?;
             inputs.extend(crate::native_fingerprint::link_inputs(

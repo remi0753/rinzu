@@ -1,4 +1,6 @@
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use std::fs;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use std::process::Command;
 
 use rinzu_bindgen::{generate_binding, validate_metadata};

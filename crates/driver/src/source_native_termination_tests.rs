@@ -123,7 +123,18 @@ fn blocked_worker_keeps_roots_and_admission_while_other_main_cleanup_calls_ordin
                 .any(|worker| worker.heap.collections > 50 && worker.heap.peak_frames >= 2)
         );
         assert!(source.heap.collections > 50);
-        let jit = crate::compiled_async::run(&manifest, &artifact, None, None, true).unwrap();
+        let jit = crate::compiled_async::run_for_equivalence(
+            &manifest,
+            &artifact,
+            Default::default(),
+            cancel,
+            &[],
+        )
+        .unwrap();
+        assert!(jit.retired);
+        assert_eq!(jit.rwx_mappings, 0);
+        assert_eq!(jit.executable_mappings, jit.rx_transitions);
+        assert_eq!(jit.executable_mappings, jit.icache_flushes);
         assert_eq!(jit.exit_code, 1, "{}", jit.output);
         crate::aot::compare_source_async_values_and_transport(&source, &jit.output).unwrap();
         crate::aot::compare_source_async_failures(&source, &jit.output).unwrap();
@@ -184,7 +195,7 @@ fn embedded_source_and_compiled_jit_preserve_the_hosts_interrupt_disposition_and
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname=\"embedded\"\nlanguage=\"0.2\"\n",
+        "[package]\nname=\"embedded\"\nlanguage=\"0.5\"\n",
     )
     .unwrap();
     std::fs::write(root.join("src/main.rinzu"),"async fn value()->Int {return 7;}async fn main(){let actual=await value();if actual!=7 {panic(\"wrong\");}}").unwrap();

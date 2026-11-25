@@ -143,10 +143,8 @@ fn check_loaded_image(path: &Path, expected_uuid: &str, _handle: *mut c_void) ->
 fn check_address(path: &Path, uuid: &str, address: *mut c_void) -> Result<()> {
     let base = check_macos_address(path, address)?;
     // SAFETY: the address check returned the associated dyld header.
-    ensure!(
-        unsafe { image_uuid(base.cast())? } == uuid,
-        "native symbol provider UUID mismatch"
-    );
+    let actual_uuid = unsafe { image_uuid(base.cast())? };
+    ensure!(actual_uuid == uuid, "native symbol provider UUID mismatch");
     Ok(())
 }
 

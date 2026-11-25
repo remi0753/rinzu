@@ -3,3 +3,7 @@ name = "rinzu.testing"
 language = "0.5"
 kind = "sdk"
 entry = "src/testing.rinzu"
+
+[native]
+sources = ["native/cases.c"]
+headers = ["native/cases.h"]

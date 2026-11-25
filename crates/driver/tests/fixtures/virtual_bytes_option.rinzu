@@ -2,6 +2,7 @@ import rinzu.stdio;
 import rinzu.process;
 import rinzu.bytes as bytesApi;
 import rinzu.core;
+import rinzu.list as listApi;
 import rinzu.string as textApi;
 
 class Garbage {
@@ -40,6 +41,47 @@ fn aliased(data: ByteArray, start: Int, end: Int) -> ByteArray {
 
 fn escaping(data: ByteArray, start: Int, end: Int) -> Option<ByteArray> {
     return bytesApi.slice(data, start, end);
+}
+
+fn byteAt(data: ByteArray, index: Int) -> Int {
+    switch bytesApi.get(data, index) {
+        case Option.Some(byte): {
+            return Int(byte);
+        }
+        case Option.None: {
+            return -1;
+        }
+    }
+}
+
+fn wordAt(data: List<Int>, index: Int) -> Int {
+    switch listApi.get(data, index) {
+        case Option.Some(word): {
+            return word;
+        }
+        case Option.None: {
+            return -1;
+        }
+    }
+}
+
+fn entryAt(data: List<Garbage>, index: Int) -> Int {
+    switch listApi.get(data, index) {
+        case Option.Some(entry): {
+            let label = f"root {entry.label}";
+            if label == "root kept" {
+                return entry.value;
+            }
+            return -2;
+        }
+        case Option.None: {
+            return -1;
+        }
+    }
+}
+
+fn escapedWord(data: List<Int>, index: Int) -> Option<Int> {
+    return listApi.get(data, index);
 }
 
 fn pressure() {
@@ -90,6 +132,18 @@ async fn main() {
         check(bytesApi.length(leaf(input, 2, 2)) == 0);
         check(leaf(input, 0 - 9223372036854775807 - 1, 0) == bytesApi.from(b"invalid"));
         check(leaf(input, 0, 9223372036854775807) == bytesApi.from(b"invalid"));
+        let smallest = 0 - 9223372036854775807 - 1;
+        let largest = 9223372036854775807;
+        let words = [0, smallest, largest];
+        let emptyWords: List<Int> = [];
+        check(byteAt(input, 0) == 0 && byteAt(input, 2) == 255);
+        check(byteAt(input, -1) == -1 && byteAt(input, 6) == -1 && byteAt(empty, 0) == -1);
+        check(wordAt(words, 0) == 0 && wordAt(words, 1) == smallest && wordAt(words, 2) == largest);
+        check(wordAt(words, smallest) == -1 && wordAt(words, largest) == -1 && wordAt(emptyWords, 0) == -1);
+        check(entryAt([Garbage(value: 37, label: "kept")], 0) == 37);
+        check(entryAt([Garbage(value: 37, label: "kept")], 1) == -1);
+        check(escapedWord(words, 0) == Option<Int>.Some(value: 0));
+        check(escapedWord(words, 3) == Option<Int>.None());
         let kept = leaf(input, 1, 3);
         pressure();
         check(kept == bytesApi.from(b"\x80\xff"));

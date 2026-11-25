@@ -4,6 +4,13 @@
 #include "rinzu/callback_return.h"
 #include "rinzu/callback_consumption.h"
 #include "rinzu/foreign_queue.h"
+#ifndef RINZU_NATIVE_CALL_EVENT
+#define RINZU_NATIVE_CALL_EVENT(kind, plan, symbol) ((void)0)
+#endif
+#ifndef RINZU_NATIVE_CALLBACK_EVENT
+#define RINZU_NATIVE_CALLBACK_EVENT(kind, symbol) ((void)0)
+#endif
+/* RINZU_JIT_SHARED_BEGIN */
 enum {
   RINZU_NATIVE_SCALAR,
   RINZU_NATIVE_STRING,
@@ -64,6 +71,7 @@ typedef struct {
   RinzuCallbackBufferConstant buffer;
   const char *symbol;
 } RinzuNativeTarget;
+/* RINZU_JIT_SHARED_END */
 /* SOURCE_NATIVE_PLANS */
 #ifdef RINZU_TOOLING_PLANS
 #include RINZU_TOOLING_PLANS
@@ -181,6 +189,8 @@ static int rinzu_native_callback_parameter(RinzuManagedCallback *callback,
 }
 static uint64_t rinzu_native_managed_callback(void *raw, const rinzu_callback_frame_t *native) {
   RinzuManagedCallback *callback = raw;
+  RINZU_NATIVE_CALLBACK_EVENT("callback_admit", callback->target.symbol);
+  RINZU_NATIVE_CALLBACK_EVENT("callback_begin", callback->target.symbol);
   RinzuContext *context = callback->owner;
   rinzu_managed_data_t *data = rinzu_context_data(context);
   const RinzuNativeCallbackPlan *plan = callback->plan;
@@ -297,6 +307,7 @@ static uint64_t rinzu_native_managed_callback(void *raw, const rinzu_callback_fr
   rinzu_aot_callback_leave_scope(context, previous_scope);
   rinzu_activity_end(activity);
   rinzu_owner_callback_leave(transition);
+  RINZU_NATIVE_CALLBACK_EVENT("callback_return", callback->target.symbol);
   return input_error ? rinzu_native_callback_fallback(callback) : result;
 }
 static void rinzu_native_callback_release(RinzuNativeCallback *callback) {
@@ -661,6 +672,7 @@ const uint64_t *rinzu_baseline_source_native_words(void *raw, int64_t plan) {
   for (size_t index = 0; index < call->callback_count; ++index)
     rinzu_callback_entry_open(call->callbacks[index].control);
   rinzu_activity_start(call->activity);
+  RINZU_NATIVE_CALL_EVENT("call_enter", plan, rinzu_native_plans[plan].symbol);
   return call->words;
 }
 void rinzu_baseline_source_native_returned(void *raw, int64_t plan, uint64_t result) {
@@ -674,6 +686,7 @@ void rinzu_baseline_source_native_returned(void *raw, int64_t plan, uint64_t res
   if (call->record_loan)
     rinzu_native_record_returned(rinzu_context_data(context), call->record_loan);
   call->phase = 1;
+  RINZU_NATIVE_CALL_EVENT("call_return", plan, rinzu_native_plans[plan].symbol);
   if (call->bounded) {
     rinzu_foreign_bounded_leave(context->foreign_queue);
     call->bounded = 0;
@@ -694,6 +707,7 @@ void rinzu_baseline_source_native_close(void *raw, int64_t plan) {
   for (size_t index = 0; index < call->callback_count; ++index)
     (void)rinzu_callback_entry_close(call->callbacks[index].control);
   call->phase = 2;
+  RINZU_NATIVE_CALL_EVENT("call_close", plan, rinzu_native_plans[plan].symbol);
   atomic_fetch_add(&rinzu_native_evidence.closed, 1);
 }
 void rinzu_baseline_source_native_settle(void *raw, int64_t plan) {
@@ -717,6 +731,7 @@ void rinzu_baseline_source_native_settle(void *raw, int64_t plan) {
         rinzu_interop_fatal();
   }
   call->phase = 3;
+  RINZU_NATIVE_CALL_EVENT("call_settle", plan, rinzu_native_plans[plan].symbol);
   atomic_fetch_add(&rinzu_native_evidence.settled, 1);
 }
 uint64_t rinzu_baseline_source_native_read(void *raw, int64_t plan) {
@@ -726,6 +741,7 @@ uint64_t rinzu_baseline_source_native_read(void *raw, int64_t plan) {
     rinzu_interop_fatal();
   unsigned result = rinzu_native_plans[plan].result;
   call->phase = 4;
+  RINZU_NATIVE_CALL_EVENT("call_read", plan, rinzu_native_plans[plan].symbol);
   atomic_fetch_add(&rinzu_native_evidence.read, 1);
   if (result == RINZU_NATIVE_RESULT_OPAQUE) {
     uint64_t received = 0, reservation = call->opaque_result.identity;
@@ -741,6 +757,7 @@ uint64_t rinzu_baseline_source_native_read(void *raw, int64_t plan) {
       rinzu_failure_fail(&context->pending, 8, context->source);
       return 0;
     }
+    RINZU_NATIVE_CALL_EVENT("handoff", plan, rinzu_native_plans[plan].symbol);
     return received;
   }
   if (result == RINZU_NATIVE_RESULT_STRING || result == RINZU_NATIVE_RESULT_BYTES ||
@@ -836,6 +853,7 @@ void rinzu_baseline_source_native_release(void *raw, int64_t plan) {
   atomic_fetch_sub(&rinzu_native_evidence.live_buffers, call->buffer_count + call->record_count);
   atomic_fetch_sub(&rinzu_native_evidence.live_callbacks, call->callback_count);
   free(call);
+  RINZU_NATIVE_CALL_EVENT("call_env_free", plan, rinzu_native_plans[plan].symbol);
 }
 #ifdef RINZU_AOT_HAS_SUPPLANT
 /* A queued cancellation discards prepared resources without manufacturing a
@@ -860,14 +878,14 @@ static void rinzu_native_abandon_prepared(RinzuContext *context, int64_t plan) {
   rinzu_native_discard_preparation(context, call);
 }
 #endif
-static int rinzu_aot_source_native_baseline(void) {
+RINZU_PROGRAM_API int rinzu_aot_source_native_baseline(void) {
   rinzu_callback_stats_t entries = rinzu_callback_entry_stats();
   return !atomic_load(&rinzu_native_evidence.live_calls) &&
          !atomic_load(&rinzu_native_evidence.live_buffers) &&
          !atomic_load(&rinzu_native_evidence.live_callbacks) && !entries.live_connections &&
          !entries.in_flight && !entries.live_diagnostics && !entries.diagnostic_bytes;
 }
-static void rinzu_aot_source_native_evidence(void) {
+RINZU_PROGRAM_API void rinzu_aot_source_native_evidence(void) {
   rinzu_callback_stats_t entries = rinzu_callback_entry_stats();
   rinzu_callback_return_stats_t returns = rinzu_callback_return_buffer_stats();
   rinzu_return_scope_stats_t scopes = rinzu_return_scope_stats();

@@ -17,7 +17,7 @@ fn package(name: &str, source: &str) -> PathBuf {
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname=\"formatted_app\"\nlanguage=\"0.2\"\n",
+        "[package]\nname=\"formatted_app\"\nlanguage=\"0.5\"\n",
     )
     .unwrap();
     std::fs::write(root.join("src/main.rinzu"), checked_entry::source(source)).unwrap();

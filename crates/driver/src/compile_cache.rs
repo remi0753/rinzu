@@ -112,7 +112,10 @@ fn preprocessor(command: &Command, dependencies: &Path) -> Command {
     while let Some(argument) = arguments.next() {
         if argument == "-o" {
             arguments.next();
-        } else if !matches!(argument.to_str(), Some("-c" | "-S" | "-emit-llvm")) {
+        } else if !matches!(
+            argument.to_str(),
+            Some("-c" | "-S" | "-emit-llvm" | "-fsyntax-only")
+        ) {
             query.arg(argument);
         }
     }
@@ -146,6 +149,85 @@ fn preprocessor(command: &Command, dependencies: &Path) -> Command {
     query
 }
 
+pub(crate) fn map_generated_paths(command: &mut Command, generated: &Path) {
+    // A reusable object must retain user source paths but not scratch paths.
+    command.arg(format!(
+        "-ffile-prefix-map={}=/rinzu-generated",
+        generated.display()
+    ));
+}
+
+pub(crate) fn environment() -> std::collections::BTreeMap<Vec<u8>, Option<Vec<u8>>> {
+    std::env::vars_os()
+        .filter(|(key, _)| !key.as_bytes().starts_with(b"RINZU_"))
+        .map(|(key, value)| (key.as_bytes().to_vec(), Some(value.as_bytes().to_vec())))
+        .collect()
+}
+
+pub(crate) fn input_key(
+    toolchain: &TargetClang,
+    command: &Command,
+    generated: &Path,
+    dependencies: &Path,
+) -> Option<String> {
+    let preprocess_timing = rinzu_compiler::timing::span("native.compile.preprocess");
+    let preprocessed = preprocessor(command, dependencies).output().ok()?;
+    drop(preprocess_timing);
+    if !preprocessed.status.success() {
+        return None;
+    }
+    // -P removes line directives so generated temporary paths do not
+    // invalidate the cache. Also hash the original inputs: compiler
+    // builtins such as __builtin_LINE and C++ source_location observe
+    // whitespace/line directives that token-only preprocessing would lose.
+    let mut input_files = std::collections::BTreeMap::new();
+    for path in
+        crate::native_fingerprint::dependency_paths(&std::fs::read_to_string(dependencies).ok()?)
+            .ok()?
+    {
+        let identity = path.strip_prefix(generated).map_or_else(
+            |_| path.display().to_string(),
+            |relative| format!("@generated/{}", relative.display()),
+        );
+        input_files.insert(identity, sha256(&std::fs::read(path).ok()?));
+    }
+    if input_files.is_empty() {
+        return None;
+    }
+    let arguments: Vec<_> = command
+        .get_args()
+        .map(|argument| {
+            argument
+                .to_string_lossy()
+                .replace(generated.to_string_lossy().as_ref(), "@generated")
+        })
+        .collect();
+    let mut environment = environment();
+    for (key, value) in command.get_envs() {
+        environment.insert(
+            key.as_bytes().to_vec(),
+            value.map(|value| value.as_bytes().to_vec()),
+        );
+    }
+    let cwd = command
+        .get_current_dir()
+        .map(Path::to_owned)
+        .or_else(|| std::env::current_dir().ok())?;
+    let environment: Vec<_> = environment.into_iter().collect();
+    let identity = serde_json::to_vec(&(
+        "rinzu.native-compile-v1",
+        &toolchain.fingerprint,
+        arguments,
+        command.get_program().as_bytes(),
+        cwd,
+        environment,
+        sha256(&preprocessed.stdout),
+        input_files,
+    ))
+    .ok()?;
+    Some(sha256(&identity))
+}
+
 pub fn compile(
     toolchain: &TargetClang,
     mut command: Command,
@@ -153,88 +235,26 @@ pub fn compile(
     output: &Path,
     source: &Path,
     action: &str,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     let _timing = rinzu_compiler::timing::span("native.compile").detail(action);
-    // Generated-directory names must not become embedded __FILE__ or debug
-    // paths in a reusable object. User source paths retain their identities.
-    command.arg(format!(
-        "-ffile-prefix-map={}=/rinzu-generated",
-        generated.display()
-    ));
-    let cache = (|| {
-        let preprocess_timing = rinzu_compiler::timing::span("native.compile.preprocess");
-        let mut original_arguments = command.get_args();
-        let dependencies = original_arguments
-            .find(|argument| *argument == "-MF")
-            .and_then(|_| original_arguments.next())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| output.with_extension("cache.d"));
-        let preprocessed = preprocessor(&command, &dependencies).output().ok()?;
-        drop(preprocess_timing);
-        if !preprocessed.status.success() {
-            return None;
-        }
-        // -P removes line directives so generated temporary paths do not
-        // invalidate the cache. Also hash the original inputs: compiler
-        // builtins such as __builtin_LINE and C++ source_location observe
-        // whitespace/line directives that token-only preprocessing would lose.
-        let mut input_files = std::collections::BTreeMap::new();
-        for path in crate::native_fingerprint::dependency_paths(
-            &std::fs::read_to_string(&dependencies).ok()?,
-        )
-        .ok()?
-        {
-            let identity = path.strip_prefix(generated).map_or_else(
-                |_| path.display().to_string(),
-                |relative| format!("@generated/{}", relative.display()),
-            );
-            input_files.insert(identity, sha256(&std::fs::read(path).ok()?));
-        }
-        if input_files.is_empty() {
-            return None;
-        }
-        let arguments: Vec<_> = command
-            .get_args()
-            .map(|argument| {
-                argument
-                    .to_string_lossy()
-                    .replace(generated.to_string_lossy().as_ref(), "@generated")
-            })
-            .collect();
-        let mut environment: std::collections::BTreeMap<_, _> = std::env::vars_os()
-            .filter(|(key, _)| !key.as_bytes().starts_with(b"RINZU_"))
-            .map(|(key, value)| (key.as_bytes().to_vec(), Some(value.as_bytes().to_vec())))
-            .collect();
-        for (key, value) in command.get_envs() {
-            environment.insert(
-                key.as_bytes().to_vec(),
-                value.map(|value| value.as_bytes().to_vec()),
-            );
-        }
-        let cwd = command
-            .get_current_dir()
-            .map(Path::to_owned)
-            .or_else(|| std::env::current_dir().ok())?;
-        let environment: Vec<_> = environment.into_iter().collect();
-        let identity = serde_json::to_vec(&(
-            "rinzu.native-compile-v1",
-            &toolchain.fingerprint,
-            arguments,
-            command.get_program().as_bytes(),
-            cwd,
-            environment,
-            sha256(&preprocessed.stdout),
-            input_files,
-        ))
-        .ok()?;
-        let key = sha256(&identity);
-        Some((directory(&key).ok()?, key))
-    })();
+    map_generated_paths(&mut command, generated);
+    let mut original_arguments = command.get_args();
+    let dependencies = original_arguments
+        .find(|argument| *argument == "-MF")
+        .and_then(|_| original_arguments.next())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| output.with_extension("cache.d"));
+    let key = input_key(toolchain, &command, generated, &dependencies);
+    let cache = key.as_ref().and_then(|key| {
+        directory(key)
+            .ok()
+            .map(|directory| (directory, key.as_str()))
+    });
     if let Some((directory, key)) = &cache
         && restore(directory, key, output).is_some()
     {
         let _hit = rinzu_compiler::timing::span("native.compile.hit").detail(action);
-        return Ok(());
+        return Ok(Some((*key).to_owned()));
     }
     let compile_timing = rinzu_compiler::timing::span("native.compile.clang").detail(action);
     crate::cli_diagnostics::tool_output(
@@ -246,9 +266,9 @@ pub fn compile(
     drop(compile_timing);
     if let Some((directory, key)) = cache {
         // Cache failures never prevent a successful compilation.
-        let _ = store(&directory, &key, output);
+        let _ = store(&directory, key, output);
     }
-    Ok(())
+    Ok(key)
 }
 
 #[cfg(test)]

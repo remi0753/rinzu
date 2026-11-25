@@ -1,10 +1,12 @@
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[path = "common/native_probe.rs"]
 mod native_probe;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use rinzu_runtime::data::{ManagedData, ManagedSlot};
 use rinzu_runtime::data::{
-    ManagedData, ManagedSlot, NativeRecordBuffer, NativeRecordError, NativeRecordField,
-    NativeRecordLayout,
+    NativeRecordBuffer, NativeRecordError, NativeRecordField, NativeRecordLayout,
 };
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use rinzu_runtime::heap::{CollectionKind, DomainHeap};
 use rinzu_runtime::scalar::{ScalarKind, ScalarValue};
 use rinzu_runtime::value::{ValueSchema, ValueType};

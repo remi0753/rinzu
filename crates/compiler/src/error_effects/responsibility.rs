@@ -2,7 +2,6 @@
 //! Path states retain obligations even after an alias or aggregate is widened.
 mod boundaries;
 mod calls;
-mod contract_cache;
 mod data_contracts;
 mod expressions;
 mod families;
@@ -25,21 +24,23 @@ use value::{
     Access, FutureCase, FutureResult, Key, Parameter, Site, Token, Tracked, choice, range, site,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, serde::Serialize, serde::Deserialize,
+)]
 enum RequirementKind {
     Observation,
     Worker,
     Native,
     NativeInput,
 }
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
 struct Requirement {
     kind: RequirementKind,
     origin: Site,
     exit: Site,
     errors: Language,
 }
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
 struct Obligation {
     origin: Site,
     errors: Language,
@@ -90,7 +91,7 @@ enum Control {
     Continue,
     Error(language::Word, Option<Token>),
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 enum Stop {
     Error(Box<language::Word>, Option<Token>),
     Diverges,
@@ -112,7 +113,7 @@ struct Path {
     state: State,
     control: Control,
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Exit {
     guards: language::Guards,
     result: Result<Tracked, Stop>,
@@ -127,14 +128,16 @@ struct Exit {
     saved: BTreeMap<Token, Obligation>,
     async_stores: BTreeMap<Parameter, BTreeSet<Token>>,
 }
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct Contract {
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct Contract {
     exits: Vec<Exit>,
     mutates: bool,
     mutates_async: bool,
     exports_residual_mutations: bool,
     disrupts_observers: bool,
 }
+
+type Contracts = super::fixed_point::FixedPoint<Contract>;
 
 // Error contracts are checked by the type-effect analysis. Responsibility
 // observes bounded list shapes, not suffix types. Erase that extra metadata
@@ -151,12 +154,14 @@ fn concatenate(left: &Language, right: &Language, bound: usize) -> Language {
 
 pub(super) fn validate(
     checked: &CheckedModule,
-    effects: &BTreeMap<String, Summary>,
+    effects: &EffectSummaries,
     graph: &BTreeMap<String, BTreeSet<String>>,
     bound: usize,
     entry: bool,
+    mut cache: Option<(&Facts<'_>, &mut Memos<SharedSummary<Contract>>)>,
+    cancelled: &AtomicBool,
 ) -> Vec<Diagnostic> {
-    let _timing = crate::timing::span("frontend.responsibility");
+    let mut timing = crate::timing::span("frontend.responsibility");
     let recursive: BTreeSet<_> = graph
         .keys()
         .map(String::as_str)
@@ -170,15 +175,16 @@ pub(super) fn validate(
         .collect();
     let contexts = RefCell::new(BTreeMap::new());
     let data_functions = data_contracts::functions(checked);
-    let mut contracts = contract_cache::Contracts::new(
+    let mut contracts = Contracts::new(
         checked
             .functions
             .iter()
             .map(|function| function.declaration.name.clone()),
     );
-    let analyze = |contracts: &contract_cache::Contracts,
-                   name: &str,
-                   replay: Option<&RefCell<Replay>>| {
+    if cache.is_some() {
+        contracts.observe(|name| Read::Future(name.into()));
+    }
+    let analyze = |contracts: &Contracts, name: &str, replay: Option<&RefCell<Replay>>| {
         let function = functions[name];
         let mut engine = Engine {
             checked,
@@ -221,23 +227,66 @@ pub(super) fn validate(
         }
         next
     };
+    let (mut evaluated, mut restored) = (0, 0);
     loop {
         let mut changed = false;
         for name in &order {
+            if cancelled.load(Ordering::Relaxed) {
+                return Vec::new();
+            }
             // Track actual reads, including returned callable values and
             // contextual synchronous calls, rather than trusting graph edges.
             if contracts.reusable(name) {
                 continue;
             }
             contracts.begin();
-            if contracts.update(name, analyze(&contracts, name, None)) {
-                changed = true;
+            if let Some((facts, memos)) = &mut cache {
+                let (next, reused) = memo::evaluate(
+                    memos,
+                    name,
+                    || {
+                        memo::fingerprint((
+                            facts.body(name)?,
+                            bound,
+                            recursive.contains(name.as_str()),
+                        ))
+                    },
+                    |read| match read {
+                        Read::Future(other) => contracts.fingerprint(other),
+                        Read::Error(other) => effects.fingerprint(other),
+                        Read::DataFunction(other) => {
+                            memo::fingerprint(data_functions.contains(other))
+                        }
+                        Read::CallbackFamily(prefix) => memo::fingerprint(
+                            contracts
+                                .keys()
+                                .filter(|name| name.starts_with(prefix))
+                                .collect::<Vec<_>>(),
+                        ),
+                        _ => facts.resolve(read),
+                    },
+                    Some(&contexts),
+                    |read| {
+                        if let Read::Future(other) = read {
+                            contracts.get(other);
+                        }
+                    },
+                    || SharedSummary::new(analyze(&contracts, name, None)),
+                );
+                evaluated += u64::from(!reused);
+                restored += u64::from(reused);
+                changed |= contracts.update_shared(name, next);
+            } else {
+                evaluated += 1;
+                changed |= contracts.update(name, analyze(&contracts, name, None));
             }
         }
         if !changed {
             break;
         }
     }
+    timing.set_counter("evaluated", evaluated);
+    timing.set_counter("restored", restored);
     let mut diagnostics = Vec::new();
     let replay_contract = |name: &str, contract: &Contract, boundary: bool| {
         let _timing = crate::timing::span("frontend.responsibility.diagnostics");
@@ -261,6 +310,9 @@ pub(super) fn validate(
     let mut seen = BTreeSet::new();
     let mut seen_requirements = BTreeSet::new();
     for (name, contract) in contracts.iter() {
+        if cancelled.load(Ordering::Relaxed) {
+            return Vec::new();
+        }
         let mut replay = if name == "main" {
             main_replay.take()
         } else {
@@ -354,8 +406,8 @@ fn symbolic(word: &language::Word, owner: &str) -> bool {
 }
 struct Engine<'a> {
     checked: &'a CheckedModule,
-    effects: &'a BTreeMap<String, Summary>,
-    contracts: &'a contract_cache::Contracts,
+    effects: &'a EffectSummaries,
+    contracts: &'a Contracts,
     bound: usize,
     current: &'a str,
     recursive_calls: std::cell::Cell<bool>,
@@ -378,21 +430,10 @@ impl Engine<'_> {
         at
     }
     fn private_environment(&self, ty: &str) -> bool {
-        let Some(file) = self.checked.closure_source else {
-            return false;
-        };
-        self.checked.syntax.declarations.iter().any(|declaration| {
-            let Declaration::Record(record) = declaration else {
-                return false;
-            };
-            record.name == ty
-                && record.range.file_id == file
-                && record.fields.len() == 1
-                && record.fields[0].name == "environment"
-        })
+        self.checked.memo_private_environment(ty)
     }
     fn immutable_type(&self, ty: &str) -> bool {
-        self.checked.source_types.get(ty).is_some_and(|schema| {
+        self.checked.memo_schema(ty).is_some_and(|schema| {
             schema.kind == "record"
                 || (schema.kind == "state"
                     && schema.const_fields.len() == schema.fields.len()
@@ -420,8 +461,7 @@ impl Engine<'_> {
     }
     fn type_at(&self, range: SourceRange) -> Type {
         self.checked
-            .error_upcasts
-            .get(&range)
+            .fact_error_upcasts(&range)
             .or_else(|| self.checked.expression_type(range))
             .cloned()
             .unwrap_or(Type::Never)
@@ -475,7 +515,9 @@ impl Engine<'_> {
         let prunes_recursion = self.recursive_calls.get() && !self.non_decreasing.get();
         for path in paths {
             let exit_site = self.replay.and_then(|_| match path.control {
-                Control::Normal if self.checked.closure_source != Some(body.range.file_id) => {
+                Control::Normal
+                    if self.checked.memo_closure_source() != Some(body.range.file_id) =>
+                {
                     let mut closing = body.range;
                     closing.start_byte = closing.end_byte.saturating_sub(1);
                     Some(self.at(closing))

@@ -1,0 +1,68 @@
+native {
+    fn early() -> CInt symbol "cohort_early";
+
+    fn polling() -> CInt symbol "cohort_polling";
+
+    fn pollStart(callback: fn () -> CSize) -> CohortCompletion symbol "cohort_poll_start";
+
+    fn pollPublish() -> CInt symbol "cohort_poll_publish";
+
+    fn pollRetire() -> CInt symbol "cohort_poll_retire";
+
+    fn recoveryStep(step: Int) -> CInt symbol "cohort_recovery_step";
+
+    fn batchFirst() -> CInt symbol "cohort_batch_first";
+
+    fn staggered() -> CInt symbol "cohort_staggered";
+
+    fn capture(g: Int) -> CInt symbol "cohort_capture";
+
+    fn notifyBatch() -> CInt symbol "cohort_notify_batch";
+
+    fn waveFirst(wave: Int) -> CInt symbol "cohort_wave_first";
+
+    fn waveNotify(wave: Int) -> CInt symbol "cohort_wave_notify";
+
+    fn lateArrival() -> CInt symbol "cohort_late_arrival";
+
+    opaque CohortCompletion;
+
+    fn start(g: Int, callback: fn () -> CSize) -> CohortCompletion symbol "cohort_start";
+
+    fn publish(g: Int) -> CInt symbol "cohort_publish";
+
+    fn retire(g: Int) -> CInt symbol "cohort_retire";
+
+    fn alias(value: Int) -> CInt symbol "cohort_alias";
+
+    fn status() -> CInt symbol "cohort_status";
+
+    fn finish() -> CInt symbol "cohort_finish";
+
+    fn count() -> CInt symbol "cohort_count";
+
+    fn controlled() -> CInt symbol "cohort_controlled";
+}
+
+export CohortCompletion;
+export start;
+export publish;
+export retire;
+export alias;
+export status;
+export finish;
+export count;
+export controlled;
+export early;
+export polling;
+export pollStart;
+export pollPublish;
+export pollRetire;
+export recoveryStep;
+export batchFirst;
+export staggered;
+export capture;
+export notifyBatch;
+export waveFirst;
+export waveNotify;
+export lateArrival;

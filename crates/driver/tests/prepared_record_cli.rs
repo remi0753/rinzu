@@ -28,8 +28,8 @@ fn prepared_wide_and_generic_records_keep_callback_worker_and_snapshot_contracts
     let root = std::env::temp_dir().join(format!("rinzu-prepared-record-{}", std::process::id()));
     std::fs::create_dir_all(root.join("app/src")).unwrap();
     std::fs::create_dir_all(root.join("prepared/src")).unwrap();
-    std::fs::write(root.join("app/rinzu.toml"), "[package]\nname=\"prepared_record_app\"\nlanguage=\"0.2\"\n[dependencies]\nprepared={path=\"../prepared\"}\n").unwrap();
-    std::fs::write(root.join("prepared/rinzu.toml"), "[package]\nname=\"prepared\"\nlanguage=\"0.2\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n[native]\nsources=[\"api.c\"]\nheaders=[\"api.h\"]\n").unwrap();
+    std::fs::write(root.join("app/rinzu.toml"), "[package]\nname=\"prepared_record_app\"\nlanguage=\"0.5\"\n[dependencies]\nprepared={path=\"../prepared\"}\n").unwrap();
+    std::fs::write(root.join("prepared/rinzu.toml"), "[package]\nname=\"prepared\"\nlanguage=\"0.5\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n[native]\nsources=[\"api.c\"]\nheaders=[\"api.h\"]\n").unwrap();
     for (name, text) in [
         (
             "prepared/src/api.rinzu",

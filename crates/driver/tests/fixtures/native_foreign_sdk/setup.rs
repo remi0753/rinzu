@@ -52,8 +52,8 @@ pub fn create(root: &std::path::Path) {
     }
     std::fs::create_dir_all(root.join("app/data")).unwrap();
     std::fs::write(root.join("app/data/proof.bin"), vec![0x5a; 8193]).unwrap();
-    std::fs::write(root.join("foreign/rinzu.toml"), "[package]\nname=\"foreign\"\nlanguage=\"0.2\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n[native]\nsources=[\"api.c\"]\nheaders=[\"api.h\"]\nframeworks=[\"CoreFoundation\"]\n").unwrap();
-    std::fs::write(root.join("app/rinzu.toml"), "[package]\nname=\"foreign_app\"\nlanguage=\"0.2\"\n[dependencies]\nforeign={path=\"../foreign\"}\n").unwrap();
+    std::fs::write(root.join("foreign/rinzu.toml"), "[package]\nname=\"foreign\"\nlanguage=\"0.5\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n[native]\nsources=[\"api.c\"]\nheaders=[\"api.h\"]\nframeworks=[\"CoreFoundation\"]\n").unwrap();
+    std::fs::write(root.join("app/rinzu.toml"), "[package]\nname=\"foreign_app\"\nlanguage=\"0.5\"\n[dependencies]\nforeign={path=\"../foreign\"}\n").unwrap();
     for (path, contents) in [
         ("foreign/src/api.rinzu", include_str!("api.rinzu")),
         ("foreign/api.h", include_str!("api.h")),

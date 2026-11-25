@@ -1,7 +1,7 @@
 {
   "schema": "rinzu.standard-library-license-inventory-v1",
   "revision": 4,
-  "toolchainVersion": "0.4.0",
+  "toolchainVersion": "0.5.0",
   "ownSource": {
     "includes": [
       "Rinzu standard source",
@@ -37,9 +37,7 @@
     {
       "name": "libcurl",
       "provider": "macOS system library",
-      "owners": [
-        "rinzu.http"
-      ],
+      "owners": ["rinzu.http"],
       "bundled": false,
       "licenseSource": "platform distribution; no third-party license text supplied by this repository"
     },
@@ -67,18 +65,14 @@
     {
       "name": "libacl",
       "provider": "Linux host",
-      "owners": [
-        "rinzu.io"
-      ],
+      "owners": ["rinzu.io"],
       "bundled": false,
       "licenseSource": "platform distribution"
     },
     {
       "name": "libcurl",
       "provider": "Linux host",
-      "owners": [
-        "rinzu.http"
-      ],
+      "owners": ["rinzu.http"],
       "bundled": false,
       "licenseSource": "platform distribution"
     }

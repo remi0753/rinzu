@@ -384,6 +384,14 @@ fn pinned_local_archive_restores_and_repairs_with_sibling_path_dependency() {
     assert_eq!(fs::read(&lock_path).unwrap(), original);
 }
 
+fn timing_phase(output: &Output, name: &str, detail: &str) -> bool {
+    String::from_utf8_lossy(&output.stderr)
+        .lines()
+        .filter_map(|line| line.strip_prefix("RINZU_COMPILE_TIMING="))
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .any(|event| event["phase"] == name && event["detail"] == detail)
+}
+
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
     all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
@@ -394,8 +402,7 @@ fn native_archive_builds_from_pinned_sources_and_repairs_inventory_changes() {
     let manifest = format!(
         r#"{SDK}
 [native]
-sources = ["native/bridge.c"]
-headers = ["include/bridge.h"]
+sources = ["native/bridge.c", "native/detail.c"]
 include-dirs = ["include"]
 "#
     );
@@ -405,8 +412,8 @@ native {
 }
 export value;
 "#;
-    let native_source = "#include \"bridge.h\"\n#include \"detail.h\"\nint archive_value(void) { return ANSWER; }\n";
-    let detail = "#define ANSWER 42\n";
+    let native_source = "#include \"detail.h\"\nint archive_value(void) { return answer(); }\n";
+    let detail = "int answer(void);\n";
     let digest = archive_with_files(
         &fixture.path("values.tar.gz"),
         "values",
@@ -414,17 +421,49 @@ export value;
         source,
         &[
             ("native/bridge.c", native_source),
-            ("include/bridge.h", "int archive_value(void);\n"),
+            ("native/detail.c", "int answer(void) { return 42; }\n"),
             ("include/detail.h", detail),
         ],
     );
     fs::write(
         fixture.path("app/src/main.rinzu"),
-        r#"import values; fn main() { if values.value() != CInt(42) { panic("wrong native value"); } }"#,
+        r#"import values;
+import rinzu.timer;
+fn expected() -> CInt { return CInt(42); }
+async fn main() {
+    try {
+        await rinzu.timer.sleep(1);
+        if values.value() != expected() { panic("wrong native value"); }
+    } catch errors { panic("native call failed"); }
+}"#,
     )
     .unwrap();
     success(fixture.cli(&["modules", "add", "values", "../values.tar.gz"]));
-    success(fixture.cli(&["run", "."]));
+    let run = || {
+        fixture
+            .command(Path::new(env!("CARGO_BIN_EXE_rinzu")))
+            .args(["run", "."])
+            .env("RINZU_COMPILE_TIMINGS", "1")
+            .output()
+            .unwrap()
+    };
+    let cold = run();
+    assert!(timing_phase(&cold, "native.package.early.store", "values"));
+    success(cold);
+    let warm = run();
+    assert!(
+        timing_phase(&warm, "native.package.early.hit", "values"),
+        "{}",
+        String::from_utf8_lossy(&warm.stderr)
+    );
+    assert!(!timing_phase(
+        &warm,
+        "native.package.link.provider",
+        "values"
+    ));
+    assert!(!timing_phase(&warm, "native.contract.validate", "values"));
+    assert!(String::from_utf8_lossy(&warm.stderr).contains("\"phase\":\"jit.frontend.cache.hit\""));
+    success(warm);
 
     let root = fixture.path(&format!("app/modules/store/sha256/{digest}/package"));
     for (name, content) in [
@@ -433,7 +472,7 @@ export value;
     ] {
         let input = root.join(name);
         fs::write(&input, "changed").unwrap();
-        rejected(fixture.cli(&["check", "."]), "verified inventory");
+        rejected(fixture.cli(&["run", "."]), "verified inventory");
         success(fixture.cli(&["modules", "sync", "--offline"]));
         assert_eq!(fs::read_to_string(&input).unwrap(), content);
     }
@@ -441,7 +480,7 @@ export value;
     let shadow_header = root.join("native/detail.h");
     fs::write(&shadow_header, "#define ANSWER 0\n").unwrap();
     rejected(
-        fixture.cli(&["check", "."]),
+        fixture.cli(&["run", "."]),
         "unexpected input in SDK archive inventory",
     );
     success(fixture.cli(&["modules", "sync", "--offline"]));
@@ -495,15 +534,30 @@ cat "$RINZU_TEST_ARCHIVES/$file"
             .count(),
         1
     );
-    fs::write(fixture.path("app/src/main.rinzu"), "import left; import right; fn main() { if left.value() != right.value() { panic(\"different value\"); } }").unwrap();
+    let program = "import left; import right; fn adjustment() -> Int { return 0; } fn main() { if left.value() + adjustment() != right.value() + adjustment() { panic(\"different value\"); } }";
+    let app = fixture.path("app/src/main.rinzu");
+    fs::write(&app, program).unwrap();
     let (_, artifact) = rinzu_compiler::check_package(&fixture.path("app")).unwrap();
     assert_eq!(artifact.sdk_packages.len(), 3);
-    fs::write(
-        fixture.path("app/src/main.rinzu"),
-        "import values; fn main() {}",
-    )
-    .unwrap();
+    let run = || {
+        fixture
+            .command(Path::new(env!("CARGO_BIN_EXE_rinzu")))
+            .args(["run", "."])
+            .env("RINZU_COMPILE_TIMINGS", "1")
+            .output()
+            .unwrap()
+    };
+    success(run());
+    fs::write(&app, program.replace("return 0;", "return 1;")).unwrap();
+    let edited = run();
+    for name in ["values", "left", "right"] {
+        assert!(timing_phase(&edited, "frontend.sdk-cache.hit", name));
+        assert!(!timing_phase(&edited, "frontend.lower", name));
+    }
+    success(edited);
+    fs::write(&app, "import values; fn main() {}").unwrap();
     assert!(rinzu_compiler::check_package(&fixture.path("app")).is_err());
+    assert!(!run().status.success());
     success(fixture.cli(&["modules", "sync", "--offline"]));
     assert_eq!(
         fs::read_to_string(fixture.path("requests")).unwrap(),
@@ -541,6 +595,89 @@ cat "$RINZU_TEST_ARCHIVES/$file"
     );
 }
 
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
+#[test]
+fn path_sdk_frontends_reuse_app_edits_and_follow_current_dependency_sources() {
+    let fixture = Fixture::new();
+    let leaf = fixture.path("values/src/values.rinzu");
+    let parent_manifest = fixture.path("parent/rinzu.toml");
+    let parent = format!(
+        "{}\n[dependencies]\nvalues = {{ path = \"../values\" }}\n",
+        SDK.replace("values", "parent")
+    );
+    fs::create_dir_all(leaf.parent().unwrap()).unwrap();
+    fs::create_dir_all(fixture.path("parent/src")).unwrap();
+    fs::write(fixture.path("values/rinzu.toml"), SDK).unwrap();
+    fs::write(&leaf, SOURCE).unwrap();
+    fs::write(&parent_manifest, &parent).unwrap();
+    fs::write(
+        fixture.path("parent/src/parent.rinzu"),
+        "import values; fn answer() -> Int { return values.value(); } export answer;",
+    )
+    .unwrap();
+    let manifest = fixture.path("app/rinzu.toml");
+    let dependencies = fs::read_to_string(&manifest).unwrap()
+        + "\n[dependencies]\nparent = { path = \"../parent\" }\n";
+    fs::write(manifest, dependencies).unwrap();
+    let app = fixture.path("app/src/main.rinzu");
+    let program = "import parent; import rinzu.stdio; fn adjustment() -> Int { return 0; } fn main() { try { rinzu.stdio.writeLine(parent.answer() + adjustment()); } catch errors { panic(\"write failed\"); } }";
+    fs::write(&app, program).unwrap();
+
+    let run = |expected: &[u8], phase: &str| {
+        let output = fixture
+            .command(Path::new(env!("CARGO_BIN_EXE_rinzu")))
+            .args(["run", "."])
+            .env("RINZU_COMPILE_TIMINGS", "1")
+            .output()
+            .unwrap();
+        for name in ["values", "parent"] {
+            assert!(
+                timing_phase(&output, phase, name),
+                "{name} missing {phase}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let regenerated = phase != "frontend.sdk-cache.hit";
+            assert_eq!(timing_phase(&output, "frontend.sema", name), regenerated);
+            assert_eq!(timing_phase(&output, "frontend.lower", name), regenerated);
+        }
+        assert_eq!(output.stdout, expected);
+        success(output);
+    };
+    run(b"42\n", "frontend.sdk-cache.store");
+    let edited_program = program.replace("return 0;", "return 1;");
+    fs::write(&app, &edited_program).unwrap();
+    run(b"43\n", "frontend.sdk-cache.hit");
+
+    // The same-length leaf edit changes both the leaf and the parent's checked input.
+    fs::write(&leaf, SOURCE.replace("42", "43")).unwrap();
+    run(b"44\n", "frontend.sdk-cache.miss");
+
+    // Discovery includes source files without an import edge from the entry.
+    let added = fixture.path("values/src/extra.rinzu");
+    let moved = fixture.path("values/src/moved.rinzu");
+    fs::write(&added, "fn extra() -> Int { return 2; }").unwrap();
+    run(b"44\n", "frontend.sdk-cache.miss");
+    fs::rename(&added, &moved).unwrap();
+    run(b"44\n", "frontend.sdk-cache.miss");
+    fs::write(&moved, "fn extra() -> Int { return false; }").unwrap();
+    rejected(fixture.cli(&["run", "."]), "moved.rinzu");
+    fs::remove_file(&moved).unwrap();
+
+    // Relocating the SDK invalidates its saved paths and file IDs even with the same bytes.
+    fs::rename(fixture.path("values"), fixture.path("relocated-values")).unwrap();
+    fs::write(
+        parent_manifest,
+        parent.replace("../values", "../relocated-values"),
+    )
+    .unwrap();
+    run(b"44\n", "frontend.sdk-cache.miss");
+    fs::write(&app, program).unwrap();
+    run(b"43\n", "frontend.sdk-cache.hit");
+}
+
 #[test]
 fn unsafe_archive_is_rejected_before_dependency_commit() {
     let fixture = Fixture::new();
@@ -566,4 +703,183 @@ fn unsafe_archive_is_rejected_before_dependency_commit() {
     assert_eq!(fs::read(manifest).unwrap(), before);
     assert!(!fixture.path("app/rinzu.modules.lock").exists());
     assert!(!fixture.path("escape").exists());
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+fn locked_framework_sdk_restores_before_abi_and_linking_and_rechecks_headers() {
+    let fixture = Fixture::new();
+    let archive_path = fixture.path("desktop.tar.gz");
+    archive_with_files(
+        &archive_path,
+        "desktop",
+        r#"[package]
+name = "desktop"
+language = "0.5"
+kind = "sdk"
+
+[native]
+sources = ["native/api.m"]
+headers = ["native/api.h"]
+frameworks = ["Foundation"]
+"#,
+        "native { fn value() -> Int symbol \"early_sdk_value\"; } export value;",
+        &[
+            (
+                "native/api.h",
+                "#include <stdint.h>\n#include <rinzu_early_sdk_fixture.h>\nEARLY_TYPE early_sdk_value(void);",
+            ),
+            (
+                "native/api.m",
+                "EARLY_TYPE early_sdk_value(void) { return EARLY_VALUE; }",
+            ),
+        ],
+    );
+    success(fixture.cli(&["modules", "add", "desktop", "../desktop.tar.gz"]));
+    for directory in ["preferred", "headers"] {
+        fs::create_dir(fixture.path(directory)).unwrap();
+    }
+    let header = "rinzu_early_sdk_fixture.h";
+    let definitions =
+        |kind: &str, value| format!("#define EARLY_TYPE {kind}\n#define EARLY_VALUE {value}\n");
+    fs::write(
+        fixture.path(&format!("headers/{header}")),
+        definitions("int64_t", 42),
+    )
+    .unwrap();
+    let includes =
+        std::env::join_paths([fixture.path("preferred"), fixture.path("headers")]).unwrap();
+    let app = fixture.path("app/src/main.rinzu");
+    let program = r#"import desktop;
+import rinzu.stdio;
+import rinzu.timer;
+fn adjustment() -> Int { return 0; }
+async fn main() {
+    try {
+        await rinzu.timer.sleep(1);
+        rinzu.stdio.writeLine(desktop.value() + adjustment());
+    } catch errors {
+        panic("native call failed");
+    }
+}"#;
+    fs::write(&app, program).unwrap();
+    let run = || {
+        fixture
+            .command(Path::new(env!("CARGO_BIN_EXE_rinzu")))
+            .args(["run", "."])
+            .env("RINZU_COMPILE_TIMINGS", "1")
+            .env("CPATH", &includes)
+            .output()
+            .unwrap()
+    };
+    let cold = run();
+    assert_eq!(cold.stdout, b"42\n");
+    assert!(timing_phase(
+        &cold,
+        "native.package.link.provider",
+        "desktop"
+    ));
+    assert!(timing_phase(&cold, "native.package.early.store", "desktop"));
+    assert!(timing_phase(&cold, "frontend.sdk-cache.store", "desktop"));
+    success(cold);
+    let warm = run();
+    assert_eq!(warm.stdout, b"42\n");
+    assert!(
+        timing_phase(&warm, "native.package.early.hit", "desktop"),
+        "{}",
+        String::from_utf8_lossy(&warm.stderr)
+    );
+    assert!(!timing_phase(
+        &warm,
+        "native.package.link.provider",
+        "desktop"
+    ));
+    assert!(!timing_phase(&warm, "native.contract.validate", "desktop"));
+    success(warm);
+
+    fs::write(&app, program.replace("return 0;", "return 1;")).unwrap();
+    let edited = run();
+    assert_eq!(edited.stdout, b"43\n");
+    assert!(timing_phase(&edited, "native.package.early.hit", "desktop"));
+    assert!(timing_phase(&edited, "frontend.sdk-cache.hit", "desktop"));
+    assert!(!timing_phase(&edited, "frontend.sema", "desktop"));
+    assert!(!timing_phase(&edited, "frontend.lower", "desktop"));
+    success(edited);
+
+    let frontend = fs::read_dir(fixture.path("cache/jit-sdk-frontend-v1"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path()
+        .join("interface.msgpack");
+    fs::write(frontend, b"corrupt checked SDK").unwrap();
+    fs::write(&app, program.replace("return 0;", "return 2;")).unwrap();
+    let rebuilt = run();
+    assert_eq!(rebuilt.stdout, b"44\n");
+    assert!(timing_phase(&rebuilt, "frontend.sdk-cache.miss", "desktop"));
+    assert!(timing_phase(&rebuilt, "frontend.lower", "desktop"));
+    assert!(timing_phase(
+        &rebuilt,
+        "frontend.sdk-cache.store",
+        "desktop"
+    ));
+    success(rebuilt);
+    fs::write(&app, program.replace("return 0;", "return 1;")).unwrap();
+
+    let cache = fs::read_dir(fixture.path("cache/source-v4"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| path.join("early-sdk-inputs.json").is_file())
+        .unwrap();
+    let provider = fs::read_dir(cache)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("provider-")
+        })
+        .unwrap();
+    fs::write(provider, b"corrupt provider").unwrap();
+    let repaired = run();
+    assert_eq!(repaired.stdout, b"43\n");
+    assert!(timing_phase(
+        &repaired,
+        "native.package.link.provider",
+        "desktop"
+    ));
+    assert!(!timing_phase(
+        &repaired,
+        "native.package.early.hit",
+        "desktop"
+    ));
+    success(repaired);
+
+    let preferred = fixture.path(&format!("preferred/{header}"));
+    fs::write(&preferred, definitions("int64_t", 44)).unwrap();
+    let shadowed = run();
+    assert_eq!(shadowed.stdout, b"45\n");
+    assert!(timing_phase(
+        &shadowed,
+        "native.package.early.miss",
+        "ABI preprocessing changed"
+    ));
+    assert!(timing_phase(
+        &shadowed,
+        "native.package.link.provider",
+        "desktop"
+    ));
+    success(shadowed);
+
+    fs::write(preferred, definitions("int32_t", 44)).unwrap();
+    fs::write(&app, program).unwrap();
+    let invalid_abi = run();
+    assert!(timing_phase(
+        &invalid_abi,
+        "frontend.sdk-cache.hit",
+        "desktop"
+    ));
+    rejected(invalid_abi, "native scalar ABI mismatch");
 }

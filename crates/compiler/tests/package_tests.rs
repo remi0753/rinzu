@@ -1,4 +1,6 @@
-use rinzu_compiler::{PackageTestOptions, SourceCache, SourceSnapshot, check_package_tests};
+use rinzu_compiler::{
+    PackageTestOptions, SourceCache, SourceSnapshot, check_package_test_file, check_package_tests,
+};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -12,6 +14,7 @@ impl Fixture {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir_all(path.join("src")).unwrap();
+        std::fs::create_dir(path.join("tests")).unwrap();
         std::fs::write(
             path.join("rinzu.toml"),
             format!("[package]\nname=\"test_library\"\nlanguage=\"0.5\"\nkind=\"{kind}\"\nentry=\"src/main.rinzu\"\n"),
@@ -37,6 +40,25 @@ impl Fixture {
             &options,
         )
     }
+    fn check_file(
+        &self,
+        source: &str,
+    ) -> Result<
+        (
+            rinzu_compiler::Manifest,
+            rinzu_compiler::FrontendArtifact,
+            rinzu_compiler::PackageTestCase,
+        ),
+        Vec<rinzu_compiler::Diagnostic>,
+    > {
+        let path = self.0.join("tests/selected.test.rinzu");
+        std::fs::write(&path, source).unwrap();
+        check_package_test_file(
+            &self.0,
+            &path,
+            &mut SourceSnapshot::new(&mut SourceCache::default(), Default::default()),
+        )
+    }
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -45,22 +67,31 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn private_unit_discovery_preserves_module_scope_and_never_calls_app_main() {
-    let fixture = Fixture::new(
-        "application",
-        "fn main() {panic(\"bad\");} fn test_entry() {}\n",
-    );
+fn test_file_loads_its_imports_without_loading_app_main_or_unselected_files() {
+    let fixture = Fixture::new("application", "invalid application main");
     std::fs::write(
         fixture.0.join("src/other.rinzu"),
-        "fn identity<T>(x:T)->T {return x;} fn test_entry() {let x=identity<Int>(42);}\n",
+        "fn test_identity<T>(x:T)->T {return x;} export test_identity;",
     )
     .unwrap();
-    let options = PackageTestOptions {
-        unit: true,
-        selected: Some("unit:other::test_entry".into()),
-        ..Default::default()
-    };
-    let (_, artifact, cases) = fixture.check(options).unwrap();
+    std::fs::write(
+        fixture.0.join("tests/support.rinzu"),
+        "fn value()->Int {return 42;} export value;",
+    )
+    .unwrap();
+    std::fs::write(
+        fixture.0.join("tests/unselected.test.rinzu"),
+        "invalid test source",
+    )
+    .unwrap();
+    let (_, artifact, case) = fixture
+        .check_file(
+            r#"import other;
+import "./support.rinzu" as support;
+fn main() {let value=other.test_identity<Int>(support.value());}"#,
+        )
+        .unwrap();
+    assert_eq!(case.identity, "file:tests/selected.test.rinzu");
     assert!(
         artifact
             .ir
@@ -68,17 +99,23 @@ fn private_unit_discovery_preserves_module_scope_and_never_calls_app_main() {
             .values()
             .any(|path| path.ends_with("/<test entry>"))
     );
+    for file in [
+        "src/other.rinzu",
+        "tests/support.rinzu",
+        "tests/selected.test.rinzu",
+    ] {
+        assert!(
+            artifact
+                .checked_inputs
+                .contains_key(&fixture.0.canonicalize().unwrap().join(file))
+        );
+    }
     assert!(artifact.module_graph.iter().all(|node| {
         node.file_id != rinzu_compiler::FileId::MANIFEST
             && artifact.checked_inputs.contains_key(&node.path)
+            && !node.path.ends_with("src/main.rinzu")
+            && !node.path.ends_with("unselected.test.rinzu")
     }));
-    assert_eq!(
-        cases
-            .iter()
-            .map(|case| case.identity.as_str())
-            .collect::<Vec<_>>(),
-        ["unit:main::test_entry", "unit:other::test_entry"]
-    );
     assert!(
         artifact
             .ir
@@ -86,95 +123,49 @@ fn private_unit_discovery_preserves_module_scope_and_never_calls_app_main() {
             .iter()
             .any(|function| function.name == "main")
     );
-    assert!(
-        !artifact
-            .ir
-            .functions
-            .iter()
-            .any(|function| function.name == "main::main")
-    );
-    assert!(
-        artifact
-            .ir
-            .functions
-            .iter()
-            .any(|function| function.name == "other::test_entry")
-    );
 }
 
 #[test]
-fn selected_async_unit_keeps_call_future_and_await_value_ranges_distinct() {
-    let fixture = Fixture::new(
-        "application",
-        "async fn answer()->Int {return 42;} async fn test_async(){let value=await answer();if value!=42 {let bad=CInt8(300);}}\n",
-    );
-    let (_, artifact, _) = fixture
-        .check(PackageTestOptions {
-            unit: true,
-            selected: Some("unit:main::test_async".into()),
-            ..Default::default()
-        })
+fn selected_async_main_keeps_call_future_and_await_value_ranges_distinct() {
+    let fixture = Fixture::new("application", "fn main() {}");
+    let (_, artifact, case) = fixture
+        .check_file("async fn answer()->Int {return 42;} async fn main(){let value=await answer();if value!=42 {let bad=CInt8(300);}}")
         .unwrap();
+    assert!(case.is_async);
     assert!(
         artifact
             .ir
             .functions
             .iter()
-            .any(|function| function.name == "main::test_async")
+            .any(|function| function.name.ends_with("::main"))
     );
 }
 
 #[test]
-fn signature_and_unselected_invalid_module_are_errors() {
-    for source in [
-        "fn test_bad(x:Int) {}",
-        "fn test_bad<T>() {}",
-        "fn test_bad()->Int {return 1;}",
-        "fn test_() {}",
+fn invalid_test_entry_is_diagnosed_in_the_test_file() {
+    let fixture = Fixture::new("application", "fn main() {}");
+    for (source, message) in [
+        ("fn main(x:Int) {}", "signature"),
+        ("fn main<T>() {}", "signature"),
+        ("fn main()->Int {return 1;}", "signature"),
+        ("fn helper() {}", "exactly one main"),
+        ("fn main() {} fn main() {}", "exactly one main"),
     ] {
-        let fixture = Fixture::new("application", source);
-        assert!(
-            fixture
-                .check(PackageTestOptions {
-                    unit: true,
-                    ..Default::default()
-                })
-                .unwrap_err()[0]
-                .message
-                .contains("signature")
+        let errors = fixture.check_file(source).unwrap_err();
+        assert_eq!(
+            errors[0].code,
+            rinzu_compiler::DiagnosticCode::InvalidEntryPoint
         );
+        assert!(errors[0].message.contains(message), "{errors:?}");
     }
-    let fixture = Fixture::new("application", "fn test_ok() {}\n");
-    std::fs::write(
-        fixture.0.join("src/unselected.rinzu"),
-        "fn test_unused() {let x:Int=\"bad\";}",
-    )
-    .unwrap();
-    assert!(
-        fixture
-            .check(PackageTestOptions {
-                unit: true,
-                selected: Some("unit:main::test_ok".into()),
-                ..Default::default()
-            })
-            .is_err()
-    );
 }
 
 #[test]
-fn sdk_private_units_keep_original_native_interface_and_main_collision_is_explicit() {
-    let fixture = Fixture::new(
-        "sdk",
-        "fn answer()->Int {return 42;} export answer; fn test_private() {let x=answer();}\n",
-    );
-    let (_, artifact, cases) = fixture
-        .check(PackageTestOptions {
-            unit: true,
-            selected: Some("unit:main::test_private".into()),
-            ..Default::default()
-        })
+fn sdk_test_imports_its_own_interface_without_publishing_test_main() {
+    let fixture = Fixture::new("sdk", "fn answer()->Int {return 42;} export answer;");
+    let (_, artifact, _) = fixture
+        .check_file("import test_library; fn main() {let x=test_library.answer();}")
         .unwrap();
-    assert_eq!(cases.len(), 1);
     let own = artifact
         .sdk_packages
         .last()
@@ -184,17 +175,65 @@ fn sdk_private_units_keep_original_native_interface_and_main_collision_is_explic
         .unwrap();
     assert!(!own.syntax.declarations.iter().any(|d| d.name() == "main"));
     assert!(own.modules["test_library"].contains_key("answer"));
-    let collision = Fixture::new("sdk", "fn main() {} fn test_ok() {}\n");
-    assert!(
-        collision
-            .check(PackageTestOptions {
-                unit: true,
-                ..Default::default()
-            })
-            .unwrap_err()[0]
-            .message
-            .contains("conflicts")
+}
+
+#[test]
+fn source_modules_cannot_import_test_helpers_even_during_test_execution() {
+    let fixture = Fixture::new(
+        "application",
+        "import \"../tests/support.rinzu\" as support; fn main() {}",
     );
+    std::fs::write(fixture.0.join("tests/support.rinzu"), "fn value() {}").unwrap();
+    for errors in [
+        rinzu_compiler::check_package(&fixture.0).unwrap_err(),
+        fixture
+            .check_file("import main as application; fn main() {}")
+            .unwrap_err(),
+    ] {
+        assert_eq!(
+            errors[0].code,
+            rinzu_compiler::DiagnosticCode::InvalidModulePath
+        );
+    }
+}
+
+#[test]
+fn test_sources_cannot_be_loaded_under_an_outer_package() {
+    let fixture = Fixture::new("application", "fn main() {}");
+    let nested = fixture.0.join("tests/nested");
+    std::fs::create_dir_all(nested.join("tests")).unwrap();
+    std::fs::write(
+        nested.join("rinzu.toml"),
+        "[package]\nname=\"nested\"\nlanguage=\"0.5\"\n",
+    )
+    .unwrap();
+    let path = nested.join("tests/nested.test.rinzu");
+    std::fs::write(&path, "fn main() {}").unwrap();
+
+    let (_, _, case) = check_package_test_file(
+        &nested,
+        &path,
+        &mut SourceSnapshot::new(&mut SourceCache::default(), Default::default()),
+    )
+    .unwrap();
+    assert_eq!(case.identity, "file:tests/nested.test.rinzu");
+    for errors in [
+        check_package_test_file(
+            &fixture.0,
+            &path,
+            &mut SourceSnapshot::new(&mut SourceCache::default(), Default::default()),
+        )
+        .unwrap_err(),
+        fixture
+            .check_file(r#"import "./nested/tests/nested.test.rinzu" as nested; fn main() {}"#)
+            .unwrap_err(),
+    ] {
+        assert_eq!(
+            errors[0].code,
+            rinzu_compiler::DiagnosticCode::InvalidModulePath
+        );
+        assert!(errors[0].message.contains("belongs to a different package"));
+    }
 }
 
 #[test]
@@ -278,7 +317,6 @@ fn main() {
                 "doc:{}#L1",
                 document.canonicalize().unwrap().display()
             )),
-            ..Default::default()
         })
         .unwrap();
     assert_eq!(cases.len(), 1);
@@ -394,7 +432,7 @@ fn host_observes_test_errors_without_relaxing_user_boundaries_or_future_obligati
     use rinzu_compiler::DiagnosticCode;
     let fixture = Fixture::new(
         "application",
-        "error Failed{} fn main(){throw Failed(message:\"main\");} fn test_fail(){throw Failed(message:\"test\");}",
+        "error Failed{} fn main(){throw Failed(message:\"main\");}",
     );
     let main_errors = rinzu_compiler::check_package(&fixture.0).unwrap_err();
     assert!(
@@ -403,34 +441,23 @@ fn host_observes_test_errors_without_relaxing_user_boundaries_or_future_obligati
             .any(|error| error.code == DiagnosticCode::ErrorEscapesBoundary)
     );
     fixture
-        .check(PackageTestOptions {
-            unit: true,
-            selected: Some("unit:main::test_fail".into()),
-            ..Default::default()
-        })
+        .check_file("error Failed{} fn main(){throw Failed(message:\"test\");}")
         .unwrap();
     for (source, expected) in [
         (
-            "error Failed{} async fn failed(){throw Failed(message:\"failed\");} fn test_bad(){failed();}",
+            "error Failed{} async fn failed(){throw Failed(message:\"failed\");} fn main(){failed();}",
             DiagnosticCode::FutureDiscarded,
         ),
         (
-            "error Failed{} fn worker(){throw Failed(message:\"worker\");} fn test_bad(){let child=spawn worker();}",
+            "error Failed{} fn worker(){throw Failed(message:\"worker\");} fn main(){let child=spawn worker();}",
             DiagnosticCode::ErrorEscapesBoundary,
         ),
         (
-            "error Failed{} native{fn invoke(callback:fn(CInt)->CInt)->CInt symbol \"invoke\";} fn callback(value:CInt)->CInt{throw Failed(message:\"callback\");} fn test_bad(){let result=invoke(callback);}",
+            "error Failed{} native{fn invoke(callback:fn(CInt)->CInt)->CInt symbol \"invoke\";} fn callback(value:CInt)->CInt{throw Failed(message:\"callback\");} fn main(){let result=invoke(callback);}",
             DiagnosticCode::ErrorEscapesBoundary,
         ),
     ] {
-        let fixture = Fixture::new("application", source);
-        let errors = fixture
-            .check(PackageTestOptions {
-                unit: true,
-                selected: Some("unit:main::test_bad".into()),
-                ..Default::default()
-            })
-            .unwrap_err();
+        let errors = fixture.check_file(source).unwrap_err();
         assert!(
             errors.iter().any(|error| error.code == expected),
             "{errors:?}"

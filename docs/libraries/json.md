@@ -29,21 +29,21 @@ fn main() {
 
 `kind` returns `Kind.Null`, `Boolean`, `Number`, `Text`, `Array`, or `Object`. Values belong to their own Domain. To parse in a Worker, pass the input bytes and return the transfer-safe result fields.
 
-| Operation | Result |
-| --- | --- |
-| `field(object, key)` | `Option<Value>`. An existing key with a JSON null returns `Some`. |
-| `at(array, index)` | `Option<Value>`. The index is zero-based. Out-of-range indices return `None`. |
-| `arrayLength(array)`, `objectLength(object)` | Element or entry count. |
-| `entryAt(object, index)` | `Option<{ key: String, value: Value }>` in input or insertion order. |
-| `asBool(value)`, `asString(value)` | The Boolean or decoded String. |
-| `numberText(value)` | The original number lexeme or the rendering of a constructed number. |
-| `asInt(value)` | An integer lexeme in the signed 64-bit range. |
-| `asFloat(value)` | The nearest finite binary64 value, with ties rounded to even and the sign of zero preserved. |
-| `intField(object, key)`, `floatField(object, key)` | A numeric lookup that returns `None` for a missing key. |
-| `nullValue()`, `boolean(value)`, `text(value)`, `intValue(value)` | Construct scalar JSON. |
-| `number(token)`, `floatValue(value)` | Construct JSON from a valid number lexeme or a finite Float. |
-| `array(values)`, `object(fields)` | Wrap an immutable `List<Value>` or `Map<String, Value>`. |
-| `encode(value)`, `stringify(value)` | Produce a UTF-8 `ByteArray` or a `String`. |
+| Operation                                                         | Result                                                                                       |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `field(object, key)`                                              | `Option<Value>`. An existing key with a JSON null returns `Some`.                            |
+| `at(array, index)`                                                | `Option<Value>`. The index is zero-based. Out-of-range indices return `None`.                |
+| `arrayLength(array)`, `objectLength(object)`                      | Element or entry count.                                                                      |
+| `entryAt(object, index)`                                          | `Option<{ key: String, value: Value }>` in input or insertion order.                         |
+| `asBool(value)`, `asString(value)`                                | The Boolean or decoded String.                                                               |
+| `numberText(value)`                                               | The original number lexeme or the rendering of a constructed number.                         |
+| `asInt(value)`                                                    | An integer lexeme in the signed 64-bit range.                                                |
+| `asFloat(value)`                                                  | The nearest finite binary64 value, with ties rounded to even and the sign of zero preserved. |
+| `intField(object, key)`, `floatField(object, key)`                | A numeric lookup that returns `None` for a missing key.                                      |
+| `nullValue()`, `boolean(value)`, `text(value)`, `intValue(value)` | Construct scalar JSON.                                                                       |
+| `number(token)`, `floatValue(value)`                              | Construct JSON from a valid number lexeme or a finite Float.                                 |
+| `array(values)`, `object(fields)`                                 | Wrap an immutable `List<Value>` or `Map<String, Value>`.                                     |
+| `encode(value)`, `stringify(value)`                               | Produce a UTF-8 `ByteArray` or a `String`.                                                   |
 
 Accessors throw `TypeMismatch` when the value has the wrong kind. `NumberError` distinguishes invalid syntax, expected integer, out of range, and non-finite input. Integer access treats `1.0` and `1e0` as non-integer lexemes. Float constructors use shortest round-trip digits, decimal notation for exponents −6 through 20, and an explicit exponent sign otherwise.
 
@@ -63,4 +63,4 @@ Use `parseWithLimits`, `parseStringWithLimits`, `parseWithTyAndLimits`, or `pars
 
 `DecodeFailed` reports a reason and a zero-based byte offset. Object keys are compared after decoding escapes. For a duplicate, the offset identifies the repeated key's opening quote and `firstOffset` identifies its first occurrence. `LimitExceeded` identifies the exceeded limit and includes the input byte offset for a parse. `InvalidLimits` identifies an invalid setting before scanning.
 
-The transaction report fixture reads a file selected through `rinzu.process.arguments()`, closes it in `finally`, and prints a count and a checked sum of integer amounts. [Report source](../../tests/fixtures/programs/json-report/src/main.rinzu)
+To parse JSON from a file, read its bytes with an explicit size limit before calling `parse` or `parseWithTy`. [Whole-file I/O](io.md)

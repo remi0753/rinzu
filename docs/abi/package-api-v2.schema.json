@@ -43,12 +43,7 @@
     "fallback": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "kind",
-        "scalar",
-        "value",
-        "bytes_length"
-      ],
+      "required": ["kind", "scalar", "value", "bytes_length"],
       "properties": {
         "kind": {
           "type": "string"
@@ -81,11 +76,7 @@
     "code": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "declaration",
-        "version",
-        "fallback"
-      ],
+      "required": ["declaration", "version", "fallback"],
       "properties": {
         "declaration": {
           "type": "string"
@@ -161,12 +152,7 @@
     "callbackSite": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "native_function",
-        "parameter",
-        "source_type",
-        "targets"
-      ],
+      "required": ["native_function", "parameter", "source_type", "targets"],
       "properties": {
         "native_function": {
           "type": "string"
@@ -211,12 +197,7 @@
           "type": "string"
         },
         "kind": {
-          "enum": [
-            "sync",
-            "async",
-            "native",
-            "supplant"
-          ]
+          "enum": ["sync", "async", "native", "supplant"]
         },
         "effects": {
           "type": "array",
@@ -286,12 +267,7 @@
     "sourceType": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "kind",
-        "const_fields",
-        "fields",
-        "variants"
-      ],
+      "required": ["kind", "const_fields", "fields", "variants"],
       "properties": {
         "kind": {
           "type": "string"
@@ -366,11 +342,7 @@
       ],
       "properties": {
         "kind": {
-          "enum": [
-            "function",
-            "class",
-            "enum"
-          ]
+          "enum": ["function", "class", "enum"]
         },
         "type_parameters": {
           "type": "array",
@@ -455,11 +427,7 @@
     "fieldLayout": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "name",
-        "c_type",
-        "offset"
-      ],
+      "required": ["name", "c_type", "offset"],
       "properties": {
         "name": {
           "type": "string"

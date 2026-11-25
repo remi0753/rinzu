@@ -22,7 +22,6 @@ pub(crate) fn expand(
     options: &CompilerOptions,
     option_shadow_modules: &HashSet<String>,
 ) -> Result<(Module, Vec<Requirement>), Vec<Diagnostic>> {
-    let _timing = crate::timing::span("frontend.generics");
     Expander::new(module, options, option_shadow_modules)
         .run()
         .map_err(|error| vec![*error])
@@ -59,6 +58,9 @@ struct Expander<'a> {
     function_name: String,
     inference_active: bool,
     instance_types: HashMap<String, (String, Vec<TypeRef>)>,
+    signature_revision: usize,
+    probe_builds: u64,
+    type_probe: Option<inference::CachedProbe>,
 }
 
 impl<'a> Expander<'a> {
@@ -109,7 +111,7 @@ impl<'a> Expander<'a> {
         let known = module
             .declarations
             .iter()
-            .map(|d| (d.name().to_owned(), d.clone()))
+            .map(|d| (d.name().to_owned(), inference::probe_declaration(d)))
             .collect();
         Self {
             module,
@@ -131,10 +133,14 @@ impl<'a> Expander<'a> {
             function_name: String::new(),
             inference_active: false,
             instance_types: HashMap::new(),
+            signature_revision: 0,
+            probe_builds: 0,
+            type_probe: None,
         }
     }
 
     fn run(mut self) -> ExpansionResult<(Module, Vec<Requirement>)> {
+        let mut timing = crate::timing::span("frontend.generics");
         let declarations = std::mem::take(&mut self.module.declarations);
         let mut names = HashSet::new();
         for declaration in &declarations {
@@ -199,6 +205,7 @@ impl<'a> Expander<'a> {
             }
         }
         self.module.native_blocks = native;
+        self.type_probe = None;
         for mut declaration in declarations {
             if matches!(declaration, Declaration::Interface(_)) {
                 continue;
@@ -212,11 +219,31 @@ impl<'a> Expander<'a> {
                     0
                 };
                 self.declaration(&mut declaration, &HashMap::new(), instance)?;
-                self.output.push(declaration);
+                self.emit(declaration);
             }
         }
+        timing.set_counter("probe_builds", self.probe_builds);
         self.module.declarations = self.output;
         Ok((self.module, self.requirements))
+    }
+
+    fn update_probe_revision(&mut self, declaration: &Declaration) {
+        let previous = self
+            .output
+            .iter()
+            .rev()
+            .find(|candidate| candidate.name() == declaration.name())
+            .or_else(|| self.known.get(declaration.name()));
+        if !previous
+            .is_some_and(|previous| inference::same_probe_declaration(previous, declaration))
+        {
+            self.signature_revision += 1;
+        }
+    }
+
+    fn emit(&mut self, declaration: Declaration) {
+        self.update_probe_revision(&declaration);
+        self.output.push(declaration);
     }
 
     fn instantiate(
@@ -354,7 +381,7 @@ impl<'a> Expander<'a> {
         let result = self.declaration(&mut declaration, &substitution, instance);
         self.depth -= 1;
         result?;
-        self.output.push(declaration);
+        self.emit(declaration);
         // A constructed generic owner must satisfy all of its interface
         // contracts, even if no constrained call happens to use that method.
         let required: Vec<_> = match self.known.get(name) {
@@ -572,8 +599,9 @@ impl<'a> Expander<'a> {
                     }
                 }
                 self.expected_result = Some(value.result.clone());
-                self.known
-                    .insert(value.name.clone(), Declaration::Function(value.clone()));
+                let signature = Declaration::Function(inference::probe_function(value));
+                self.update_probe_revision(&signature);
+                self.known.insert(value.name.clone(), signature);
                 self.block(&mut value.body, substitution, instance)?;
                 if let Some(fallback) = &mut value.fallback {
                     self.expression(fallback, substitution, instance)?;

@@ -12,6 +12,7 @@ mod jit;
     all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
 ))]
 mod jit_runtime;
+mod link_values;
 mod lowering;
 pub mod native_abi;
 mod object;
@@ -48,13 +49,15 @@ use crate::{CompileEvidence, baseline::source_identities};
     all(target_os = "macos", target_arch = "aarch64"),
     all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
 ))]
-pub(crate) use jit::compile_async_jit;
+pub use jit::{
+    AsyncJitCode, AsyncJitCompiler, AsyncJitFunctionCache, AsyncJitImage, PreparedAsyncJit,
+};
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
     all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
 ))]
 pub(crate) use jit_runtime::run;
-pub(crate) use object::emit_aot;
+pub(crate) use object::{emit_aot, emit_async_plans};
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
     all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
@@ -77,6 +80,7 @@ const ENTRY_SYMBOL: &str = "rinzu_baseline_function_entry";
 const CONSTRUCT_SYMBOL: &str = "rinzu_baseline_construct";
 const DATA_OPERATION_SYMBOL: &str = "rinzu_baseline_data_operation";
 const BYTES_SLICE_PAYLOAD_SYMBOL: &str = "rinzu_baseline_bytes_slice_payload";
+const INDEXED_OPTION_SYMBOL: &str = "rinzu_baseline_indexed_option";
 const BYTES_INT_LENGTH_SYMBOL: &str = "rinzu_baseline_bytes_int_length";
 const STRING_SCALAR_LENGTH_SYMBOL: &str = "rinzu_baseline_string_scalar_length";
 const COLLECTION_LENGTH_SYMBOL: &str = "rinzu_baseline_collection_length";
@@ -128,6 +132,7 @@ struct AsyncRuntimeFunctions {
 }
 
 struct RuntimeFunctions {
+    link_values: bool,
     direct_c_context: bool,
     owned_imports: HashSet<FuncId>,
     proven_owner_operations: HashMap<String, HashSet<(BlockId, usize)>>,
@@ -153,6 +158,7 @@ struct RuntimeFunctions {
     construct: FuncId,
     data_operation: FuncId,
     bytes_slice_payload: Option<FuncId>,
+    indexed_option: Option<FuncId>,
     bytes_int_length: FuncId,
     string_scalar_length: FuncId,
     collection_length: FuncId,
@@ -203,15 +209,7 @@ fn declare_managed_functions<M: Module>(
     let mut functions = HashMap::new();
     for (index, function) in module_ir.functions.iter().enumerate() {
         let parameter_count = parameter_count(function)?;
-        let mut signature = module.make_signature();
-        signature.call_conv = module.target_config().default_call_conv;
-        signature
-            .params
-            .push(AbiParam::new(module.isa().pointer_type()));
-        signature
-            .params
-            .extend((0..parameter_count).map(|_| AbiParam::new(types::I64)));
-        signature.returns.push(AbiParam::new(types::I64));
+        let signature = managed_signature(module, parameter_count);
         let symbol = managed_symbol(index, &function.name);
         let id = module
             .declare_function(&symbol, linkage, &signature)
@@ -229,6 +227,19 @@ fn declare_managed_functions<M: Module>(
         );
     }
     Ok(functions)
+}
+
+fn managed_signature<M: Module>(module: &M, arity: usize) -> cranelift_codegen::ir::Signature {
+    let mut signature = module.make_signature();
+    signature.call_conv = module.target_config().default_call_conv;
+    signature
+        .params
+        .push(AbiParam::new(module.isa().pointer_type()));
+    signature
+        .params
+        .extend((0..arity).map(|_| AbiParam::new(types::I64)));
+    signature.returns.push(AbiParam::new(types::I64));
+    signature
 }
 
 fn managed_symbol(index: usize, name: &str) -> String {
@@ -252,6 +263,11 @@ fn declare_runtime_functions<M: Module>(
     c_runtime: bool,
     direct_c_context: bool,
 ) -> Result<RuntimeFunctions> {
+    let frame_proofs = if c_runtime {
+        rinzu_compiler::proven_frame_plans(ir)
+    } else {
+        rinzu_compiler::FrameProofs::default()
+    };
     let mut owned_imports = HashSet::new();
     let mut declare =
         |module: &mut M, name: &str, parameters: usize, returns: bool| -> Result<FuncId> {
@@ -286,6 +302,7 @@ fn declare_runtime_functions<M: Module>(
         None
     };
     Ok(RuntimeFunctions {
+        link_values: false,
         direct_c_context,
         proven_owner_operations: if c_runtime {
             rinzu_compiler::proven_data_owner_operations(ir)
@@ -302,6 +319,7 @@ fn declare_runtime_functions<M: Module>(
                 ("construct", 5),
                 ("data_operation", 6),
                 ("bytes_slice_payload", 5),
+                ("indexed_option", 5),
                 ("bytes_int_length", 2),
                 ("string_scalar_length", 2),
                 ("collection_length", 3),
@@ -327,16 +345,8 @@ fn declare_runtime_functions<M: Module>(
         } else {
             HashMap::new()
         },
-        proven_frame_roots: if c_runtime {
-            rinzu_compiler::proven_frame_roots(ir)
-        } else {
-            HashMap::new()
-        },
-        proven_frame_memberships: if c_runtime {
-            rinzu_compiler::proven_frame_memberships(ir)
-        } else {
-            HashMap::new()
-        },
+        proven_frame_roots: frame_proofs.roots,
+        proven_frame_memberships: frame_proofs.memberships,
         data_schema: crate::data_schema::DataSchema::new(ir)?,
         reference_targets: crate::function_reference::ReferenceTargets::new(ir)?,
         native_plans: crate::native_call::NativeCallPlans::new(ir)?,
@@ -390,6 +400,11 @@ fn declare_runtime_functions<M: Module>(
         data_operation: declare(module, DATA_OPERATION_SYMBOL, 6, true)?,
         bytes_slice_payload: if c_runtime {
             Some(declare(module, BYTES_SLICE_PAYLOAD_SYMBOL, 5, true)?)
+        } else {
+            None
+        },
+        indexed_option: if c_runtime {
+            Some(declare(module, INDEXED_OPTION_SYMBOL, 5, true)?)
         } else {
             None
         },

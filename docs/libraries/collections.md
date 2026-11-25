@@ -4,35 +4,35 @@ Import `rinzu.list` or `rinzu.map` and qualify calls with the module name. Colle
 
 ## rinzu.list
 
-| Function | Result |
-| --- | --- |
-| `rinzu.list.length(List<T>)` | `Int` |
-| `rinzu.list.get(List<T>, Int)` | `Option<T>` |
-| `rinzu.list.append(List<T>, T)` | `List<T>` |
-| `rinzu.list.set(List<T>, Int, T)` | `Option<List<T>>` |
-| `rinzu.list.remove(List<T>, Int)` | `Option<List<T>>` |
-| `rinzu.list.map(List<T>, fn (T) -> U)` | `List<U>` in input order |
-| `rinzu.list.filter(List<T>, fn (T) -> Bool)` | Matching elements in input order |
-| `rinzu.list.concatAll(List<List<T>>)` | `List<T>` in part and element order |
+| Function                                      | Result                                                       |
+| --------------------------------------------- | ------------------------------------------------------------ |
+| `rinzu.list.length(List<T>)`                  | `Int`                                                        |
+| `rinzu.list.get(List<T>, Int)`                | `Option<T>`                                                  |
+| `rinzu.list.append(List<T>, T)`               | `List<T>`                                                    |
+| `rinzu.list.set(List<T>, Int, T)`             | `Option<List<T>>`                                            |
+| `rinzu.list.remove(List<T>, Int)`             | `Option<List<T>>`                                            |
+| `rinzu.list.map(List<T>, fn (T) -> U)`        | `List<U>` in input order                                     |
+| `rinzu.list.filter(List<T>, fn (T) -> Bool)`  | Matching elements in input order                             |
+| `rinzu.list.concatAll(List<List<T>>)`         | `List<T>` in part and element order                          |
 | `rinzu.list.fold(List<T>, A, fn (A, T) -> A)` | Accumulated result. An empty input returns the initial value |
-| `rinzu.list.find(List<T>, fn (T) -> Bool)` | First matching element as `Some`, or `None` |
-| `rinzu.list.any(List<T>, fn (T) -> Bool)` | Whether any element matches. An empty input returns `false` |
-| `rinzu.list.all(List<T>, fn (T) -> Bool)` | Whether every element matches. An empty input returns `true` |
+| `rinzu.list.find(List<T>, fn (T) -> Bool)`    | First matching element as `Some`, or `None`                  |
+| `rinzu.list.any(List<T>, fn (T) -> Bool)`     | Whether any element matches. An empty input returns `false`  |
+| `rinzu.list.all(List<T>, fn (T) -> Bool)`     | Whether every element matches. An empty input returns `true` |
 
 Negative and out-of-range indices return `Option.None`. Updates preserve existing snapshots. List callbacks run synchronously, once per visited element, from the start of the input. `fold` passes the accumulator first and the element second. `find` and `any` stop at the first match, and `all` stops at the first nonmatch. A callback Error propagates immediately with its original failure information.
 
 ## rinzu.map
 
-| Function | Result |
-| --- | --- |
-| `rinzu.map.length(Map<K,V>)` | `Int` |
-| `rinzu.map.get(Map<K,V>, K)` | `Option<V>` |
-| `rinzu.map.insert(Map<K,V>, K, V)` | `Map<K,V>` |
-| `rinzu.map.remove(Map<K,V>, K)` | `Map<K,V>` |
-| `rinzu.map.keys(Map<K,V>)` | `List<K>` in insertion order |
-| `rinzu.map.entries(Map<K,V>)` | `List<{key: K, value: V}>` in insertion order |
-| `rinzu.map.fromList(List<T>, fn (T) -> K)` | `Map<K,T>` in input order |
-| `rinzu.map.fromEntries(List<{key: K, value: V}>)` | `Map<K,V>` in input order |
+| Function                                          | Result                                        |
+| ------------------------------------------------- | --------------------------------------------- |
+| `rinzu.map.length(Map<K,V>)`                      | `Int`                                         |
+| `rinzu.map.get(Map<K,V>, K)`                      | `Option<V>`                                   |
+| `rinzu.map.insert(Map<K,V>, K, V)`                | `Map<K,V>`                                    |
+| `rinzu.map.remove(Map<K,V>, K)`                   | `Map<K,V>`                                    |
+| `rinzu.map.keys(Map<K,V>)`                        | `List<K>` in insertion order                  |
+| `rinzu.map.entries(Map<K,V>)`                     | `List<{key: K, value: V}>` in insertion order |
+| `rinzu.map.fromList(List<T>, fn (T) -> K)`        | `Map<K,T>` in input order                     |
+| `rinzu.map.fromEntries(List<{key: K, value: V}>)` | `Map<K,V>` in input order                     |
 
 A missing key returns `Option.None` from `get` and leaves the contents unchanged after `remove`. `insert` replaces a matching value at its original position and appends a new key at the end. Removing and reinserting a key places it at the end. `entries` takes a shallow snapshot of each pair.
 

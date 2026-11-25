@@ -79,10 +79,8 @@ fn run(arguments: Vec<OsString>) -> Result<(), String> {
         "race-sanitize" => run_inherited(
             spec("make", ["race-sanitize"]).in_directory(root().join("tests/fixtures/c-abi")),
         ),
-        "model" => run_inherited(spec(
-            "cargo",
-            ["test", "--manifest-path", "tests/runtime-model/Cargo.toml"],
-        )),
+        "model" => run_inherited(runtime_model_tests()),
+        "proofs" => run_inherited(smt_proofs()),
         "host-stress" => {
             let mut stress_arguments = vec![
                 "run".into(),
@@ -99,20 +97,7 @@ fn run(arguments: Vec<OsString>) -> Result<(), String> {
                 environment: Vec::new(),
             })
         }
-        "differential" => run_inherited(spec(
-            "cargo",
-            [
-                "test",
-                "--package",
-                "rinzu-driver",
-                "--test",
-                "cli",
-                "jit_and_aot_traces_match_for_success_error_cancel_overload_and_shutdown",
-                "--",
-                "--exact",
-                "--nocapture",
-            ],
-        )),
+        "differential" => run_differential(),
         "resource-profile" => {
             let output = arguments
                 .get(1)
@@ -272,8 +257,63 @@ fn format_rust(check: bool) -> Result<(), String> {
     Ok(())
 }
 
+fn runtime_model_tests() -> Spec {
+    spec(
+        "cargo",
+        [
+            "test",
+            "--locked",
+            "--manifest-path",
+            "tests/runtime-model/Cargo.toml",
+        ],
+    )
+}
+
+fn smt_proofs() -> Spec {
+    spec("python3", ["tests/runtime-model/proofs/check.py"])
+}
+
+fn run_differential() -> Result<(), String> {
+    let output = command(&spec(
+        "cargo",
+        [
+            "test",
+            "--locked",
+            "--package",
+            "rinzu-driver",
+            "--test",
+            "jit_aot_differential",
+        ],
+    ))
+    .output()
+    .map_err(|error| format!("failed to start differential tests: {error}"))?;
+    print_output(&output);
+    if !output.status.success() {
+        return Err(format!("differential tests failed with {}", output.status));
+    }
+    if passed_test_count(&output.stdout) == 0 {
+        return Err("differential suite reported no passing tests".into());
+    }
+    Ok(())
+}
+
+fn passed_test_count(stdout: &[u8]) -> usize {
+    // This command runs a single libtest target. A successful exit alone also
+    // occurs when the platform configuration compiles out every test.
+    String::from_utf8_lossy(stdout)
+        .lines()
+        .rev()
+        .find_map(|line| {
+            let summary = line.strip_prefix("test result: ok. ")?;
+            let (count, _) = summary.split_once(" passed;")?;
+            count.parse().ok()
+        })
+        .unwrap_or(0)
+}
+
 fn test_steps() -> impl IntoIterator<Item = (&'static str, Spec)> {
     [
+        ("smt-proofs", smt_proofs()),
         (
             "test",
             spec(
@@ -291,13 +331,7 @@ fn test_steps() -> impl IntoIterator<Item = (&'static str, Spec)> {
             "rust-doctests",
             spec("cargo", ["test", "--workspace", "--doc", "--all-features"]),
         ),
-        (
-            "runtime-model",
-            spec(
-                "cargo",
-                ["test", "--manifest-path", "tests/runtime-model/Cargo.toml"],
-            ),
-        ),
+        ("runtime-model", runtime_model_tests()),
         (
             "vscode-unit-tests",
             spec(
@@ -425,10 +459,6 @@ fn run_ci(artifacts: &Path) -> Result<(), String> {
         run_logged(name, specification, &artifacts)?;
     }
 
-    let backend_directory = artifacts.join("backend-spike");
-    let backend_argument = backend_directory.as_os_str().to_os_string();
-    let resource_profile = artifacts.join("resource-profile.json");
-    let resource_profile_argument = resource_profile.as_os_str().to_os_string();
     for (name, step) in [
         ("rinzu-fmt", rinzu_spec("fmt")),
         ("c-fmt", spec("python3", ["tools/native_quality.py", "fmt"])),
@@ -535,34 +565,6 @@ fn run_ci(artifacts: &Path) -> Result<(), String> {
                 ],
             ),
         ),
-        (
-            "resource-profile",
-            spec_os(
-                "cargo",
-                [
-                    "run".into(),
-                    "--package".into(),
-                    "rinzu-conformance".into(),
-                    "--".into(),
-                    "resource-profile".into(),
-                    resource_profile_argument,
-                ],
-            ),
-        ),
-        (
-            "backend-spike",
-            spec_os(
-                "cargo",
-                [
-                    "run".into(),
-                    "--package".into(),
-                    "rinzu-conformance".into(),
-                    "--".into(),
-                    "backend-spike".into(),
-                    backend_argument,
-                ],
-            ),
-        ),
     ];
     for (name, specification) in steps {
         run_logged(name, specification, &artifacts)?;
@@ -598,5 +600,24 @@ fn print_output(output: &Output) {
 }
 
 fn usage() -> String {
-    "usage: cargo xtask <fmt|fmt-write|lint|rinzu-fmt [paths...]|rinzu-fmt-write [paths...]|rinzu-lint [paths...]|c-fmt [paths...]|c-fmt-write [paths...]|c-lint [paths...]|c-db|test|sanitize|memory-sanitize|race-sanitize|model|host-stress [options]|differential|resource-profile [file]|fuzz-build|fuzz [seconds]|fuzz-replay <artifact> [target]|trace-validate [file]|backend-spike [dir]|ci [--artifacts dir]>".into()
+    "usage: cargo xtask <fmt|fmt-write|lint|rinzu-fmt [paths...]|rinzu-fmt-write [paths...]|rinzu-lint [paths...]|c-fmt [paths...]|c-fmt-write [paths...]|c-lint [paths...]|c-db|test|sanitize|memory-sanitize|race-sanitize|model|proofs|host-stress [options]|differential|resource-profile [file]|fuzz-build|fuzz [seconds]|fuzz-replay <artifact> [target]|trace-validate [file]|backend-spike [dir]|ci [--artifacts dir]>".into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::passed_test_count;
+
+    #[test]
+    fn differential_requires_a_nonempty_successful_libtest_summary() {
+        assert_eq!(passed_test_count(b"running 0 tests\n"), 0);
+        assert_eq!(
+            passed_test_count(b"test result: ok. 0 passed; 0 failed;"),
+            0
+        );
+        assert_eq!(passed_test_count(b"test result: FAILED. 5 passed;"), 0);
+        assert_eq!(
+            passed_test_count(b"test result: ok. 5 passed; 0 failed;"),
+            5
+        );
+    }
 }

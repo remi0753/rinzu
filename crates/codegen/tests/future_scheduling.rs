@@ -47,6 +47,22 @@ fn a_nofail_observer_records_failure_while_its_parent_keeps_running() {
 }
 
 #[test]
+fn timing_out_an_observer_keeps_the_producers_failure_and_aliases() {
+    let source = include_str!("fixtures/future-timeout-observation.rinzu");
+    for stress in [false, true] {
+        check_output(source, stress, b"true\nfalse\nheld failure\n");
+    }
+}
+
+#[test]
+fn population_boundary_preserves_distinct_failures_and_deduplicates_aliases() {
+    let source = include_str!("fixtures/future-population-boundary.rinzu");
+    for stress in [false, true] {
+        check_output(source, stress, b"17\n1\n");
+    }
+}
+
+#[test]
 fn discarded_task_traps_remain_control_failures() {
     let artifact = compile_source(&SourceFile::new(
         FileId(395),

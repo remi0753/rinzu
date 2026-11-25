@@ -1,4 +1,7 @@
-#![cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#![cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
 #[path = "fixtures/native_services_sdk/setup.rs"]
 mod fixture;
 #[path = "fixtures/frozen_cli.rs"]
@@ -8,6 +11,8 @@ mod platform;
 #[allow(dead_code)]
 #[path = "support/scratch.rs"]
 mod scratch;
+#[path = "support/target.rs"]
+mod target;
 use std::process::{Command, Output};
 
 fn evidence(output: &Output, failure: &str, timers: usize) {
@@ -42,10 +47,11 @@ fn closed_timer_file_and_gc_run_with_only_source_service_declarations_in_aot_sig
     let root = std::env::temp_dir().join(format!("rinzu-closed-timer-cli-{}", std::process::id()));
     fixture::create(&root, false);
     let app = root.join("app");
-    let cli = |action| platform::bounded(Command::new(frozen_cli::path()).arg(action).arg(&app));
+    let cli =
+        |action| platform::bounded_tool(Command::new(frozen_cli::path()).arg(action).arg(&app));
     platform::success(&cli("run"));
     platform::success(&cli("build"));
-    let binary = app.join("build/services_app");
+    let binary = target::build_directory(&app).join("services_app");
     let check = |output: Output| {
         evidence(&output, "none", 2);
         let stdout = String::from_utf8_lossy(&output.stderr);
@@ -66,6 +72,7 @@ fn closed_timer_file_and_gc_run_with_only_source_service_declarations_in_aot_sig
             .env("ASAN_OPTIONS", "detect_leaks=0")
             .env("UBSAN_OPTIONS", "halt_on_error=1"),
     ));
+    #[cfg(target_os = "macos")]
     platform::sign(&binary, &root);
     check(platform::bounded(
         Command::new(&binary).env("RINZU_TRANSPORT_EVIDENCE", "1"),
@@ -83,8 +90,9 @@ fn timer_cancellation_and_shutdown_collect_the_real_deadline_before_scope_dispos
     platform::success(&platform::bounded_tool(
         Command::new(frozen_cli::path()).arg("build").arg(&app),
     ));
-    let binary = app.join("build/services_app");
+    let binary = target::build_directory(&app).join("services_app");
     let sanitized = platform::sanitize(&binary);
+    #[cfg(target_os = "macos")]
     platform::sign(&binary, root);
     let polls = fixture::CONTROL_POLLS.to_string();
     for (variable, failure, flag) in [

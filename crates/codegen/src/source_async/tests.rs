@@ -167,7 +167,8 @@ fn worker_traps_and_cancellation_return_transport_and_admission_to_baseline() {
                     cancel_first_spawn: cancel,
                     ..SourceAsyncOptions::default()
                 },
-                admission.clone()
+                admission.clone(),
+                None,
             )
             .is_err()
         );

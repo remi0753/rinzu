@@ -101,3 +101,36 @@ fn early_exit_skip_and_discard_do_not_observe_the_population() {
         );
     }
 }
+
+#[test]
+fn complete_observation_crosses_the_concrete_population_boundary() {
+    for count in [1, 16, 17, 33] {
+        let producers = std::iter::repeat_n("fail()", count)
+            .collect::<Vec<_>>()
+            .join(",");
+        let source = format!(
+            "{TASKS} async fn main(){{let requests:List<Future<Int>> = [{producers}];for pending in requests{{try{{let received=await pending;}}catch errors{{}}}}}}"
+        );
+        compile_source(&file(&source))
+            .unwrap_or_else(|errors| panic!("count={count}: {errors:#?}"));
+    }
+}
+
+#[test]
+fn partial_observation_does_not_cover_distinct_tasks_across_the_population_boundary() {
+    for count in [2, 16, 17, 33] {
+        let producers = std::iter::repeat_n("fail()", count)
+            .collect::<Vec<_>>()
+            .join(",");
+        let source = format!(
+            "{TASKS} async fn main(){{let requests=[{producers}];for pending in requests{{try{{let received=await pending;}}catch errors{{}}break;}}}}"
+        );
+        let errors = compile_source(&file(&source)).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == DiagnosticCode::FutureDiscarded),
+            "count={count}: {errors:#?}"
+        );
+    }
+}

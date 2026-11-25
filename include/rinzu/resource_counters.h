@@ -1,5 +1,6 @@
 #ifndef RINZU_RESOURCE_COUNTERS_H
 #define RINZU_RESOURCE_COUNTERS_H
+#include "runtime_storage.h"
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdint.h>
@@ -28,9 +29,21 @@ enum {
 typedef struct {
   uint64_t live, allocated, released, peak;
 } rinzu_resource_counter_t;
-static _Atomic int rinzu_resource_enabled;
-static pthread_mutex_t rinzu_resource_mutex = PTHREAD_MUTEX_INITIALIZER;
-static rinzu_resource_counter_t rinzu_resource_counters[RINZU_RESOURCE_COUNT];
+RINZU_RUNTIME_GLOBAL _Atomic int rinzu_resource_enabled;
+#ifndef RINZU_RESOURCE_REPORTING
+#define RINZU_RESOURCE_REPORTING 1
+#endif
+static inline int rinzu_resource_observing(void) {
+#if RINZU_RESOURCE_REPORTING
+  return atomic_load_explicit(&rinzu_resource_enabled, memory_order_relaxed);
+#else
+  return 0;
+#endif
+}
+
+RINZU_RUNTIME_GLOBAL
+pthread_mutex_t rinzu_resource_mutex RINZU_RUNTIME_INITIALIZER(PTHREAD_MUTEX_INITIALIZER);
+RINZU_RUNTIME_GLOBAL rinzu_resource_counter_t rinzu_resource_counters[RINZU_RESOURCE_COUNT];
 static inline void rinzu_resource_lock(void) {
   if (pthread_mutex_lock(&rinzu_resource_mutex))
     _Exit(86);
@@ -40,7 +53,7 @@ static inline void rinzu_resource_unlock(void) {
     _Exit(86);
 }
 static inline void rinzu_resource_acquire(unsigned kind, uint64_t amount) {
-  if (!atomic_load_explicit(&rinzu_resource_enabled, memory_order_relaxed))
+  if (!rinzu_resource_observing())
     return;
   if (kind >= RINZU_RESOURCE_COUNT)
     _Exit(86);
@@ -55,7 +68,7 @@ static inline void rinzu_resource_acquire(unsigned kind, uint64_t amount) {
   rinzu_resource_unlock();
 }
 static inline void rinzu_resource_release(unsigned kind, uint64_t amount) {
-  if (!atomic_load_explicit(&rinzu_resource_enabled, memory_order_relaxed))
+  if (!rinzu_resource_observing())
     return;
   if (kind >= RINZU_RESOURCE_COUNT)
     _Exit(86);
@@ -70,7 +83,7 @@ static inline void rinzu_resource_release(unsigned kind, uint64_t amount) {
   rinzu_resource_unlock();
 }
 static inline void rinzu_resource_copy(uint64_t amount) {
-  if (!atomic_load_explicit(&rinzu_resource_enabled, memory_order_relaxed))
+  if (!rinzu_resource_observing())
     return;
   rinzu_resource_lock();
   rinzu_resource_counter_t *counter = &rinzu_resource_counters[RINZU_RESOURCE_NATIVE_COPY];
@@ -85,14 +98,14 @@ typedef struct rinzu_resource_site {
   const char *symbol;
   struct rinzu_resource_site *next;
 } rinzu_resource_site_t;
-static rinzu_resource_site_t *rinzu_resource_sites;
+RINZU_RUNTIME_GLOBAL rinzu_resource_site_t *rinzu_resource_sites;
 /* Copied at quiescent run end; the sampler never dereferences a queue. */
-static int rinzu_resource_foreign_known;
-static uint64_t rinzu_resource_foreign_live, rinzu_resource_foreign_bytes;
-static uint64_t rinzu_resource_foreign_created, rinzu_resource_foreign_retired;
+RINZU_RUNTIME_GLOBAL int rinzu_resource_foreign_known;
+RINZU_RUNTIME_GLOBAL uint64_t rinzu_resource_foreign_live, rinzu_resource_foreign_bytes;
+RINZU_RUNTIME_GLOBAL uint64_t rinzu_resource_foreign_created, rinzu_resource_foreign_retired;
 static inline void rinzu_resource_foreign_end(uint64_t live, uint64_t bytes, uint64_t created,
                                               uint64_t retired) {
-  if (!atomic_load_explicit(&rinzu_resource_enabled, memory_order_relaxed))
+  if (!rinzu_resource_observing())
     return;
   rinzu_resource_foreign_live = live;
   rinzu_resource_foreign_bytes = bytes;
@@ -103,7 +116,7 @@ static inline void rinzu_resource_foreign_end(uint64_t live, uint64_t bytes, uin
 /* Generated symbols are immutable strings pinned through image report completion. */
 static inline void rinzu_resource_return_site(unsigned fallback, size_t bytes, uint64_t file,
                                               uint64_t start, uint64_t end, const char *symbol) {
-  if (!atomic_load_explicit(&rinzu_resource_enabled, memory_order_relaxed) || !file || !symbol)
+  if (!rinzu_resource_observing() || !file || !symbol)
     return;
   rinzu_resource_lock();
   rinzu_resource_site_t *site = rinzu_resource_sites;

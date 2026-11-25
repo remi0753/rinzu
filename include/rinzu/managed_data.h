@@ -1,5 +1,6 @@
 #ifndef RINZU_MANAGED_DATA_H
 #define RINZU_MANAGED_DATA_H
+#include "runtime_storage.h"
 #include "rinzu/managed_roots.h"
 #include "rinzu/value.h"
 #include "rinzu/resource_counters.h"
@@ -9,7 +10,8 @@
 
 #define RINZU_MANAGED_HANDLE_BASE (UINT64_C(1) << 62)
 #define RINZU_MANAGED_FUTURE_BASE (UINT64_C(1) << 61)
-static _Atomic uint64_t rinzu_managed_next_identity = RINZU_MANAGED_HANDLE_BASE;
+RINZU_RUNTIME_GLOBAL _Atomic uint64_t
+    rinzu_managed_next_identity RINZU_RUNTIME_INITIALIZER(RINZU_MANAGED_HANDLE_BASE);
 enum rinzu_managed_kind {
   RINZU_MANAGED_STRING = 1,
   RINZU_MANAGED_ERROR = 2,
@@ -337,7 +339,7 @@ static inline void rinzu_managed_index_resize(rinzu_managed_data_t *data, size_t
   rinzu_managed_value_t **index = rinzu_failure_allocate(bytes);
   rinzu_gc_allocated(&data->gc, bytes);
   size_t accounted = 0;
-  if (atomic_load_explicit(&rinzu_resource_enabled, memory_order_relaxed)) {
+  if (rinzu_resource_observing()) {
     rinzu_resource_acquire(RINZU_RESOURCE_MANAGED, bytes);
     accounted = bytes;
   }
@@ -345,7 +347,7 @@ static inline void rinzu_managed_index_resize(rinzu_managed_data_t *data, size_t
     size_t cache_bytes = RINZU_MANAGED_LOOKUP_CACHE_CAPACITY * sizeof(*data->lookup_cache);
     data->lookup_cache = rinzu_failure_allocate(cache_bytes);
     rinzu_gc_allocated(&data->gc, cache_bytes);
-    if (atomic_load_explicit(&rinzu_resource_enabled, memory_order_relaxed)) {
+    if (rinzu_resource_observing()) {
       rinzu_resource_acquire(RINZU_RESOURCE_MANAGED, cache_bytes);
       data->lookup_cache_accounted_bytes = cache_bytes;
     }
@@ -494,7 +496,7 @@ static inline rinzu_managed_value_t *rinzu_managed_new_owned(rinzu_managed_data_
   rinzu_gc_allocated(&data->gc, sizeof(*value));
   value->identity = previous + 1;
   value->kind = kind;
-  if (atomic_load_explicit(&rinzu_resource_enabled, memory_order_relaxed)) {
+  if (rinzu_resource_observing()) {
     value->accounted_bytes = sizeof(*value);
     rinzu_resource_acquire(RINZU_RESOURCE_MANAGED, sizeof(*value));
     rinzu_resource_acquire(RINZU_RESOURCE_MANAGED_OBJECTS, 1);
@@ -610,7 +612,7 @@ rinzu_managed_literal_lookup_owned(rinzu_managed_data_t *data, rinzu_managed_lit
       rinzu_resource_fatal();
     data->heap_bytes += size;
     rinzu_gc_allocated(&data->gc, size);
-    if (atomic_load_explicit(&rinzu_resource_enabled, memory_order_relaxed)) {
+    if (rinzu_resource_observing()) {
       data->literal_accounted_bytes += size;
       rinzu_resource_acquire(RINZU_RESOURCE_MANAGED, size);
     }

@@ -2,7 +2,9 @@
 use std::path::{Path, PathBuf};
 
 use rinzu_abi::target::Target;
-use rinzu_compiler::{FrontendArtifact, Manifest, NativeCliInputs, SourceCache, SourceSnapshot};
+use rinzu_compiler::{
+    FrontendArtifact, Manifest, NativeCliInputs, SdkCheckProgress, SourceCache, SourceSnapshot,
+};
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -42,6 +44,201 @@ pub fn check(
             crate::cli_diagnostics::emit_snapshot(&errors, &sources);
             "input failed to check".into()
         })
+}
+
+pub(crate) struct CheckedRun {
+    pub context: rinzu_compiler::CompilationContext,
+    pub dependencies: Option<crate::native_package::PreparedDependencies>,
+    pub pending: Option<crate::frontend_run_cache::Pending>,
+    pub generation: Option<String>,
+}
+
+pub(crate) fn check_for_run(
+    path: &Path,
+    options: &Options,
+    native: &NativeCliInputs,
+) -> Result<CheckedRun, String> {
+    let mut cache = SourceCache::default();
+    check_cached(path, options, native, &mut cache, true, None)
+}
+
+pub(crate) fn check_for_build(
+    path: &Path,
+    options: &Options,
+    native: &NativeCliInputs,
+) -> Result<rinzu_compiler::CompilationContext, String> {
+    let mut cache = SourceCache::default();
+    let checked = check_cached(path, options, native, &mut cache, false, None)?;
+    // Cache the checked frontend. Each build still prepares and verifies
+    // its native inputs independently of the frontend cache.
+    if let Some(pending) = checked.pending {
+        pending.store(&checked.context);
+    }
+    Ok(checked.context)
+}
+
+/// A preflight publishes only a fresh, checked frontend. Each child still
+/// validates its own inputs, native images and executable code before running.
+pub(crate) fn check_for_dev(
+    path: &Path,
+    cache: &mut SourceCache,
+    paths: &mut std::collections::BTreeSet<PathBuf>,
+) -> Result<rinzu_compiler::CompilationContext, String> {
+    let _timing = rinzu_compiler::timing::span("dev.preflight");
+    let checked = check_cached(
+        path,
+        &Options::default(),
+        &NativeCliInputs::default(),
+        cache,
+        false,
+        Some(paths),
+    )?;
+    cache.retain_paths(paths);
+    if let Some(pending) = checked.pending {
+        pending.store(&checked.context);
+    }
+    Ok(checked.context)
+}
+
+fn check_cached(
+    path: &Path,
+    options: &Options,
+    native: &NativeCliInputs,
+    cache: &mut SourceCache,
+    prepare_dependencies: bool,
+    watch: Option<&mut std::collections::BTreeSet<PathBuf>>,
+) -> Result<CheckedRun, String> {
+    let options = options.compiler()?;
+    crate::jit_progress::phase("Checking frontend cache");
+    let entry = crate::frontend_run_cache::Cache::open(path, &options, native);
+    if let Some((context, generation)) = entry
+        .as_ref()
+        .and_then(|entry| entry.restore(&options, native))
+    {
+        if let Some(paths) = watch {
+            paths.extend(context.inputs.iter().map(|input| input.path.clone()));
+        }
+        return Ok(CheckedRun {
+            context,
+            dependencies: None,
+            pending: None,
+            generation: Some(generation),
+        });
+    }
+
+    let mut sdk_cache = entry.as_ref().and_then(|entry| entry.sdk_cache());
+    let mut functions = entry.as_ref().and_then(|entry| entry.function_cache());
+    let mut progress = crate::jit_progress::frontend_progress;
+    let mut sources = SourceSnapshot::new(cache, Default::default());
+    sources.set_progress_observer(&mut progress);
+    if entry.is_some() {
+        sources.track_disk_compilation();
+    }
+    if let Some(sdk_cache) = &mut sdk_cache {
+        sources.set_sdk_frontend_cache(sdk_cache);
+    }
+    if let Some(functions) = &mut functions {
+        sources.set_function_frontend_cache(functions);
+    }
+    let checked = check_fresh_run(path, &options, native, &mut sources, prepare_dependencies);
+    if let Some(paths) = watch {
+        paths.extend(
+            sources
+                .input_receipts()
+                .into_iter()
+                .map(|(path, _, _, _)| path),
+        );
+    }
+    let (context, dependencies) = checked?;
+    if !prepare_dependencies && !sources.disk_is_current() {
+        return Err("dev preflight inputs changed during check; old run retained".into());
+    }
+    let evidence = sources.disk_compilation_evidence();
+    drop(sources);
+    let (pending, generation) = entry
+        .and_then(|entry| entry.prepare(&context, evidence?, sdk_cache, functions))
+        .map_or((None, None), |(pending, key)| (Some(pending), key));
+    Ok(CheckedRun {
+        context,
+        dependencies,
+        pending,
+        generation,
+    })
+}
+
+fn check_fresh_run(
+    path: &Path,
+    options: &rinzu_compiler::CompilationOptions,
+    native: &NativeCliInputs,
+    sources: &mut SourceSnapshot<'_>,
+    prepare_dependencies: bool,
+) -> Result<
+    (
+        rinzu_compiler::CompilationContext,
+        Option<crate::native_package::PreparedDependencies>,
+    ),
+    String,
+> {
+    let timing = rinzu_compiler::timing::span("frontend");
+    let report = |errors: Vec<rinzu_compiler::Diagnostic>, sources: &SourceSnapshot<'_>| {
+        crate::cli_diagnostics::emit_snapshot(&errors, sources);
+        "input failed to check".to_owned()
+    };
+    if !prepare_dependencies
+        || !cfg!(all(target_os = "macos", target_arch = "aarch64"))
+        || !native.is_empty()
+        || !std::thread::available_parallelism().is_ok_and(|count| count.get() > 1)
+    {
+        let checked = rinzu_compiler::check_input_with_sources(path, options, native, sources)
+            .map_err(|errors| report(errors, sources))?;
+        return Ok((checked, None));
+    }
+    std::thread::scope(|scope| {
+        let mut worker = None;
+        let (ready, pending) = std::sync::mpsc::sync_channel(1);
+        let mut pending = Some(pending);
+        let checked = rinzu_compiler::check_input_with_sdk_progress(
+            path,
+            options,
+            native,
+            sources,
+            &mut |manifest, progress| {
+                let first = match progress {
+                    SdkCheckProgress::Checked(package)
+                        if pending.is_some()
+                            && crate::native_package::can_prepare_independently(package) =>
+                    {
+                        Some(package.clone())
+                    }
+                    SdkCheckProgress::Ready(packages) if !packages.is_empty() => {
+                        let _ = ready.send(packages.to_vec());
+                        None
+                    }
+                    _ => return,
+                };
+                if let Some(pending) = pending.take() {
+                    let root = manifest.root.clone();
+                    worker = std::thread::Builder::new()
+                        .name("rinzu-sdk-build".into())
+                        .spawn_scoped(scope, move || {
+                            crate::native_package::PreparedDependencies::build(root, first, pending)
+                        })
+                        .ok();
+                }
+            },
+        );
+        drop(ready);
+        let checked = checked.map_err(|errors| report(errors, sources));
+        drop(timing);
+        let build = worker.and_then(|worker| {
+            if checked.is_ok() && !worker.is_finished() {
+                crate::jit_progress::phase("Waiting for native dependencies");
+            }
+            let _waiting = rinzu_compiler::timing::span("native.wait_dependencies");
+            worker.join().ok().flatten()
+        });
+        Ok((checked?, build))
+    })
 }
 
 pub fn check_package(

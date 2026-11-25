@@ -1,7 +1,14 @@
+#![cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
+
 #[path = "fixtures/frozen_cli.rs"]
 mod frozen_cli;
+#[path = "support/source_platform.rs"]
+#[allow(dead_code)]
+mod platform;
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn observed_ledgers_keep_future_aliases_results_failures_and_physical_pins() {
     use std::{fs, path::Path, process::Command};
@@ -55,14 +62,21 @@ fn observed_ledgers_keep_future_aliases_results_failures_and_physical_pins() {
         ],
         vec!["-O2", "-fsanitize=thread"],
     ] {
-        let output = Command::new("clang")
-            .args(["-std=c11", "-pthread", "-Wall", "-Wextra", "-Werror", "-I"])
-            .arg(manifest.join("../../include"))
+        let mut compiler = platform::clang();
+        compiler
+            .args([
+                "-std=c11",
+                "-pthread",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-Wno-unused-label",
+            ])
             .args(&flags)
             .arg(root.join("guards.c"))
-            .arg(root.join("fixture.o"))
-            .arg(manifest.join("../runtime/src/callback_entry.c"))
-            .arg(manifest.join("../runtime/src/callback_template.S"))
+            .arg(root.join("fixture.o"));
+        platform::link_runtime(&mut compiler);
+        let output = compiler
             .arg("-o")
             .arg(root.join("guards"))
             .output()

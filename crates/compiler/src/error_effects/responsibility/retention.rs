@@ -3,14 +3,16 @@
 //! environment here; a callable's return type is not a captured value.
 use super::*;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub(super) enum Boundary {
     ErrorPayload,
     Native,
     NativeCapture,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, serde::Serialize, serde::Deserialize)]
 pub(super) struct Restriction {
     pub origin: Site,
     pub boundary: Boundary,
@@ -96,9 +98,7 @@ impl Engine<'_> {
                 if path.is_empty()
                     && self
                         .checked
-                        .functions
-                        .iter()
-                        .find(|function| function.declaration.name == *owner)
+                        .memo_function(owner)
                         .and_then(|function| function.parameter_types.get(*index))
                         .is_some_and(|ty| {
                             matches!(
@@ -171,7 +171,7 @@ impl Engine<'_> {
                 self.retained_type(key, boundary, seen) || self.retained_type(value, boundary, seen)
             }
             Type::Named(name) if seen.insert(name.clone()) => {
-                let forbidden = self.checked.source_types.get(name).is_some_and(|schema| {
+                let forbidden = self.checked.memo_schema(name).is_some_and(|schema| {
                     if schema.kind == "error" {
                         // Every Error constructor already establishes its
                         // payload invariant, including concrete captures.

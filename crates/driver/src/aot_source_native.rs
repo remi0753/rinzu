@@ -1,5 +1,7 @@
 use crate::source_native_package::BuiltSourcePackage;
-use rinzu_bindgen::source_package::{decode_key, sha256, validate_source_descriptor};
+use rinzu_bindgen::source_package::{
+    c_byte_string, decode_key, sha256, validate_source_descriptor,
+};
 use rinzu_codegen::BaselineAotObject;
 use rinzu_compiler::{AbiScalar, FallbackConstant, SourceAbiType, Type};
 use std::collections::{BTreeMap, BTreeSet};
@@ -153,7 +155,7 @@ pub fn record_layouts(
          and schema before publishing the call. Keep fresh Owner and require its\n\
          attached Domain plus this program schema; otherwise use generic checks.\n\
          Callback arguments and storage snapshots always use the generic API. */\n\
-         static const rinzu_native_record_layout_t *rinzu_native_record_layout(uint64_t index);\n",
+         RINZU_PROGRAM_API const rinzu_native_record_layout_t *rinzu_native_record_layout(uint64_t index);\n",
     );
     for receiver in prepared_receivers {
         source.push_str(&receiver);
@@ -172,7 +174,11 @@ pub fn record_layouts(
         source.push_str("default: break;\n}\n");
     }
     source.push_str("return rinzu_managed_receive_record(data, layout, input, output);\n}\n");
-    Ok(source)
+    Ok(
+        "\n/* RINZU_JIT_PROGRAM_BEGIN */\n".to_owned()
+            + &source
+            + "\n/* RINZU_JIT_PROGRAM_END */\n",
+    )
 }
 
 fn callback_type(ty: &SourceAbiType) -> Result<Type, String> {
@@ -615,10 +621,7 @@ pub fn plans(aot: &BaselineAotObject, packages: &[BuiltSourcePackage]) -> Result
             let arguments = (0..function.parameter_count)
                 .map(|i| format!(", (int64_t)words[{i}]"))
                 .collect::<String>();
-            let parameters = (0..function.parameter_count)
-                .map(|_| ", int64_t")
-                .collect::<String>();
-            source.push_str(&format!("extern int64_t {}(void *{});\nstatic uint64_t rinzu_callback_body_{index}(void *context,const uint64_t *words) {{(void)words;return (uint64_t){}(context{arguments});}}\n",function.symbol,parameters,function.symbol));
+            source.push_str(&format!("static uint64_t rinzu_callback_body_{index}(void *context,const uint64_t *words) {{(void)words;return (uint64_t){}(context{arguments});}}\n",function.symbol));
         }
     }
     let targets =
@@ -678,7 +681,11 @@ pub fn plans(aot: &BaselineAotObject, packages: &[BuiltSourcePackage]) -> Result
             })
             .collect::<Result<Vec<_>, String>>()?;
     source.push_str(&format!("static const RinzuNativeTarget rinzu_native_targets[] = {{{}}};\nstatic const size_t rinzu_native_target_count = {};\nstatic const void *rinzu_native_target_addresses[{}];\n", if targets.is_empty() { "{0,0,NULL,0,0,{0},NULL}".into() } else { targets.join(",") }, targets.len(),targets.len().max(1)));
-    Ok(source)
+    Ok(
+        "\n/* RINZU_JIT_PROGRAM_BEGIN */\n".to_owned()
+            + &source
+            + "\n/* RINZU_JIT_PROGRAM_END */\n",
+    )
 }
 
 pub fn startup(
@@ -689,8 +696,9 @@ pub fn startup(
 ) -> Result<String, String> {
     let bundle = bundle.to_str().ok_or("source bundle path is not UTF-8")?;
     let mut source = String::from(include_str!("aot_source_package.c"));
+    source.push_str("/* RINZU_JIT_PROGRAM_BEGIN */\n");
     let mut setup = format!(
-        "static void rinzu_aot_source_native_startup(void) {{\n{}",
+        "RINZU_PROGRAM_API void rinzu_aot_source_native_startup(void) {{\n{}",
         layout.startup(&literal(bundle))
     );
     let mut bindings = BTreeMap::new();
@@ -808,8 +816,8 @@ pub fn startup(
                     .ok_or("missing facade digest")?,
             )?;
             source.push_str(&format!(
-                "static const uint8_t rinzu_source_wire_{index}[] = {{{}}};\n",
-                bytes(&package.artifact.expected_wire)
+                "static const uint8_t rinzu_source_wire_{index}[] =\n{};\n",
+                c_byte_string(&package.artifact.expected_wire)
             ));
             let mut imports = Vec::new();
             for (function, key) in descriptor
@@ -842,7 +850,7 @@ pub fn startup(
             } else {
                 "NULL".into()
             };
-            setup.push_str(&format!("const void *staged_{index}[{}] = {{0}};\n{{ char *path = rinzu_source_path(directory, {}); const unsigned char digest[32] = {{{}}}; rinzu_source_file(path, digest); rinzu_source_table(path, rinzu_source_wire_{index}, sizeof rinzu_source_wire_{index}, rinzu_source_imports_{index}, {}, staged_{index}, {identity}, {binding_arguments}); free(path); }}\n", imports.len().max(1), literal(&layout.file(&format!("{subdirectory}/{filename}"))?), bytes(&digest), imports.len()));
+            setup.push_str(&format!("const void *staged_{index}[{}] = {{0}};\n{{ char *path = rinzu_source_path(directory, {}); const unsigned char digest[32] = {{{}}}; rinzu_source_file(path, digest); rinzu_source_table(path, rinzu_source_wire_{index}, sizeof rinzu_source_wire_{index} - 1, rinzu_source_imports_{index}, {}, staged_{index}, {identity}, {binding_arguments}); free(path); }}\n", imports.len().max(1), literal(&layout.file(&format!("{subdirectory}/{filename}"))?), bytes(&digest), imports.len()));
         }
     }
     for (index, plan) in aot.native_call_plans.iter().enumerate() {
@@ -889,5 +897,6 @@ pub fn startup(
     }
     setup.push_str("free(directory);\n}\n");
     source.push_str(&setup);
+    source.push_str("/* RINZU_JIT_PROGRAM_END */\n");
     Ok(source)
 }

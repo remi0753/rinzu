@@ -66,6 +66,7 @@ pub struct NativeContract {
     pub observed_types: BTreeMap<String, String>,
     pub functions: BTreeMap<String, CFunction>,
     pub fingerprint: BTreeMap<String, String>,
+    pub abi_input_key: Option<String>,
 }
 
 pub fn check_artifact(
@@ -144,7 +145,48 @@ pub fn validate_package_with_toolchain(
     directory: &Path,
     toolchain: &TargetClang,
 ) -> Result<NativeContract, String> {
+    validate_package_with_cache_inputs(manifest, source, directory, toolchain, false)
+}
+
+pub(crate) fn validate_package_with_cache_inputs(
+    manifest: &rinzu_compiler::Manifest,
+    source: &rinzu_compiler::SourceSdkInterface,
+    directory: &Path,
+    toolchain: &TargetClang,
+    record: bool,
+) -> Result<NativeContract, String> {
     let _timing = rinzu_compiler::timing::span("native.contract.validate").detail(&manifest.name);
+    let (flags, config_fingerprint) = package_flags(manifest)?;
+    let headers: Vec<_> = manifest
+        .native
+        .headers
+        .iter()
+        .map(|path| manifest.root.join(path))
+        .collect();
+    let mut contract = validate(
+        toolchain,
+        directory,
+        &headers,
+        &flags,
+        &source.signatures,
+        &source.native_records,
+        record,
+    )?;
+    crate::native_fingerprint::include_inputs(
+        &manifest.root,
+        &toolchain.sysroot,
+        directory,
+        &std::fs::read_to_string(directory.join("abi-query.d"))
+            .map_err(|error| error.to_string())?,
+        &mut contract.fingerprint,
+    )?;
+    contract.fingerprint.extend(config_fingerprint);
+    Ok(contract)
+}
+
+fn package_flags(
+    manifest: &rinzu_compiler::Manifest,
+) -> Result<(Vec<String>, BTreeMap<String, String>), String> {
     // Match SDK compilation's selected toolchain include path. Public native
     // result headers must be visible during prototype/layout validation too.
     let mut flags = vec![
@@ -182,50 +224,36 @@ pub fn validate_package_with_toolchain(
         }
         config_fingerprint.extend(config.fingerprint);
     }
-    let headers: Vec<_> = manifest
-        .native
-        .headers
-        .iter()
-        .map(|path| manifest.root.join(path))
-        .collect();
-    let mut contract = validate(
-        toolchain,
-        directory,
-        &headers,
-        &flags,
-        &source.signatures,
-        &source.native_records,
-    )?;
-    let query = directory.join("abi-query.c");
-    let mut command = toolchain.command();
-    command
-        .args(["-M", "-MT", "rinzu", "-std=c11"])
-        .args(&flags)
-        .arg(&query);
-    let dependencies = crate::cli_diagnostics::tool_output(
-        command.output(),
-        Some(&query),
-        "native include dependency query",
-        "clang",
-    )?;
-    crate::native_fingerprint::include_inputs(
-        &manifest.root,
-        &toolchain.sysroot,
-        directory,
-        &String::from_utf8(dependencies.stdout).map_err(|error| error.to_string())?,
-        &mut contract.fingerprint,
-    )?;
-    contract.fingerprint.extend(config_fingerprint);
-    Ok(contract)
+    Ok((flags, config_fingerprint))
 }
 
-pub fn validate(
+pub(crate) fn package_abi_input_key(
+    manifest: &rinzu_compiler::Manifest,
+    directory: &Path,
+    toolchain: &TargetClang,
+) -> Option<String> {
+    abi_input_key(toolchain, &package_flags(manifest).ok()?.0, directory)
+}
+
+fn abi_input_key(toolchain: &TargetClang, flags: &[String], directory: &Path) -> Option<String> {
+    let mut command = command(toolchain, flags, &directory.join("abi-query.c"));
+    crate::compile_cache::map_generated_paths(&mut command, directory);
+    crate::compile_cache::input_key(
+        toolchain,
+        &command,
+        directory,
+        &directory.join("abi-cache.d"),
+    )
+}
+
+fn validate(
     toolchain: &TargetClang,
     directory: &Path,
     headers: &[PathBuf],
     flags: &[String],
     signatures: &[SourceNativeSignature],
     records: &BTreeMap<String, Vec<(String, AbiScalar)>>,
+    record: bool,
 ) -> Result<NativeContract, String> {
     std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
     let mut record_names = BTreeMap::new();
@@ -308,8 +336,16 @@ pub fn validate(
     }
     let query_path = directory.join("abi-query.c");
     std::fs::write(&query_path, &query).map_err(|error| error.to_string())?;
+    let abi_input_key = record
+        .then(|| abi_input_key(toolchain, flags, directory))
+        .flatten();
     let mut query_command = command(toolchain, flags, &query_path);
-    query_command.args(["-Xclang", "-ast-dump=json"]);
+    if record {
+        crate::compile_cache::map_generated_paths(&mut query_command, directory);
+    }
+    query_command
+        .args(["-Xclang", "-ast-dump=json", "-MD", "-MT", "rinzu", "-MF"])
+        .arg(directory.join("abi-query.d"));
     let output = crate::cli_diagnostics::tool_output(
         query_command.output(),
         Some(&query_path),
@@ -319,9 +355,8 @@ pub fn validate(
     let _ast_timing = rinzu_compiler::timing::span("native.contract.ast");
     let ast: Value = serde_json::from_slice(&output.stdout)
         .map_err(|error| format!("decode target Clang AST: {error}"))?;
-    let mut nodes = HashMap::new();
-    let mut constants = HashMap::new();
-    collect(&ast, &mut nodes, &mut constants);
+    let mut ast_index = AstIndex::default();
+    ast_index.collect(&ast);
     let mut assertions = String::new();
     let mut observed_types = BTreeMap::new();
     let mut functions = BTreeMap::new();
@@ -329,7 +364,9 @@ pub fn validate(
         let NativeBinding::Symbol(symbol) = &signature.binding else {
             continue;
         };
-        let alias = find_named(&ast, "TypedefDecl", &format!("rzc_fn_{index}"))
+        let alias = ast_index
+            .aliases
+            .get(format!("rzc_fn_{index}").as_str())
             .ok_or("Clang did not produce an ABI query type")?;
         let function = find_kind(alias, "FunctionProtoType")
             .ok_or("native symbol has no complete function prototype")?;
@@ -337,7 +374,7 @@ pub fn validate(
             find_kind(alias, "DeclRefExpr").ok_or("native symbol is not a function declaration")?;
         let declaration = reference["referencedDecl"]["id"]
             .as_str()
-            .and_then(|id| nodes.get(id))
+            .and_then(|id| ast_index.nodes.get(id))
             .copied()
             .ok_or("native symbol prototype is missing")?;
         if declaration["storageClass"] == "static"
@@ -361,7 +398,7 @@ pub fn validate(
             &signature.result,
             records,
             &record_names,
-            &nodes,
+            &ast_index.nodes,
             &mut assertions,
         )
         .map_err(|error| format!("native symbol `{symbol}`: {error}"))?;
@@ -377,8 +414,12 @@ pub fn validate(
     drop(_ast_timing);
     let assertion_path = directory.join("abi-assert.c");
     std::fs::write(&assertion_path, query + &assertions).map_err(|error| error.to_string())?;
+    let mut assertion_command = command(toolchain, flags, &assertion_path);
+    if record {
+        crate::compile_cache::map_generated_paths(&mut assertion_command, directory);
+    }
     crate::cli_diagnostics::tool_output(
-        command(toolchain, flags, &assertion_path).output(),
+        assertion_command.output(),
         Some(&assertion_path),
         "native prototype/layout validation",
         "clang",
@@ -386,7 +427,8 @@ pub fn validate(
     let mut layouts = BTreeMap::new();
     for (index, (identity, name)) in record_names.iter().enumerate() {
         let read = |key: &str| {
-            constants
+            ast_index
+                .constants
                 .get(key)
                 .copied()
                 .ok_or_else(|| format!("Clang omitted target layout constant `{key}`"))
@@ -446,6 +488,7 @@ pub fn validate(
         observed_types,
         functions,
         fingerprint,
+        abi_input_key,
     })
 }
 
@@ -501,28 +544,47 @@ fn declaration(
     Ok(format!("{base} {name}"))
 }
 
-fn collect<'a>(
-    node: &'a Value,
-    nodes: &mut HashMap<String, &'a Value>,
-    constants: &mut HashMap<String, u64>,
-) {
-    if let Some(id) = node["id"].as_str()
-        && ((node["kind"] == "RecordDecl" && node["completeDefinition"] == true)
-            || node["kind"] == "FunctionDecl")
-    {
-        nodes.insert(id.to_owned(), node);
-    }
-    if node["kind"] == "EnumConstantDecl"
-        && let Some(name) = node["name"].as_str()
-        && name.starts_with("rzc_")
-        && let Some(value) = find_kind(node, "ConstantExpr")
-            .and_then(|node| node["value"].as_str())
-            .and_then(|value| value.parse().ok())
-    {
-        constants.insert(name.to_owned(), value);
-    }
-    for child in children(node) {
-        collect(child, nodes, constants);
+#[derive(Default)]
+struct AstIndex<'a> {
+    nodes: HashMap<String, &'a Value>,
+    aliases: HashMap<&'a str, &'a Value>,
+    constants: HashMap<&'a str, u64>,
+}
+
+impl<'a> AstIndex<'a> {
+    fn collect(&mut self, node: &'a Value) {
+        match node["kind"].as_str() {
+            Some("FunctionDecl") | Some("RecordDecl")
+                if node["kind"] == "FunctionDecl" || node["completeDefinition"] == true =>
+            {
+                if let Some(id) = node["id"].as_str() {
+                    self.nodes.insert(id.to_owned(), node);
+                }
+            }
+            Some("TypedefDecl") => {
+                if let Some(name) = node["name"]
+                    .as_str()
+                    .filter(|name| name.starts_with("rzc_fn_"))
+                {
+                    self.aliases.entry(name).or_insert(node);
+                }
+            }
+            Some("EnumConstantDecl") => {
+                if let Some(name) = node["name"]
+                    .as_str()
+                    .filter(|name| name.starts_with("rzc_"))
+                    && let Some(value) = find_kind(node, "ConstantExpr")
+                        .and_then(|node| node["value"].as_str())
+                        .and_then(|value| value.parse().ok())
+                {
+                    self.constants.insert(name, value);
+                }
+            }
+            _ => {}
+        }
+        for child in children(node) {
+            self.collect(child);
+        }
     }
 }
 fn children(node: &Value) -> &[Value] {
@@ -535,14 +597,6 @@ fn find_kind<'a>(node: &'a Value, kind: &str) -> Option<&'a Value> {
     children(node)
         .iter()
         .find_map(|child| find_kind(child, kind))
-}
-fn find_named<'a>(node: &'a Value, kind: &str, name: &str) -> Option<&'a Value> {
-    if node["kind"] == kind && node["name"] == name {
-        return Some(node);
-    }
-    children(node)
-        .iter()
-        .find_map(|child| find_named(child, kind, name))
 }
 fn unwrap_type(mut node: &Value) -> Result<&Value, String> {
     while matches!(
@@ -801,6 +855,7 @@ mod tests {
             &[],
             &artifact.checked.source_native_signatures,
             &artifact.ir.native_records,
+            false,
         );
         std::fs::remove_dir_all(directory).unwrap();
         result

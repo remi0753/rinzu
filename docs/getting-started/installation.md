@@ -36,16 +36,14 @@ export PATH="$PWD/target/release:$PATH"
 rinzu --version
 ```
 
-The remaining pages use `rinzu` in commands. Toolchain version `0.4.0` and source language version `0.5` describe different interfaces. See the [migration notes](../../CHANGELOG.md#upgrade-from-030) when upgrading from toolchain `0.3.0`.
+The remaining pages use `rinzu` in commands. Toolchain version `0.5.0` supports source language version `0.5`. See the [migration notes](../../CHANGELOG.md#upgrade-from-040) when upgrading from toolchain `0.4.0`.
 
 ## Optional dependencies
 
-| Use | Requirement |
-| --- | --- |
+| Use                 | Requirement                                                  |
+| ------------------- | ------------------------------------------------------------ |
 | macOS GUI and Metal | A macOS desktop session with the relevant GUI/GPU facilities |
-| SDL2 SDK | SDL2 and `sdl2-config`; Homebrew: `brew install sdl2` |
-| Compiler C/ObjC formatting and analysis | LLVM 21; Homebrew: `brew install llvm@21` |
-| Fuzz targets | Nightly Rust and cargo-fuzz |
+| SDL2 SDK            | SDL2 and `sdl2-config`; Homebrew: `brew install sdl2`        |
 
 Native builds on macOS target the running macOS version by default. Set `MACOSX_DEPLOYMENT_TARGET` to build with an explicit minimum such as `26.0`. The minimum must be macOS 11 or later and at least as recent as the minimum required by each linked library. Changing the target changes the native cache and lock identity.
 

@@ -36,7 +36,16 @@ enum ActiveOperation {
 }
 
 pub(super) struct SourceOperations {
+    #[cfg(feature = "test-native-lifetime-trace")]
+    lifetime: Option<Arc<rinzu_runtime::lifetime_trace::Probe>>,
     deferred_native: std::collections::BTreeSet<u64>,
+    deferred_controls: RefCell<BTreeMap<u64, bool>>,
+    #[cfg(test)]
+    deferred_retry_hook: Option<Box<dyn Fn()>>,
+    #[cfg(all(test, feature = "test-native-lifetime-trace"))]
+    after_ready_selection: Option<Box<dyn FnOnce(u64)>>,
+    #[cfg(all(test, feature = "test-native-lifetime-trace"))]
+    after_packet_read: Option<Box<dyn FnMut(Option<OperationId>)>>,
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     source_bindings: Arc<NativeBindings>,
     module: Arc<IrModule>,
@@ -94,6 +103,12 @@ impl CompletionSignal {
 }
 
 impl SourceOperations {
+    #[cfg(feature = "test-native-lifetime-trace")]
+    fn observe_for(&self, future: u64, kind: &'static str, arg: i64) {
+        if let Some(p) = &self.lifetime {
+            p.future_event(kind, future, arg);
+        }
+    }
     pub(super) fn new(
         module: Arc<IrModule>,
         shared: Arc<Mutex<SharedState>>,
@@ -103,6 +118,28 @@ impl SourceOperations {
             NativeBindings,
         >,
     ) -> Self {
+        Self::with_limits(
+            module,
+            shared,
+            options,
+            owner,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            source_bindings,
+            StandaloneOptions::default().resources,
+        )
+    }
+    fn with_limits(
+        module: Arc<IrModule>,
+        shared: Arc<Mutex<SharedState>>,
+        options: &SourceAsyncOptions,
+        owner: &Rc<RefCell<OwnerValues>>,
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))] source_bindings: Arc<
+            NativeBindings,
+        >,
+        limits: rinzu_runtime::resources::ResourceLimits,
+    ) -> Self {
+        #[cfg(feature = "test-native-lifetime-trace")]
+        let lifetime = rinzu_runtime::lifetime_trace::Probe::current();
         let completion_signal = Arc::new(CompletionSignal::default());
         let wake = {
             let signal = Arc::clone(&completion_signal);
@@ -112,7 +149,15 @@ impl SourceOperations {
                 .dispatcher
                 .as_ref()
                 .map(|dispatcher| dispatcher.queue().producer());
+            #[cfg(feature = "test-native-lifetime-trace")]
+            let environment = lifetime
+                .as_ref()
+                .map(|p| rinzu_runtime::lifetime_trace::Environment(Arc::clone(p)));
             Arc::new(move || {
+                #[cfg(feature = "test-native-lifetime-trace")]
+                if let Some(e) = &environment {
+                    e.0.record("signal_touch", 0, 0, 0);
+                }
                 signal.publish();
                 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
                 if let Some(producer) = &producer {
@@ -120,7 +165,14 @@ impl SourceOperations {
                 }
             }) as Arc<dyn Fn() + Send + Sync>
         };
+        #[cfg(feature = "test-native-lifetime-trace")]
+        let reactor = lifetime.as_ref().map_or_else(
+            || AsyncReactor::with_completion_wake(Arc::clone(&wake)),
+            |p| AsyncReactor::with_lifetime_trace(Arc::clone(&wake), Arc::clone(p)),
+        );
         Self {
+            #[cfg(feature = "test-native-lifetime-trace")]
+            lifetime,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             source_bindings,
             module,
@@ -132,10 +184,10 @@ impl SourceOperations {
             shutdown_worker_after_polls: options.shutdown_worker_after_polls,
             cancel_first_spawn: options.cancel_first_spawn,
             cancelled_spawn: false,
-            mailbox: OperationMailbox::new(
-                StandaloneOptions::default().resources,
-                Arc::clone(&wake),
-            ),
+            mailbox: OperationMailbox::new(limits, Arc::clone(&wake)),
+            #[cfg(feature = "test-native-lifetime-trace")]
+            reactor,
+            #[cfg(not(feature = "test-native-lifetime-trace"))]
             reactor: AsyncReactor::with_completion_wake(Arc::clone(&wake)),
             workers: CpuWorkerPool::with_completion_wake(wake),
             active: BTreeMap::new(),
@@ -144,6 +196,13 @@ impl SourceOperations {
             reactor_completions: HashMap::new(),
             cancelled_children: RefCell::new(std::collections::BTreeSet::new()),
             deferred_native: Default::default(),
+            deferred_controls: Default::default(),
+            #[cfg(test)]
+            deferred_retry_hook: None,
+            #[cfg(all(test, feature = "test-native-lifetime-trace"))]
+            after_ready_selection: None,
+            #[cfg(all(test, feature = "test-native-lifetime-trace"))]
+            after_packet_read: None,
             completion_signal,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             received_epoch: 0,
@@ -206,6 +265,8 @@ impl SourceOperations {
                 if matches!(request, PendingRequest::NativeCompletion { .. }) {
                     // Its SDK operation is live: defer the pinned receipt until
                     // credit or physical completion, rather than lose its drain.
+                    #[cfg(feature = "test-native-lifetime-trace")]
+                    self.observe_for(future, "drain_deferred", 0);
                     self.deferred_native.insert(future);
                     self.shared
                         .lock()
@@ -254,6 +315,21 @@ impl SourceOperations {
                 transfer,
                 source,
             } => {
+                #[cfg(feature = "test-native-lifetime-trace")]
+                self.observe_for(future, "drain_receipt", 0);
+                #[cfg(feature = "test-native-lifetime-trace")]
+                if let Some(p) = &self.lifetime {
+                    p.link_future(operation_id.0, future);
+                }
+                // Transfer an already accepted decision before exposing the new
+                // resolver to a reactor that may complete immediately.
+                if let Some(timed) = self.deferred_controls.borrow_mut().remove(&future) {
+                    if timed {
+                        ticket.timeout();
+                    } else {
+                        ticket.cancel();
+                    }
+                }
                 let result = if transfer {
                     self.reactor.submit_native_transfer(ticket, completion)?
                 } else {
@@ -509,11 +585,20 @@ impl SourceOperations {
             if let Some(PendingRequest::NativeCompletion { completion, .. }) =
                 shared.pending.get(&future)
             {
-                if completion.is_done() {
+                #[cfg(feature = "test-native-lifetime-trace")]
+                self.observe_for(future, "deferred_begin", if timed { 2 } else { 1 });
+                if completion.is_done() || self.deferred_controls.borrow().contains_key(&future) {
+                    #[cfg(feature = "test-native-lifetime-trace")]
+                    self.observe_for(future, "deferred_end", 0);
                     return false;
                 }
                 completion.cancel();
+                #[cfg(feature = "test-native-lifetime-trace")]
+                self.observe_for(future, "deferred_flag", 0);
+                self.deferred_controls.borrow_mut().insert(future, timed);
                 self.cancelled_children.borrow_mut().insert(future);
+                #[cfg(feature = "test-native-lifetime-trace")]
+                self.observe_for(future, "deferred_end", 1);
                 return true;
             }
         }
@@ -587,6 +672,11 @@ impl SourceOperations {
                 } else {
                     Value::Unit
                 };
+                #[cfg(feature = "test-native-lifetime-trace")]
+                let copied_payload = match &value {
+                    Value::Scalar(v) => v.bits() as i64,
+                    _ => 0,
+                };
                 let cancelled = self.cancelled_children.borrow().contains(&future);
                 shared.pending.remove(&future);
                 shared.complete(
@@ -600,7 +690,21 @@ impl SourceOperations {
                         Ok(value)
                     },
                 )?;
+                #[cfg(feature = "test-native-lifetime-trace")]
+                {
+                    self.observe_for(future, "direct_copy", copied_payload);
+                    self.observe_for(
+                        future,
+                        "direct_settle",
+                        self.deferred_controls
+                            .borrow()
+                            .get(&future)
+                            .map_or(0, |timed| if *timed { 2 } else { 1 }),
+                    );
+                    self.observe_for(future, "drain_release", 0);
+                }
                 self.deferred_native.remove(&future);
+                self.deferred_controls.borrow_mut().remove(&future);
                 return Ok(true);
             }
             drop(shared);
@@ -608,11 +712,12 @@ impl SourceOperations {
                 < self.mailbox.resources().limits.pending_operations
             {
                 self.start(future)?;
+                #[cfg(test)]
+                if let Some(hook) = &self.deferred_retry_hook {
+                    hook();
+                }
                 if self.active.contains_key(&future) {
                     self.deferred_native.remove(&future);
-                    if self.cancelled_children.borrow().contains(&future) {
-                        self.request_control(future, false);
-                    }
                 }
             }
         }
@@ -620,7 +725,15 @@ impl SourceOperations {
         // epoch and cannot be erased by this turn's empty snapshot.
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         let epoch = self.completion_signal.epoch();
-        while let Some(completion) = self.reactor.try_completion()? {
+        loop {
+            let completion = self.reactor.try_completion()?;
+            #[cfg(all(test, feature = "test-native-lifetime-trace"))]
+            if let Some(hook) = &mut self.after_packet_read {
+                hook(completion.as_ref().map(|packet| packet.operation));
+            }
+            let Some(completion) = completion else {
+                break;
+            };
             ensure!(
                 self.reactor_completions
                     .insert(completion.operation, completion)
@@ -658,6 +771,10 @@ impl SourceOperations {
                 available.then_some(*future)
             });
         if let Some(future) = ready {
+            #[cfg(all(test, feature = "test-native-lifetime-trace"))]
+            if let Some(hook) = self.after_ready_selection.take() {
+                hook(future);
+            }
             self.receive(future)?;
             Ok(true)
         } else {
@@ -731,6 +848,22 @@ impl SourceOperations {
             .winners
             .remove(&operation_id)
             .ok_or_else(|| anyhow!("child has no terminal winner"))?;
+        #[cfg(feature = "test-native-lifetime-trace")]
+        if matches!(
+            self.active.get(&future),
+            Some((_, ActiveOperation::NativeCompletion { .. }))
+        ) {
+            self.observe_for(
+                future,
+                "receipt_decision",
+                match &resolution {
+                    Resolution::Cancelled => 1,
+                    Resolution::TimedOut => 2,
+                    Resolution::Completed(_) => 0,
+                },
+            );
+            self.observe_for(future, "drain_release", 0);
+        }
         let (_, operation) = self.active.remove(&future).unwrap();
         match operation {
             ActiveOperation::NativeCompletion {
@@ -892,7 +1025,9 @@ impl SourceOperations {
         if !self.readiness.is_empty() {
             return false;
         }
-        self.mailbox.resources().used.is_baseline()
+        self.deferred_native.is_empty()
+            && self.deferred_controls.borrow().is_empty()
+            && self.mailbox.resources().used.is_baseline()
             && self.active.is_empty()
             && self.winners.is_empty()
             && self.worker_completions.is_empty()
@@ -908,8 +1043,19 @@ impl Drop for SourceOperations {
     fn drop(&mut self) {
         // Internal execution errors still request cancellation and keep the
         // physical pool/service owners alive through their native returns.
-        for future in self.active.keys() {
+        for future in self.active.keys().chain(self.deferred_native.iter()) {
             self.cancel(*future);
+        }
+        // Deferred SDK work has no reactor ticket whose Drop could join it.
+        // Retain its pin and result owner until real publication, even while
+        // unwinding an execution error or with zero normal admission credit.
+        while !self.deferred_native.is_empty() {
+            if !self
+                .receive_one_ready()
+                .unwrap_or_else(|_| data::native_fatal(86))
+            {
+                std::thread::sleep(Duration::from_millis(1));
+            }
         }
     }
 }
@@ -1015,3 +1161,37 @@ fn completion_published_between_empty_drain_and_wait_is_not_lost() {
     assert_eq!(signal.epoch(), 256);
     assert!(started.elapsed() < Duration::from_secs(2));
 }
+
+#[cfg(all(test, feature = "test-native-lifetime-trace"))]
+#[path = "handoff_tests.rs"]
+pub(super) mod handoff_tests;
+
+#[cfg(all(test, feature = "test-native-lifetime-trace"))]
+#[path = "cohort_tests.rs"]
+mod cohort_tests;
+
+#[cfg(all(test, feature = "test-native-lifetime-trace"))]
+#[path = "combination_tests.rs"]
+mod combination_tests;
+
+#[cfg(all(test, feature = "test-native-lifetime-trace"))]
+#[path = "batched_tests.rs"]
+mod batched_tests;
+#[cfg(all(test, feature = "test-native-lifetime-trace"))]
+#[path = "deferred_handoff_tests.rs"]
+mod deferred_handoff_tests;
+#[cfg(all(test, feature = "test-native-lifetime-trace"))]
+#[path = "extended_tests.rs"]
+mod extended_tests;
+#[cfg(all(test, feature = "test-native-lifetime-trace"))]
+#[path = "managed_lifetime_tests.rs"]
+mod managed_lifetime_tests;
+#[cfg(all(test, feature = "test-native-lifetime-trace"))]
+#[path = "mixed_batch_tests.rs"]
+mod mixed_batch_tests;
+#[cfg(all(test, feature = "test-native-lifetime-trace"))]
+#[path = "ready_selection_tests.rs"]
+mod ready_selection_tests;
+#[cfg(all(test, feature = "test-native-lifetime-trace"))]
+#[path = "recovery_tests.rs"]
+mod recovery_tests;

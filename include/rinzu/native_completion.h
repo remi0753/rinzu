@@ -4,9 +4,30 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
-/* SDK-owned, pinned through every admitted await and physical publication.
-   The producer publishes done only after its last payload access. Cancellation
-   is a request; the consumer still waits for done. No allocator is inferred. */
+/* Optional test observer; default builds do not evaluate its arguments. */
+#ifndef RINZU_NATIVE_LIFETIME_EVENT
+#define RINZU_NATIVE_LIFETIME_EVENT(kind, object, a, b) ((void)0)
+#endif
+#ifndef RINZU_NATIVE_CONTROL_EVENT
+#define RINZU_NATIVE_CONTROL_EVENT(kind, future, value) ((void)0)
+#endif
+#ifndef RINZU_NATIVE_DECISION_EVENT
+#define RINZU_NATIVE_DECISION_EVENT(future, decision) ((void)0)
+#endif
+#ifndef RINZU_NATIVE_WAKE_BIND_EVENT
+#define RINZU_NATIVE_WAKE_BIND_EVENT(future, target) ((void)0)
+#endif
+#ifndef RINZU_NATIVE_WAKE_FREE_EVENT
+#define RINZU_NATIVE_WAKE_FREE_EVENT(target) ((void)0)
+#endif
+#ifndef RINZU_NATIVE_HELPER_ENTER_EVENT
+#define RINZU_NATIVE_HELPER_ENTER_EVENT(runtime) ((void)0)
+#endif
+/* SDK-owned, pinned through physical publication and every admitted wait,
+   registration, and control access. Publication follows the producer's last
+   payload access: v1 uses done; v2/v3 use the final notification exchange below.
+   Cancellation is a request; consumers still wait for publication.
+   No allocator is inferred. */
 typedef struct {
   uint32_t version, size;
   _Atomic uint32_t done, cancelled;
@@ -79,8 +100,9 @@ rinzu_native_completion_transfer_result(const rinzu_native_completion_t *complet
          sizeof(result));
   return result;
 }
-/* The exchange is the producer's LAST carrier access and the v2 physical
-   publication. A consumer may retire/reuse the carrier immediately afterward.
+/* The exchange is the producer's LAST carrier access and the v2/v3 physical
+   publication. Retirement/reuse also requires every admitted waiter and
+   outstanding control access to end, including all v3 result copies.
    Capture the target from that exchange, then use only its retained reference.
    The caller owns any returned reference and must release it once after
    notifying, or merge the wake with an already retained target in its domain.
@@ -88,15 +110,19 @@ rinzu_native_completion_transfer_result(const rinzu_native_completion_t *complet
 static inline rinzu_native_completion_wake_t *
 rinzu_native_completion_v2_publish_target(rinzu_native_completion_v2_t *completion) {
   atomic_store_explicit(&completion->base.done, 1, memory_order_release);
+  RINZU_NATIVE_LIFETIME_EVENT("sdk_prefix", 0, 0, 0);
   uintptr_t before = atomic_exchange_explicit(&completion->notification,
                                               RINZU_NATIVE_COMPLETION_DONE, memory_order_acq_rel);
+  RINZU_NATIVE_LIFETIME_EVENT("sdk_exchange", 0, before > RINZU_NATIVE_COMPLETION_DONE, 0);
   return before > RINZU_NATIVE_COMPLETION_DONE ? (rinzu_native_completion_wake_t *)before : NULL;
 }
 static inline void rinzu_native_completion_v2_publish(rinzu_native_completion_v2_t *completion) {
   rinzu_native_completion_wake_t *target = rinzu_native_completion_v2_publish_target(completion);
   if (target) {
     target->notify(target);
+    RINZU_NATIVE_LIFETIME_EVENT("producer_release", 0, 0, 0);
     target->release(target);
+    RINZU_NATIVE_LIFETIME_EVENT("producer_released", 0, 0, 0);
   }
 }
 #endif

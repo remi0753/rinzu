@@ -3,7 +3,7 @@
 #ifdef RINZU_TOOLING_RECORD_LAYOUTS
 #include RINZU_TOOLING_RECORD_LAYOUTS
 #endif
-static const rinzu_native_record_layout_t *rinzu_native_record_layout(uint64_t index) {
+RINZU_PROGRAM_API const rinzu_native_record_layout_t *rinzu_native_record_layout(uint64_t index) {
   if (!index || index > rinzu_native_record_layout_count)
     rinzu_interop_fatal();
   return &rinzu_native_record_layouts[index - 1];

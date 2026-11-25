@@ -194,14 +194,12 @@ impl Replay {
                     label: format!(
                         "{}()",
                         checked
-                            .indirect_fields
-                            .get(&at)
+                            .fact_indirect_fields(&at)
                             .map_or(name, String::as_str)
                     ),
                     callee: None,
                     contract: checked
-                        .indirect_signatures
-                        .get(&at)
+                        .fact_indirect_signatures(&at)
                         .and_then(|call| call.contract),
                     fresh_task: false,
                 })

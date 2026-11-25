@@ -774,6 +774,26 @@ static inline __attribute__((always_inline)) int64_t rinzu_aot_data_operation_ow
     free(bytes);
     return 0;
   }
+  if (operation == RINZU_DATA_BYTES_PACK_INT64_LE) {
+    rinzu_managed_value_t *input = resolved[0];
+    if (!input || input->kind != RINZU_MANAGED_COMPOSITE || layout->kind != RINZU_VALUE_LIST ||
+        layout->element >= data->schema->count ||
+        data->schema->types[layout->element].kind != RINZU_VALUE_SCALAR ||
+        data->schema->types[layout->element].scalar_kind != RINZU_SCALAR_I64 ||
+        data->schema->types[result].kind != RINZU_VALUE_DYNAMIC_BYTES ||
+        input->count > (size_t)INT64_MAX / sizeof(uint64_t))
+      rinzu_failure_fatal();
+    rinzu_managed_value_t *value =
+        rinzu_managed_bytes_allocate_owned(data, input->count * sizeof(uint64_t));
+    unsigned char *destination = value->bytes;
+    for (size_t i = 0; i < input->count; ++i) {
+      uint64_t word = input->slots[i].bits;
+      for (unsigned shift = 0; shift < 64; shift += 8)
+        *destination++ = (unsigned char)(word >> shift);
+    }
+    context->allocations++;
+    return (int64_t)value->identity;
+  }
   if (operation == RINZU_DATA_BYTES_XOR || operation == RINZU_DATA_BYTES_FIND_ANY ||
       operation == RINZU_DATA_BYTES_FIND_NOT_ANY || operation == RINZU_DATA_BYTES_LOWER_ASCII ||
       operation == RINZU_DATA_BYTES_CONTAINS_ANY || operation == RINZU_DATA_BYTES_ALL_IN ||
@@ -1006,6 +1026,56 @@ int64_t rinzu_baseline_bytes_slice_payload_owner_proven(void *raw, int64_t resul
                                                         int64_t bits, int64_t start, int64_t end) {
   return rinzu_aot_bytes_slice_payload_owner_mode(raw, result_type, bits, start, end, 1);
 }
+
+/* The verified switch receives the presence tag separately from the payload.
+   Keep checked lookups and the logical charge of the original Option. */
+static inline __attribute__((always_inline)) int64_t
+rinzu_aot_indexed_option_owner_mode(void *raw, int64_t type, int64_t bits, int64_t index,
+                                    uint64_t *payload, unsigned owner_proven) {
+  RinzuContext *context = raw;
+  rinzu_managed_data_t *data = rinzu_context_data(context);
+  size_t input_type = rinzu_data_type(type);
+  const rinzu_value_type_t *layout = &data->schema->types[input_type];
+  if (!payload || (layout->kind != RINZU_VALUE_DYNAMIC_BYTES && layout->kind != RINZU_VALUE_LIST))
+    rinzu_failure_fatal();
+  if (!owner_proven)
+    rinzu_managed_owner(data);
+  rinzu_managed_value_t *input;
+  if (rinzu_managed_slot_resolve_owned(data, input_type, (rinzu_managed_slot_t){(uint64_t)bits, 1},
+                                       &input))
+    rinzu_failure_fatal();
+  size_t length;
+  if (layout->kind == RINZU_VALUE_LIST) {
+    if (input->collection_building)
+      rinzu_failure_fatal();
+    length = input->count;
+  } else {
+    length = input->length;
+  }
+  int64_t present = index >= 0 && (uint64_t)index < length;
+  *payload = 0;
+  if (present) {
+    if (layout->kind == RINZU_VALUE_LIST) {
+      rinzu_managed_slot_t slot = input->slots[index];
+      if (rinzu_managed_slot_resolve_owned(data, layout->element, slot, NULL))
+        rinzu_failure_fatal();
+      *payload = slot.bits;
+    } else {
+      *payload = input->bytes[index];
+    }
+  }
+  context->allocations++;
+  return present;
+}
+int64_t rinzu_baseline_indexed_option(void *raw, int64_t type, int64_t bits, int64_t index,
+                                      uint64_t *payload) {
+  return rinzu_aot_indexed_option_owner_mode(raw, type, bits, index, payload, 0);
+}
+int64_t rinzu_baseline_indexed_option_owner_proven(void *raw, int64_t type, int64_t bits,
+                                                   int64_t index, uint64_t *payload) {
+  return rinzu_aot_indexed_option_owner_mode(raw, type, bits, index, payload, 1);
+}
+
 static inline __attribute__((always_inline)) int64_t
 rinzu_aot_construct_owner_mode(void *raw, int64_t type, int64_t variant, const uint64_t *bits,
                                int64_t count, unsigned owner_proven) {

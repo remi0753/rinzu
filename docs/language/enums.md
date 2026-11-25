@@ -64,11 +64,11 @@ An enum can declare [interface conformance](interfaces.md) with `enum Entry<T> i
 
 Import `rinzu.option` to apply a transformation or compute a default. Use `switch` when the two cases need their own logic.
 
-| Function | Result |
-| --- | --- |
-| `rinzu.option.map(Option<T>, fn (T) -> U)` | Wraps the transformed value in `Some`. Returns `None` on absent input |
+| Function                                               | Result                                                                           |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| `rinzu.option.map(Option<T>, fn (T) -> U)`             | Wraps the transformed value in `Some`. Returns `None` on absent input            |
 | `rinzu.option.andThen(Option<T>, fn (T) -> Option<U>)` | Returns the result of the second lookup directly. Returns `None` on absent input |
-| `rinzu.option.getOrElse(Option<T>, fn () -> T)` | Returns the value in `Some` or computes a default for `None` |
+| `rinzu.option.getOrElse(Option<T>, fn () -> T)`        | Returns the value in `Some` or computes a default for `None`                     |
 
 Arguments are evaluated normally. `map` and `andThen` invoke the callback once for `Some`; `getOrElse` invokes it once for `None`. Callbacks run synchronously and their Errors propagate to the caller.
 

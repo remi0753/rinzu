@@ -1,5 +1,6 @@
 #ifndef RINZU_FOREIGN_QUEUE_H
 #define RINZU_FOREIGN_QUEUE_H
+#include "runtime_storage.h"
 #include <errno.h>
 #include "rinzu/thread_identity.h"
 #include <stdatomic.h>
@@ -56,7 +57,7 @@ struct rinzu_foreign_record {
   uint64_t words[];
 };
 #ifdef RINZU_FOREIGN_TESTING
-static _Thread_local size_t rinzu_foreign_held_locks;
+RINZU_RUNTIME_GLOBAL _Thread_local size_t rinzu_foreign_held_locks;
 #endif
 static inline void rinzu_foreign_lock(pthread_mutex_t *lock) {
   if (pthread_mutex_lock(lock))

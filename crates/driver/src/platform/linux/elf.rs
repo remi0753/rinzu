@@ -25,6 +25,28 @@ pub(crate) fn parse(bytes: &[u8], kind: ObjectKind) -> Result<object::File<'_>, 
     Ok(file)
 }
 
+pub(crate) fn closed_object(bytes: &[u8]) -> bool {
+    use object::read::elf::SectionHeader;
+    let Ok(object::File::Elf64(file)) = parse(bytes, ObjectKind::Relocatable) else {
+        return false;
+    };
+    // .linker-options and .deplibs can direct the linker to undeclared
+    // inputs, and FatLTO may cause compiler plugins to be used at link time.
+    const LINKER_OPTIONS: object::elf::SectionType = object::elf::SectionType(0x6fff4c01);
+    const FAT_LTO: object::elf::SectionType = object::elf::SectionType(0x6fff4c0c);
+    file.elf_section_table().iter().all(|section| {
+        !matches!(
+            section.sh_type(file.endian()),
+            LINKER_OPTIONS | object::elf::SHT_LLVM_DEPENDENT_LIBRARIES | FAT_LTO
+        )
+    }) && !file.sections().any(|section| {
+        use object::ObjectSection;
+        section
+            .name()
+            .is_ok_and(|name| name.starts_with(".gnu.lto_"))
+    })
+}
+
 pub(crate) fn shared(
     bytes: &[u8],
 ) -> Result<
@@ -62,7 +84,7 @@ pub(crate) fn shared(
                     return Err("ELF image has multiple SONAMEs".into());
                 }
             }
-            object::elf::DT_FLAGS_1 if entry.val & u64::from(object::elf::DF_1_PIE.0) != 0 => {
+            object::elf::DT_FLAGS_1 if entry.val & object::elf::DF_1_PIE.0 != 0 => {
                 return Err("ELF image is a position-independent executable".into());
             }
             _ => {}

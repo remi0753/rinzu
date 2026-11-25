@@ -1,39 +1,74 @@
 # Testing and documentation tests
 
-Testing uses a directory package with a manifest. Plain `rinzu test ./app` runs that package's main. Use `--unit` to discover isolated test cases from ordinary source.
+Place application modules under `src/` and tests under `tests/`, beside the package's `rinzu.toml`. The runner discovers files ending in `.test.rinzu`. Each file has one synchronous or asynchronous `main` with no arguments or type parameters and a `Unit` result. Its imports determine which application modules are compiled for that file. Use a dotted import to access an exported application module and a relative file import to share helpers under `tests/`. Ordinary application package checks, runs, and builds follow the application entry and its `src/` imports.
 
-## Write a unit test
+A test file can call `rinzu.testing.runCase` for a synchronous case and await `rinzu.testing.runAsyncCase` for an asynchronous case. The file's `main` runs once, and each selected case body runs once. An ordinary Error in a case is reported as a failure and the next case can run. Assertions directly in `main` affect the file's result.
 
-Add a private, zero-argument function named `test_*` to package source. Its result must be Unit; it can be synchronous or async.
+## Write and select tests
+
+In an application package under `app/`, add the following to `src/math.rinzu`.
 
 ```rinzu
-import rinzu.testing;
+import rinzu.timer;
 
 fn add(left: Int, right: Int) -> Int {
     return left + right;
 }
 
-fn test_sum() {
-    rinzu.testing.assertEqual<Int>(add(20, 22), 42, "sum");
+async fn addLater(left: Int, right: Int) -> Int {
+    await rinzu.timer.sleep(1);
+    return add(left, right);
 }
 
-async fn test_async_value() {
-    rinzu.testing.assertTrue(true, "async test");
-}
-
-fn main() {}
+export add;
+export addLater;
 ```
+
+Create `tests/math.test.rinzu` in the same package.
+
+```rinzu
+import math;
+import rinzu.testing as testing;
+
+async fn main() {
+    testing.runCase(
+        "positive values",
+        fn () {
+            testing.assertEqual<Int>(math.add(20, 22), 42, "sum");
+        }
+    );
+    testing.runCase(
+        "negative values",
+        fn () {
+            testing.assertEqual<Int>(math.add(-20, -22), -42, "sum");
+        }
+    );
+    await testing.runAsyncCase(
+        "delayed sum",
+        async fn () {
+            let sum = await math.addLater(20, 22);
+            testing.assertEqual<Int>(sum, 42, "delayed sum");
+        }
+    );
+}
+```
+
+From the directory containing `app/`, run the suite or select a file or case.
 
 ```sh
-rinzu test ./app --unit --list
-rinzu test ./app --unit
-rinzu test ./app --unit --filter test_sum
-rinzu test ./app --unit --format json --timeout-ms 5000
+rinzu test ./app/tests
+rinzu test ./app/tests --list
+rinzu test ./app/tests --filter math.test.rinzu --format json
+rinzu test ./app/tests/math.test.rinzu --case 'negative values'
 ```
 
-The selected package is checked before filtering, so errors in an unselected function can still fail the command. Unit mode does not execute the original main or dependency SDK tests.
+File-only `--list` reports the selected paths. `--filter` matches a substring of the file ID, such as `file:tests/math.test.rinzu`, before compiling the selected files. Directories under `tests/` can be selected separately. Nested packages have their own test roots.
 
-`assertTrue(condition,message)` and `assertEqual<T: Equality>(actual,expected,message)` throw AssertionFailed and print useful failure information. Let test failures reach the test boundary. Use finally for resource cleanup. Native handles and Error values need explicit state/counter checks when they lack Equality.
+Use `--case` for a file-only execution with one explicit test file. It matches the exact case name and reports a failure if `main` completes without finding it. Use `--case=NAME` for names starting with a hyphen. The selected file still compiles and runs its entire `main`, including code outside case bodies. Put case-specific setup and cleanup inside the case body.
+
+Run cases sequentially in the test file's Main Domain. Give each case a unique name containing at least one non-whitespace character, with at most 4,096 UTF-8 bytes and no NUL character. The case APIs raise `InvalidTestCase` for invalid names, overlapping cases, and calls outside a file test's Main Domain. The runner records misuse detected inside a file test even if the test catches that Error.
+
+`assertTrue(condition, message)` and `assertEqual<T: Equality>(actual, expected, message)` throw `AssertionFailed` and display failure information. Use `finally` to release resources and let case failures reach the case or file boundary. Native handles and Error values need explicit state checks when they lack Equality. Plain `rinzu test ./app` runs the package's application `main`.
 
 ## Execute documentation examples
 
@@ -58,13 +93,21 @@ Run the example in this page from the compiler checkout:
 rinzu test sdk/testing --doc "$PWD/docs/tooling/testing.md" --format json
 ```
 
-Document paths resolve relative to the selected package, not the shell directory. The absolute path above selects this repository guide. For another project, pass its package and the desired document. A document is an explicit input; plain `rinzu` fences are not executable cases. Generated API Markdown can preserve executable examples from adjacent source doc comments.
+Resolve relative document paths from the selected package root. The absolute path above selects this repository guide from the checkout root. Repeat `--doc` to select several documents. Combine a test path with `--doc` to include both kinds of test in the same report. The document runner executes the `rinzu-test` fences, which can use the assertion helpers. Named case registration belongs in `.test.rinzu` files. Generated API Markdown preserves executable examples from source doc comments.
 
 ## Isolate resources
 
-Each case runs in a separate worker process with scratch space and a dedicated cwd. Use that scratch environment for file fixtures, including `RINZU_TEST_TMP` when selecting paths. Do not share databases, native windows, or fixed external ports between cases.
+Each test file and documentation example runs in a separate worker process with its scratch directory as the working directory. Named cases within a file share its process and deadline. Use `RINZU_TEST_TMP` to find the scratch directory and clean up resources inside the case that acquired them.
+
+`--timeout-ms` bounds the whole worker run, including compilation and cleanup. The default is 60,000 ms, and values from 1 to 600,000 ms are accepted. A file passes when its `main` and named cases succeed and the runner confirms runtime cleanup.
 
 Timeout and failure reporting do not make arbitrary native calls interruptible. Follow each SDK's physical cleanup contract. Make random/property-style tests deterministic by supplying a seed and reporting it with failures; the language does not provide an automatic shrinking framework.
+
+## Read test results
+
+Use `--format json` for the `rinzu.test-report` schema. A file-test invocation uses version 2. Its `entries` array contains the selected files and any explicit document blocks. Each file entry has its own `cases` array. `summary` counts files and document blocks, while `caseSummary` counts named cases that started. Document-only invocations use version 1 with the document blocks in the top-level `cases` array.
+
+File and documentation tests return 0 for a successful listing or run, and 1 for a failed run or when nothing matches. An interrupted run uses the signal-based exit code.
 
 ## Check JIT and AOT behavior
 
@@ -72,4 +115,4 @@ Timeout and failure reporting do not make arbitrary native calls interruptible. 
 rinzu verify-aot ./app
 ```
 
-This compares supported execution semantics, settlement, and complete captured stdout/stderr bytes. Keep nondeterministic timestamps, remote responses, and process-specific values out of output intended for exact comparison. It is separate from unit discovery and is not a benchmark.
+This compares supported execution semantics, settlement, and complete captured stdout/stderr bytes for the selected program. Keep nondeterministic timestamps, remote responses, and process-specific values out of output intended for exact comparison.

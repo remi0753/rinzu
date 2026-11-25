@@ -254,12 +254,17 @@ static inline int rinzu_async_publish_native_locked(rinzu_async_future_t *future
   if (future->result_kind == RINZU_SCALAR_I64)
     future->result_slot =
         (uint64_t)rinzu_native_completion_transfer_result(future->native_completion);
+  RINZU_NATIVE_LIFETIME_EVENT("copied", future->identity, (int64_t)future->result_slot, 0);
   unsigned pending = RINZU_ASYNC_PENDING;
-  (void)atomic_compare_exchange_strong_explicit(&future->terminal, &pending, RINZU_ASYNC_COMPLETED,
-                                                memory_order_acq_rel, memory_order_acquire);
+  int claimed =
+      atomic_compare_exchange_strong_explicit(&future->terminal, &pending, RINZU_ASYNC_COMPLETED,
+                                              memory_order_acq_rel, memory_order_acquire);
+  RINZU_NATIVE_LIFETIME_EVENT("completion_claim", future->identity, claimed, 0);
+  (void)claimed;
   if (future->readiness)
     rinzu_ready_publish(future->readiness);
   atomic_store_explicit(&future->physical_done, 1, memory_order_release);
+  RINZU_NATIVE_LIFETIME_EVENT("physical", future->identity, 0, 0);
   if (future->runtime->completion_epoch == UINT64_MAX)
     rinzu_failure_fatal();
   future->runtime->completion_epoch++;
@@ -306,6 +311,8 @@ static void rinzu_async_native_wake_release(rinzu_native_completion_wake_t *raw)
     if (pthread_mutex_destroy(&target->gate))
       rinzu_failure_fatal();
     rinzu_resource_release(RINZU_RESOURCE_RUNTIME_CONTROL, sizeof(*target));
+    RINZU_NATIVE_WAKE_FREE_EVENT(&target->header);
+    RINZU_NATIVE_LIFETIME_EVENT("target_free", 0, 0, 0);
     free(target);
   }
 }
@@ -314,6 +321,7 @@ static void rinzu_async_native_wake_notify(rinzu_native_completion_wake_t *raw) 
   if (pthread_mutex_lock(&target->gate))
     rinzu_failure_fatal();
   rinzu_async_runtime_t *runtime = target->runtime;
+  RINZU_NATIVE_LIFETIME_EVENT("notify_enter", 0, runtime != NULL, 0);
   if (runtime) {
     /* Nudge the Owner, which batches carrier scans and typed materialization.
        Never scan the heap or all waiters on the SDK producer thread. */
@@ -323,13 +331,16 @@ static void rinzu_async_native_wake_notify(rinzu_native_completion_wake_t *raw) 
     runtime->completion_epoch++;
     pthread_cond_broadcast(&runtime->completion_changed);
     rinzu_async_unlock(runtime);
+    RINZU_NATIVE_LIFETIME_EVENT("notify_ready", 0, 0, 0);
     if (runtime->completion_wake)
       runtime->completion_wake(runtime->wake_context);
   }
+  RINZU_NATIVE_LIFETIME_EVENT("notify_leave", 0, 0, 0);
   if (pthread_mutex_unlock(&target->gate))
     rinzu_failure_fatal();
 }
 static inline void rinzu_async_register_native_wake(rinzu_async_future_t *future) {
+  RINZU_NATIVE_LIFETIME_EVENT("register_begin", future->identity, 0, 0);
   rinzu_async_runtime_t *runtime = future->runtime;
   rinzu_async_native_wake_t *target = runtime->native_wake;
   if (!target) {
@@ -343,19 +354,27 @@ static inline void rinzu_async_register_native_wake(rinzu_async_future_t *future
     rinzu_resource_acquire(RINZU_RESOURCE_RUNTIME_CONTROL, sizeof(*target));
     runtime->native_wake = target;
   }
+  RINZU_NATIVE_WAKE_BIND_EVENT(future, &target->header);
   size_t references = atomic_fetch_add_explicit(&target->references, 1, memory_order_relaxed);
   if (!references || references == SIZE_MAX)
     rinzu_failure_fatal();
+  RINZU_NATIVE_LIFETIME_EVENT("register_retain", future->identity, 0, 0);
   uintptr_t expected = 0;
   rinzu_native_completion_v2_t *completion =
       (rinzu_native_completion_v2_t *)future->native_completion;
-  if (!atomic_compare_exchange_strong_explicit(&completion->notification, &expected,
-                                               (uintptr_t)&target->header, memory_order_acq_rel,
-                                               memory_order_acquire)) {
+  int registered = atomic_compare_exchange_strong_explicit(
+      &completion->notification, &expected, (uintptr_t)&target->header, memory_order_acq_rel,
+      memory_order_acquire);
+  RINZU_NATIVE_LIFETIME_EVENT("register_cas", future->identity, registered,
+                              registered ? 0 : (expected == RINZU_NATIVE_COMPLETION_DONE ? 1 : 2));
+  if (!registered) {
     target->header.release(&target->header);
+    RINZU_NATIVE_LIFETIME_EVENT("register_drop", future->identity, 0, 0);
     if (expected != RINZU_NATIVE_COMPLETION_DONE && expected != (uintptr_t)&target->header)
       rinzu_failure_fatal();
   }
+  RINZU_NATIVE_LIFETIME_EVENT("registered", future->identity, registered,
+                              atomic_load_explicit(&target->references, memory_order_acquire));
 }
 static inline void rinzu_async_native_progress(rinzu_async_runtime_t *runtime) {
   if ((!runtime->direct_native_completion && !runtime->native_wake) || !runtime->native_completions)
@@ -511,6 +530,8 @@ static inline rinzu_async_future_t *rinzu_async_new(rinzu_async_runtime_t *runti
   }
   if (runtime->admission_hook)
     runtime->admission_hook(future, runtime->admission_context);
+  if (operation == RINZU_ASYNC_COMPLETION)
+    RINZU_NATIVE_LIFETIME_EVENT("admit", future->identity, 0, 0);
   return future;
 }
 static inline uint64_t rinzu_async_handle(const rinzu_async_future_t *future) {
@@ -717,6 +738,7 @@ static inline void rinzu_async_settle_input(rinzu_async_future_t *future) {
 }
 static inline int rinzu_async_cancel(rinzu_async_future_t *future) {
   rinzu_async_owner(future->runtime);
+  RINZU_NATIVE_CONTROL_EVENT("control_begin", future, 1);
   unsigned pending = RINZU_ASYNC_PENDING;
   int won =
       atomic_compare_exchange_strong_explicit(&future->terminal, &pending, RINZU_ASYNC_CANCELLED,
@@ -727,10 +749,12 @@ static inline int rinzu_async_cancel(rinzu_async_future_t *future) {
       atomic_store_explicit(&future->native_completion->cancelled, 1, memory_order_release);
     rinzu_async_request_native_shutdown(future);
   }
+  RINZU_NATIVE_CONTROL_EVENT("control_end", future, won);
   return won;
 }
 static inline int rinzu_async_timeout(rinzu_async_future_t *future) {
   rinzu_async_owner(future->runtime);
+  RINZU_NATIVE_CONTROL_EVENT("control_begin", future, 2);
   unsigned pending = RINZU_ASYNC_PENDING;
   int won =
       atomic_compare_exchange_strong_explicit(&future->terminal, &pending, RINZU_ASYNC_TIMED_OUT,
@@ -741,6 +765,7 @@ static inline int rinzu_async_timeout(rinzu_async_future_t *future) {
       atomic_store_explicit(&future->native_completion->cancelled, 1, memory_order_release);
     rinzu_async_request_native_shutdown(future);
   }
+  RINZU_NATIVE_CONTROL_EVENT("control_end", future, won);
   return won;
 }
 static inline void rinzu_async_publish_completion(rinzu_async_future_t *future) {
@@ -869,6 +894,7 @@ static inline void *rinzu_async_thread(void *raw) {
    permission for the Owner to read the Worker/service's native packet. */
 static inline void *rinzu_async_completion_reactor(void *raw) {
   rinzu_async_runtime_t *runtime = raw;
+  RINZU_NATIVE_HELPER_ENTER_EVENT(runtime);
   rinzu_async_lock(runtime);
   while (!runtime->reactor_stopping) {
     int published = rinzu_async_scan_native_locked(runtime);
@@ -876,8 +902,10 @@ static inline void *rinzu_async_completion_reactor(void *raw) {
       /* No future is accessed beyond this unlock. The runtime and wake target
          stay pinned until this single reactor has joined during dispose. */
       rinzu_async_unlock(runtime);
+      RINZU_NATIVE_LIFETIME_EVENT("helper_wake_begin", 0, 0, 0);
       if (runtime->completion_wake)
         runtime->completion_wake(runtime->wake_context);
+      RINZU_NATIVE_LIFETIME_EVENT("helper_wake_end", 0, 0, 0);
       rinzu_async_lock(runtime);
     }
     /* stop may have been requested while the wake callback held no gate.
@@ -910,6 +938,7 @@ static inline void *rinzu_async_completion_reactor(void *raw) {
       rinzu_failure_fatal();
   }
   rinzu_async_unlock(runtime);
+  RINZU_NATIVE_LIFETIME_EVENT("helper_quiescent", 0, 0, 0);
   return NULL;
 }
 static inline void rinzu_async_start(rinzu_async_future_t *future) {
@@ -920,6 +949,8 @@ static inline void rinzu_async_start(rinzu_async_future_t *future) {
     rinzu_failure_fatal();
   future->executed = 1;
   if (future->operation == RINZU_ASYNC_COMPLETION) {
+    RINZU_NATIVE_LIFETIME_EVENT("carrier_bind", future->identity,
+                                (uintptr_t)future->native_completion, 0);
     if (!rinzu_native_completion_valid(future->native_completion))
       rinzu_failure_fatal();
     rinzu_async_lock(future->runtime);
@@ -1091,7 +1122,10 @@ static inline uint64_t rinzu_async_materialize(rinzu_async_future_t *future) {
     --runtime->live_main_tasks;
     future->main_admitted = 0;
   }
+  RINZU_NATIVE_DECISION_EVENT(future, terminal);
   atomic_store_explicit(&future->terminal, RINZU_ASYNC_SETTLED, memory_order_release);
+  if (future->operation == RINZU_ASYNC_COMPLETION)
+    RINZU_NATIVE_LIFETIME_EVENT("owner_settle", future->identity, future->failure.primary != 0, 0);
   if (runtime->capture_error_trace)
     rinzu_failure_mark_unrecorded_traces(&future->failure);
   if (future->scope && rinzu_child_complete(future->scope, future->identity, &future->failure))
@@ -1103,14 +1137,32 @@ static inline uint64_t rinzu_async_materialize(rinzu_async_future_t *future) {
   }
   return slot;
 }
+static inline int rinzu_async_ready_to_collect(const rinzu_async_future_t *future) {
+  return !future->settled &&
+         (future->operation == RINZU_ASYNC_WORKER || future->operation == RINZU_ASYNC_FILE ||
+          future->operation == RINZU_ASYNC_TIMER || future->operation == RINZU_ASYNC_COMPLETION) &&
+         atomic_load_explicit(&future->physical_done, memory_order_acquire);
+}
+static inline rinzu_async_future_t *
+rinzu_async_oldest_ready_before(const rinzu_async_runtime_t *runtime, uint64_t oldest) {
+  rinzu_async_future_t *ready = NULL;
+  for (rinzu_async_future_t *future = runtime->futures; future; future = future->next) {
+    int observed = future->identity < oldest && rinzu_async_ready_to_collect(future);
+    if (observed) {
+      oldest = future->identity;
+      ready = future;
+    }
+#ifdef RINZU_NATIVE_READY_SCAN_EVENT
+    RINZU_NATIVE_READY_SCAN_EVENT(future, observed);
+#endif
+  }
+  return ready;
+}
 static inline int rinzu_async_has_completion(rinzu_async_runtime_t *runtime) {
   rinzu_async_owner(runtime);
   rinzu_async_native_progress(runtime);
   for (rinzu_async_future_t *future = runtime->futures; future; future = future->next)
-    if (!future->settled &&
-        (future->operation == RINZU_ASYNC_WORKER || future->operation == RINZU_ASYNC_FILE ||
-         future->operation == RINZU_ASYNC_TIMER || future->operation == RINZU_ASYNC_COMPLETION) &&
-        atomic_load_explicit(&future->physical_done, memory_order_acquire))
+    if (rinzu_async_ready_to_collect(future))
       return 1;
   return 0;
 }
@@ -1222,6 +1274,8 @@ static inline void rinzu_async_release(rinzu_async_future_t *future) {
   if (future->accounting_task)
     rinzu_resource_release(RINZU_RESOURCE_TASK, 1);
   rinzu_resource_release(RINZU_RESOURCE_FUTURE, 1);
+  if (future->operation == RINZU_ASYNC_COMPLETION)
+    RINZU_NATIVE_LIFETIME_EVENT("record_release", future->identity, 0, 0);
   rinzu_async_control_release(runtime, future, sizeof(*future));
 }
 static inline void rinzu_async_stop_completion_reactor(rinzu_async_runtime_t *runtime) {
@@ -1231,9 +1285,11 @@ static inline void rinzu_async_stop_completion_reactor(rinzu_async_runtime_t *ru
   pthread_cond_broadcast(&runtime->completion_changed);
   rinzu_async_unlock(runtime);
   if (runtime->reactor_started) {
+    RINZU_NATIVE_LIFETIME_EVENT("helper_join_wait", 0, 0, 0);
     if (pthread_join(runtime->completion_reactor, NULL))
       rinzu_failure_fatal();
     runtime->reactor_started = 0;
+    RINZU_NATIVE_LIFETIME_EVENT("helper_joined", 0, 0, 0);
   }
 }
 /* Terminal Owner operation. Physical publication precedes the publisher's wake
@@ -1250,12 +1306,15 @@ static inline void rinzu_async_clear_completion_wake(rinzu_async_runtime_t *runt
   rinzu_async_stop_completion_reactor(runtime);
   if (runtime->native_wake) {
     rinzu_async_native_wake_t *target = runtime->native_wake;
+    RINZU_NATIVE_LIFETIME_EVENT("detach_wait", 0, 0, 0);
     if (pthread_mutex_lock(&target->gate))
       rinzu_failure_fatal();
     target->runtime = NULL;
+    RINZU_NATIVE_LIFETIME_EVENT("detach", 0, 0, 0);
     if (pthread_mutex_unlock(&target->gate))
       rinzu_failure_fatal();
     runtime->native_wake = NULL;
+    RINZU_NATIVE_LIFETIME_EVENT("runtime_reference_release", 0, 0, 0);
     target->header.release(&target->header);
   }
   runtime->completion_wake = NULL;

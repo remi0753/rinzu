@@ -6,13 +6,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Diagnostic, DiagnosticCode, FileId, SourceFile, SourceRange};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum PackageKind {
     Application,
     Sdk,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Dependency {
     pub name: String,
     pub source: DependencySource,
@@ -33,12 +33,12 @@ pub struct ArchiveDependency {
     pub sha256: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PackageExports {
     pub modules: Vec<String>,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NativeManifest {
     pub sources: Vec<PathBuf>,
     pub headers: Vec<PathBuf>,
@@ -50,7 +50,7 @@ pub struct NativeManifest {
     pub config_tools: Vec<String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Manifest {
     pub root: PathBuf,
     pub name: String,
@@ -1000,7 +1000,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_v02_sdk_manifest() {
+    fn parses_v02_sdk_manifest_for_compatibility() {
         let root = std::env::temp_dir().join(format!("rinzu-manifest-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("rinzu.toml");
@@ -1023,6 +1023,7 @@ frameworks = ["Foundation"]
         )
         .unwrap();
         let manifest = load_manifest(&path).unwrap();
+        assert_eq!(manifest.language, "0.2");
         assert_eq!(manifest.kind, PackageKind::Sdk);
         assert_eq!(manifest.entry, Path::new("src/example.rinzu"));
         assert_eq!(manifest.exports.modules, ["example"]);

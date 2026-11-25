@@ -444,6 +444,26 @@ fn writeback_publishes_all_targets_and_echo_restores_a_durable_alias() {
         first.add(8).write(1);
         second.cast::<i64>().write(99);
     }
+    let fresh = create(&mut data, &mut heap, PAIR);
+    let loans_before = data.native_record_loan_stats();
+    let roots_before = data.root_count();
+    assert_eq!(
+        data.prepare_native_records(
+            &mut heap,
+            &[
+                (Arc::clone(&layout), fresh),
+                (Arc::clone(&layout), original)
+            ],
+        ),
+        Err(NativeRecordLoanError::Busy)
+    );
+    assert_eq!(data.native_record_loan_stats(), loans_before);
+    assert_eq!(data.root_count(), roots_before);
+    assert_eq!(
+        read(&mut data, &mut heap, fresh),
+        values(1, false).map(ManagedSlot::Scalar)
+    );
+    assert_busy(&mut data, &mut heap, original);
     // SAFETY: receiving a known pointer restores the reference without reading Busy contents.
     let echoed = unsafe { data.receive_native_record(&mut heap, &layout, first) }.unwrap();
     assert_ne!(echoed, original);

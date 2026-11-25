@@ -21,6 +21,14 @@ pub fn clang() -> Command {
     }
 }
 
+pub fn asan_options_after_teardown() -> &'static str {
+    if cfg!(target_os = "linux") {
+        "detect_leaks=1:abort_on_error=1"
+    } else {
+        "detect_leaks=0:abort_on_error=1"
+    }
+}
+
 pub fn shared_library(stem: &str, directory: &Path) -> (Command, PathBuf) {
     let path = directory.join(format!("{stem}{}", std::env::consts::DLL_SUFFIX));
     let mut command = clang();

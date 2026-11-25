@@ -4,8 +4,73 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+[features]
+historical-prototypes = []
+
 [lib]
 path = "src/lib.rs"
+
+# The original standalone prototypes are available for explicit reproduction.
+# Current protocol models are discovered by Cargo without this feature.
+[[test]]
+name = "binding"
+required-features = ["historical-prototypes"]
+
+[[test]]
+name = "blocking_pool"
+required-features = ["historical-prototypes"]
+
+[[test]]
+name = "callback_registration"
+required-features = ["historical-prototypes"]
+
+[[test]]
+name = "cancellation"
+required-features = ["historical-prototypes"]
+
+[[test]]
+name = "diagnostics"
+required-features = ["historical-prototypes"]
+
+[[test]]
+name = "gc_transition"
+required-features = ["historical-prototypes"]
+
+[[test]]
+name = "host_adapters"
+required-features = ["historical-prototypes"]
+
+[[test]]
+name = "host_loop"
+required-features = ["historical-prototypes"]
+
+[[test]]
+name = "host_loop_stress"
+required-features = ["historical-prototypes"]
+
+[[test]]
+name = "lifecycle"
+required-features = ["historical-prototypes"]
+
+[[test]]
+name = "production_vectors"
+required-features = ["historical-prototypes"]
+
+[[test]]
+name = "reload"
+required-features = ["historical-prototypes"]
+
+[[test]]
+name = "settlement"
+required-features = ["historical-prototypes"]
+
+[[test]]
+name = "transport"
+required-features = ["historical-prototypes"]
+
+[[example]]
+name = "report"
+required-features = ["historical-prototypes"]
 
 [dev-dependencies]
 serde_json = "1.0.145"

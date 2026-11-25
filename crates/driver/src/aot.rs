@@ -146,6 +146,7 @@ fn build_checked_layout(
         &native_build.source_packages,
         &native_build.directory.join("deployment"),
     )?;
+    let codegen = rinzu_compiler::timing::span("aot.codegen");
     let aot = if uses_source_async {
         emit_source_async_aot_object_for_target(target, &artifact.ir, "main", &native_bindings)
     } else {
@@ -164,6 +165,7 @@ fn build_checked_layout(
     } else {
         None
     };
+    drop(codegen);
     let executable = std::path::absolute(output.unwrap_or_else(|| context.default_output()))
         .map_err(|error| error.to_string())?;
     crate::input::protect_outputs(
@@ -264,6 +266,13 @@ fn build_checked_layout(
 
     let runtime_resources = rinzu_compiler::standard_library::resource_root()?;
     let link_toolchain = crate::native_clang::TargetClang::resolve()?;
+    let runtime = compile_runtime_shim(
+        &link_toolchain,
+        &runtime_resources,
+        &native_build.directory,
+        &shim,
+        async_plan.is_some(),
+    )?;
     let mut linker = link_toolchain.executable_command();
     linker
         .arg("-std=c11")
@@ -271,7 +280,7 @@ fn build_checked_layout(
         .arg("-I")
         .arg(runtime_resources.join("include"))
         .arg(&object)
-        .arg(&shim);
+        .arg(runtime);
     if !aot.native_call_plans.is_empty() {
         linker
             .arg(runtime_resources.join("runtime/callback_entry.c"))
@@ -321,12 +330,15 @@ fn build_checked_layout(
             linker.args(["-lcrypto", "-ldl"]);
         }
     }
-    crate::cli_diagnostics::tool_output(
-        linker.arg("-o").arg(&executable).output(),
-        Some(&executable),
-        "AOT linking",
-        "clang",
-    )?;
+    {
+        let _timing = rinzu_compiler::timing::span("aot.link");
+        crate::cli_diagnostics::tool_output(
+            linker.arg("-o").arg(&executable).output(),
+            Some(&executable),
+            "AOT linking",
+            "clang",
+        )?;
+    }
     link_toolchain.verify()?;
     native_build.verify_inputs()?;
     let mut saved: serde_json::Value =
@@ -363,6 +375,39 @@ fn build_checked_layout(
         object,
         metadata,
     })
+}
+
+fn compile_runtime_shim(
+    toolchain: &crate::native_clang::TargetClang,
+    resources: &Path,
+    scratch: &Path,
+    shim: &Path,
+    asynchronous: bool,
+) -> Result<PathBuf, String> {
+    let directory = scratch.join("aot-runtime");
+    fs::create_dir(&directory).map_err(|error| format!("stage AOT runtime: {error}"))?;
+    let source = directory.join("runtime.c");
+    let object = directory.join("runtime.o");
+    fs::copy(shim, &source).map_err(|error| format!("stage AOT runtime source: {error}"))?;
+    let mut compiler = toolchain.command();
+    compiler
+        .args(["-std=c11", "-O2", "-c", "-I"])
+        .arg(resources.join("include"));
+    if toolchain.target == Target::X86_64UnknownLinuxGnu {
+        compiler.args(["-fPIE", "-pthread"]);
+    } else if asynchronous {
+        compiler.arg("-pthread");
+    }
+    compiler.arg(&source).arg("-o").arg(&object);
+    crate::compile_cache::compile(
+        toolchain,
+        compiler,
+        &directory,
+        &object,
+        &source,
+        "AOT runtime shim",
+    )?;
+    Ok(object)
 }
 
 pub(super) fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
@@ -685,12 +730,14 @@ fn write_metadata_with_native_inputs(
             "rinzu_baseline_construct_owner_proven",
             "rinzu_baseline_data_operation_owner_proven",
             "rinzu_baseline_bytes_slice_payload_owner_proven",
+            "rinzu_baseline_indexed_option_owner_proven",
             "rinzu_baseline_bytes_int_length_owner_proven",
             "rinzu_baseline_string_scalar_length_owner_proven",
             "rinzu_baseline_collection_length_owner_proven",
             "rinzu_baseline_construct",
             "rinzu_baseline_data_operation",
             "rinzu_baseline_bytes_slice_payload",
+            "rinzu_baseline_indexed_option",
             "rinzu_baseline_bytes_int_length",
             "rinzu_baseline_string_scalar_length",
             "rinzu_baseline_collection_length",
@@ -793,12 +840,14 @@ fn runtime_shim(
     let synchronous_exit_status =
         aot.target == Target::X86_64UnknownLinuxGnu && async_plan.is_none();
     let mut source = String::from(
-        "#include <stdint.h>\n#include <stdio.h>\n#ifndef printf\nstatic int rinzu_report_printf(const char *,...);\n#define printf rinzu_report_printf\n#define RINZU_AOT_BUFFERED_REPORT 1\n#endif\n#include <limits.h>\n#include <stdlib.h>\n#include <string.h>\n#include <pthread.h>\n#include \"rinzu/standalone_interrupt.h\"\n#include \"rinzu/runtime.h\"\n#include \"rinzu/failure.h\"\n#include \"rinzu/error_groups.h\"\n#include \"rinzu/managed_composite.h\"\n#include \"rinzu/native_record.h\"\n#include \"rinzu/native_userdata.h\"\n#include \"rinzu/owner_transition.h\"\n",
+        "#ifndef RINZU_PROGRAM_API\n#define RINZU_PROGRAM_API static\n#endif\n#include <stdint.h>\n#include <stdio.h>\n#ifndef printf\nstatic int rinzu_report_printf(const char *,...);\n#define printf rinzu_report_printf\n#define RINZU_AOT_BUFFERED_REPORT 1\n#endif\n#include <limits.h>\n#include <stdlib.h>\n#include <string.h>\n#include <pthread.h>\n#include \"rinzu/standalone_interrupt.h\"\n#include \"rinzu/runtime.h\"\n#include \"rinzu/failure.h\"\n#include \"rinzu/error_groups.h\"\n#include \"rinzu/managed_composite.h\"\n#include \"rinzu/native_record.h\"\n#include \"rinzu/native_userdata.h\"\n#include \"rinzu/owner_transition.h\"\n",
     );
+    source.push_str("/* RINZU_JIT_PROGRAM_BEGIN */\n");
     source.push_str(&aot.data_schema_c);
     source.push_str(&aot.source_locations_c);
+    source.push_str("/* RINZU_JIT_PROGRAM_END */\n");
     source.push_str(include_str!("aot_error_trace.c"));
-    source.push_str("static const char *rinzu_error_trace_function_name(int64_t function) { switch(function) {\n");
+    source.push_str("/* RINZU_JIT_PROGRAM_BEGIN */\nRINZU_PROGRAM_API const char *rinzu_error_trace_function_name(int64_t function) { switch(function) {\n");
     for function in &aot.functions {
         source.push_str(&format!(
             "case {}: return {};\n",
@@ -806,16 +855,18 @@ fn runtime_shim(
             crate::resource_report::c_string(&function.name)
         ));
     }
-    source.push_str("default: rinzu_failure_fatal(); return NULL;} }\n");
+    source
+        .push_str("default: rinzu_failure_fatal(); return NULL;} }\n/* RINZU_JIT_PROGRAM_END */\n");
     source.push_str(
         "static rinzu_value_schema_t rinzu_program_schema;\n\
          static pthread_once_t rinzu_program_schema_once = PTHREAD_ONCE_INIT;\n\
          static void rinzu_init_program_schema(void) { if (rinzu_value_schema_init(&rinzu_program_schema, rinzu_program_types, sizeof rinzu_program_types / sizeof *rinzu_program_types)) rinzu_failure_fatal(); }\n\
+         /* RINZU_JIT_SHARED_BEGIN */\n\
          typedef struct RinzuAsyncState RinzuAsyncState;\n\
          typedef struct RinzuAsyncTask RinzuAsyncTask;\n\
-         typedef struct { RinzuAsyncState *async; RinzuAsyncTask *task; rinzu_owner_transition_t transitions; rinzu_owner_transition_t *shared_transitions; struct rinzu_foreign_queue *foreign_queue; struct rinzu_async_future *worker; struct RinzuNativeCall *native_calls; struct RinzuReturnRoot *return_roots; struct RinzuTaskScope *task_scopes; rinzu_userdata_registry_t userdata; rinzu_userdata_registry_t *shared_userdata; rinzu_failure_state_t pending; rinzu_error_groups_t error_groups; rinzu_error_trace_stack_t error_trace_stack; rinzu_managed_roots_t roots; rinzu_managed_data_t data; rinzu_managed_data_t *shared_data; rinzu_managed_root_set_t domain_roots; rinzu_source_position_t source; uint64_t failure_origin; uint64_t polls; uint64_t *domain_polls; uint64_t allocations; uint64_t cancel_after; uint64_t max_allocations; uint64_t shutdown_after; uint64_t callback_dispatches; uint64_t callback_depth; int cancel_requested; int shutdown_requested; int cancel_masked; } RinzuContext;\n\
-         static __attribute__((noinline, cold)) void rinzu_context_configure_data(rinzu_managed_data_t *data) { if (pthread_once(&rinzu_program_schema_once, rinzu_init_program_schema) || rinzu_managed_configure_values(data, &rinzu_program_schema)) rinzu_failure_fatal(); rinzu_configure_program_sources(data); }\n\
-         static inline rinzu_managed_data_t *rinzu_context_data(RinzuContext *context) { rinzu_managed_data_t *data = context->shared_data ? context->shared_data : &context->data; if (!data->schema) rinzu_context_configure_data(data); return data; }\n",
+         typedef struct { RinzuAsyncState *async; RinzuAsyncTask *task; rinzu_owner_transition_t transitions; rinzu_owner_transition_t *shared_transitions; struct rinzu_foreign_queue *foreign_queue; struct rinzu_async_future *worker; struct RinzuNativeCall *native_calls; struct RinzuReturnRoot *return_roots; struct RinzuTaskScope *task_scopes; rinzu_userdata_registry_t userdata; rinzu_userdata_registry_t *shared_userdata; rinzu_failure_state_t pending; rinzu_error_groups_t error_groups; rinzu_error_trace_stack_t error_trace_stack; rinzu_managed_roots_t roots; rinzu_managed_data_t data; rinzu_managed_data_t *shared_data; rinzu_managed_root_set_t domain_roots; rinzu_source_position_t source; uint64_t failure_origin; uint64_t polls; uint64_t *domain_polls; uint64_t allocations; uint64_t cancel_after; uint64_t max_allocations; uint64_t shutdown_after; uint64_t callback_dispatches; uint64_t callback_depth; int cancel_requested; int shutdown_requested; int cancel_masked; } RinzuContext;\n/* RINZU_JIT_SHARED_END */\n\
+         RINZU_PROGRAM_API __attribute__((noinline, cold)) void rinzu_context_configure_data(rinzu_managed_data_t *data) { if (pthread_once(&rinzu_program_schema_once, rinzu_init_program_schema) || rinzu_managed_configure_values(data, &rinzu_program_schema)) rinzu_failure_fatal(); rinzu_configure_program_sources(data); }\n\
+         /* RINZU_JIT_SHARED_BEGIN */\nRINZU_PROGRAM_API void rinzu_context_configure_data(rinzu_managed_data_t *);\nstatic inline rinzu_managed_data_t *rinzu_context_data(RinzuContext *context) { rinzu_managed_data_t *data = context->shared_data ? context->shared_data : &context->data; if (!data->schema) rinzu_context_configure_data(data); return data; }\n/* RINZU_JIT_SHARED_END */\n",
     );
     source.push_str(rinzu_runtime::stdio::C_SOURCE);
     source.push_str(include_str!("aot_report.c"));
@@ -832,12 +883,24 @@ fn runtime_shim(
     }
     let records = include_str!("aot_native_record.c");
     if aot.native_record_schemas.is_empty() {
-        source.push_str(&records.replace("/* SOURCE_NATIVE_RECORD_LAYOUTS */", "static const rinzu_native_record_layout_t rinzu_native_record_layouts[] = {{0,0,0,0,NULL}};\nstatic const size_t rinzu_native_record_layout_count = 0;\n"));
+        source.push_str(&records.replace("/* SOURCE_NATIVE_RECORD_LAYOUTS */", "/* RINZU_JIT_PROGRAM_BEGIN */\nstatic const rinzu_native_record_layout_t rinzu_native_record_layouts[] = {{0,0,0,0,NULL}};\nstatic const size_t rinzu_native_record_layout_count = 0;\n/* RINZU_JIT_PROGRAM_END */\n"));
     } else {
         source.push_str(records);
     }
+    source.push_str("/* RINZU_JIT_PROGRAM_BEGIN */\n#ifndef RINZU_JIT_FUNCTION_COUNT\n");
+    for function in &aot.functions {
+        let mut parameters = vec!["void *context".to_owned()];
+        parameters
+            .extend((0..function.parameter_count).map(|index| format!("int64_t argument_{index}")));
+        source.push_str(&format!(
+            "extern int64_t {}({});\n",
+            function.symbol,
+            parameters.join(", ")
+        ));
+    }
+    source.push_str("#endif\n/* RINZU_JIT_PROGRAM_END */\n");
     if aot.native_call_plans.is_empty() {
-        source.push_str("static void rinzu_aot_source_native_startup(void) {}\nstatic int rinzu_aot_source_native_baseline(void) { return 1; }\nstatic void rinzu_aot_source_native_evidence(void) {}\n");
+        source.push_str("RINZU_PROGRAM_API void rinzu_aot_source_native_startup(void) {}\nRINZU_PROGRAM_API int rinzu_aot_source_native_baseline(void) { return 1; }\nRINZU_PROGRAM_API void rinzu_aot_source_native_evidence(void) {}\n");
     } else {
         source.push_str("#include \"rinzu/native_input.h\"\n");
         source.push_str("#define RINZU_AOT_HAS_SOURCE_NATIVE 1\nstatic void *rinzu_aot_callback_parent_scope(RinzuContext *);\nstatic void *rinzu_aot_callback_enter_scope(RinzuContext *,void *);\nstatic void rinzu_aot_callback_leave_scope(RinzuContext *,void *);\n");
@@ -847,16 +910,6 @@ fn runtime_shim(
         source.push_str(&include_str!("aot_source_native.c").replace(
             "/* SOURCE_NATIVE_PLANS */",
             &crate::aot_source_native::plans(aot, packages).expect("validated source native plans"),
-        ));
-    }
-    for function in &aot.functions {
-        let mut parameters = vec!["void *context".to_owned()];
-        parameters
-            .extend((0..function.parameter_count).map(|index| format!("int64_t argument_{index}")));
-        source.push_str(&format!(
-            "extern int64_t {}({});\n",
-            function.symbol,
-            parameters.join(", ")
         ));
     }
     for import in native_imports {
@@ -927,10 +980,15 @@ fn runtime_shim(
            if (failed && context->pending.current.primary == 0) rinzu_failure_fail(&context->pending, 1, context->source); return result;\n\
          }\n\
          int64_t rinzu_baseline_resolve_dispatch(void *raw, int64_t function) {\n\
-           (void)raw; switch (function) {\n",
+           (void)raw;\n\
+         #ifdef RINZU_JIT_FUNCTION_COUNT\n\
+           if ((uint64_t)function >= RINZU_JIT_FUNCTION_COUNT) return 0;\n\
+           return (int64_t)rinzu_jit_functions[function];\n\
+         #else\n\
+           switch (function) {\n",
     );
     append_dispatch_cases(&mut source, &aot.functions);
-    source.push_str("    default: return 0;\n  }\n}\n\n");
+    source.push_str("    default: return 0;\n  }\n#endif\n}\n\n");
     source.push_str(include_str!("aot_collections.c"));
     source.push_str(include_str!("aot_arguments.c"));
     if aot.uses_json {
@@ -966,7 +1024,7 @@ fn runtime_shim(
         );
     }
     source.push_str(
-        "int64_t rinzu_baseline_native_invoke(void *raw, int64_t key, int64_t count, int64_t a0, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5, int64_t a6, int64_t a7) {\n\
+        "/* RINZU_JIT_PROGRAM_BEGIN */\nint64_t rinzu_baseline_native_invoke(void *raw, int64_t key, int64_t count, int64_t a0, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5, int64_t a6, int64_t a7) {\n\
            RinzuContext *context = raw;\n\
            if (count < 0 || count > 8) { rinzu_failure_fail(&context->pending, 3, context->source); return 0; }\n\
            int64_t arguments[8] = {a0, a1, a2, a3, a4, a5, a6, a7}; (void)arguments;\n",
@@ -992,6 +1050,7 @@ fn runtime_shim(
     source.push_str(
         "    default: break;\n  }\n  if (status != RINZU_STATUS_OK) { rinzu_failure_fail(&context->pending, 3, context->source); return 0; }\n  return result;\n}\n\n",
     );
+    source.push_str("/* RINZU_JIT_PROGRAM_END */\n");
     if let Some(plan) = async_plan {
         append_async_main(&mut source, aot, plan);
     } else {
@@ -1040,12 +1099,14 @@ fn runtime_shim(
 }
 
 fn append_dispatch_cases(source: &mut String, functions: &[AotFunctionMetadata]) {
+    source.push_str("/* RINZU_JIT_AOT_ONLY_BEGIN */\n");
     for function in functions {
         source.push_str(&format!(
             "    case {}: return (int64_t)(intptr_t)&{};\n",
             function.index, function.symbol
         ));
     }
+    source.push_str("/* RINZU_JIT_AOT_ONLY_END */\n");
 }
 
 fn append_async_main(source: &mut String, aot: &BaselineAotObject, plan: &AsyncAotPlan) {
@@ -1054,7 +1115,7 @@ fn append_async_main(source: &mut String, aot: &BaselineAotObject, plan: &AsyncA
     }
     source.push_str(include_str!("aot_typed_worker.c"));
     source.push_str(
-        "static void rinzu_aot_async_prepare(RinzuAsyncTask *task) {\n  switch (task->index) {\n",
+        "/* RINZU_JIT_PROGRAM_BEGIN */\nRINZU_PROGRAM_API void rinzu_aot_async_prepare(RinzuAsyncTask *task) {\n  switch (task->index) {\n",
     );
     for callee in &plan.callees {
         let validation = callee.parameter_types.iter().enumerate().map(|(index, ty)| format!("if (rinzu_managed_slot_valid(rinzu_context_data(&task->context), {ty}, (rinzu_managed_slot_t){{task->arguments[{index}], {reference}}})) rinzu_failure_fatal();", reference = u8::from(callee.managed_parameters[index]))).collect::<Vec<_>>().join(" ");
@@ -1082,7 +1143,7 @@ fn append_async_main(source: &mut String, aot: &BaselineAotObject, plan: &AsyncA
             label = serde_json::to_string(&aot.functions.iter().find(|function| function.index == callee.index).unwrap().name).unwrap(),
         ));
     }
-    source.push_str("    default: rinzu_failure_fatal();\n  }\n}\nstatic int64_t rinzu_aot_async_entry(RinzuAsyncTask *task) {\n  switch (task->index) {\n");
+    source.push_str("    default: rinzu_failure_fatal();\n  }\n}\nRINZU_PROGRAM_API int64_t rinzu_aot_async_entry(RinzuAsyncTask *task) {\n  switch (task->index) {\n");
     for callee in &plan.callees {
         let arguments = (0..callee.managed_parameters.len())
             .map(|index| format!(", (int64_t)task->arguments[{index}]"))
@@ -1131,7 +1192,7 @@ static void rinzu_worker_run_{index}(rinzu_async_future_t *future) {{
 }}
 "#, index = worker.index, symbol = worker.symbol, label = serde_json::to_string(&aot.functions.iter().find(|function|function.index==worker.index).unwrap().name).unwrap()));
     }
-    source.push_str("static rinzu_async_future_t *rinzu_aot_worker_request(RinzuContext *context, int64_t index, const uint64_t *arguments, int64_t count) {\n  (void)context; (void)arguments; (void)count;\n  switch (index) {\n");
+    source.push_str("RINZU_PROGRAM_API rinzu_async_future_t *rinzu_aot_worker_request(RinzuContext *context, int64_t index, const uint64_t *arguments, int64_t count) {\n  (void)context; (void)arguments; (void)count;\n  switch (index) {\n");
     for worker in &plan.workers {
         let kinds = if worker.parameters.is_empty() {
             "NULL".into()
@@ -1178,7 +1239,9 @@ int main(int argc, char **argv) {{
   rinzu_aot_supplant_finish(&async);
 #endif
   context.data.future_context=NULL;context.data.future_begin=NULL;context.data.future_mark=NULL;context.data.future_sweep=NULL;context.data.future_due=NULL;
+  RINZU_NATIVE_LIFETIME_EVENT("shutdown", 0, 0, 0);
   rinzu_async_dispose(&async.runtime);
+  RINZU_NATIVE_LIFETIME_EVENT("env_free", 0, 0, 0);
   rinzu_child_dispose(&async.children);
   context.data.program_arguments = 0;
   rinzu_failure_forget_managed(&context.pending.current);
@@ -1202,6 +1265,7 @@ int main(int argc, char **argv) {{
   rinzu_managed_detach_roots(context.shared_data, &context.domain_roots);
   rinzu_failure_dispose(&context.pending); rinzu_managed_dispose(&context.roots); rinzu_managed_data_dispose(&context.data);
   if (rinzu_report_flush()) exit_code = 1;
+  RINZU_NATIVE_LIFETIME_EVENT("owner_dispose", 0, 0, 0);
   return exit_code;
 }}
 "#, root_file = aot.functions.iter().find(|function|function.index==aot.entry_index).unwrap().source.file,
@@ -1209,6 +1273,7 @@ int main(int argc, char **argv) {{
         root_end = aot.functions.iter().find(|function|function.index==aot.entry_index).unwrap().source.end_byte,
         root_label = serde_json::to_string(&aot.functions.iter().find(|function|function.index==aot.entry_index).unwrap().name).unwrap(),
         entry = aot.entry_symbol));
+    source.push_str("/* RINZU_JIT_PROGRAM_END */\n");
 }
 
 #[cfg(test)]

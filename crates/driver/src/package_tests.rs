@@ -1,12 +1,13 @@
-//! Explicit test supervision; legacy `test` continues to execute package main.
+//! Supervision for test files and executable documentation examples.
 use rinzu_compiler::{
     NativeCliInputs, PackageTestCase, PackageTestOptions, SourceCache, SourceSnapshot,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeSet;
-use std::io::{Read, Write};
+use std::fs::{File, OpenOptions};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -14,11 +15,16 @@ use std::time::{Duration, Instant};
 
 use crate::cli_diagnostics;
 
+mod case_log;
+mod files;
+mod worker_io;
+
 const OUTPUT_LIMIT: usize = 1024 * 1024;
 const REPORT_OUTPUT_LIMIT: usize = 4 * OUTPUT_LIMIT;
 thread_local! {
     static SCRATCH: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
     static EVIDENCE: RefCell<Option<Value>> = const { RefCell::new(None) };
+    static FILE_WORKER: Cell<bool> = const { Cell::new(false) };
 }
 
 pub(crate) fn generated_directory(manifest: &rinzu_compiler::Manifest) -> PathBuf {
@@ -43,6 +49,10 @@ fn observe(value: impl FnOnce() -> Value) {
 
 pub(crate) fn is_worker() -> bool {
     SCRATCH.with(|scratch| scratch.borrow().is_some())
+}
+
+pub(crate) fn is_file_worker() -> bool {
+    FILE_WORKER.get()
 }
 
 pub(crate) fn failure(failure: Option<&rinzu_runtime::failure::Failure>) -> Value {
@@ -115,48 +125,64 @@ pub(crate) fn observe_compiled(run: &crate::compiled_async::CompiledAsyncRun) {
 }
 
 struct Options {
-    compiler: PackageTestOptions,
-    native: NativeCliInputs,
-    start: PathBuf,
+    documents: Vec<PathBuf>,
     list: bool,
     json: bool,
     filter: Option<String>,
+    case: Option<String>,
     timeout_ms: u64,
+    has_runner_flags: bool,
 }
 
-fn parse(arguments: &[String]) -> Result<Option<Options>, String> {
-    let mut compiler = PackageTestOptions::default();
+impl Options {
+    fn matches(&self, identity: &str) -> bool {
+        self.filter
+            .as_ref()
+            .is_none_or(|filter| identity.contains(filter))
+    }
+}
+
+fn parse(arguments: &[String]) -> Result<(crate::native_cli::PackageArguments, Options), String> {
+    let mut documents = Vec::new();
     let mut seen = BTreeSet::new();
     let mut remaining = Vec::new();
     let (mut list, mut json, mut filter, mut timeout_ms) = (false, false, None, 60000);
+    let mut case = None;
     let mut index = 0;
     while index < arguments.len() {
         let argument = &arguments[index];
-        match argument.as_str() {
-            "--unit" | "--list" => {
+        let (flag, inline_value) = argument
+            .strip_prefix("--case=")
+            .map_or((argument.as_str(), None), |value| ("--case", Some(value)));
+        match flag {
+            "--list" => {
                 if !seen.insert(argument.clone()) {
                     return Err(format!("duplicate test flag {argument}"));
                 }
-                if argument == "--unit" {
-                    compiler.unit = true;
-                } else {
-                    list = true;
-                }
+                list = true;
             }
-            "--doc" | "--filter" | "--format" | "--timeout-ms" => {
-                if argument != "--doc" && !seen.insert(argument.clone()) {
-                    return Err(format!("duplicate test option {argument}"));
+            "--doc" | "--filter" | "--format" | "--timeout-ms" | "--case" => {
+                if flag != "--doc" && !seen.insert(flag.to_owned()) {
+                    return Err(format!("duplicate test option {flag}"));
                 }
-                index += 1;
-                let value = arguments
-                    .get(index)
-                    .filter(|v| !v.starts_with('-') && !v.is_empty())
-                    .ok_or_else(|| format!("{argument} needs a value"))?;
-                match argument.as_str() {
-                    "--doc" => compiler.documents.push(value.into()),
-                    "--filter" => filter = Some(value.clone()),
+                let value = match inline_value {
+                    Some(value) => Some(value),
+                    None => {
+                        index += 1;
+                        arguments
+                            .get(index)
+                            .map(String::as_str)
+                            .filter(|value| !value.starts_with('-'))
+                    }
+                }
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| format!("{flag} needs a value"))?;
+                match flag {
+                    "--doc" => documents.push(value.into()),
+                    "--filter" => filter = Some(value.to_owned()),
+                    "--case" => case = Some(value.to_owned()),
                     "--format" => {
-                        json = match value.as_str() {
+                        json = match value {
                             "text" => false,
                             "json" => true,
                             _ => return Err("test format must be text or json".into()),
@@ -174,27 +200,19 @@ fn parse(arguments: &[String]) -> Result<Option<Options>, String> {
         }
         index += 1;
     }
-    if !compiler.unit && compiler.documents.is_empty() {
-        if !seen.is_empty() {
-            return Err("test runner options require --unit or --doc FILE".into());
-        }
-        return Ok(None);
-    }
     let parsed = crate::native_cli::parse("test", remaining.into_iter())?;
-    if parsed.resource_report.is_some() {
-        return Err("unit/doc tests use per-case resource reports; legacy --resource-report requires main mode".into());
-    }
-    Ok(Some(Options {
-        compiler,
-        native: parsed.native,
-        start: parsed
-            .path
-            .unwrap_or(std::env::current_dir().map_err(|e| e.to_string())?),
-        list,
-        json,
-        filter,
-        timeout_ms,
-    }))
+    Ok((
+        parsed,
+        Options {
+            documents,
+            list,
+            json,
+            filter,
+            case,
+            timeout_ms,
+            has_runner_flags: !seen.is_empty(),
+        },
+    ))
 }
 
 fn location(range: rinzu_compiler::SourceRange, sources: &SourceSnapshot<'_>) -> Value {
@@ -219,6 +237,32 @@ fn case_metadata(case: &PackageTestCase, sources: &SourceSnapshot<'_>) -> Value 
     json!({"identity":case.identity,"kind":case.kind,"path":case.path,"isAsync":case.is_async,"location":location(case.range,sources),"status":"not-run","settlement":"not-run"})
 }
 
+enum Entry<'a> {
+    Document(&'a PackageTestCase),
+    File(&'a files::FileEntry),
+}
+
+impl Entry<'_> {
+    fn metadata(&self, sources: &SourceSnapshot<'_>) -> Value {
+        match self {
+            Self::Document(case) => case_metadata(case, sources),
+            Self::File(file) => json!({
+                "identity":file.identity(),"kind":"file","path":file.path,
+                "relativePath":file.relative,"location":null,"isAsync":null,
+                "status":"not-run","settlement":"not-run","cases":[],
+            }),
+        }
+    }
+}
+
+fn entries_key(report: &Value) -> &'static str {
+    if report["version"] == 2 {
+        "entries"
+    } else {
+        "cases"
+    }
+}
+
 fn print_report(report: &Value, json_output: bool) -> Result<(), String> {
     if json_output {
         println!(
@@ -226,17 +270,38 @@ fn print_report(report: &Value, json_output: bool) -> Result<(), String> {
             serde_json::to_string(report).map_err(|e| e.to_string())?
         );
     } else {
-        if let Some(cases) = report["cases"].as_array() {
+        if let Some(cases) = report[entries_key(report)].as_array() {
             for case in cases {
-                println!(
-                    "{} {} ({} ms) [{}:{}:{}]",
-                    case["status"].as_str().unwrap_or("not-run"),
-                    case["identity"].as_str().unwrap_or("?"),
-                    case["elapsedMs"].as_u64().unwrap_or(0),
-                    case["location"]["path"].as_str().unwrap_or("?"),
-                    case["location"]["line"].as_u64().unwrap_or(0),
-                    case["location"]["column"].as_u64().unwrap_or(0)
-                );
+                let status = case["status"].as_str().unwrap_or("not-run");
+                let identity = case["identity"].as_str().unwrap_or("?");
+                let elapsed = case["elapsedMs"].as_u64().unwrap_or(0);
+                if let Some(path) = case["location"]["path"].as_str() {
+                    println!(
+                        "{status} {identity} ({elapsed} ms) [{path}:{}:{}]",
+                        case["location"]["line"].as_u64().unwrap_or(0),
+                        case["location"]["column"].as_u64().unwrap_or(0),
+                    );
+                } else {
+                    println!("{status} {identity} ({elapsed} ms)");
+                }
+                if let Some(named) = case["cases"].as_array() {
+                    for named in named {
+                        println!(
+                            "  {} {}",
+                            named["status"].as_str().unwrap_or("?"),
+                            named["name"].as_str().unwrap_or("?").escape_debug(),
+                        );
+                        if let Some(errors) = named["errors"].as_array() {
+                            for error in errors {
+                                eprintln!(
+                                    "    {}: {}",
+                                    error["name"].as_str().unwrap_or("Error").escape_debug(),
+                                    error["message"].as_str().unwrap_or("").escape_debug(),
+                                );
+                            }
+                        }
+                    }
+                }
                 for key in ["stdoutBytes", "stderrBytes"] {
                     if let Some(bytes) = case[key].as_array() {
                         let bytes = bytes
@@ -253,20 +318,38 @@ fn print_report(report: &Value, json_output: bool) -> Result<(), String> {
                 if let Some(message) = case["worker"]["error"].as_str() {
                     eprintln!("{message}");
                 }
+                if let Some(message) = case["error"].as_str() {
+                    eprintln!("{message}");
+                }
             }
         }
         println!(
             "tests: {} selected, {} passed, {} failed",
             report["summary"]["selected"], report["summary"]["passed"], report["summary"]["failed"]
         );
+        if let Some(summary) = report.get("caseSummary") {
+            println!(
+                "cases: {} started, {} passed, {} failed",
+                summary["selected"], summary["passed"], summary["failed"]
+            );
+        }
     }
     Ok(())
 }
 
 pub(crate) fn run(arguments: impl Iterator<Item = String>) -> Result<(), String> {
     let arguments = arguments.collect::<Vec<_>>();
-    let Some(options) = parse(&arguments)? else {
-        let parsed = crate::native_cli::parse("test", arguments.into_iter())?;
+    let (parsed, options) = parse(&arguments)?;
+    let files = parsed
+        .path
+        .as_deref()
+        .map(files::Selection::from_path)
+        .transpose()?
+        .flatten();
+    if files.is_none() && options.documents.is_empty() {
+        if options.has_runner_flags {
+            return Err("test runner options require a path under tests/ or --doc FILE".into());
+        }
         let path = parsed
             .path
             .unwrap_or(std::env::current_dir().map_err(|e| e.to_string())?);
@@ -277,18 +360,63 @@ pub(crate) fn run(arguments: impl Iterator<Item = String>) -> Result<(), String>
             &parsed.native,
             parsed.resource_report.as_ref(),
         );
+    }
+    if parsed.resource_report.is_some() {
+        return Err(
+            "file/doc tests use individual resource reports; --resource-report requires main mode"
+                .into(),
+        );
+    }
+    if options.case.is_some()
+        && (options.list
+            || !options.documents.is_empty()
+            || files
+                .as_ref()
+                .is_none_or(|selection| !selection.scope.is_file()))
+    {
+        return Err("--case requires a single .test.rinzu file without --list or --doc".into());
+    }
+    let start = if let Some(selection) = &files {
+        selection.root.clone()
+    } else {
+        let path = parsed
+            .path
+            .unwrap_or(std::env::current_dir().map_err(|e| e.to_string())?);
+        crate::input::require_package("test", &path)?;
+        path
     };
-    crate::input::require_package("test", &options.start)?;
+    let file_entries = files
+        .as_ref()
+        .map(files::Selection::entries)
+        .transpose()?
+        .unwrap_or_default();
     let mut cache = SourceCache::default();
     let mut sources = SourceSnapshot::new(&mut cache, Default::default());
-    let checked =
-        rinzu_compiler::check_package_tests(&options.start, &mut sources, &options.compiler)
-            .and_then(|(manifest, mut artifact, cases)| {
-                artifact.native_inputs = options.native.normalize(&manifest)?;
-                Ok((manifest, artifact, cases))
-            });
-    let mut report = json!({"schema":"rinzu.test-report","version":1,"mode":if options.list {"list"} else {"run"},"target":rinzu_runtime::current_target(),"semantics":rinzu_compiler::LANGUAGE_SEMANTICS_REVISION,"cases":[],"diagnostics":[],"summary":{"selected":0,"passed":0,"failed":0,"notRun":0}});
-    let (manifest, _, cases) = match checked {
+    let checked = if options.documents.is_empty() {
+        rinzu_compiler::load_manifest_with_sources(&start.join("rinzu.toml"), &mut sources)
+            .map(|manifest| (manifest, Vec::new()))
+    } else {
+        rinzu_compiler::check_package_tests(
+            &start,
+            &mut sources,
+            &PackageTestOptions {
+                documents: options.documents.clone(),
+                selected: None,
+            },
+        )
+        .map(|(manifest, _, cases)| (manifest, cases))
+    }
+    .and_then(|(manifest, cases)| {
+        parsed.native.normalize(&manifest)?;
+        Ok((manifest, cases))
+    });
+    let mut report = json!({"schema":"rinzu.test-report","version":if files.is_some() {2} else {1},"mode":if options.list {"list"} else {"run"},"target":rinzu_runtime::current_target(),"semantics":rinzu_compiler::LANGUAGE_SEMANTICS_REVISION,"diagnostics":[],"summary":{"selected":0,"passed":0,"failed":0,"notRun":0}});
+    let entries_key = entries_key(&report);
+    report[entries_key] = json!([]);
+    if files.is_some() {
+        report["caseSummary"] = json!({"selected":0,"passed":0,"failed":0});
+    }
+    let (manifest, cases) = match checked {
         Ok(value) => value,
         Err(errors) => {
             if options.json {
@@ -301,17 +429,19 @@ pub(crate) fn run(arguments: impl Iterator<Item = String>) -> Result<(), String>
             return Ok(());
         }
     };
-    let cases = cases
-        .into_iter()
-        .filter(|case| {
-            options
-                .filter
-                .as_ref()
-                .is_none_or(|f| case.identity.contains(f))
-        })
+    let entries = cases
+        .iter()
+        .filter(|case| options.matches(&case.identity))
+        .map(Entry::Document)
+        .chain(
+            file_entries
+                .iter()
+                .filter(|file| options.matches(&file.identity()))
+                .map(Entry::File),
+        )
         .collect::<Vec<_>>();
     report["package"] = json!(manifest.name);
-    if cases.is_empty() {
+    if entries.is_empty() {
         report["diagnostics"] = json!([{"message":"no matching test cases"}]);
         if !options.json {
             eprintln!("no matching test cases");
@@ -320,32 +450,47 @@ pub(crate) fn run(arguments: impl Iterator<Item = String>) -> Result<(), String>
         crate::PROGRAM_EXIT_STATUS.with(|s| s.set(1));
         return Ok(());
     }
-    report["summary"]["selected"] = json!(cases.len());
+    let file_inputs = (!options.list && files.is_some())
+        .then(|| files::Inputs::read(&manifest.root))
+        .transpose()?;
+    if file_inputs.is_some() && !sources.disk_is_current() {
+        return Err("test package configuration changed after discovery".into());
+    }
+    let document_receipts = sources
+        .input_receipts()
+        .into_iter()
+        .map(|(p, k, n, h)| (p, k.to_owned(), n, h))
+        .collect::<Vec<_>>();
     let mut rows = Vec::new();
     let mut worker_diagnostics = Vec::new();
     let mut output_remaining = REPORT_OUTPUT_LIMIT;
     let _signals = Signals::install()?;
     let diagnostic_cwd = std::env::current_dir().map_err(|error| error.to_string())?;
-    for case in &cases {
-        let mut row = case_metadata(case, &sources);
+    for entry in &entries {
+        let mut row = entry.metadata(&sources);
         if options.list || INTERRUPTED.load(Ordering::SeqCst) != 0 {
             rows.push(row);
             continue;
         }
         let scratch = Temporary::new()?;
+        let input = match entry {
+            Entry::Document(_) => WorkerInput::Documents {
+                documents: options.documents.clone(),
+                receipts: document_receipts.clone(),
+            },
+            Entry::File(file) => WorkerInput::File {
+                path: file.path.clone(),
+                inputs: file_inputs.as_ref().expect("file inputs").clone(),
+                case: options.case.clone(),
+            },
+        };
         let specification = WorkerSpec {
             root: manifest.root.clone(),
-            unit: options.compiler.unit,
-            documents: options.compiler.documents.clone(),
-            identity: case.identity.clone(),
-            native_flags: native_flags(&options.native),
+            input,
+            identity: row["identity"].as_str().expect("entry identity").to_owned(),
+            native_flags: native_flags(&parsed.native),
             json: options.json,
             diagnostic_cwd: diagnostic_cwd.clone(),
-            receipts: sources
-                .input_receipts()
-                .into_iter()
-                .map(|(p, k, n, h)| (p, k.to_owned(), n, h))
-                .collect(),
         };
         let mut outcome = supervise(
             &scratch.0,
@@ -354,7 +499,12 @@ pub(crate) fn run(arguments: impl Iterator<Item = String>) -> Result<(), String>
             (output_remaining / 2).min(OUTPUT_LIMIT),
         )?;
         if let Some(worker) = outcome["worker"].as_object_mut() {
-            if let Some(Value::Array(errors)) = worker.remove("diagnostics") {
+            if let Some(Value::Array(mut errors)) = worker.remove("diagnostics") {
+                if files.is_some() {
+                    for error in &mut errors {
+                        error["entryIdentity"] = json!(specification.identity);
+                    }
+                }
                 worker_diagnostics.extend(errors);
             }
             if let Some(Value::Array(blocks)) = worker.remove("diagnosticBlocks") {
@@ -373,17 +523,30 @@ pub(crate) fn run(arguments: impl Iterator<Item = String>) -> Result<(), String>
     let passed = rows.iter().filter(|r| r["status"] == "pass").count();
     let not_run = rows.iter().filter(|r| r["status"] == "not-run").count();
     let failed = rows.len() - passed - not_run;
-    report["cases"] = json!(rows);
+    if files.is_some() {
+        let mut named_selected = 0;
+        let mut named_passed = 0;
+        for case in rows
+            .iter()
+            .filter_map(|row| row["cases"].as_array())
+            .flatten()
+        {
+            named_selected += 1;
+            named_passed += usize::from(case["status"] == "pass");
+        }
+        report["caseSummary"] = json!({"selected":named_selected,"passed":named_passed,"failed":named_selected-named_passed});
+    }
+    report[entries_key] = json!(rows);
     report["diagnostics"] = json!(worker_diagnostics);
     report["outputByteBudget"] = json!(REPORT_OUTPUT_LIMIT);
     report["summary"] =
-        json!({"selected":cases.len(),"passed":passed,"failed":failed,"notRun":not_run});
+        json!({"selected":entries.len(),"passed":passed,"failed":failed,"notRun":not_run});
     print_report(&report, options.json)?;
     let interrupted = INTERRUPTED.load(Ordering::SeqCst);
     crate::PROGRAM_EXIT_STATUS.with(|s| {
         s.set(if interrupted != 0 {
             (128 + interrupted) as u8
-        } else if options.list || passed == cases.len() {
+        } else if options.list || passed == entries.len() {
             0
         } else {
             1
@@ -412,13 +575,25 @@ fn native_flags(inputs: &NativeCliInputs) -> Vec<String> {
 #[derive(Serialize, Deserialize)]
 struct WorkerSpec {
     root: PathBuf,
-    unit: bool,
-    documents: Vec<PathBuf>,
+    input: WorkerInput,
     identity: String,
     native_flags: Vec<String>,
     json: bool,
     diagnostic_cwd: PathBuf,
-    receipts: Vec<(PathBuf, String, usize, u64)>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+enum WorkerInput {
+    Documents {
+        documents: Vec<PathBuf>,
+        receipts: Vec<(PathBuf, String, usize, u64)>,
+    },
+    File {
+        path: PathBuf,
+        inputs: files::Inputs,
+        case: Option<String>,
+    },
 }
 
 pub(crate) fn worker(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
@@ -435,24 +610,40 @@ pub(crate) fn worker(mut arguments: impl Iterator<Item = String>) -> Result<(), 
         serde_json::from_reader(std::io::stdin().take((2 * OUTPUT_LIMIT + 1) as u64))
             .map_err(|e| e.to_string())?;
     SCRATCH.with(|s| *s.borrow_mut() = Some(scratch.clone()));
+    FILE_WORKER.set(matches!(&spec.input, WorkerInput::File { .. }));
     let mut cache = SourceCache::default();
     let mut sources = SourceSnapshot::new(&mut cache, Default::default());
-    let options = PackageTestOptions {
-        unit: spec.unit,
-        documents: spec.documents,
-        selected: Some(spec.identity.clone()),
-    };
     let mut source_files = Value::Null;
     let mut source_paths = Value::Null;
+    let mut metadata = Value::Null;
     let mut compilation_errors = Vec::new();
+    let mut preparing = true;
     let outcome = (|| {
-        let (manifest, mut artifact, _) =
-            rinzu_compiler::check_package_tests(&spec.root, &mut sources, &options).map_err(
-                |errors| {
-                    compilation_errors = errors;
-                    "input failed to check".to_owned()
-                },
-            )?;
+        let checked = match &spec.input {
+            WorkerInput::Documents { documents, .. } => {
+                let options = PackageTestOptions {
+                    documents: documents.clone(),
+                    selected: Some(spec.identity.clone()),
+                };
+                rinzu_compiler::check_package_tests(&spec.root, &mut sources, &options)
+                    .map(|(manifest, artifact, _)| (manifest, artifact))
+            }
+            WorkerInput::File { path, inputs, .. } => {
+                if files::Inputs::read(&spec.root)? != *inputs {
+                    return Err("test package configuration changed after discovery".into());
+                }
+                rinzu_compiler::check_package_test_file(&spec.root, path, &mut sources).map(
+                    |(manifest, artifact, file)| {
+                        metadata = case_metadata(&file, &sources);
+                        (manifest, artifact)
+                    },
+                )
+            }
+        };
+        let (manifest, mut artifact) = checked.map_err(|errors| {
+            compilation_errors = errors;
+            "input failed to check".to_owned()
+        })?;
         let mut labels = artifact.ir.source_files.iter().collect::<Vec<_>>();
         labels.sort_by(|a, b| a.1.cmp(b.1));
         source_files = json!(
@@ -471,12 +662,18 @@ pub(crate) fn worker(mut arguments: impl Iterator<Item = String>) -> Result<(), 
                 ))
                 .collect::<std::collections::BTreeMap<_, _>>()
         );
-        let receipts = sources
-            .input_receipts()
-            .into_iter()
-            .map(|(p, k, n, h)| (p, k.to_owned(), n, h))
-            .collect::<Vec<_>>();
-        if receipts != spec.receipts || !sources.disk_is_current() {
+        let matches = match &spec.input {
+            WorkerInput::Documents { receipts, .. } => sources
+                .input_receipts()
+                .into_iter()
+                .map(|(p, k, n, h)| (p, k.to_owned(), n, h))
+                .eq(receipts.iter().cloned()),
+            WorkerInput::File { inputs, .. } => {
+                metadata["identity"] == spec.identity
+                    && files::Inputs::read(&manifest.root)? == *inputs
+            }
+        };
+        if !matches || !sources.disk_is_current() {
             return Err("test inputs changed after discovery".to_owned());
         }
         artifact.native_inputs = crate::native_cli::parse("test", spec.native_flags.into_iter())?
@@ -508,6 +705,7 @@ pub(crate) fn worker(mut arguments: impl Iterator<Item = String>) -> Result<(), 
                 .map_err(|e| e.to_string())?,
             )
         };
+        let mut ready = || preparing = false;
         let outcome = crate::run_package_engines(
             &manifest,
             &artifact,
@@ -515,6 +713,10 @@ pub(crate) fn worker(mut arguments: impl Iterator<Item = String>) -> Result<(), 
             Some(&config),
             &mut session,
             &[],
+            crate::RunPreparation {
+                on_ready: Some(&mut ready),
+                ..Default::default()
+            },
         );
         if let Some(session) = session {
             session.finish().map_err(|e| e.to_string())?;
@@ -527,7 +729,12 @@ pub(crate) fn worker(mut arguments: impl Iterator<Item = String>) -> Result<(), 
     result["identity"] = json!(spec.identity);
     result["sourceFiles"] = source_files;
     result["sourcePaths"] = source_paths;
-    result["inputReceipts"] = json!(spec.receipts);
+    if let WorkerInput::Documents { receipts, .. } = &spec.input {
+        result["inputReceipts"] = json!(receipts);
+    } else {
+        result["location"] = metadata["location"].clone();
+        result["isAsync"] = metadata["isAsync"].clone();
+    }
     if let Err(error) = outcome {
         if compilation_errors.is_empty() {
             result["error"] = json!(error);
@@ -544,12 +751,17 @@ pub(crate) fn worker(mut arguments: impl Iterator<Item = String>) -> Result<(), 
                     .collect::<Vec<_>>()
             );
         }
-        if result["status"] == "pass" {
+        if is_file_worker() && preparing {
+            result["status"] = json!("compile-error");
+            result["settlement"] = json!("not-run");
+        } else if result["status"] == "pass" {
             result["status"] = json!("fail");
         }
     }
     let report = scratch.join("resource.jsonl");
-    if let Ok(bytes) = bounded_read(&report, OUTPUT_LIMIT) {
+    if result["status"] == "compile-error" {
+        // The file did not start, so it has no runtime settlement to confirm.
+    } else if let Ok(bytes) = bounded_read(&report, OUTPUT_LIMIT) {
         match bytes
             .split(|b| *b == b'\n')
             .filter(|line| !line.is_empty())
@@ -566,6 +778,28 @@ pub(crate) fn worker(mut arguments: impl Iterator<Item = String>) -> Result<(), 
         }
     } else {
         result["settlement"] = json!("unconfirmed");
+    }
+    if let WorkerInput::File { case, .. } = &spec.input
+        && result["status"] == "pass"
+    {
+        let log = case_log::CaseLog::read(&scratch);
+        if log.problem.is_some() || log.has_active_case() {
+            result["status"] = json!("protocol-error");
+            result["error"] = json!(
+                log.problem
+                    .unwrap_or_else(|| "named case did not finish".into())
+            );
+        } else if log.failed() {
+            result["status"] = json!("fail");
+            if let Some(message) = log.misuse {
+                result["error"] = json!(message);
+            }
+        } else if let Some(name) = case
+            && !log.cases.iter().any(|case| &case.name == name)
+        {
+            result["status"] = json!("fail");
+            result["error"] = json!(format!("no named test case matching {name:?}"));
+        }
     }
     let pass = result["status"] == "pass"
         && result["settlement"] == "confirmed"
@@ -585,9 +819,24 @@ pub(crate) fn worker(mut arguments: impl Iterator<Item = String>) -> Result<(), 
     Ok(())
 }
 
+fn open_report(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
+    }
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::other("test report must be a regular file"));
+    }
+    Ok(file)
+}
+
 fn bounded_read(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
-    std::fs::File::open(path)
+    open_report(path)
         .map_err(|e| e.to_string())?
         .take((limit + 1) as u64)
         .read_to_end(&mut bytes)
@@ -681,40 +930,29 @@ impl Drop for Signals {
     }
 }
 
-fn kill_group(child: &mut std::process::Child) {
-    #[cfg(unix)]
-    // SAFETY: this Child was started with a fresh process group whose ID is its PID.
-    unsafe {
-        libc::kill(-(child.id() as i32), libc::SIGKILL);
+fn valid_worker_result(worker: &Value, identity: &str, exit_code: Option<i32>) -> bool {
+    if worker["identity"] != identity || worker["exitCode"].as_i64() != exit_code.map(i64::from) {
+        return false;
     }
-    let _ = child.kill();
-}
-struct Running(std::process::Child, bool);
-impl Drop for Running {
-    fn drop(&mut self) {
-        if !self.1 {
-            kill_group(&mut self.0);
-            let _ = self.0.wait();
-        }
+    let settlement = worker["settlement"].as_str();
+    if settlement == Some("confirmed")
+        && !worker["resourceReport"]
+            .as_array()
+            .and_then(|rows| rows.last())
+            .is_some_and(|row| row["phase"] == "end")
+    {
+        return false;
     }
-}
-
-fn capture(mut reader: impl Read, limit: usize) -> Result<(Vec<u8>, u64), String> {
-    let mut bytes = Vec::new();
-    let mut total = 0_u64;
-    let mut buffer = [0; 8192];
-    loop {
-        let n = reader.read(&mut buffer).map_err(|e| e.to_string())?;
-        if n == 0 {
-            break;
-        }
-        total = total
-            .checked_add(n as u64)
-            .ok_or("test output byte count overflow")?;
-        let keep = n.min(limit.saturating_sub(bytes.len()));
-        bytes.extend_from_slice(&buffer[..keep]);
-    }
-    Ok((bytes, total))
+    matches!(
+        (exit_code, worker["status"].as_str(), settlement),
+        (Some(0), Some("pass"), Some("confirmed"))
+            | (Some(1), Some("compile-error"), Some("not-run"))
+            | (
+                Some(1),
+                Some("fail" | "cancelled" | "protocol-error"),
+                Some("confirmed" | "unconfirmed")
+            )
+    )
 }
 
 fn supervise(
@@ -733,53 +971,43 @@ fn supervise(
         .arg(scratch)
         .env("RINZU_TEST_TMP", scratch)
         .env("TMPDIR", scratch)
+        .env_remove(case_log::PATH_ENV)
+        .env_remove(case_log::FILTER_ENV)
+        .env_remove(case_log::SUPERVISOR_ENV)
         .current_dir(scratch)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
+    if let WorkerInput::File { case, .. } = &spec.input {
+        let path = scratch.join(case_log::FILE);
+        std::fs::File::create_new(&path).map_err(|error| error.to_string())?;
+        command
+            .env(case_log::PATH_ENV, path)
+            .env(case_log::SUPERVISOR_ENV, std::process::id().to_string());
+        if let Some(name) = case {
+            command.env(case_log::FILTER_ENV, name);
+        }
     }
     let started = Instant::now();
-    let mut child = Running(command.spawn().map_err(|e| e.to_string())?, false);
-    let stdout = child.0.stdout.take().unwrap();
-    let stderr = child.0.stderr.take().unwrap();
-    let out = std::thread::spawn(move || capture(stdout, capture_limit));
-    let err = std::thread::spawn(move || capture(stderr, capture_limit));
-    {
-        let mut stdin = child.0.stdin.take().unwrap();
-        stdin.write_all(&input).map_err(|e| e.to_string())?;
-    }
-    let mut forced = None;
-    let status = loop {
-        if let Some(status) = child.0.try_wait().map_err(|e| e.to_string())? {
-            break status;
-        }
-        if INTERRUPTED.load(Ordering::SeqCst) != 0 {
-            forced = Some("interrupted");
-            kill_group(&mut child.0);
-            break child.0.wait().map_err(|e| e.to_string())?;
-        }
-        if started.elapsed() >= Duration::from_millis(timeout_ms) {
-            forced = Some("timeout");
-            kill_group(&mut child.0);
-            break child.0.wait().map_err(|e| e.to_string())?;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    };
-    // A fixture subprocess cannot retain the parent's pipes after worker return.
-    kill_group(&mut child.0);
-    child.1 = true;
-    let (stdout, out_total) = out.join().map_err(|_| "test stdout capture panicked")??;
-    let (stderr, err_total) = err.join().map_err(|_| "test stderr capture panicked")??;
+    let worker_io::WorkerExit {
+        status,
+        forced,
+        stdout: (stdout, out_total),
+        stderr: (stderr, err_total),
+    } = worker_io::wait(
+        &mut command,
+        &input,
+        started,
+        Duration::from_millis(timeout_ms),
+        capture_limit,
+    )
+    .map_err(|e| e.to_string())?;
     let worker = bounded_read(&scratch.join("result.json"), 4 * OUTPUT_LIMIT)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
-    let valid = worker.as_ref().is_some_and(|w| {
-        w["identity"] == spec.identity && w["exitCode"].as_i64() == status.code().map(i64::from)
-    });
+    let valid = worker
+        .as_ref()
+        .is_some_and(|w| valid_worker_result(w, &spec.identity, status.code()));
     let case_status = forced.unwrap_or_else(|| {
         if !valid {
             "protocol-error"
@@ -796,7 +1024,84 @@ fn supervise(
     };
     #[cfg(not(unix))]
     let signal: Option<i32> = None;
-    Ok(
-        json!({"status":case_status,"settlement":if forced.is_none() && valid {worker.as_ref().unwrap()["settlement"].clone()} else {json!("unconfirmed")},"exitCode":status.code(),"signal":signal,"elapsedMs":started.elapsed().as_millis(),"stdoutBytes":stdout,"stdoutTotal":out_total,"stdoutTruncated":out_total>stdout.len() as u64,"stderrBytes":stderr,"stderrTotal":err_total,"stderrTruncated":err_total>stderr.len() as u64,"worker":worker}),
-    )
+    let mut outcome = json!({"status":case_status,"settlement":if forced.is_none() && valid {worker.as_ref().unwrap()["settlement"].clone()} else {json!("unconfirmed")},"exitCode":status.code(),"signal":signal,"elapsedMs":started.elapsed().as_millis(),"stdoutBytes":stdout,"stdoutTotal":out_total,"stdoutTruncated":out_total>stdout.len() as u64,"stderrBytes":stderr,"stderrTotal":err_total,"stderrTruncated":err_total>stderr.len() as u64,"worker":worker});
+    if let WorkerInput::File { case, .. } = &spec.input {
+        let mut log = case_log::CaseLog::read(scratch);
+        if valid {
+            outcome["location"] = outcome["worker"]["location"].clone();
+            outcome["isAsync"] = outcome["worker"]["isAsync"].clone();
+        }
+        let problem = if let Some(problem) = log.problem.as_deref() {
+            Some(problem)
+        } else if case_status == "pass" && (log.has_active_case() || log.failed()) {
+            Some("named case outcomes disagree with the file result")
+        } else if let Some(wanted) = case
+            && log.cases.iter().any(|case| case.name != *wanted)
+        {
+            Some("unexpected case in a filtered run")
+        } else if case_status == "pass" && case.is_some() && log.cases.is_empty() {
+            Some("filtered run passed without a named case result")
+        } else {
+            None
+        };
+        let mut named_status = case_status;
+        if forced.is_none()
+            && let Some(problem) = problem
+        {
+            named_status = "protocol-error";
+            outcome["status"] = json!(named_status);
+            outcome["settlement"] = json!("unconfirmed");
+            outcome["error"] = json!(problem);
+        }
+        log.finish_active(named_status);
+        outcome["cases"] = json!(log.cases);
+    }
+    Ok(outcome)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worker_result_must_match_its_exit_and_settlement_evidence() {
+        let mut report = json!({
+            "identity": "file:tests/sample.test.rinzu",
+            "exitCode": 0,
+            "status": "pass",
+            "settlement": "confirmed",
+            "resourceReport": [{"phase": "start"}, {"phase": "end"}]
+        });
+        let identity = "file:tests/sample.test.rinzu";
+        assert!(valid_worker_result(&report, identity, Some(0)));
+        assert!(!valid_worker_result(&report, identity, None));
+        report["exitCode"] = json!(1);
+        assert!(!valid_worker_result(&report, identity, Some(1)));
+        report["status"] = json!("compile-error");
+        assert!(!valid_worker_result(&report, identity, Some(1)));
+        report["settlement"] = json!("not-run");
+        assert!(valid_worker_result(&report, identity, Some(1)));
+        report["status"] = json!("timeout");
+        assert!(!valid_worker_result(&report, identity, Some(1)));
+
+        report["status"] = json!("pass");
+        report["settlement"] = json!("confirmed");
+        report["exitCode"] = json!(0);
+        report["resourceReport"] = json!([{"phase": "start"}]);
+        assert!(!valid_worker_result(&report, identity, Some(0)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn report_reader_rejects_a_fifo_without_waiting_for_a_writer() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let scratch = Temporary::new().unwrap();
+        let path = scratch.0.join(case_log::FILE);
+        let raw = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: raw names a new FIFO in this test's scratch directory.
+        assert_eq!(unsafe { libc::mkfifo(raw.as_ptr(), 0o600) }, 0);
+        assert!(bounded_read(&path, OUTPUT_LIMIT).is_err());
+        assert!(case_log::CaseLog::read(&scratch.0).problem.is_some());
+    }
 }

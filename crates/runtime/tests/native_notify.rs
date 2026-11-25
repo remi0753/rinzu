@@ -11,16 +11,22 @@ fn notified_native_carriers_preserve_registration_races_and_target_lifetime() {
     let directory =
         std::env::temp_dir().join(format!("rinzu-native-notify-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
-    for fixture in ["native_notify", "native_transfer"] {
-        for sanitized in [false, true] {
-            let binary = directory.join(format!(
-                "{fixture}-{}",
-                if sanitized { "sanitized" } else { "plain" }
-            ));
+    for fixture in [
+        "native_notify",
+        "native_transfer",
+        "native_completion_generations",
+    ] {
+        for sanitizer in ["plain", "address,undefined", "thread"] {
+            if sanitizer == "thread" && fixture != "native_completion_generations" {
+                continue;
+            }
+            let binary = directory.join(format!("{fixture}-{sanitizer}"));
             let mut build = native::clang();
             build.args(["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread"]);
-            if sanitized {
-                build.args(["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]);
+            if sanitizer != "plain" {
+                build
+                    .arg(format!("-fsanitize={sanitizer}"))
+                    .arg("-fno-sanitize-recover=all");
             }
             let output = build
                 .arg("-I")
@@ -40,11 +46,12 @@ fn notified_native_carriers_preserve_registration_races_and_target_lifetime() {
                             .env("RINZU_NATIVE_COMPLETION_ACTIVE_ONLY", active)
                             .env("ASAN_OPTIONS", "detect_leaks=0:abort_on_error=1")
                             .env("UBSAN_OPTIONS", "halt_on_error=1")
+                            .env("TSAN_OPTIONS", "halt_on_error=1")
                             .output()
                             .unwrap();
                         assert!(
                             output.status.success(),
-                            "sanitized={sanitized} notify={notify} direct={direct} active={active}: {output:?}"
+                            "{fixture} sanitizer={sanitizer} notify={notify} direct={direct} active={active}: {output:?}"
                         );
                     }
                 }

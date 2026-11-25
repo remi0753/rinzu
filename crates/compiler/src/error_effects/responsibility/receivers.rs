@@ -1,7 +1,7 @@
 //! Provisional observation is not completion: cancelling a receiver before it
 //! runs restores its producers. Receipts survive ordinary function summaries.
 use super::*;
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(super) struct Receiver {
     pub origin: Site,
     pub producers: BTreeMap<Token, Option<Obligation>>,
@@ -521,14 +521,12 @@ impl Engine<'_> {
             Value::Aggregate { ty, .. } | Value::Opaque(ty) => {
                 self.private_environment(ty) && {
                     let prefix = format!("{ty}_callback_");
+                    crate::function_cache::read(|| {
+                        crate::function_cache::Read::CallbackFamily(prefix.clone())
+                    });
                     self.contracts.keys().any(|name| {
                         name.starts_with(&prefix) && {
-                            let Some(function) = self
-                                .checked
-                                .functions
-                                .iter()
-                                .find(|function| function.declaration.name == *name)
-                            else {
+                            let Some(function) = self.checked.memo_function(name) else {
                                 return false;
                             };
                             let mut effects: Vec<_> = function

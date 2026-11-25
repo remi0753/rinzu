@@ -25,7 +25,9 @@ class Handler(BaseHTTPRequestHandler):
     def reply(self, status, body=b"", length=None, headers=()):
         with suppress(BrokenPipeError, ConnectionResetError):
             self.send_response(status)
-            self.send_header("Content-Length", str(len(body) if length is None else length))
+            self.send_header(
+                "Content-Length", str(len(body) if length is None else length)
+            )
             for key, value in headers:
                 self.send_header(key, value)
             self.end_headers()
@@ -72,8 +74,12 @@ def server(tls=None):
 
 def checked(args, work, marker=None, status=0, timeout=120):
     env = dict(os.environ, TMPDIR=str(work), RINZU_CACHE_DIR=str(work / "cache"))
-    result = subprocess.run(args, cwd=work, env=env, capture_output=True, text=True, timeout=timeout)
-    if result.returncode != status or (marker is not None and marker not in result.stdout):
+    result = subprocess.run(
+        args, cwd=work, env=env, capture_output=True, text=True, timeout=timeout
+    )
+    if result.returncode != status or (
+        marker is not None and marker not in result.stdout
+    ):
         raise AssertionError((args, result.returncode, result.stdout, result.stderr))
     return result
 
@@ -86,24 +92,69 @@ def replay(rinzu, work):
         "[req]\ndistinguished_name=dn\nprompt=no\nx509_extensions=server\n"
         "[dn]\nCN=127.0.0.1\n[server]\nsubjectAltName=IP:127.0.0.1\n"
     )
-    checked(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
-             "-days", "1", "-config", config, "-keyout", key, "-out", cert], work)
+    checked(
+        [
+            "openssl",
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-days",
+            "1",
+            "-config",
+            config,
+            "-keyout",
+            key,
+            "-out",
+            cert,
+        ],
+        work,
+    )
     tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     tls.load_cert_chain(cert, key)
 
     with server() as http, server(tls) as https:
         native = work / "native"
-        checked([*clang(), "-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread",
-                 "-I", ROOT / "include", "-I", SDK / "native/include",
-                 SDK / "tests/fault.c", "-lcurl", "-o", native], work, timeout=tool_timeout(120))
+        checked(
+            [
+                *clang(),
+                "-std=c11",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-pthread",
+                "-I",
+                ROOT / "include",
+                "-I",
+                SDK / "native/include",
+                SDK / "tests/fault.c",
+                "-lcurl",
+                "-o",
+                native,
+            ],
+            work,
+            timeout=tool_timeout(120),
+        )
         mismatched = https.replace("127.0.0.1", "localhost")
-        checked([native, f"{https}/binary", f"{mismatched}/binary", cert], work, "http-fault-ok")
-        for name, marker, status in [("main", "http-basic-ok", 0), ("stress", "http-stress-ok", 1)]:
+        checked(
+            [native, f"{https}/binary", f"{mismatched}/binary", cert],
+            work,
+            "http-fault-ok",
+        )
+        for name, marker, status in [
+            ("main", "http-basic-ok", 0),
+            ("stress", "http-stress-ok", 1),
+        ]:
             source = work / f"{name}.rinzu"
             original = (SDK / f"tests/{name}.rinzu").read_text()
             source.write_text(original.replace("SSLBASE", https).replace("BASE", http))
             binary = work / name
-            checked([rinzu, "build", source, "--output", binary], work, timeout=tool_timeout(120))
+            checked(
+                [rinzu, "build", source, "--output", binary],
+                work,
+                timeout=tool_timeout(120),
+            )
             for command in ([rinzu, "run", source], [binary]):
                 timeout = 120 if command[0] == binary else tool_timeout(120)
                 result = checked(command, work, marker, status, timeout=timeout)

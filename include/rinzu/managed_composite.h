@@ -586,7 +586,7 @@ rinzu_managed_small_enum_slot_owned(rinzu_managed_data_t *data,
     size_t bytes = RINZU_MANAGED_SMALL_ENUM_CAPACITY * sizeof(*data->small_enums);
     data->small_enums = rinzu_failure_allocate(bytes);
     rinzu_gc_allocated(&data->gc, bytes);
-    if (atomic_load_explicit(&rinzu_resource_enabled, memory_order_relaxed)) {
+    if (rinzu_resource_observing()) {
       rinzu_resource_acquire(RINZU_RESOURCE_MANAGED, bytes);
       data->small_enum_accounted_bytes = bytes;
     }

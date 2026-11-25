@@ -1,7 +1,7 @@
 //! Closed scalar ABI for the initial macOS arm64 target.
 use crate::{Diagnostic, DiagnosticCode, SourceRange};
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum AbiScalar {
     I8,
     I16,

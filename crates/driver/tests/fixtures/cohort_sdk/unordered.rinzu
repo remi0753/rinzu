@@ -1,0 +1,50 @@
+import cohort;
+import rinzu.native as bridge;
+
+fn answer() -> CSize fallback 0 {
+    return CSize(7183);
+}
+
+async fn main() {
+    try {
+        let first = bridge.transferred(cohort.start(0, answer));
+        let polling = bridge.completed(cohort.pollStart(answer));
+        let second = bridge.transferred(cohort.start(1, answer));
+        var step = 0;
+        while step < 3 {
+            let chosen = cohort.recoveryStep(step);
+            if chosen == CInt(0) {
+                let publishedFirst = cohort.publish(0);
+                let firstValue = await first;
+                if firstValue != 7183 {
+                    panic("first carrier payload");
+                }
+                let retiredFirst = cohort.retire(0);
+            }
+            else if chosen == CInt(1) {
+                let publishedSecond = cohort.publish(1);
+                let secondValue = await second;
+                if secondValue != 29 {
+                    panic("second carrier payload");
+                }
+                let retiredSecond = cohort.retire(1);
+            }
+            else {
+                let publishedPoll = cohort.pollPublish();
+                await polling;
+                let retiredPoll = cohort.pollRetire();
+            }
+            step = step + 1;
+        }
+        let finished = cohort.finish();
+        let cached0 = await first;
+        let cached1 = await second;
+        await polling;
+        if cached0 != 7183 || cached1 != 29 {
+            panic("cached payload after carrier free");
+        }
+    }
+    catch errors {
+        panic("unordered cohort recovery failed");
+    }
+}

@@ -1,5 +1,6 @@
 //! Test entries use the ordinary loader, name/type checker and verified IR.
 use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 use crate::ast::{
     Arguments, Block, Declaration, Expression, ExpressionKind, FunctionDecl, Module, Statement,
@@ -9,9 +10,14 @@ use crate::{Diagnostic, DiagnosticCode, FrontendArtifact, Manifest, SourceRange,
 
 #[derive(Clone, Debug, Default)]
 pub struct PackageTestOptions {
-    pub unit: bool,
     pub documents: Vec<PathBuf>,
     pub selected: Option<String>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum TestInput<'a> {
+    Documents(&'a PackageTestOptions),
+    File(&'a Path),
 }
 
 #[derive(Clone, Debug)]
@@ -30,7 +36,68 @@ pub fn check_package_tests(
     options: &PackageTestOptions,
 ) -> Result<(Manifest, FrontendArtifact, Vec<PackageTestCase>), Vec<Diagnostic>> {
     sources.set_limits(1024 * 1024, 512);
-    crate::package::check_tests(start, sources, options)
+    crate::package::check_tests(start, sources, TestInput::Documents(options))
+}
+
+pub fn check_package_test_file(
+    root: &Path,
+    file: &Path,
+    sources: &mut SourceSnapshot<'_>,
+) -> Result<(Manifest, FrontendArtifact, PackageTestCase), Vec<Diagnostic>> {
+    let (manifest, artifact, mut cases) =
+        crate::package::check_tests(root, sources, TestInput::File(file))?;
+    Ok((
+        manifest,
+        artifact,
+        cases.pop().expect("checked one test file"),
+    ))
+}
+
+pub fn test_source_root(root: &Path) -> io::Result<PathBuf> {
+    let root = root.canonicalize()?;
+    let tests = root.join("tests").canonicalize()?;
+    let source = root.join("src");
+    let source = source.canonicalize().unwrap_or(source);
+    if !tests.is_dir()
+        || tests == root
+        || !tests.starts_with(&root)
+        || tests.starts_with(&source)
+        || source.starts_with(&tests)
+    {
+        return Err(io::Error::other(
+            "tests must be a directory inside the package, separate from src",
+        ));
+    }
+    Ok(tests)
+}
+
+pub fn test_file_path(root: &Path, file: &Path) -> io::Result<String> {
+    let relative = file
+        .strip_prefix(root)
+        .map_err(|_| io::Error::other("test file resolves outside the package tests directory"))?;
+    if !fs::metadata(file)?.is_file()
+        || !file
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(".test.rinzu"))
+    {
+        return Err(io::Error::other("test entry must be a .test.rinzu file"));
+    }
+    let relative = relative
+        .to_str()
+        .ok_or_else(|| io::Error::other("test file path must be UTF-8"))?;
+    Ok(format!("tests/{relative}"))
+}
+
+pub(crate) fn require_test_owner(root: &Path, path: &Path) -> Result<(), String> {
+    let manifest = crate::find_manifest(path).map_err(|error| error.into_diagnostic().message)?;
+    if manifest.parent() != Some(root) {
+        return Err(format!(
+            "test source belongs to a different package (`{}`)",
+            manifest.display()
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) fn error(range: SourceRange, message: impl Into<String>) -> Diagnostic {
@@ -38,13 +105,12 @@ pub(crate) fn error(range: SourceRange, message: impl Into<String>) -> Diagnosti
         DiagnosticCode::InvalidEntryPoint,
         range,
         message,
-        "use zero-argument non-generic Unit test functions or a complete rinzu-test program",
+        "use a zero-argument non-generic Unit main",
     )
 }
 
-pub(crate) fn validate(function: &FunctionDecl) -> Result<(), Vec<Diagnostic>> {
-    if function.name == "test_"
-        || !function.parameters.is_empty()
+fn validate(function: &FunctionDecl) -> Result<(), Vec<Diagnostic>> {
+    if !function.parameters.is_empty()
         || !function.type_parameters.is_empty()
         || function.fallback.is_some()
         || !matches!(&function.result.kind, TypeRefKind::Named(name) if name == &["Unit"])
@@ -55,6 +121,37 @@ pub(crate) fn validate(function: &FunctionDecl) -> Result<(), Vec<Diagnostic>> {
         )]);
     }
     Ok(())
+}
+
+pub(crate) fn main_function<'a>(
+    syntax: &'a Module,
+    input: &str,
+) -> Result<&'a FunctionDecl, Vec<Diagnostic>> {
+    let mut mains = syntax
+        .declarations
+        .iter()
+        .filter_map(|declaration| match declaration {
+            Declaration::Function(function)
+                if function.name == "main" && function.lexical_owner.is_none() =>
+            {
+                Some(function)
+            }
+            _ => None,
+        });
+    let Some(main) = mains.next() else {
+        return Err(vec![error(
+            syntax.range,
+            format!("{input} needs exactly one main"),
+        )]);
+    };
+    if let Some(other) = mains.next() {
+        return Err(vec![
+            error(other.range, format!("{input} needs exactly one main"))
+                .with_secondary(main.range, "first main declared here"),
+        ]);
+    }
+    validate(main)?;
+    Ok(main)
 }
 
 pub(crate) fn entry(case: Option<&PackageTestCase>, range: SourceRange) -> Declaration {
@@ -177,28 +274,14 @@ pub(crate) fn documents(
                                 "doc examples cannot declare native blocks",
                             )]);
                         }
-                        let mains: Vec<_> = syntax
-                            .declarations
-                            .iter()
-                            .filter_map(|d| match d {
-                                Declaration::Function(f) if f.name == "main" => Some(f),
-                                _ => None,
-                            })
-                            .collect();
-                        if mains.len() != 1 {
-                            return Err(vec![error(
-                                syntax.range,
-                                "rinzu-test block needs exactly one main",
-                            )]);
-                        }
-                        validate(mains[0])?;
+                        let main = main_function(&syntax, "rinzu-test block")?;
                         let name = format!("rinzu_doc_case_{}", result.len());
                         let case = PackageTestCase {
                             identity: format!("doc:{}#L{}", path.display(), opening_line),
                             kind: "doc",
                             path: path.clone(),
-                            range: mains[0].range,
-                            is_async: mains[0].is_async,
+                            range: main.range,
+                            is_async: main.is_async,
                             target: format!("{name}::main"),
                         };
                         result.push(DocumentModule { name, syntax, case });

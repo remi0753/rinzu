@@ -983,6 +983,152 @@ fn diamond_reexports_file_moves_deletion_and_cycles_recheck() {
 }
 
 #[test]
+fn sdk_cache_capacity_and_save_failures_preserve_valid_application_builds() {
+    for (package, capacity) in [("sdk", true), ("sdk", false), ("app", true), ("app", false)] {
+        let f = Fixture::new();
+        std::fs::write(f.path("sdk/rinzu.toml"), "[package]\nname=\"model\"\nlanguage=\"0.5\"\nkind=\"sdk\"\n[native]\nsources=[\"api.c\"]\nheaders=[\"api.h\"]\ninclude-dirs=[\".\"]\n").unwrap();
+        std::fs::write(
+            f.path("sdk/src/model.rinzu"),
+            "native{fn answer()->Int symbol \"answer\";}export answer;",
+        )
+        .unwrap();
+        let header = "#include <stdint.h>\nint64_t answer(void);\n";
+        std::fs::write(f.path("sdk/api.h"), header).unwrap();
+        std::fs::write(
+            f.path("sdk/api.c"),
+            "#include \"api.h\"\nint64_t answer(void){return 42;}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            f.path("app/src/main.rinzu"),
+            "import model;import rinzu.stdio;fn main(){try{rinzu.stdio.writeLine(model.answer());}catch errors{panic(\"failed\");}}",
+        )
+        .unwrap();
+        let executable = f.path("consumer");
+        let output_flags = ["--output", executable.to_str().unwrap()];
+        let flags = if package == "app" {
+            &output_flags[..]
+        } else {
+            &[]
+        };
+        let build = || {
+            let output = Command::new(frozen_cli::path())
+                .arg("build")
+                .arg(f.path(package))
+                .args(flags)
+                .env("RINZU_CACHE_DIR", f.path("user-cache"))
+                .env("RINZU_COMPILE_TIMINGS", "1")
+                .output()
+                .unwrap();
+            let hit = output
+                .stderr
+                .split(|byte| *byte == b'\n')
+                .filter_map(|line| line.strip_prefix(b"RINZU_COMPILE_TIMING="))
+                .map(|line| serde_json::from_slice::<serde_json::Value>(line).unwrap())
+                .any(|record| {
+                    record["phase"] == "native.package.completed.hit" && record["detail"] == "model"
+                });
+            success(output);
+            hit
+        };
+        let run = || {
+            if package == "app" {
+                assert!(f.path("consumer.o").is_file());
+                assert!(f.path("consumer.metadata.json").is_file());
+                let output = Command::new(&executable).output().unwrap();
+                assert_eq!(output.stdout, b"42\n");
+                success(output);
+            }
+        };
+        assert!(!build(), "cold {package} build must miss");
+        run();
+        let entries: Vec<_> = std::fs::read_dir(f.path("user-cache/source-v4"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                let Ok(wire) = std::fs::read(path.join("source-package-v2.json")) else {
+                    return false;
+                };
+                rinzu_bindgen::source_package::validate_source_descriptor(&wire)
+                    .is_ok_and(|descriptor| descriptor.interface.package.package == "model")
+            })
+            .collect();
+        // Both save sites must be exercised: the complete SDK and its facade.
+        assert!(entries.iter().any(|path| {
+            json(&path.join("receipt.json"))["files"]["source-input-receipt.json"].is_string()
+        }));
+        assert!(
+            entries
+                .iter()
+                .any(|path| { json(&path.join("receipt.json"))["facade"].is_string() })
+        );
+        let poison = || {
+            for directory in &entries {
+                std::fs::remove_file(directory.join("receipt.json")).unwrap();
+                if capacity {
+                    // A sparse file reproduces an interrupted save over the
+                    // 256 MiB budget without allocating or writing that data.
+                    std::fs::File::create(directory.join(".pending-abandoned"))
+                        .unwrap()
+                        .set_len(256 * 1024 * 1024)
+                        .unwrap();
+                } else {
+                    // Reject only cache publication, independently of whether
+                    // the test runs with permission to bypass mode bits.
+                    std::fs::create_dir(directory.join("receipt.json")).unwrap();
+                }
+            }
+        };
+        poison();
+        if package == "app" {
+            for path in [
+                &executable,
+                &f.path("consumer.o"),
+                &f.path("consumer.metadata.json"),
+            ] {
+                std::fs::remove_file(path).unwrap();
+            }
+            std::fs::remove_dir_all(f.path("consumer.source-packages")).unwrap();
+        } else {
+            std::fs::remove_dir_all(target::build_directory(&f.path("sdk"))).unwrap();
+        }
+        assert!(!build(), "{package} must rebuild with failed cache saves");
+        run();
+        for directory in &entries {
+            if capacity {
+                assert!(
+                    !directory.exists(),
+                    "{package}: oversized generation was not reclaimed"
+                );
+            } else {
+                assert!(directory.join("receipt.json").is_dir());
+                std::fs::remove_dir_all(directory).unwrap();
+            }
+        }
+        // The failure must not poison the next save or disable future reuse.
+        assert!(!build());
+        run();
+        assert!(build(), "{package} must hit after recovery");
+        run();
+
+        // Native ABI and real output errors still reject the build, including
+        // an output write failure after cache saves have failed again.
+        std::fs::write(f.path("sdk/api.h"), "double answer(void);\n").unwrap();
+        assert!(!f.cli("build", package, flags).status.success());
+        std::fs::write(f.path("sdk/api.h"), header).unwrap();
+        if package == "app" {
+            poison();
+            std::fs::create_dir(f.path("blocked.o")).unwrap();
+            let blocked = f.path("blocked");
+            rejected(
+                f.cli("build", "app", &["--output", blocked.to_str().unwrap()]),
+                "write AOT object",
+            );
+        }
+    }
+}
+
+#[test]
 fn actual_header_source_archive_and_corrupt_native_cache_are_revalidated() {
     let f = Fixture::new();
     for directory in ["sdk/native", "sdk/lib"] {

@@ -690,6 +690,11 @@ unsafe extern "C" fn managed_callback_handler(
     raw: *mut core::ffi::c_void,
     frame: *const CallbackFrame,
 ) -> u64 {
+    #[cfg(feature = "test-native-lifetime-trace")]
+    {
+        rinzu_runtime::lifetime_trace::Probe::emit("callback_admit", 0);
+        rinzu_runtime::lifetime_trace::Probe::emit("callback_begin", 0);
+    }
     // SAFETY: admission pins the correct context/frame and checked origin.
     let (context, frame) = unsafe { (&*raw.cast::<ManagedCallbackContext>(), &*frame) };
     let _transition = context.owner.borrow().callback_scope();
@@ -700,8 +705,11 @@ unsafe extern "C" fn managed_callback_handler(
     );
     _activity.start();
     // SAFETY: the exact validated signature and native inputs remain live.
-    unsafe { context.invoke(frame) }
-        .unwrap_or_else(|_| context.fallback.unwrap_or_else(|| native_fatal(86)))
+    let result = unsafe { context.invoke(frame) }
+        .unwrap_or_else(|_| context.fallback.unwrap_or_else(|| native_fatal(86)));
+    #[cfg(feature = "test-native-lifetime-trace")]
+    rinzu_runtime::lifetime_trace::Probe::emit("callback_return", 0);
+    result
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -856,6 +864,16 @@ impl Drop for CallbackPreparation {
         }
     }
 }
+#[cfg(feature = "test-native-lifetime-trace")]
+struct CallEnvironment(Option<Arc<rinzu_runtime::lifetime_trace::Probe>>, u64);
+#[cfg(feature = "test-native-lifetime-trace")]
+impl Drop for CallEnvironment {
+    fn drop(&mut self) {
+        if let Some(p) = &self.0 {
+            p.record("call_env_free", self.1, 0, 0);
+        }
+    }
+}
 pub(super) struct NativeCall {
     _accounting: rinzu_runtime::resource_accounting::Allocation,
     signature: SourceNativeSignature,
@@ -876,6 +894,9 @@ pub(super) struct NativeCall {
     result: u64,
     counters: Arc<Counters>,
     return_scope: Option<Arc<rinzu_runtime::callback_return::ReturnScope>>,
+    // Last field: observe after callback contexts, buffers and Owner roots drop.
+    #[cfg(feature = "test-native-lifetime-trace")]
+    lifetime: CallEnvironment,
 }
 impl NativeCall {
     fn record_targets<'a>(
@@ -1193,6 +1214,11 @@ impl NativeCall {
             result: 0,
             counters,
             return_scope,
+            #[cfg(feature = "test-native-lifetime-trace")]
+            lifetime: CallEnvironment(
+                rinzu_runtime::lifetime_trace::Probe::current(),
+                rinzu_runtime::lifetime_trace::Probe::call_identity(),
+            ),
         })
     }
     /// A queued supplant retains references; snapshot their current contents
@@ -1262,6 +1288,10 @@ impl NativeCall {
             .as_ref()
             .unwrap_or_else(|| native_fatal(86))
             .start();
+        #[cfg(feature = "test-native-lifetime-trace")]
+        if let Some(p) = &self.lifetime.0 {
+            p.record("call_enter", self.lifetime.1, 0, 0);
+        }
         // SAFETY: binding was checked against the complete source ABI; native
         // buffers/callback contexts and the exact retained root frame are live.
         self.result = unsafe {
@@ -1279,6 +1309,10 @@ impl NativeCall {
         drop(self.activity.take());
         drop(transition);
         self.phase = Phase::Returned;
+        #[cfg(feature = "test-native-lifetime-trace")]
+        if let Some(p) = &self.lifetime.0 {
+            p.record("call_return", self.lifetime.1, 0, 0);
+        }
         if let Some(loan) = &mut self.record_loan {
             loan.returned();
         }
@@ -1297,6 +1331,10 @@ impl NativeCall {
             callback.close();
         }
         self.phase = Phase::Closed;
+        #[cfg(feature = "test-native-lifetime-trace")]
+        if let Some(p) = &self.lifetime.0 {
+            p.record("call_close", self.lifetime.1, 0, 0);
+        }
         self.counters.closed.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
@@ -1342,6 +1380,10 @@ impl NativeCall {
             loan.commit();
         }
         self.phase = Phase::Settled;
+        #[cfg(feature = "test-native-lifetime-trace")]
+        if let Some(p) = &self.lifetime.0 {
+            p.record("call_settle", self.lifetime.1, 0, 0);
+        }
         if let Some(scope) = &self.return_scope {
             // SAFETY: exact image/body proof closes all payload future uses;
             // physical return and all callback result receipts are settled.
@@ -1363,6 +1405,10 @@ impl NativeCall {
         // An Error still completes the actual result-read phase. Its IR error
         // edge releases the ledger before any managed catch or finally runs.
         self.phase = Phase::Read;
+        #[cfg(feature = "test-native-lifetime-trace")]
+        if let Some(p) = &self.lifetime.0 {
+            p.record("call_read", self.lifetime.1, 0, 0);
+        }
         self.counters.read.fetch_add(1, Ordering::Relaxed);
         let value = match &self.signature.result {
             SourceAbiType::UserData(identity) => {
@@ -1697,6 +1743,14 @@ mod record_tests {
                 .unwrap();
         let pointer = owner.borrow().native_record_pointer(update.loan, 0) as *mut i64;
         update.enter();
+        let busy = queued.prepare_records_at_entry();
+        let state = (
+            queued.phase == Phase::Prepared,
+            queued.record_pending,
+            queued.record_loan.is_none(),
+            queued.record_count,
+            engine.bindings.evidence().live_buffers,
+        );
         // SAFETY: simulate a native write to the owned, initialized loan buffer.
         unsafe {
             pointer.write(21);
@@ -1704,6 +1758,15 @@ mod record_tests {
         update.returned();
         update.commit();
         drop(update);
+        let busy = busy.unwrap_err().downcast::<ManagedFailure>().unwrap().0;
+        assert!(busy.recoverable());
+        assert!(matches!(
+            busy.primary.cause,
+            FailureCause::Error(ErrorKind::User)
+        ));
+        assert!(busy.managed.contains_key(&0));
+        assert_eq!(state, (true, true, true, 0, 0));
+        drop(busy);
         queued.prepare_records_at_entry().unwrap();
         // SAFETY: entry preparation now owns the initialized current input copy.
         assert_eq!(unsafe { (queued.words[0] as *const i64).read() }, 21);
@@ -1715,3 +1778,9 @@ mod record_tests {
         assert_eq!((finished.objects, finished.roots), (0, 0));
     }
 }
+
+#[cfg(all(test, feature = "test-native-lifetime-trace"))]
+pub(super) mod handoff_tests;
+
+#[cfg(all(test, feature = "test-native-lifetime-trace"))]
+pub(super) mod cohort_tests;

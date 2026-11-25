@@ -1,5 +1,6 @@
 #ifndef RINZU_CALLBACK_CONSUMPTION_H
 #define RINZU_CALLBACK_CONSUMPTION_H
+#include "runtime_storage.h"
 #include "callback_return.h"
 
 /* Private runtime protocol. An ID is never a pointer and is never reused. */
@@ -15,9 +16,9 @@ typedef struct {
   size_t allocated_bytes, released_bytes, promoted_bytes;
   size_t live_bytes, peak_bytes, copied_bytes, active_scopes, metadata_bytes;
 } rinzu_return_scope_stats_t;
-static rinzu_return_scope_t *rinzu_return_scopes;
-static uint64_t rinzu_return_scope_sequence;
-static rinzu_return_scope_stats_t rinzu_return_scope_totals;
+RINZU_RUNTIME_GLOBAL rinzu_return_scope_t *rinzu_return_scopes;
+RINZU_RUNTIME_GLOBAL uint64_t rinzu_return_scope_sequence;
+RINZU_RUNTIME_GLOBAL rinzu_return_scope_stats_t rinzu_return_scope_totals;
 static inline size_t rinzu_return_scope_add(size_t left, size_t right) {
   if (right > SIZE_MAX - left)
     _Exit(71);

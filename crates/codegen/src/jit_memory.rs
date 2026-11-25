@@ -213,8 +213,8 @@ impl JITMemoryProvider for JitMemory {
             }
             match allocation.protection {
                 Protection::Executable => {
-                    // SAFETY: this mapping contains freshly written instructions.
                     if platform::EXPLICIT_ICACHE_SYNC {
+                        // SAFETY: this mapping contains freshly written instructions.
                         unsafe {
                             platform::sync_instructions(allocation.address, allocation.length)
                         };
@@ -349,6 +349,7 @@ mod tests {
                     *libc::__error() = code
                 };
                 #[cfg(target_os = "linux")]
+                // SAFETY: libc returns this thread's writable errno cell.
                 unsafe {
                     *libc::__errno_location() = code
                 };

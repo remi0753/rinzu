@@ -1,0 +1,129 @@
+import cohort;
+import rinzu.future as future;
+import rinzu.native as bridge;
+
+fn answer() -> CSize fallback 0 {
+    return CSize(7183);
+}
+
+async fn main() {
+    try {
+        let old = cohort.start(0, answer);
+        let oldFirst = bridge.transferred(old);
+        let oldSecond = bridge.transferred(old);
+        if cohort.controlled() == CInt(1) {
+            let won = future.cancel(oldFirst);
+            if !won {
+                panic("old cancellation lost");
+            }
+        }
+        let firstUnit = bridge.completed(cohort.start(1, answer));
+        let poll = bridge.completed(cohort.pollStart(answer));
+        let staggered = cohort.staggered() == CInt(1);
+        if !staggered {
+            let beforeBatches = cohort.pollPublish();
+            await poll;
+            let retiredBefore = cohort.pollRetire();
+        }
+        let firstUnitLeads = cohort.waveFirst(0) == CInt(1);
+        if firstUnitLeads {
+            let capturedFirstUnit = cohort.capture(1);
+            if staggered {
+                await firstUnit;
+                let retiredFirstUnitEarly = cohort.retire(1);
+            }
+            let capturedOldSecond = cohort.capture(0);
+        }
+        else {
+            let capturedOldFirst = cohort.capture(0);
+            if staggered {
+                let savedOldEarly = await oldSecond;
+                if savedOldEarly != 7183 {
+                    panic("old payload before first notification");
+                }
+                let retiredOldEarly = cohort.retire(0);
+            }
+            let capturedFirstUnitSecond = cohort.capture(1);
+        }
+        let notifiedFirst = cohort.waveNotify(0);
+        if !staggered || firstUnitLeads {
+            let savedOld = await oldSecond;
+            if savedOld != 7183 {
+                panic("old payload after first notification");
+            }
+            let retiredOld = cohort.retire(0);
+        }
+        let replacement = bridge.transferred(cohort.start(2, answer));
+        let secondUnit = bridge.completed(cohort.start(3, answer));
+        let lateCancel = future.cancel(oldFirst);
+        let lateTimeout = future.timeout(oldSecond);
+        if lateCancel || lateTimeout {
+            panic("old control won after reuse");
+        }
+        let oldAlias = await oldSecond;
+        let cachedOld = cohort.alias(oldAlias);
+        let replacementStatus = cohort.status();
+        let secondUnitLeads = cohort.waveFirst(1) == CInt(3);
+        let lateArrival = cohort.lateArrival() == CInt(1);
+        if secondUnitLeads {
+            let capturedSecondUnit = cohort.capture(3);
+            if staggered {
+                await secondUnit;
+                let retiredSecondUnitEarly = cohort.retire(3);
+            }
+            if !lateArrival {
+                let capturedReplacementSecond = cohort.capture(2);
+            }
+        }
+        else {
+            let capturedReplacementFirst = cohort.capture(2);
+            if staggered {
+                let savedReplacementEarly = await replacement;
+                if savedReplacementEarly != 65537 {
+                    panic("replacement payload before second notification");
+                }
+                let retiredReplacementEarly = cohort.retire(2);
+            }
+            let capturedSecondUnitSecond = cohort.capture(3);
+        }
+        if !lateArrival {
+            let notifiedSecond = cohort.waveNotify(1);
+        }
+        if !staggered || !firstUnitLeads {
+            await firstUnit;
+            let retiredFirstUnit = cohort.retire(1);
+        }
+        if !staggered || secondUnitLeads {
+            let savedReplacement = await replacement;
+            if savedReplacement != 65537 {
+                panic("replacement payload after second notification");
+            }
+            let retiredReplacement = cohort.retire(2);
+        }
+        if !staggered || !secondUnitLeads {
+            await secondUnit;
+            let retiredSecondUnit = cohort.retire(3);
+        }
+        if staggered {
+            let afterBatches = cohort.pollPublish();
+            await poll;
+            let retiredAfter = cohort.pollRetire();
+        }
+        let finished = cohort.finish();
+        await poll;
+        await firstUnit;
+        await secondUnit;
+        let finalOld = await oldSecond;
+        let finalReplacement = await replacement;
+        if finalOld != 7183 || finalReplacement != 65537 {
+            panic("cached payload after both batches retired");
+        }
+        let finalFirst = await oldFirst;
+        if finalFirst != 7183 {
+            panic("first receipt payload after reuse");
+        }
+    }
+    catch errors {
+        panic("mixed batches failed");
+    }
+}

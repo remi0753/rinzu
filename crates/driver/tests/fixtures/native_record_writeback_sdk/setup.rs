@@ -2,8 +2,8 @@ pub fn create(root: &std::path::Path) {
     for name in ["app", "records"] {
         std::fs::create_dir_all(root.join(name).join("src")).unwrap();
     }
-    std::fs::write(root.join("records/rinzu.toml"), "[package]\nname=\"records\"\nlanguage=\"0.2\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n[native]\nsources=[\"api.c\"]\nheaders=[\"api.h\"]\n").unwrap();
-    std::fs::write(root.join("app/rinzu.toml"), "[package]\nname=\"writeback_app\"\nlanguage=\"0.2\"\n[dependencies]\nrecords={path=\"../records\"}\n").unwrap();
+    std::fs::write(root.join("records/rinzu.toml"), "[package]\nname=\"records\"\nlanguage=\"0.5\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n[native]\nsources=[\"api.c\"]\nheaders=[\"api.h\"]\n").unwrap();
+    std::fs::write(root.join("app/rinzu.toml"), "[package]\nname=\"writeback_app\"\nlanguage=\"0.5\"\n[dependencies]\nrecords={path=\"../records\"}\n").unwrap();
     std::fs::write(
         root.join("records/src/api.rinzu"),
         include_str!("api.rinzu"),

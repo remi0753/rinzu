@@ -27,7 +27,7 @@
 
 #include <intrin.h>
 
-static inline uint64_t umul128(const uint64_t a, const uint64_t b, uint64_t* const productHi) {
+static inline uint64_t umul128(const uint64_t a, const uint64_t b, uint64_t *const productHi) {
   return _umul128(a, b, productHi);
 }
 
@@ -41,12 +41,12 @@ static inline uint64_t shiftright128(const uint64_t lo, const uint64_t hi, const
   // Check this here in case a future change requires larger shift
   // values. In this case this function needs to be adjusted.
   assert(dist < 64);
-  return __shiftright128(lo, hi, (unsigned char) dist);
+  return __shiftright128(lo, hi, (unsigned char)dist);
 }
 
 #else // defined(HAS_64_BIT_INTRINSICS)
 
-static inline uint64_t umul128(const uint64_t a, const uint64_t b, uint64_t* const productHi) {
+static inline uint64_t umul128(const uint64_t a, const uint64_t b, uint64_t *const productHi) {
   // The casts here help MSVC to avoid calls to the __allmul library function.
   const uint32_t aLo = (uint32_t)a;
   const uint32_t aHi = (uint32_t)(a >> 32);
@@ -148,7 +148,7 @@ static inline uint32_t mod1e9(const uint64_t x) {
   // We can also simplify (uint32_t) (1000000000 * div1e9(x)).
   // We can truncate before multiplying instead of after, as multiplying
   // the highest 32 bits of div1e9(x) can't affect the lowest 32 bits.
-  return ((uint32_t) x) - 1000000000 * ((uint32_t) div1e9(x));
+  return ((uint32_t)x) - 1000000000 * ((uint32_t)div1e9(x));
 }
 
 #else // RYU_32_BIT_PLATFORM
@@ -174,7 +174,7 @@ static inline uint64_t div1e9(const uint64_t x) {
 }
 
 static inline uint32_t mod1e9(const uint64_t x) {
-  return (uint32_t) (x - 1000000000 * div1e9(x));
+  return (uint32_t)(x - 1000000000 * div1e9(x));
 }
 
 #endif // RYU_32_BIT_PLATFORM
@@ -184,7 +184,7 @@ static inline uint32_t pow5Factor(uint64_t value) {
   for (;;) {
     assert(value != 0);
     const uint64_t q = div5(value);
-    const uint32_t r = ((uint32_t) value) - 5 * ((uint32_t) q);
+    const uint32_t r = ((uint32_t)value) - 5 * ((uint32_t)q);
     if (r != 0) {
       break;
     }

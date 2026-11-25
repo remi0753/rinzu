@@ -18,6 +18,7 @@ pub mod gc_transition;
 pub mod host_adapters;
 pub mod host_stress;
 pub mod lifecycle;
+pub mod native_lifetime;
 pub mod reload;
 pub mod settlement;
 pub mod transport;

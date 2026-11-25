@@ -3,15 +3,27 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::{
-    ArchiveReceipt, CheckedModule, CompilerOptions, Diagnostic, FileId, Module, SourceFile,
+    ArchiveReceipt, CheckedModule, CompilerOptions, Diagnostic, FileId, Module, SdkFrontendCache,
+    SourceFile, SourceSdkInterface,
 };
 
 type ParseResult = Result<Module, Vec<Diagnostic>>;
 type CachedParse = (Vec<u8>, ParseResult);
 type SourceEntries = Vec<(PathBuf, bool)>;
+
+/// Frontend work reported as it starts, independently of CLI output policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrontendProgress<'a> {
+    ResolvingDependencies,
+    CheckingDependency(&'a str),
+    ParsingApplicationSources,
+    CheckingApplicationTypes,
+    PreparingAndVerifyingIr,
+}
 
 #[derive(Default)]
 pub struct SourceCache {
@@ -41,6 +53,81 @@ impl SourceFreshness {
     }
 }
 
+/// Files are carried by the checked artifact. This records how those files
+/// were found and the directory membership tests the checker actually used.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct DiskSourceEvidence {
+    resolved_paths: BTreeMap<PathBuf, Option<PathBuf>>,
+    path_kinds: BTreeMap<PathBuf, Option<DiskPathKind>>,
+    source_directories: BTreeMap<PathBuf, SourceEntries>,
+    archives: Vec<ArchiveLocation>,
+    regular_inputs: BTreeSet<PathBuf>,
+    native_trees: Vec<NativeTree>,
+}
+
+#[derive(Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+enum DiskPathKind {
+    File,
+    Directory,
+    Other,
+}
+
+fn disk_path_kind(path: &Path) -> Option<DiskPathKind> {
+    let metadata = path.metadata().ok()?;
+    Some(if metadata.is_dir() {
+        DiskPathKind::Directory
+    } else if metadata.is_file() {
+        DiskPathKind::File
+    } else {
+        DiskPathKind::Other
+    })
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct ArchiveLocation {
+    modules: PathBuf,
+    digest: String,
+    root: PathBuf,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct NativeTree {
+    root: PathBuf,
+    archive: bool,
+    files: BTreeMap<PathBuf, String>,
+}
+
+impl DiskSourceEvidence {
+    pub fn disk_is_current(&self, checked_bytes: &BTreeMap<PathBuf, Vec<u8>>) -> bool {
+        paths_current(&self.resolved_paths)
+            && self
+                .path_kinds
+                .iter()
+                .all(|(path, expected)| disk_path_kind(path) == *expected)
+            && self.archives.iter().all(|archive| {
+                crate::modules_lock::archive_package_root(&archive.modules, &archive.digest)
+                    .is_ok_and(|root| root == archive.root)
+            })
+            && self.regular_inputs.iter().all(|path| {
+                std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file())
+            })
+            && checked_bytes.iter().all(file_current)
+            && directories_current(&self.source_directories)
+            && self.native_trees.iter().all(|tree| {
+                if tree.archive {
+                    crate::modules_lock::check_archive_inventory(&tree.root, &tree.files).is_ok()
+                } else {
+                    crate::official_sdk::check_native_files(
+                        &tree.root,
+                        Path::new("native"),
+                        &tree.files,
+                    )
+                    .is_ok()
+                }
+            })
+    }
+}
+
 fn paths_current(paths: &BTreeMap<PathBuf, Option<PathBuf>>) -> bool {
     paths
         .iter()
@@ -48,7 +135,8 @@ fn paths_current(paths: &BTreeMap<PathBuf, Option<PathBuf>>) -> bool {
 }
 
 fn file_current((path, bytes): (&PathBuf, &Vec<u8>)) -> bool {
-    std::fs::metadata(path).is_ok_and(|metadata| metadata.len() == bytes.len() as u64)
+    std::fs::metadata(path)
+        .is_ok_and(|metadata| metadata.is_file() && metadata.len() == bytes.len() as u64)
         && std::fs::read(path).is_ok_and(|now| now == *bytes)
 }
 
@@ -98,6 +186,14 @@ pub struct SourceSnapshot<'a> {
     pub parse_hits: usize,
     pub parse_misses: usize,
     limits: Option<(usize, usize)>,
+    track_disk: bool,
+    sdk_frontend_cache: Option<&'a mut dyn SdkFrontendCache>,
+    function_frontend_cache: Option<&'a mut crate::FunctionFrontendCache>,
+    progress: Option<&'a mut dyn FnMut(FrontendProgress<'_>)>,
+    path_kinds: RefCell<BTreeMap<PathBuf, Option<DiskPathKind>>>,
+    archive_locations: Vec<ArchiveLocation>,
+    regular_inputs: BTreeSet<PathBuf>,
+    native_trees: BTreeSet<PathBuf>,
 }
 
 impl<'a> SourceSnapshot<'a> {
@@ -118,6 +214,115 @@ impl<'a> SourceSnapshot<'a> {
             parse_hits: 0,
             parse_misses: 0,
             limits: None,
+            track_disk: false,
+            sdk_frontend_cache: None,
+            function_frontend_cache: None,
+            progress: None,
+            path_kinds: RefCell::new(BTreeMap::new()),
+            archive_locations: Vec::new(),
+            regular_inputs: BTreeSet::new(),
+            native_trees: BTreeSet::new(),
+        }
+    }
+
+    pub fn track_disk_compilation(&mut self) {
+        self.track_disk = true;
+    }
+
+    /// Observe only work performed by this snapshot. No observer is installed
+    /// for ordinary checking, editor analysis, or formatting by default.
+    pub fn set_progress_observer(&mut self, observe: &'a mut dyn FnMut(FrontendProgress<'_>)) {
+        self.progress = Some(observe);
+    }
+
+    pub(crate) fn report_progress(&mut self, event: FrontendProgress<'_>) {
+        if let Some(observe) = &mut self.progress {
+            observe(event);
+        }
+    }
+
+    pub fn set_sdk_frontend_cache(&mut self, cache: &'a mut dyn SdkFrontendCache) {
+        self.sdk_frontend_cache = Some(cache);
+    }
+
+    pub fn set_function_frontend_cache(&mut self, cache: &'a mut crate::FunctionFrontendCache) {
+        self.function_frontend_cache = Some(cache);
+    }
+
+    pub(crate) fn function_frontend_cache(&mut self) -> Option<&mut crate::FunctionFrontendCache> {
+        if self.editor_file.is_none() && self.overlays.is_empty() {
+            self.function_frontend_cache.as_deref_mut()
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn has_sdk_frontend_cache(&self) -> bool {
+        self.sdk_frontend_cache.is_some() && self.editor_file.is_none() && self.overlays.is_empty()
+    }
+
+    pub(crate) fn load_sdk_frontend(
+        &mut self,
+        key: &str,
+        name: &str,
+    ) -> Option<SourceSdkInterface> {
+        self.sdk_frontend_cache.as_mut()?.load(key, name)
+    }
+
+    pub(crate) fn stage_sdk_frontend(
+        &mut self,
+        key: &str,
+        name: &str,
+        source: Arc<SourceSdkInterface>,
+    ) {
+        if let Some(cache) = &mut self.sdk_frontend_cache {
+            cache.stage(key, name, source);
+        }
+    }
+
+    pub fn disk_compilation_evidence(&self) -> Option<DiskSourceEvidence> {
+        (self.track_disk && self.overlays.is_empty() && self.editor_file.is_none()).then(|| {
+            DiskSourceEvidence {
+                resolved_paths: self.resolved_paths.borrow().clone(),
+                path_kinds: self.path_kinds.borrow().clone(),
+                source_directories: self.source_directories.clone(),
+                archives: self.archive_locations.clone(),
+                regular_inputs: self.regular_inputs.clone(),
+                native_trees: self
+                    .native_trees
+                    .iter()
+                    .map(|root| {
+                        let inventory = &self.verified[root];
+                        NativeTree {
+                            root: root.clone(),
+                            archive: inventory.archive,
+                            files: inventory.files.clone(),
+                        }
+                    })
+                    .collect(),
+            }
+        })
+    }
+
+    pub(crate) fn record_archive_location(&mut self, modules: &Path, digest: &str, root: &Path) {
+        if self.track_disk {
+            self.archive_locations.push(ArchiveLocation {
+                modules: modules.to_owned(),
+                digest: digest.to_owned(),
+                root: root.to_owned(),
+            });
+        }
+    }
+
+    pub(crate) fn record_regular_input(&mut self, path: &Path) {
+        if self.track_disk {
+            self.regular_inputs.insert(path.to_owned());
+        }
+    }
+
+    pub(crate) fn record_native_tree(&mut self, root: &Path) {
+        if self.track_disk {
+            self.native_trees.insert(root.to_owned());
         }
     }
 
@@ -138,7 +343,11 @@ impl<'a> SourceSnapshot<'a> {
         module: &Module,
         options: &CompilerOptions,
     ) -> Result<CheckedModule, Vec<Diagnostic>> {
-        crate::sema::check_module_with_validation(module, options, !self.hover_only)
+        crate::sema::check_module_with_validation(module, options, self.checks_responsibility())
+    }
+
+    pub(crate) fn checks_responsibility(&self) -> bool {
+        !self.hover_only
     }
 
     pub(crate) fn editor_file(&self) -> Option<FileId> {
@@ -169,6 +378,12 @@ impl<'a> SourceSnapshot<'a> {
                     .borrow_mut()
                     .entry(path.to_owned())
                     .or_insert_with(|| Some(canonical.clone()));
+                if self.track_disk {
+                    self.path_kinds
+                        .borrow_mut()
+                        .entry(canonical.clone())
+                        .or_insert_with(|| disk_path_kind(&canonical));
+                }
                 Ok(canonical)
             }
             Err(original) if verified => Err(original),
@@ -204,7 +419,7 @@ impl<'a> SourceSnapshot<'a> {
                 .collect());
         }
         let entries = source_entries(directory)?;
-        if self.editor_file.is_some() {
+        if self.editor_file.is_some() || self.track_disk {
             self.source_directories
                 .entry(directory.to_owned())
                 .or_insert_with(|| entries.clone());
@@ -319,6 +534,7 @@ impl<'a> SourceSnapshot<'a> {
             let canonical = self.canonical_path(&input)?;
             self.read_bytes(&canonical)?;
         }
+        self.record_native_tree(root);
         Ok(())
     }
 

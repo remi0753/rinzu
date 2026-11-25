@@ -1,5 +1,6 @@
 #ifndef RINZU_CALLBACK_RETURN_H
 #define RINZU_CALLBACK_RETURN_H
+#include "runtime_storage.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,10 +17,11 @@ typedef struct {
   size_t normal, fallback, bytes, metadata_bytes;
   size_t normal_bytes, fallback_bytes;
 } rinzu_callback_return_stats_t;
-static pthread_mutex_t rinzu_callback_return_mutex = PTHREAD_MUTEX_INITIALIZER;
-static rinzu_callback_return_node_t *rinzu_callback_return_nodes;
-static rinzu_callback_return_stats_t rinzu_callback_return_totals;
-static size_t rinzu_callback_return_process_copied;
+RINZU_RUNTIME_GLOBAL pthread_mutex_t rinzu_callback_return_mutex
+    RINZU_RUNTIME_INITIALIZER(PTHREAD_MUTEX_INITIALIZER);
+RINZU_RUNTIME_GLOBAL rinzu_callback_return_node_t *rinzu_callback_return_nodes;
+RINZU_RUNTIME_GLOBAL rinzu_callback_return_stats_t rinzu_callback_return_totals;
+RINZU_RUNTIME_GLOBAL size_t rinzu_callback_return_process_copied;
 static inline void rinzu_callback_return_lock(void) {
   if (pthread_mutex_lock(&rinzu_callback_return_mutex))
     _Exit(86);

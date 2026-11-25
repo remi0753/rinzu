@@ -346,7 +346,7 @@ fn validated_record_descriptor_binds_exact_fields_to_the_shared_owner_schema() {
     for package in ["app", "records"] {
         std::fs::create_dir_all(root.join(package).join("src")).unwrap();
     }
-    std::fs::write(root.join("records/rinzu.toml"),"[package]\nname=\"records\"\nlanguage=\"0.2\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n[native]\nsources=[\"api.c\"]\nheaders=[\"api.h\"]\n").unwrap();
+    std::fs::write(root.join("records/rinzu.toml"),"[package]\nname=\"records\"\nlanguage=\"0.5\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n[native]\nsources=[\"api.c\"]\nheaders=[\"api.h\"]\n").unwrap();
     std::fs::write(root.join("records/src/api.rinzu"),r#"
         native { record Packet { a:CInt8, b:CUInt64, c:CFloat, d:CBool }
           fn probe(value:Packet) -> CInt symbol "record_probe";
@@ -368,7 +368,7 @@ fn validated_record_descriptor_binds_exact_fields_to_the_shared_owner_schema() {
         "#include \"api.h\"\nint32_t record_probe(const struct Packet *value) {return value->a;}\n",
     )
     .unwrap();
-    std::fs::write(root.join("app/rinzu.toml"),"[package]\nname=\"record_app\"\nlanguage=\"0.2\"\n[dependencies]\nrecords={path=\"../records\"}\n").unwrap();
+    std::fs::write(root.join("app/rinzu.toml"),"[package]\nname=\"record_app\"\nlanguage=\"0.5\"\n[dependencies]\nrecords={path=\"../records\"}\n").unwrap();
     std::fs::write(root.join("app/src/main.rinzu"),"import records; fn execute() -> Int {return records.exercise();} async fn main() {try {let value=execute();}catch unexpectedEntryErrors {panic(\"unexpectedEntryFailure\");}}").unwrap();
     let (manifest, artifact) = rinzu_compiler::check_package(&root.join("app")).unwrap();
     let built = crate::native_package::build_with_native_inputs(

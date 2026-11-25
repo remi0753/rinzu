@@ -1,0 +1,77 @@
+import rinzu.list;
+import rinzu.stdio;
+
+error Failed {
+    payload: Int
+}
+
+async fn fail(value: Int) -> Int {
+    throw Failed(message: "failure", payload: value);
+}
+
+async fn main() {
+    let requests = [
+        fail(0),
+        fail(1),
+        fail(2),
+        fail(3),
+        fail(4),
+        fail(5),
+        fail(6),
+        fail(7),
+        fail(8),
+        fail(9),
+        fail(10),
+        fail(11),
+        fail(12),
+        fail(13),
+        fail(14),
+        fail(15),
+        fail(16)
+    ];
+    var distinct = 0;
+    try all {
+        for pending in requests {
+            let value = await pending;
+        }
+    }
+    catch errors {
+        distinct = rinzu.list.length(errors);
+    }
+    let shared = fail(99);
+    let aliases = [
+        shared,
+        shared,
+        shared,
+        shared,
+        shared,
+        shared,
+        shared,
+        shared,
+        shared,
+        shared,
+        shared,
+        shared,
+        shared,
+        shared,
+        shared,
+        shared,
+        shared
+    ];
+    var repeated = 0;
+    try all {
+        for pending in aliases {
+            let value = await pending;
+        }
+    }
+    catch errors {
+        repeated = rinzu.list.length(errors);
+    }
+    try {
+        rinzu.stdio.writeLine(distinct);
+        rinzu.stdio.writeLine(repeated);
+    }
+    catch errors {
+        panic("output failed");
+    }
+}

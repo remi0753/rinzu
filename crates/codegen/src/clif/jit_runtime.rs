@@ -21,6 +21,7 @@ pub(crate) fn run(
     native_packages: Option<LoadedNativePackages>,
     source_packages: Option<crate::source_package::LoadedSourcePackages>,
     arguments: Vec<Vec<u8>>,
+    on_ready: Option<&mut dyn FnMut()>,
 ) -> Result<BaselineRun> {
     let native_plans = crate::native_call::NativeCallPlans::new(module_ir)?;
     let source_bindings = source_packages
@@ -219,6 +220,10 @@ pub(crate) fn run(
         runtime
             .code_versions
             .insert((function.index, target.version), code_version);
+    }
+
+    if let Some(ready) = on_ready {
+        ready();
     }
 
     // SAFETY: the callback trampoline loads the finalized context-only entry

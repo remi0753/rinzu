@@ -1,0 +1,78 @@
+import cohort;
+import rinzu.native as bridge;
+
+fn answer() -> CSize fallback 0 {
+    return CSize(7183);
+}
+
+async fn observe(first: Future<Int>, second: Future<Int>) -> Int {
+    let one = await first;
+    let two = await second;
+    return one * 10000 + two;
+}
+
+async fn turn() {}
+
+type Started = {
+    saved: fn () -> CapturedPair,
+    polling: Future<Unit>
+};
+
+fn startGraph() -> Started {
+    try {
+        let first = bridge.transferred(cohort.start(0, answer));
+        let polling = bridge.completed(cohort.pollStart(answer));
+        let second = bridge.transferred(cohort.start(1, answer));
+        let saved = capturePair(first, second);
+        return { saved = saved, polling = polling };
+    }
+    catch errors {
+        panic("capture setup failed");
+        rethrow errors;
+    }
+}
+
+async fn main() {
+    try {
+        let graph = startGraph();
+        let forward = observe(capturedFirst(graph.saved), capturedSecond(graph.saved));
+        let reverse = observe(capturedSecond(graph.saved), capturedFirst(graph.saved));
+        await turn();
+        var step = 0;
+        while step < 3 {
+            let chosen = cohort.recoveryStep(step);
+            if chosen == CInt(0) {
+                let publishedFirst = cohort.publish(0);
+                if await capturedFirst(graph.saved) != 7183 {
+                    panic("first carrier payload");
+                }
+                let retiredFirst = cohort.retire(0);
+            }
+            else if chosen == CInt(1) {
+                let publishedSecond = cohort.publish(1);
+                if await capturedSecond(graph.saved) != 29 {
+                    panic("second carrier payload");
+                }
+                let retiredSecond = cohort.retire(1);
+            }
+            else {
+                let publishedPoll = cohort.pollPublish();
+                await graph.polling;
+                let retiredPoll = cohort.pollRetire();
+            }
+            await turn();
+            step = step + 1;
+        }
+        let finished = cohort.finish();
+        if await forward != 71830029 || await reverse != 297183 {
+            panic("combined payload");
+        }
+        if await capturedFirst(graph.saved) != 7183 || await capturedSecond(graph.saved) != 29 {
+            panic("cached payload after carrier free");
+        }
+        await graph.polling;
+    }
+    catch errors {
+        panic("dependent cohort recovery failed");
+    }
+}

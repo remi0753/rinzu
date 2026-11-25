@@ -1,5 +1,5 @@
 [package]
-name="rinzu.log"
-language="0.5"
-kind="sdk"
-entry="src/log.rinzu"
+name = "rinzu.log"
+language = "0.5"
+kind = "sdk"
+entry = "src/log.rinzu"

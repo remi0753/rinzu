@@ -2,20 +2,24 @@
 //! Inference is the default; explicit contracts bound escaping ordinary Errors.
 pub(crate) mod catch_diagnostics;
 mod contracts;
+mod fixed_point;
 mod flow;
 mod language;
 mod operations;
-mod responsibility;
+pub(crate) mod responsibility;
 mod substitution;
 mod value;
+use crate::FunctionFrontendCache;
 use crate::ast::*;
 use crate::ast_walk::{self, Visitor};
+use crate::function_cache::{self as memo, Facts, Memo, Memos, Read, SharedSummary};
 use crate::{CheckedModule, Diagnostic, DiagnosticCode, SourceRange, Type};
 use language::{Input, Language, Match, Pattern, Tag};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use value::{Projection, Value};
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Summary {
     pub errors: Language,
     pub success: bool,
@@ -147,7 +151,7 @@ pub(crate) fn within_bound(actual: &[String], expected: &[String]) -> bool {
 
 pub(crate) use contracts::display_bound;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ErrorConversion {
     pub expected: Vec<String>,
     pub related: Vec<(SourceRange, String)>,
@@ -228,37 +232,67 @@ fn analysis_bound(checked: &CheckedModule) -> usize {
     bound.0 + discarded
 }
 
+type EffectSummaries = fixed_point::FixedPoint<Summary>;
+
 fn infer(
     checked: &CheckedModule,
     functions: &BTreeMap<String, &crate::CheckedFunction>,
     graph: &BTreeMap<String, BTreeSet<String>>,
     bound: usize,
     proof: bool,
-) -> BTreeMap<String, Summary> {
-    let mut summaries = functions
-        .keys()
-        .map(|name| (name.clone(), Summary::default()))
-        .collect::<BTreeMap<_, _>>();
+    mut cache: Option<(&Facts<'_>, &mut Memos<SharedSummary<Summary>>)>,
+) -> EffectSummaries {
+    let mut summaries = EffectSummaries::new(functions.keys().cloned());
+    if cache.is_some() {
+        summaries.observe(|name| Read::Error(name.into()));
+    }
     let order = function_order(graph);
     let mut timing = crate::timing::span("frontend.effects.summaries");
-    let mut evaluated = 0;
+    let (mut evaluated, mut restored) = (0, 0);
     let mut rounds = 0;
     loop {
         rounds += 1;
         let mut changed = false;
         for name in &order {
-            evaluated += 1;
-            let mut next = flow::Analyzer::new(checked, &summaries, bound, false)
-                .proving_conversions(proof)
-                .function(functions[name])
-                .0;
-            if let Some(errors) = contracts::declared(checked, &functions[name].declaration, bound)
-            {
-                next.errors = errors;
+            if summaries.reusable(name) {
+                continue;
             }
-            if summaries[name] != next {
-                summaries.insert(name.clone(), next);
-                changed = true;
+            summaries.begin();
+            let compute = || {
+                let mut next = flow::Analyzer::new(checked, &summaries, bound, false)
+                    .proving_conversions(proof)
+                    .function(functions[name])
+                    .0;
+                if let Some(errors) =
+                    contracts::declared(checked, &functions[name].declaration, bound)
+                {
+                    next.errors = errors;
+                }
+                next
+            };
+            if let Some((facts, memos)) = &mut cache {
+                let (next, reused) = memo::evaluate(
+                    memos,
+                    name,
+                    || memo::fingerprint((facts.body(name)?, bound)),
+                    |read| match read {
+                        Read::Error(other) => summaries.fingerprint(other),
+                        _ => facts.resolve(read),
+                    },
+                    None,
+                    |read| {
+                        if let Read::Error(other) = read {
+                            summaries.get(other);
+                        }
+                    },
+                    || SharedSummary::new(compute()),
+                );
+                evaluated += u64::from(!reused);
+                restored += u64::from(reused);
+                changed |= summaries.update_shared(name, next);
+            } else {
+                evaluated += 1;
+                changed |= summaries.update(name, compute());
             }
         }
         if !changed {
@@ -267,6 +301,7 @@ fn infer(
     }
     timing.set_counter("functions", functions.len() as u64);
     timing.set_counter("evaluated", evaluated);
+    timing.set_counter("restored", restored);
     timing.set_counter("rounds", rounds);
     summaries
 }
@@ -285,7 +320,14 @@ pub(crate) fn verify_conversions(checked: &CheckedModule) -> Result<(), Vec<Diag
     }
     let functions = functions_by_name(checked);
     let bound = analysis_bound(checked);
-    let summaries = infer(checked, &functions, &function_graph(checked), bound, true);
+    let summaries = infer(
+        checked,
+        &functions,
+        &function_graph(checked),
+        bound,
+        true,
+        None,
+    );
     let mut seen = HashSet::new();
     let diagnostics: Vec<_> = functions
         .values()
@@ -327,38 +369,107 @@ impl EditorEffects {
 pub(crate) fn analyze(
     checked: &CheckedModule,
     entry: bool,
-    mut editor_effects: Option<&mut EditorEffects>,
+    editor_effects: Option<&mut EditorEffects>,
     check_responsibility: bool,
+    mut cache: Option<&mut FunctionFrontendCache>,
 ) -> Result<BTreeMap<String, Summary>, Vec<Diagnostic>> {
     let _timing = crate::timing::span("frontend.effects");
     let functions = functions_by_name(checked);
     let bound = analysis_bound(checked);
     let graph = function_graph(checked);
-    let summaries = infer(checked, &functions, &graph, bound, false);
-    let mut failures = Vec::new();
-    for function in functions.values() {
-        let (actual, errors) = flow::Analyzer::new(checked, &summaries, bound, true)
-            .recording(editor_effects.as_deref_mut())
-            .function(function);
-        let violation = contracts::violation(checked, &function.declaration, &actual);
-        if !errors.is_empty() || violation.is_some() {
-            failures.push((
-                *function,
-                errors,
-                violation.map(|allowed| (actual, allowed)),
-            ));
-        }
-    }
-    if failures.is_empty() {
-        // Observation validation consumes these summaries without changing the
-        // checked types or Error bounds. Hover can use them before diagnostics finish.
-        if check_responsibility {
-            let diagnostics = responsibility::validate(checked, &summaries, &graph, bound, entry);
-            if !diagnostics.is_empty() {
-                return Err(diagnostics);
+    let facts = cache.is_some().then(|| Facts::new(checked));
+    let summaries = infer(
+        checked,
+        &functions,
+        &graph,
+        bound,
+        false,
+        facts
+            .as_ref()
+            .zip(cache.as_mut().map(|cache| &mut cache.errors)),
+    );
+    let (mut checks, mut futures) = match cache {
+        Some(cache) => (Some(&mut cache.error_checks), Some(&mut cache.futures)),
+        None => (None, None),
+    };
+    let cancelled = AtomicBool::new(false);
+    // Both validations read the converged Error summaries. Large modules
+    // can do that work concurrently without sharing the memo read trackers.
+    let parallel = check_responsibility
+        && editor_effects.is_none()
+        && functions.len() >= 256
+        && std::thread::available_parallelism().is_ok_and(|count| count.get() > 1);
+    let concurrent = if parallel {
+        let _timing = crate::timing::span("frontend.effects.parallel");
+        std::thread::scope(|scope| {
+            let graph = &graph;
+            let effects = summaries.snapshot();
+            let future_cache = futures.as_deref_mut();
+            let cancelled = &cancelled;
+            let worker = std::thread::Builder::new()
+                .name("rinzu-future-check".into())
+                .stack_size(8 * 1024 * 1024)
+                .spawn_scoped(scope, move || {
+                    let facts = future_cache.is_some().then(|| Facts::new(checked));
+                    responsibility::validate(
+                        checked,
+                        &effects,
+                        graph,
+                        bound,
+                        entry,
+                        facts.as_ref().zip(future_cache),
+                        cancelled,
+                    )
+                })
+                .ok()?;
+            let failures = check_error_contracts(
+                checked,
+                &functions,
+                &summaries,
+                bound,
+                None,
+                facts.as_ref().zip(checks.as_deref_mut()),
+            );
+            if !failures.is_empty() {
+                cancelled.store(true, Ordering::Relaxed);
             }
+            let diagnostics = worker
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+            Some((failures, diagnostics))
+        })
+    } else {
+        None
+    };
+    let (failures, responsibility_diagnostics) = concurrent.unwrap_or_else(|| {
+        let failures = check_error_contracts(
+            checked,
+            &functions,
+            &summaries,
+            bound,
+            editor_effects,
+            facts.as_ref().zip(checks),
+        );
+        let diagnostics = if check_responsibility && failures.is_empty() {
+            responsibility::validate(
+                checked,
+                &summaries,
+                &graph,
+                bound,
+                entry,
+                facts.as_ref().zip(futures),
+                &cancelled,
+            )
+        } else {
+            Vec::new()
+        };
+        (failures, diagnostics)
+    });
+    if failures.is_empty() {
+        if !responsibility_diagnostics.is_empty() {
+            return Err(responsibility_diagnostics);
         }
-        return Ok(summaries);
+        return Ok(summaries.into_values());
     }
 
     let mut diagnostics =
@@ -382,11 +493,73 @@ type FunctionFailure<'a> = (
     Option<(Summary, BTreeSet<Tag>)>,
 );
 
+fn check_error_contracts<'a>(
+    checked: &'a CheckedModule,
+    functions: &BTreeMap<String, &'a crate::CheckedFunction>,
+    summaries: &EffectSummaries,
+    bound: usize,
+    mut editor_effects: Option<&mut EditorEffects>,
+    mut cache: Option<(&Facts<'_>, &mut Memos<()>)>,
+) -> Vec<FunctionFailure<'a>> {
+    let mut checks_timing = crate::timing::span("frontend.effects.checks");
+    let (mut evaluated, mut restored) = (0, 0);
+    let mut failures = Vec::new();
+    let facts = cache.as_ref().map(|(facts, _)| *facts);
+    for (name, function) in functions {
+        let resolve = |read: &Read| match read {
+            Read::Error(other) => summaries.fingerprint(other),
+            _ => facts?.resolve(read),
+        };
+        let mut compute = || {
+            let (actual, errors) = flow::Analyzer::new(checked, summaries, bound, true)
+                .recording(editor_effects.as_deref_mut())
+                .function(function);
+            let violation = contracts::violation(checked, &function.declaration, &actual);
+            (actual, errors, violation)
+        };
+        let (actual, errors, violation) = match (
+            cache.as_mut(),
+            facts.and_then(|facts| memo::fingerprint((facts.body(name)?, bound))),
+        ) {
+            (Some((_, memos)), Some(input)) => {
+                if memos
+                    .get(name)
+                    .is_some_and(|memo| memo.restore(input, resolve, None).is_some())
+                {
+                    restored += 1;
+                    continue;
+                }
+                let (result, reads) = memo::recording(compute);
+                if result.1.is_empty()
+                    && result.2.is_none()
+                    && let Some(memo) = Memo::capture(input, reads, (), resolve)
+                {
+                    memos.insert(name.clone(), memo);
+                }
+                result
+            }
+            _ => compute(),
+        };
+        evaluated += 1;
+        if !errors.is_empty() || violation.is_some() {
+            failures.push((
+                *function,
+                errors,
+                violation.map(|allowed| (actual, allowed)),
+            ));
+        }
+    }
+    checks_timing.set_counter("evaluated", evaluated);
+    checks_timing.set_counter("restored", restored);
+    drop(checks_timing);
+    failures
+}
+
 fn effect_diagnostics(
     checked: &CheckedModule,
     functions: &BTreeMap<String, &crate::CheckedFunction>,
     graph: &BTreeMap<String, BTreeSet<String>>,
-    summaries: &BTreeMap<String, Summary>,
+    summaries: &EffectSummaries,
     bound: usize,
     failures: Vec<FunctionFailure<'_>>,
 ) -> Vec<Diagnostic> {
@@ -532,8 +705,7 @@ fn function_graph(checked: &CheckedModule) -> BTreeMap<String, BTreeSet<String>>
             };
             self.targets.extend(
                 self.checked
-                    .indirect_calls
-                    .get(&expression.range)
+                    .fact_indirect_calls(&expression.range)
                     .cloned()
                     .unwrap_or_else(|| vec![target.join(".")]),
             );
@@ -586,8 +758,7 @@ fn tag(checked: &CheckedModule, ty: &Type) -> Option<Tag> {
         Type::Error => Some(Tag::Any),
         Type::Named(name)
             if checked
-                .source_types
-                .get(name)
+                .memo_schema(name)
                 .is_some_and(|schema| schema.kind == "error") =>
         {
             Some(Tag::Named(name.clone()))
@@ -603,8 +774,13 @@ fn pattern(checked: &CheckedModule, catch: &CatchPattern) -> Pattern {
             prefix: elements
                 .iter()
                 .map(|element| {
-                    tag(checked, &checked.error_patterns[&element.range])
-                        .expect("checked Error pattern")
+                    tag(
+                        checked,
+                        checked
+                            .fact_error_patterns(&element.range)
+                            .expect("checked error patterns"),
+                    )
+                    .expect("checked Error pattern")
                 })
                 .collect(),
             rest: rest.is_some(),

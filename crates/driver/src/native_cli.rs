@@ -7,6 +7,7 @@ pub struct PackageArguments {
     pub output: Option<PathBuf>,
     pub app_config: Option<PathBuf>,
     pub trace: bool,
+    pub progress: crate::jit_progress::Mode,
     pub diagnostic_report: Option<PathBuf>,
     pub resource_report: Option<rinzu_runtime::resource_report::Config>,
     pub native: NativeCliInputs,
@@ -20,6 +21,7 @@ pub fn parse(
     let mut result = PackageArguments::default();
     let mut report_path = None;
     let mut interval = None;
+    let mut progress = None;
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--language" | "--target"
@@ -49,6 +51,18 @@ pub fn parse(
                 .headers
                 .push(PathBuf::from(value(&mut arguments, "--native-header")?)),
             "--trace" if command == "run" => result.trace = true,
+            _ if command == "run"
+                && (argument == "--progress" || argument.starts_with("--progress=")) =>
+            {
+                if progress.is_some() {
+                    return Err("duplicate --progress".into());
+                }
+                let text = match argument.strip_prefix("--progress=") {
+                    Some(text) => text.to_owned(),
+                    None => value(&mut arguments, "--progress")?,
+                };
+                progress = Some(crate::jit_progress::Mode::parse(&text)?);
+            }
             "--diagnostic-report" if command == "run" => {
                 if result.diagnostic_report.is_some() {
                     return Err("duplicate --diagnostic-report".into());
@@ -102,6 +116,7 @@ pub fn parse(
         path,
         interval_ms: interval.unwrap_or(100),
     });
+    result.progress = progress.unwrap_or_default();
     Ok(result)
 }
 
@@ -115,6 +130,39 @@ fn value(arguments: &mut impl Iterator<Item = String>, flag: &str) -> Result<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn progress_modes_are_explicit_and_only_available_for_run() {
+        use crate::jit_progress::Mode;
+        assert_eq!(
+            parse("run", std::iter::empty()).unwrap().progress,
+            Mode::Auto
+        );
+        for (text, mode) in [
+            ("auto", Mode::Auto),
+            ("always", Mode::Always),
+            ("never", Mode::Never),
+        ] {
+            for args in [
+                vec!["--progress".to_owned(), text.to_owned()],
+                vec![format!("--progress={text}")],
+            ] {
+                assert_eq!(parse("run", args.into_iter()).unwrap().progress, mode);
+            }
+        }
+        for args in [
+            vec!["--progress"],
+            vec!["--progress="],
+            vec!["--progress=invalid"],
+            vec!["--progress", "--trace"],
+            vec!["--progress=always", "--progress", "never"],
+        ] {
+            assert!(parse("run", args.into_iter().map(str::to_owned)).is_err());
+        }
+        for command in ["check", "build", "test", "bundle"] {
+            assert!(parse(command, ["--progress=always".to_owned()].into_iter()).is_err());
+        }
+    }
     #[test]
     fn parses_only_explicit_typed_inputs() {
         let result = parse(

@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use rinzu_compiler::{NativeCliInputs, SourceCache, SourceSnapshot};
+use rinzu_compiler::NativeCliInputs;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -306,18 +306,8 @@ pub(crate) fn run_package(
     program_arguments: &[std::ffi::OsString],
 ) -> Result<(), String> {
     crate::PROGRAM_EXIT_STATUS.with(|status| status.set(0));
-    let mut cache = SourceCache::default();
-    let mut snapshot = SourceSnapshot::new(&mut cache, BTreeMap::new());
-    let context = rinzu_compiler::check_input_with_sources(
-        &path,
-        &options.compiler()?,
-        native,
-        &mut snapshot,
-    )
-    .map_err(|errors| {
-        crate::cli_diagnostics::emit_snapshot(&errors, &snapshot);
-        "input failed to check".to_owned()
-    })?;
+    let checked = crate::input::check_for_run(&path, options, native)?;
+    let context = checked.context;
     crate::input::protect_outputs(
         &context,
         &std::iter::once(output.clone())
@@ -327,7 +317,32 @@ pub(crate) fn run_package(
     let input_mode = context.mode;
     let manifest = context.metadata;
     let artifact = context.artifact;
-    let receipts = snapshot.input_receipts();
+    let receipts = context
+        .inputs
+        .iter()
+        .map(|input| {
+            (
+                input.path.clone(),
+                input.kind.as_str(),
+                input.byte_length,
+                input.digest,
+            )
+        })
+        .collect::<Vec<_>>();
+    // Physical paths and file IDs come from the checked module graph. The
+    // captured bodies are the exact checked bytes, including BOM and CRLF.
+    let source_paths = artifact
+        .module_graph
+        .iter()
+        .chain(
+            artifact
+                .sdk_packages
+                .iter()
+                .filter_map(|sdk| sdk.source.as_ref())
+                .flat_map(|source| source.module_graph.iter()),
+        )
+        .map(|module| (module.file_id.0, module.path.as_path()))
+        .collect::<BTreeMap<_, _>>();
     let protected = receipts
         .iter()
         .map(|(path, _, _, _)| path.clone())
@@ -383,17 +398,20 @@ pub(crate) fn run_package(
             .source_files
             .iter()
             .find_map(|(id, path)| (path == logical).then_some(*id));
-        let source = parse_file.and_then(|id| {
-            snapshot
-                .sources()
-                .values()
-                .find(|source| source.id().0 == id)
-        });
+        let disk_path = parse_file
+            .and_then(|id| source_paths.get(&id).copied())
+            .or_else(|| {
+                artifact
+                    .checked_inputs
+                    .contains_key(Path::new(logical))
+                    .then(|| Path::new(logical))
+            });
+        let source = disk_path.and_then(|path| artifact.checked_inputs.get(path));
         let mut row = CapturedSource {
             file: *file,
             parse_file,
             path: logical.clone(),
-            disk_path: source.map(|source| source.path().to_owned()),
+            disk_path: source.and(disk_path).map(Path::to_owned),
             byte_length: None,
             digest: None,
             text: None,
@@ -402,7 +420,7 @@ pub(crate) fn run_package(
         if let Some(source) = source {
             let receipt = receipts
                 .iter()
-                .find(|(path, _, _, _)| path == source.path())
+                .find(|(path, _, _, _)| Some(path.as_path()) == disk_path)
                 .ok_or("missing captured source receipt")?;
             row.byte_length = Some(receipt.2);
             row.digest = Some(format!("{:016x}", receipt.3));
@@ -410,15 +428,11 @@ pub(crate) fn run_package(
                 && receipt.2 <= SOURCE_LIMIT
                 && total + receipt.2 <= SOURCE_TOTAL
             {
-                row.text = Some(format!(
-                    "{}{}",
-                    if source.original_offset(0) == 3 {
-                        "\u{feff}"
-                    } else {
-                        ""
-                    },
-                    source.text()
-                ));
+                row.text = Some(
+                    std::str::from_utf8(source)
+                        .map_err(|_| "checked source is not UTF-8")?
+                        .to_owned(),
+                );
                 captured += 1;
                 total += receipt.2;
             } else {
@@ -453,10 +467,32 @@ pub(crate) fn run_package(
         limitations:vec!["Unpublished logical task/scope/Owner/CodeVersion IDs remain unknown".into(),"Native activity logs have no run ID; full stack and SDK allocator attribution are unavailable".into(),"Fatal/signal/OOM can leave only this initial report; settlement then remains unconfirmed".into()]
     };
     save(&output, &report).map_err(|error| format!("save initial diagnostic report: {error}"))?;
+    let context = rinzu_compiler::CompilationContext {
+        metadata: manifest,
+        artifact,
+        ..context
+    };
+    let mut pending = checked.pending;
+    let mut publish = || {
+        if let Some(pending) = pending.take() {
+            pending.store(&context);
+        }
+    };
     OBSERVATION.with(|slot| *slot.borrow_mut() = Some(Value::Null));
     let _capture = Capture;
     let (outcome, diagnostic_blocks) = crate::cli_diagnostics::capture(|| {
-        crate::run_checked_package(&manifest, &artifact, trace, resources, program_arguments)
+        crate::run_checked_package(
+            &context.metadata,
+            &context.artifact,
+            trace,
+            resources,
+            program_arguments,
+            crate::RunPreparation {
+                dependencies: checked.dependencies,
+                frontend_generation: checked.generation.as_deref(),
+                on_ready: Some(&mut publish),
+            },
+        )
     });
     for block in &diagnostic_blocks {
         crate::cli_diagnostics::write_block(block);
@@ -479,5 +515,8 @@ pub(crate) fn run_package(
         1
     });
     save(&output, &report).map_err(|error| format!("save final diagnostic report: {error}"))?;
+    if outcome.is_ok() && crate::PROGRAM_EXIT_STATUS.with(|status| status.get()) == 0 {
+        publish();
+    }
     outcome
 }

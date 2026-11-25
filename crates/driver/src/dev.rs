@@ -123,6 +123,7 @@ pub struct PackageWatcher {
     package: PathBuf,
     source_root: PathBuf,
     modules: BTreeMap<String, ModuleSnapshot>,
+    cache: rinzu_compiler::SourceCache,
 }
 
 impl PackageWatcher {
@@ -144,6 +145,7 @@ impl PackageWatcher {
             source_root,
             package: manifest.root,
             modules: BTreeMap::new(),
+            cache: Default::default(),
         })
     }
 
@@ -163,8 +165,12 @@ impl PackageWatcher {
         if changed.is_empty() {
             return Ok(Invalidation::default());
         }
-        if let Ok((_, artifact)) = rinzu_compiler::check_package(&self.package) {
-            for module in &artifact.module_graph {
+        // Immediate mode leaves diagnostics to the new child, as before.
+        let (checked, _) = crate::cli_diagnostics::capture(|| {
+            crate::input::check_for_dev(&self.package, &mut self.cache, &mut BTreeSet::new())
+        });
+        if let Ok(context) = checked {
+            for module in &context.artifact.module_graph {
                 let Some(name) = module_name(&self.source_root, &module.path) else {
                     continue;
                 };
@@ -510,7 +516,7 @@ mod tests {
         fs::create_dir_all(&source).unwrap();
         fs::write(
             root.join("rinzu.toml"),
-            "[package]\nname = \"watch\"\nlanguage = \"0.1\"\n",
+            "[package]\nname = \"watch\"\nlanguage = \"0.5\"\n",
         )
         .unwrap();
         write_source(&source.join("main.rinzu"), "import math;fn main() {}");

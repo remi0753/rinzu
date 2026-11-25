@@ -214,7 +214,7 @@ impl Engine<'_> {
                 continue;
             };
             if !matches!(state.env.get(name),Some(Tracked::Map(entries)) if entries.is_empty())
-                || self.checked.data_operations.get(&value.range)
+                || self.checked.fact_data_operations(&value.range)
                     != Some(&crate::DataOperation::MapInsert)
             {
                 continue;
@@ -333,7 +333,8 @@ impl Engine<'_> {
         else {
             return None;
         };
-        if self.checked.data_operations.get(&right.range) != Some(&crate::DataOperation::ListLength)
+        if self.checked.fact_data_operations(&right.range)
+            != Some(&crate::DataOperation::ListLength)
         {
             return None;
         }

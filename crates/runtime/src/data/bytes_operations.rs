@@ -74,6 +74,47 @@ impl ManagedData {
         slots: &[ManagedSlot],
     ) -> Result<ManagedSlot, DataError> {
         use DataOperation::*;
+        if op == BytesPackInt64LE {
+            let ValueType::List(child) = self.value_schema()?.ty(types[0])? else {
+                return Err(DataError::WrongKind);
+            };
+            let child = *child;
+            if !matches!(
+                self.value_schema()?.ty(child)?,
+                ValueType::Scalar(ScalarKind::I64)
+            ) || !matches!(self.value_schema()?.ty(result)?, ValueType::DynamicBytes)
+            {
+                return Err(DataError::WrongKind);
+            }
+            let ManagedSlot::Reference(handle) = slots[0] else {
+                return Err(DataError::WrongKind);
+            };
+            let reference = self.reference(heap, handle, DataKind::Composite(types[0]))?;
+            let (variant, fields) = self.composite_fields_iter(heap, reference, types[0])?;
+            if variant.is_some() {
+                return Err(DataError::WrongKind);
+            }
+            let length = fields
+                .len()
+                .checked_mul(8)
+                .filter(|length| *length <= i64::MAX as usize)
+                .ok_or(DataError::AddressSpaceExhausted)?;
+            let mut bytes = Vec::new();
+            bytes
+                .try_reserve_exact(length)
+                .unwrap_or_else(|_| std::process::abort());
+            for field in fields {
+                let DecodedSlot::Value(ManagedSlot::Scalar(value)) =
+                    self.decode_slot_field(heap, child, field)?
+                else {
+                    return Err(DataError::WrongKind);
+                };
+                bytes.extend_from_slice(&value.bits().to_le_bytes());
+            }
+            return self
+                .create_bytes(heap, length as u64, &bytes)
+                .map(ManagedSlot::Reference);
+        }
         if op == BytesConcatAll {
             let ValueType::List(child) = self.value_schema()?.ty(types[0])? else {
                 return Err(DataError::WrongKind);

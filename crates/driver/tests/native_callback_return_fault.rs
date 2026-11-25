@@ -61,10 +61,12 @@ uint64_t result=0;
         "    rinzu_baseline_leave_dispatch(context);",
         "    if(context->pending.current.primary && getenv(\"RINZU_TEST_RETURN_TEARDOWN\")){rinzu_test_budget=0;rinzu_test_return_body_teardowns++;} rinzu_baseline_leave_dispatch(context);",
     );
+    let released =
+        r#"RINZU_NATIVE_CALL_EVENT("call_env_free", plan, rinzu_native_plans[plan].symbol);"#;
     source = replace(
         source,
-        "free(call);\n}\n#ifdef RINZU_AOT_HAS_SUPPLANT",
-        "free(call);rinzu_test_budget=-1;\n}\n#ifdef RINZU_AOT_HAS_SUPPLANT",
+        released,
+        &format!("{released}\n  rinzu_test_budget = -1;"),
     );
     source = replace(
         source,

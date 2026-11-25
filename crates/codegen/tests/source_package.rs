@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rinzu_abi::target::Target;
-use rinzu_abi::{SourceImportV2, SourcePackageDescriptorV2};
+use rinzu_abi::{SourceImportV2, SourcePackageDescriptorV2, SourcePackageEntryV2};
 use rinzu_bindgen::source_package::*;
 use rinzu_codegen::source_package::*;
 
@@ -80,16 +80,27 @@ fn fixture(
 }
 fn replace_wire(generated: &mut GeneratedSourcePackage) {
     let wire = serde_json::to_vec(&generated.descriptor).unwrap();
-    let numbers = |bytes: &[u8]| {
-        bytes
-            .iter()
-            .map(u8::to_string)
-            .collect::<Vec<_>>()
-            .join(",")
-    };
-    generated.c_table = generated
-        .c_table
-        .replace(&numbers(&generated.wire), &numbers(&wire));
+    assert_ne!(
+        wire, generated.wire,
+        "the negative fixture must change the wire"
+    );
+    let before = format!(
+        "static const uint8_t descriptor_bytes[] =\n{};\n",
+        c_byte_string(&generated.wire)
+    );
+    let after = format!(
+        "static const uint8_t descriptor_bytes[] =\n{};\n",
+        c_byte_string(&wire)
+    );
+    assert_eq!(generated.c_table.matches(&before).count(), 1);
+    generated.c_table = generated.c_table.replacen(&before, &after, 1);
+    assert!(!generated.c_table.contains(&before));
+    assert_eq!(generated.c_table.matches(&after).count(), 1);
+    assert!(
+        generated
+            .c_table
+            .contains("descriptor_bytes, sizeof(descriptor_bytes) - 1,")
+    );
 }
 
 #[test]
@@ -144,10 +155,36 @@ fn rejects_wire_contract_drift_before_publishing() {
             d.interface.types[0].alignment = "3".into()
         }),
     ] {
+        let mut changed_wire = Vec::new();
         let fixture = fixture(interface(), |g| {
             mutate(&mut g.descriptor);
             replace_wire(g);
+            changed_wire = serde_json::to_vec(&g.descriptor).unwrap();
         });
+        let library =
+            rinzu_codegen::CompiledRuntimeLibrary::open(fixture.artifact.library.as_ref().unwrap())
+                .unwrap();
+        // SAFETY: this fixture compiles the generator's unmodified entry point
+        // and descriptor layout. Only its JSON payload has been changed.
+        let entry: SourcePackageEntryV2 =
+            unsafe { std::mem::transmute(library.symbol("rinzu_source_package_v2").unwrap()) };
+        // SAFETY: the entry returns its static table, retained by library.
+        let table = unsafe { &*entry() };
+        assert_eq!(
+            table.descriptor_len,
+            changed_wire.len(),
+            "{name}: length must exclude NUL"
+        );
+        // SAFETY: the generated array owns exactly this payload plus its NUL.
+        let actual = unsafe { std::slice::from_raw_parts(table.descriptor, table.descriptor_len) };
+        assert_eq!(
+            actual, changed_wire,
+            "{name}: changed wire was not compiled"
+        );
+        assert_ne!(
+            actual, fixture.artifact.expected_wire,
+            "{name}: expected wire must stay original"
+        );
         assert!(
             LoadedSourcePackages::load(std::slice::from_ref(&fixture.artifact)).is_err(),
             "{name}"

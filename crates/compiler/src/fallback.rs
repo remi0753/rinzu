@@ -2,7 +2,7 @@
 use crate::ast::{BinaryOperator as B, Expression, ExpressionKind as E, Literal, UnaryOperator};
 use crate::{AbiScalar, Diagnostic, DiagnosticCode, SourceRange, Type};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FallbackConstant {
     Unit,
     Integer {

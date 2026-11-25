@@ -12,18 +12,24 @@ use origins::Origins;
 pub(super) use origins::{Kind as OriginKind, Origin, outside};
 pub(super) use sequence::{Count, Part, PartKind, Reception, Sequence, VISIBLE_ERRORS};
 
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(
+    Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub(crate) struct Input {
     pub owner: String,
     pub index: usize,
     pub path: Vec<super::Projection>,
 }
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub(super) struct Shape {
     pub length: usize,
     pub longer: bool,
 }
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(
+    Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub(super) enum Guard {
     Future(Option<Shape>),
     FutureSuccess,
@@ -36,7 +42,9 @@ pub(super) enum Guard {
 }
 pub(super) type Guards = BTreeMap<Input, Guard>;
 
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(
+    Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub(crate) enum Tag {
     Any,
     Named(String),
@@ -45,7 +53,9 @@ pub(crate) enum Tag {
     FutureElement(Input, usize),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(
+    Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub(crate) struct Word {
     pub prefix: Vec<Tag>,
     /// All possible tags beyond the observable prefix. Count/order are erased,
@@ -57,9 +67,10 @@ pub(crate) struct Word {
 
 /// The semantic set alone determines equality, hashing and convergence.
 /// Only the diagnostic recheck attaches a witness map to this set.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Language {
     words: BTreeSet<Word>,
+    #[serde(skip)]
     trace: Option<Box<Trace>>,
 }
 

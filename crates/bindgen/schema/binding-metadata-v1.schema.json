@@ -25,8 +25,15 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "name", "symbol", "parameters", "resultCType", "thread", "blocking",
-        "synchronousReentry", "exceptionBoundary", "callbacks"
+        "name",
+        "symbol",
+        "parameters",
+        "resultCType",
+        "thread",
+        "blocking",
+        "synchronousReentry",
+        "exceptionBoundary",
+        "callbacks"
       ],
       "properties": {
         "name": { "$ref": "#/$defs/identifier" },
@@ -37,7 +44,9 @@
         },
         "resultCType": { "type": "string", "minLength": 1 },
         "thread": { "enum": ["process-main", "any"] },
-        "blocking": { "enum": ["non-blocking", "offload-blocking", "owner-loop-entry"] },
+        "blocking": {
+          "enum": ["non-blocking", "offload-blocking", "owner-loop-entry"]
+        },
         "synchronousReentry": { "enum": ["never", "may-callback"] },
         "exceptionBoundary": { "type": "boolean" },
         "callbacks": {
@@ -62,7 +71,9 @@
       "properties": {
         "name": { "$ref": "#/$defs/identifier" },
         "cType": { "type": "string", "minLength": 1 },
-        "lifetime": { "enum": ["value-copy", "retained", "owned-transfer", "call-only"] },
+        "lifetime": {
+          "enum": ["value-copy", "retained", "owned-transfer", "call-only"]
+        },
         "retainReleaseThreadSafe": { "type": "boolean" }
       }
     },
@@ -109,14 +120,29 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "parameter", "contextParameter", "resultCType", "class", "arguments", "delivery", "nestedDelivery",
-        "unregister", "shutdown", "failureReturn"
+        "parameter",
+        "contextParameter",
+        "resultCType",
+        "class",
+        "arguments",
+        "delivery",
+        "nestedDelivery",
+        "unregister",
+        "shutdown",
+        "failureReturn"
       ],
       "properties": {
         "parameter": { "$ref": "#/$defs/identifier" },
         "contextParameter": { "$ref": "#/$defs/identifier" },
         "resultCType": { "type": "string", "minLength": 1 },
-        "class": { "enum": ["owner-sync", "owner-async", "foreign-one-way", "foreign-sync"] },
+        "class": {
+          "enum": [
+            "owner-sync",
+            "owner-async",
+            "foreign-one-way",
+            "foreign-sync"
+          ]
+        },
         "arguments": {
           "type": "array",
           "items": { "$ref": "#/$defs/callbackArgument" }

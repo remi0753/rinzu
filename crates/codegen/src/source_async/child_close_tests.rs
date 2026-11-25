@@ -130,13 +130,24 @@ fn saturated_mailbox_keeps_native_drain_and_cancellation_until_physical_completi
     };
     operations.start(future).unwrap();
     assert!(operations.deferred_native.contains(&future));
+    let deferred_was_reported_baseline = operations.is_baseline();
     assert!(!shared.lock().unwrap().completed.contains_key(&future));
     assert!(operations.request_control(future, false));
+    let duplicate_cancel = operations.request_control(future, false);
+    let duplicate_timeout = operations.request_control(future, true);
     assert_eq!(native.cancelled.load(Ordering::Acquire), 1);
     assert!(!operations.receive_one_ready().unwrap());
     native.done.store(1, Ordering::Release);
     assert!(operations.receive_one_ready().unwrap());
     assert!(operations.deferred_native.is_empty());
+    assert!(
+        !deferred_was_reported_baseline,
+        "deferred SDK work is still a live resource owner"
+    );
+    assert!(
+        !duplicate_cancel && !duplicate_timeout,
+        "a deferred decision can be accepted only once"
+    );
     assert_eq!(
         shared.lock().unwrap().completed[&future]
             .as_ref()
@@ -656,6 +667,7 @@ async fn main() {
             ..SourceAsyncOptions::default()
         },
         admission,
+        None,
     )
     .unwrap();
     assert_eq!(run.future_admissions.len(), 1);
@@ -819,4 +831,248 @@ async fn main() { let child = spawn forever(); try { let failure = 1 / 0; } fina
     assert_eq!(failure.cleanup.len(), 1);
     assert_eq!(run.transport.peak_worker_domains, 1);
     assert!(run.resources_returned);
+}
+
+#[test]
+fn deferred_native_retry_preserves_the_first_control_before_a_fast_sdk_completion() {
+    use rinzu_runtime::native_completion::{
+        CompletionPointer, NotifiedNativeCompletion, TransferNativeCompletion,
+    };
+    use rinzu_runtime::scheduler::{Resolution, ResolveResult, TaskId};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    for fast in [true, false] {
+        for control in [None, Some(false), Some(true)] {
+            let module = Arc::new(
+                compile_source(&SourceFile::new(
+                    FileId(1),
+                    "deferred-retry.rinzu",
+                    "async fn main(){} ",
+                ))
+                .unwrap()
+                .ir,
+            );
+            let shared = Arc::new(Mutex::new(SharedState::default()));
+            let owner = OwnerValues::new(&module).unwrap();
+            let mut operations = SourceOperations::new(
+                Arc::clone(&module),
+                Arc::clone(&shared),
+                &SourceAsyncOptions::default(),
+                &owner,
+                #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+                Arc::new(NativeBindings::default()),
+            );
+            operations.mailbox = OperationMailbox::new(
+                rinzu_runtime::resources::ResourceLimits {
+                    pending_operations: 1,
+                    ..Default::default()
+                },
+                Arc::new(|| {}),
+            );
+            let occupied = operations
+                .mailbox
+                .admit(TaskId(0), "occupied credit".into())
+                .unwrap();
+            let mut carrier = Box::new(TransferNativeCompletion::default());
+            carrier.result = 7183;
+            let raw = std::ptr::from_ref(&*carrier) as usize;
+            // SAFETY: this Box remains pinned until the SDK and runtime finish all access.
+            let completion = unsafe { CompletionPointer::new(raw) };
+            let Value::Future(future) = shared
+                .lock()
+                .unwrap()
+                .future(
+                    0,
+                    PendingRequest::NativeCompletion {
+                        completion,
+                        transfer: true,
+                        source: None,
+                    },
+                )
+                .unwrap()
+            else {
+                unreachable!()
+            };
+            operations.start(future).unwrap();
+            assert!(operations.deferred_native.contains(&future));
+            assert_eq!(carrier.completion.notification.load(Ordering::Acquire), 0);
+            if let Some(timed) = control {
+                assert!(operations.request_control(future, timed));
+                assert_eq!(carrier.completion.base.cancelled.load(Ordering::Acquire), 1);
+            }
+            assert!(!operations.receive_one_ready().unwrap());
+            assert_eq!(occupied.complete(Ok(())), ResolveResult::Won);
+            operations.mailbox.take_resolutions().unwrap();
+            operations.mailbox.settle(occupied.operation).unwrap();
+            drop(occupied);
+            let published = Arc::new(AtomicBool::new(false));
+            let wake = Arc::clone(&published);
+            operations.reactor = AsyncReactor::with_completion_wake(Arc::new(move || {
+                wake.store(true, Ordering::Release);
+            }));
+            let flag = Arc::clone(&published);
+            if fast {
+                operations.deferred_retry_hook = Some(Box::new(move || {
+                    // SAFETY: the hook runs with the caller's carrier still pinned. It
+                    // forces SDK completion after retry submit and before its caller resumes.
+                    unsafe {
+                        NotifiedNativeCompletion::publish(raw as *mut NotifiedNativeCompletion)
+                    };
+                    let until = std::time::Instant::now() + Duration::from_secs(30);
+                    while !flag.load(Ordering::Acquire) {
+                        assert!(std::time::Instant::now() < until, "reactor did not publish");
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                }));
+                assert!(operations.receive_one_ready().unwrap());
+                operations.deferred_retry_hook = None;
+            } else {
+                assert!(!operations.receive_one_ready().unwrap());
+                let operation = operations.active[&future].0;
+                match control {
+                    Some(true) => assert!(matches!(
+                        operations.winners.get(&operation),
+                        Some(Resolution::TimedOut)
+                    )),
+                    Some(false) => assert!(matches!(
+                        operations.winners.get(&operation),
+                        Some(Resolution::Cancelled)
+                    )),
+                    None => assert!(!operations.winners.contains_key(&operation)),
+                }
+                assert!(!shared.lock().unwrap().completed.contains_key(&future));
+                // SAFETY: the pinned carrier is published exactly once after retry.
+                unsafe { NotifiedNativeCompletion::publish(raw as *mut NotifiedNativeCompletion) };
+                let until = std::time::Instant::now() + Duration::from_secs(30);
+                while !published.load(Ordering::Acquire) {
+                    assert!(std::time::Instant::now() < until, "reactor did not publish");
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                assert!(operations.receive_one_ready().unwrap());
+            }
+
+            let result = shared.lock().unwrap().completed[&future].clone();
+            if control.is_some() {
+                assert_eq!(result.unwrap_err().primary.cause, FailureCause::Cancelled);
+            } else {
+                assert_eq!(result.unwrap(), Value::int(7183));
+            }
+            assert!(
+                operations.deferred_native.is_empty()
+                    && operations.deferred_controls.borrow().is_empty()
+            );
+            assert!(operations.is_baseline());
+            drop(carrier);
+            drop(operations);
+        }
+    }
+}
+
+#[test]
+fn dropping_source_operations_cancels_and_drains_deferred_sdk_work() {
+    use rinzu_runtime::native_completion::{
+        CompletionPointer, NotifiedNativeCompletion, TransferNativeCompletion,
+    };
+    use std::sync::atomic::Ordering;
+    let value = TransferNativeCompletion {
+        result: 29,
+        ..Default::default()
+    };
+    let carrier = Arc::new(value);
+    let raw = Arc::as_ptr(&carrier) as usize;
+    let pinned = Arc::clone(&carrier);
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+    let owner = std::thread::spawn(move || {
+        let module = Arc::new(
+            compile_source(&SourceFile::new(
+                FileId(1),
+                "deferred-drop.rinzu",
+                "async fn main(){} ",
+            ))
+            .unwrap()
+            .ir,
+        );
+        let shared = Arc::new(Mutex::new(SharedState::default()));
+        let values = OwnerValues::new(&module).unwrap();
+        let mut operations = SourceOperations::new(
+            Arc::clone(&module),
+            Arc::clone(&shared),
+            &SourceAsyncOptions::default(),
+            &values,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            Arc::new(NativeBindings::default()),
+        );
+        operations.mailbox = OperationMailbox::new(
+            rinzu_runtime::resources::ResourceLimits {
+                pending_operations: 0,
+                ..Default::default()
+            },
+            Arc::new(|| {}),
+        );
+        // SAFETY: parent and producer retain independent Arcs through SDK publication and collection.
+        let completion = unsafe { CompletionPointer::new(raw) };
+        let Value::Future(future) = shared
+            .lock()
+            .unwrap()
+            .future(
+                0,
+                PendingRequest::NativeCompletion {
+                    completion,
+                    transfer: true,
+                    source: None,
+                },
+            )
+            .unwrap()
+        else {
+            unreachable!()
+        };
+        operations.start(future).unwrap();
+        assert!(operations.deferred_native.contains(&future));
+        ready_tx.send(()).unwrap();
+        drop(operations);
+        finished_tx.send(()).unwrap();
+        assert_eq!(
+            shared.lock().unwrap().completed[&future]
+                .as_ref()
+                .unwrap_err()
+                .primary
+                .cause,
+            FailureCause::Cancelled
+        );
+    });
+    ready_rx.recv_timeout(Duration::from_secs(30)).unwrap();
+    let (publish_tx, publish_rx) = std::sync::mpsc::channel();
+    let producer = std::thread::spawn(move || {
+        let _ = publish_rx.recv();
+        // SAFETY: the producer's Arc pins this uniquely published v3 carrier.
+        unsafe {
+            NotifiedNativeCompletion::publish(Arc::as_ptr(&pinned) as *mut NotifiedNativeCompletion)
+        };
+    });
+    let until = std::time::Instant::now() + Duration::from_secs(30);
+    while carrier.completion.base.cancelled.load(Ordering::Acquire) == 0 {
+        assert!(
+            matches!(
+                finished_rx.try_recv(),
+                Err(std::sync::mpsc::TryRecvError::Empty)
+            ),
+            "Drop returned without cancelling deferred SDK work"
+        );
+        assert!(
+            std::time::Instant::now() < until,
+            "deferred SDK did not receive shutdown cancellation"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(
+        matches!(
+            finished_rx.recv_timeout(Duration::from_millis(200)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ),
+        "Drop returned before physical SDK publication"
+    );
+    publish_tx.send(()).unwrap();
+    finished_rx.recv_timeout(Duration::from_secs(30)).unwrap();
+    producer.join().unwrap();
+    owner.join().unwrap();
 }

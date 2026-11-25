@@ -5,7 +5,7 @@ pub fn create(root: &std::path::Path) {
     }
     std::fs::create_dir_all(root.join("app/data")).unwrap();
     std::fs::write(root.join("app/data/proof.bin"), vec![0x5a; 8193]).unwrap();
-    std::fs::write(root.join("capsules/rinzu.toml"), "[package]\nname=\"capsules\"\nlanguage=\"0.2\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n[native]\nsources=[\"api.c\"]\nheaders=[\"api.h\"]\n").unwrap();
+    std::fs::write(root.join("capsules/rinzu.toml"), "[package]\nname=\"capsules\"\nlanguage=\"0.5\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n[native]\nsources=[\"api.c\"]\nheaders=[\"api.h\"]\n").unwrap();
     std::fs::write(root.join("app/rinzu.toml"), "[package]\nname=\"capsule_app\"\nlanguage=\"0.5\"\n[dependencies]\ncapsules={path=\"../capsules\"}\n").unwrap();
     std::fs::write(
         root.join("capsules/src/api.rinzu"),

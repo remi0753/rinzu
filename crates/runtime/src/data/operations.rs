@@ -61,6 +61,7 @@ impl ManagedData {
                 | BytesAllIn
                 | BytesTrim
                 | BytesConcatAll
+                | BytesPackInt64LE
         ) {
             return self.bytes_operation(heap, op, result, types, slots);
         }

@@ -11,7 +11,7 @@ pub(super) fn scalar_constructor(
         expression.kind,
         ExpressionKind::Call { .. } | ExpressionKind::GenericCall { spawn: false, .. }
     ) || target.len() != 1
-        || checked.indirect_calls.contains_key(&expression.range)
+        || checked.fact_indirect_calls(&expression.range).is_some()
     {
         return None;
     }
@@ -26,17 +26,16 @@ impl flow::Analyzer<'_> {
         arguments: &Arguments,
         name: &str,
     ) -> Language {
-        if let Some(operation) = self.checked.data_operations.get(&expression.range) {
+        if let Some(operation) = self.checked.fact_data_operations(&expression.range) {
             if self
                 .checked
-                .in_bounds_collection_updates
-                .contains(&expression.range)
+                .fact_in_bounds_collection_updates(&expression.range)
             {
                 return Language::new();
             }
             return data_errors(self.checked, *operation);
         }
-        if self.checked.stdout_calls.contains_key(&expression.range) {
+        if self.checked.fact_stdout_calls(&expression.range).is_some() {
             return language::one(Tag::Any);
         }
         if scalar_constructor(self.checked, expression, target).is_some() {
@@ -49,24 +48,22 @@ impl flow::Analyzer<'_> {
         }
         if let Some(signature) = self
             .checked
-            .source_native_calls
-            .get(&expression.range)
-            .or_else(|| {
-                self.checked
-                    .source_native_signatures
-                    .iter()
-                    .find(|signature| signature.name == name)
-            })
+            .fact_source_native_calls(&expression.range)
+            .or_else(|| self.checked.memo_native(name))
         {
             return native_errors(signature);
         }
-        if self.checked.native_calls.contains_key(&expression.range) {
+        if self.checked.fact_native_calls(&expression.range).is_some() {
             // Generated binding metadata does not declare a normal Error
             // contract. Do not use may_fail (which also includes traps) as a
             // proof that an external implementation cannot raise an Error.
             return language::unknown(self.bound);
         }
-        if self.checked.supplant_calls.contains_key(&expression.range) {
+        if self
+            .checked
+            .fact_supplant_calls(&expression.range)
+            .is_some()
+        {
             return language::one(Tag::Any);
         }
         // Lengths, readiness, cancel/timeout/shutdown and exit-status validation
@@ -137,6 +134,7 @@ fn data_errors(checked: &CheckedModule, operation: crate::DataOperation) -> Lang
         | BytesSlice
         | BytesConcat
         | BytesConcatAll
+        | BytesPackInt64LE
         | BytesCopy
         | BytesXor
         | BytesFindAny
@@ -186,7 +184,7 @@ fn data_errors(checked: &CheckedModule, operation: crate::DataOperation) -> Lang
             let mut result = Language::new();
             for name in crate::json::errors(operation) {
                 let qualified = format!("rinzu.json::{name}");
-                let identity = if checked.source_types.contains_key(&qualified) {
+                let identity = if checked.memo_schema(&qualified).is_some() {
                     qualified
                 } else {
                     (*name).into()

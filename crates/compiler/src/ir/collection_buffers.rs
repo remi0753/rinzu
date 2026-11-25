@@ -85,7 +85,7 @@ impl Visitor for Uses<'_> {
         match &statement.kind {
             StatementKind::While { .. } | StatementKind::For { .. } => self.loop_depth += 1,
             StatementKind::Assign { name, value } if name == self.local => {
-                if self.checked.data_operations.get(&value.range) == Some(&self.operation)
+                if self.checked.fact_data_operations(&value.range) == Some(&self.operation)
                     && let ExpressionKind::Call {
                         arguments: Arguments::Positional(args),
                         ..
@@ -164,7 +164,7 @@ pub(crate) fn in_bounds(checked: &CheckedModule) -> HashSet<SourceRange> {
                     ..
                 } => {
                     let input = values.first()?;
-                    match self.checked.data_operations.get(&value.range)? {
+                    match self.checked.fact_data_operations(&value.range)? {
                         ListAppend | MapInsert => self.length(input)?.checked_add(1),
                         MapRemove | MapKeys | MapEntries => self.length(input),
                         _ => None,
@@ -208,7 +208,7 @@ pub(crate) fn in_bounds(checked: &CheckedModule) -> HashSet<SourceRange> {
         }
         fn expression(&mut self, expression: &mut Expression) {
             if matches!(
-                self.checked.data_operations.get(&expression.range),
+                self.checked.fact_data_operations(&expression.range),
                 Some(crate::DataOperation::ListAppend | crate::DataOperation::MapInsert)
             ) && let ExpressionKind::Call {
                 arguments: Arguments::Positional(args),

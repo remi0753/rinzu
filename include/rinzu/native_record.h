@@ -260,8 +260,7 @@ rinzu_native_record_scratch(rinzu_managed_data_t *data, size_t bytes, size_t ali
       rinzu_resource_fatal();
     ++data->native_record_allocations;
   }
-  if (!loan->link.storage_accounted &&
-      atomic_load_explicit(&rinzu_resource_enabled, memory_order_relaxed)) {
+  if (!loan->link.storage_accounted && rinzu_resource_observing()) {
     rinzu_resource_acquire(RINZU_RESOURCE_RUNTIME_CONTROL, loan->link.storage_bytes);
     loan->link.storage_accounted = 1;
   }

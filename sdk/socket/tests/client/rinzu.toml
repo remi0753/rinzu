@@ -1,4 +1,4 @@
 [package]
-name="socket.client"
-language="0.5"
-entry="src/main.rinzu"
+name = "socket.client"
+language = "0.5"
+entry = "src/main.rinzu"

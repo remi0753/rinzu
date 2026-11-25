@@ -123,7 +123,10 @@ impl Engine<'_> {
                 .map(expressions::Evaluation::path)
                 .collect(),
             StatementKind::Rethrow { .. } => {
-                let selection = &self.checked.rethrows[&statement.range];
+                let selection = &self
+                    .checked
+                    .fact_rethrows(&statement.range)
+                    .expect("checked rethrows");
                 let Some(words) = state.caught.get(&self.at(selection.handler)) else {
                     return Vec::new();
                 };
@@ -286,8 +289,7 @@ impl Engine<'_> {
                                             {
                                                 let field = self
                                                     .checked
-                                                    .source_types
-                                                    .get(&ty.to_string())
+                                                    .memo_schema(&ty.to_string())
                                                     .and_then(|schema| {
                                                         schema
                                                             .variants
@@ -553,7 +555,7 @@ impl Engine<'_> {
                     }
                     let mut state = path.state.clone();
                     state.trace.set_exit(None);
-                    if !self.checked.rethrows.is_empty() {
+                    if self.checked.memo_has_rethrow() {
                         let accepted =
                             language::accepted(&Language::from([word.clone()]), &catch_pattern);
                         let Some(guards) = accepted

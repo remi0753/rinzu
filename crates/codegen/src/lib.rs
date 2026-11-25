@@ -65,13 +65,21 @@ pub use baseline::{
     emit_baseline_aot_object_with_native_bindings, emit_source_async_aot_object,
     emit_source_async_aot_object_for_target, emit_source_async_aot_plans, run_baseline_jit,
     run_baseline_jit_with_arguments, run_baseline_jit_with_native_packages,
-    run_baseline_jit_with_options, run_baseline_jit_with_package_bindings, uses_async_runtime,
+    run_baseline_jit_with_options, run_baseline_jit_with_package_bindings,
+    run_baseline_jit_with_startup, uses_async_runtime,
 };
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
     all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
 ))]
-pub use baseline::{CompiledAsyncJit, compile_source_async_jit};
+pub use baseline::{CompiledAsyncJit, compile_source_async_jit, prepare_source_async_jit};
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
+pub use clif::{
+    AsyncJitCode, AsyncJitCompiler, AsyncJitFunctionCache, AsyncJitImage, PreparedAsyncJit,
+};
 pub use native_package::{LoadedNativePackages, NativePackageArtifact};
 #[cfg(all(
     feature = "test-dispatcher-probe",
@@ -83,12 +91,13 @@ pub use source_async::{
     CallbackReturnEvidence, ForeignInvocationEvidence, FutureAdmission, NativeAsyncOperation,
     SourceAsyncEvent, SourceAsyncOptions, SourceAsyncRun, SourceHeapEvidence,
     SourceNativeCallEvidence, SourceWorkerHeapEvidence, run_source_async, run_source_async_report,
+    run_source_async_report_with_startup, run_source_async_with_startup,
 };
 mod native_resources;
 pub use native_resources::{CallbackPoolEvidence, NativeProcessEvidence};
 
 /// Private generated object/runtime contract; public native ABI versions are separate.
-pub const BASELINE_RUNTIME_ABI_REVISION: &str = "rinzu-baseline-0.5-r187";
+pub const BASELINE_RUNTIME_ABI_REVISION: &str = "rinzu-baseline-0.5-r188";
 
 /// Private macOS arm64 C Context contract; generated C asserts this field offset.
 pub const C_CONTEXT_PENDING_PRIMARY_OFFSET: i32 = 208;
@@ -118,7 +127,7 @@ pub fn resource_source_files(
 }
 pub const SAFEPOINT_SYMBOL: &str = "rinzu_backend_spike_safepoint";
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CompileEvidence {
     pub stack_map_count: usize,
     pub stack_map_entry_count: usize,

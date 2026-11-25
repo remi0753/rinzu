@@ -33,15 +33,15 @@ Raw strings begin with `r`, zero to sixteen `#` characters, and a quote, then en
 
 ## Text APIs
 
-| API | Result and indexing |
-| --- | --- |
-| `rinzu.string.length(text)` | Int scalar count |
-| `rinzu.string.utf8ByteLength(text)` | CSize encoded byte count |
-| `rinzu.string.get(text,index)` | Option of a one-scalar String |
-| `rinzu.string.slice(text,start,end)` | Option of the half-open scalar slice |
-| `rinzu.string.find(text,needle,start)` | Option of the first scalar index |
-| `rinzu.string.split(text,separator)` | List of literal, non-overlapping parts |
-| `rinzu.number.parseInt(text)` / `rinzu.number.formatInt(number)` | Strict full-input decimal parsing / formatting |
+| API                                                                | Result and indexing                                     |
+| ------------------------------------------------------------------ | ------------------------------------------------------- |
+| `rinzu.string.length(text)`                                        | Int scalar count                                        |
+| `rinzu.string.utf8ByteLength(text)`                                | CSize encoded byte count                                |
+| `rinzu.string.get(text,index)`                                     | Option of a one-scalar String                           |
+| `rinzu.string.slice(text,start,end)`                               | Option of the half-open scalar slice                    |
+| `rinzu.string.find(text,needle,start)`                             | Option of the first scalar index                        |
+| `rinzu.string.split(text,separator)`                               | List of literal, non-overlapping parts                  |
+| `rinzu.number.parseInt(text)` / `rinzu.number.formatInt(number)`   | Strict full-input decimal parsing / formatting          |
 | `rinzu.string.encodeUtf8(text)` / `rinzu.string.decodeUtf8(bytes)` | Explicit binary conversion. Invalid UTF-8 throws Error. |
 
 Parsing does not trim whitespace or accept trailing text. Repeated scalar lookups may rescan UTF-8 and copy text. Locale operations, regex, grapheme traversal, and parseFloat are unavailable.

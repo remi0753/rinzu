@@ -70,11 +70,10 @@ static uint64_t rinzu_aot_typed_materialize_result(rinzu_async_future_t *future)
   }
   return slot.bits;
 }
-static rinzu_async_future_t *rinzu_aot_typed_worker(RinzuContext *context, const size_t *types,
-                                                    const uint64_t *arguments, size_t count,
-                                                    unsigned result_kind, size_t result_type,
-                                                    void (*run)(rinzu_async_future_t *),
-                                                    const char *label) {
+RINZU_PROGRAM_API rinzu_async_future_t *
+rinzu_aot_typed_worker(RinzuContext *context, const size_t *types, const uint64_t *arguments,
+                       size_t count, unsigned result_kind, size_t result_type,
+                       void (*run)(rinzu_async_future_t *), const char *label) {
   RinzuContext *owner = context->async->root;
   rinzu_managed_data_t *data = rinzu_context_data(owner);
   if (!run || rinzu_typed_schema(data->schema, &result_type, 1) ||
@@ -107,7 +106,8 @@ static rinzu_async_future_t *rinzu_aot_typed_worker(RinzuContext *context, const
                                                               future->source.end_byte));
   return future;
 }
-static int rinzu_aot_typed_prepare_worker(RinzuContext *context, rinzu_async_future_t *future) {
+RINZU_PROGRAM_API int rinzu_aot_typed_prepare_worker(RinzuContext *context,
+                                                     rinzu_async_future_t *future) {
   rinzu_managed_data_t *data = rinzu_context_data(context);
   rinzu_managed_attach_roots(data, &context->domain_roots, &context->roots);
   rinzu_managed_enter(&context->roots);
@@ -142,7 +142,8 @@ static int rinzu_aot_typed_prepare_worker(RinzuContext *context, rinzu_async_fut
   rinzu_async_settle_input(future);
   return !status;
 }
-static void rinzu_aot_typed_encode_result(RinzuContext *context, rinzu_async_future_t *future) {
+RINZU_PROGRAM_API void rinzu_aot_typed_encode_result(RinzuContext *context,
+                                                     rinzu_async_future_t *future) {
   RinzuTypedViews views = rinzu_aot_typed_views(rinzu_context_data(context), &future->result_type,
                                                 &future->result_slot, 1);
   size_t size = 0;
@@ -163,7 +164,8 @@ static void rinzu_aot_typed_encode_result(RinzuContext *context, rinzu_async_fut
   if (!reserved)
     rinzu_async_result_overloaded(future);
 }
-static void rinzu_aot_typed_finish_worker(RinzuContext *context, rinzu_async_future_t *future) {
+RINZU_PROGRAM_API void rinzu_aot_typed_finish_worker(RinzuContext *context,
+                                                     rinzu_async_future_t *future) {
   rinzu_managed_leave(&context->roots);
   rinzu_managed_collect(&context->data, &context->roots);
   future->heap_evidence = 1;
@@ -191,7 +193,7 @@ static void rinzu_aot_typed_finish_worker(RinzuContext *context, rinzu_async_fut
   rinzu_managed_data_dispose(&context->data);
 }
 #endif
-static void rinzu_aot_typed_heap_evidence(RinzuAsyncState *state) {
+RINZU_PROGRAM_API void rinzu_aot_typed_heap_evidence(RinzuAsyncState *state) {
   printf("RINZU_WORKER_HEAPS=");
   const char *separator = "";
   for (unsigned group = 0; group < 2; ++group)

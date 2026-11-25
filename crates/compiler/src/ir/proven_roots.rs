@@ -510,29 +510,33 @@ fn successors(terminator: &Terminator) -> Vec<BlockId> {
 /// Async, catch/finally, indirect and supplant activations keep full checking.
 #[must_use]
 pub fn proven_frame_roots(module: &IrModule) -> HashMap<String, FramePlan> {
+    narrow_proofs(module).map_or_else(HashMap::new, |(_, roots)| roots)
+}
+
+fn narrow_proofs(module: &IrModule) -> Option<(HashSet<String>, HashMap<String, FramePlan>)> {
     let functions: Vec<_> = module.functions.iter().filter_map(Function::new).collect();
     let mut returns = HashSet::new();
     for _ in 0..=functions.len() {
         let mut next = returns.clone();
-        for f in &functions {
-            if f.analyze(&returns)
-                .is_some_and(|(_, valid_return)| valid_return)
-            {
-                next.insert(f.ir.name.clone());
+        let mut evaluated = Vec::new();
+        for function in &functions {
+            if let Some((plan, valid_return)) = function.analyze(&returns) {
+                if valid_return {
+                    next.insert(function.ir.name.clone());
+                }
+                evaluated.push((&function.ir.name, plan));
             }
         }
         if next == returns {
-            return functions
-                .iter()
-                .filter_map(|f| {
-                    f.analyze(&returns)
-                        .map(|(plan, _)| (f.ir.name.clone(), plan))
-                })
+            let plans = evaluated
+                .into_iter()
+                .map(|(name, plan)| (name.clone(), plan))
                 .collect();
+            return Some((returns, plans));
         }
         returns = next;
     }
-    HashMap::new()
+    None
 }
 
 /// C-only immutable selectors for membership words, including mixed vectors.
@@ -540,32 +544,35 @@ pub fn proven_frame_roots(module: &IrModule) -> HashMap<String, FramePlan> {
 /// All physical publication, collection, Owner/borrow/writing and polls remain.
 #[must_use]
 pub fn proven_frame_memberships(module: &IrModule) -> HashMap<String, MembershipMasks> {
-    let functions: Vec<_> = module.functions.iter().filter_map(Function::new).collect();
-    let mut returns = HashSet::new();
-    let mut converged = false;
-    for _ in 0..=functions.len() {
-        let mut next = returns.clone();
-        for f in &functions {
-            if f.analyze(&returns).is_some_and(|(_, valid)| valid) {
-                next.insert(f.ir.name.clone());
-            }
-        }
-        if next == returns {
-            converged = true;
-            break;
-        }
-        returns = next;
+    narrow_proofs(module).map_or_else(HashMap::new, |(returns, _)| wide_proofs(module, &returns))
+}
+
+#[derive(Default)]
+pub struct FrameProofs {
+    pub roots: HashMap<String, FramePlan>,
+    pub memberships: HashMap<String, MembershipMasks>,
+}
+
+/// Compute both C-runtime proofs from one fixpoint of return summaries.
+#[must_use]
+pub fn proven_frame_plans(module: &IrModule) -> FrameProofs {
+    let Some((returns, roots)) = narrow_proofs(module) else {
+        return FrameProofs::default();
+    };
+    FrameProofs {
+        roots,
+        memberships: wide_proofs(module, &returns),
     }
-    if !converged {
-        return HashMap::new();
-    }
+}
+
+fn wide_proofs(module: &IrModule, returns: &HashSet<String>) -> HashMap<String, MembershipMasks> {
     let closed = super::proven_owner::closed_functions(module);
     module
         .functions
         .iter()
         .filter_map(|ir| {
             Function::wide(ir, closed.contains(&ir.name))?
-                .memberships(&returns)
+                .memberships(returns)
                 .map(|plan| (ir.name.clone(), plan))
         })
         .collect()

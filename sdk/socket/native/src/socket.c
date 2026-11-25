@@ -788,6 +788,9 @@ static bool try_read(struct Handle *h, uint8_t *buffer, size_t size, int64_t tim
   if (h->eof)
     return true;
   ++read_calls;
+  /* configure() establishes O_NONBLOCK before publishing the Handle; lock
+     pins that descriptor for this call. The analyzer does not model fcntl. */
+  // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
   ssize_t n = recv(h->fd, buffer, size, 0);
   if (n >= 0) {
     attempt->length = (size_t)n;

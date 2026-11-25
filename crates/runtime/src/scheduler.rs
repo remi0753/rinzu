@@ -644,6 +644,8 @@ pub struct OperationResolver {
     state: AtomicU8,
     sender: Sender<ResolutionEvent>,
     wake: Arc<dyn Fn() + Send + Sync>,
+    #[cfg(feature = "test-native-lifetime-trace")]
+    lifetime: std::sync::Mutex<Option<Arc<crate::lifetime_trace::Probe>>>,
 }
 
 impl fmt::Debug for OperationResolver {
@@ -668,6 +670,19 @@ impl OperationResolver {
             state: AtomicU8::new(RESOLVER_PENDING),
             sender,
             wake,
+            #[cfg(feature = "test-native-lifetime-trace")]
+            lifetime: std::sync::Mutex::new(None),
+        }
+    }
+    #[cfg(feature = "test-native-lifetime-trace")]
+    pub(crate) fn observe(&self, p: Option<Arc<crate::lifetime_trace::Probe>>) {
+        *self.lifetime.lock().unwrap() = p;
+    }
+    #[cfg(feature = "test-native-lifetime-trace")]
+    pub(crate) fn lifetime_event(&self, kind: &'static str, a: i64) {
+        let p = self.lifetime.lock().unwrap().clone();
+        if let Some(p) = p {
+            p.record(kind, self.operation.0, a, 0);
         }
     }
 
@@ -713,7 +728,7 @@ impl OperationResolver {
     }
 
     fn resolve(&self, winner: u8, resolution: Resolution) -> ResolveResult {
-        if self
+        let won = self
             .state
             .compare_exchange(
                 RESOLVER_PENDING,
@@ -721,8 +736,12 @@ impl OperationResolver {
                 Ordering::AcqRel,
                 Ordering::Acquire,
             )
-            .is_err()
-        {
+            .is_ok();
+        #[cfg(feature = "test-native-lifetime-trace")]
+        if winner == RESOLVER_COMPLETING {
+            self.lifetime_event("completion_claim", i64::from(won));
+        }
+        if !won {
             return ResolveResult::Late;
         }
         if self
@@ -738,6 +757,12 @@ impl OperationResolver {
         }
         (self.wake)();
         ResolveResult::Won
+    }
+}
+#[cfg(feature = "test-native-lifetime-trace")]
+impl Drop for OperationResolver {
+    fn drop(&mut self) {
+        self.lifetime_event("record_release", 0);
     }
 }
 

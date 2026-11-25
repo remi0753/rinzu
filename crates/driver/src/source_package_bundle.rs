@@ -24,6 +24,10 @@ struct Entry {
     files: BTreeMap<String, String>,
 }
 
+pub fn package_directory(package: &str) -> String {
+    format!("sdk-{}", &sha256(package.as_bytes())[..24])
+}
+
 pub fn save(packages: &[BuiltSourcePackage], destination: &Path) -> Result<PathBuf, String> {
     save_to(packages, &[destination])
 }
@@ -49,10 +53,7 @@ pub fn save_to(packages: &[BuiltSourcePackage], destinations: &[&Path]) -> Resul
     BuiltSourcePackage::verify_all(packages, None)?;
     for package in packages {
         let descriptor = validate_source_descriptor(&package.artifact.expected_wire)?;
-        let directory_name = format!(
-            "sdk-{}",
-            &sha256(descriptor.interface.package.package.as_bytes())[..24]
-        );
+        let directory_name = package_directory(&descriptor.interface.package.package);
         for destination in destinations {
             std::fs::create_dir_all(destination.join(&directory_name))
                 .map_err(|error| error.to_string())?;
@@ -340,6 +341,7 @@ mod tests {
             input_snapshot: None,
             reference_check: None,
             owner_manifest: None,
+            pending_early_cache: None,
         };
         let manifest = save(&[package], &root.join("saved")).unwrap();
         assert_eq!(load(&manifest).unwrap().descriptors().len(), 1);

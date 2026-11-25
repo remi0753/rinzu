@@ -5,8 +5,8 @@ pub fn create(root: &std::path::Path) {
     }
     std::fs::create_dir_all(root.join("app/data")).unwrap();
     std::fs::write(root.join("app/data/proof.bin"), vec![0x5a; 8193]).unwrap();
-    std::fs::write(root.join("dispatcher/rinzu.toml"), "[package]\nname=\"dispatcher\"\nlanguage=\"0.2\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n[native]\nsources=[\"api.c\"]\nheaders=[\"api.h\"]\nframeworks=[\"CoreFoundation\"]\n").unwrap();
-    std::fs::write(root.join("app/rinzu.toml"), "[package]\nname=\"dispatcher_app\"\nlanguage=\"0.2\"\n[dependencies]\ndispatcher={path=\"../dispatcher\"}\n").unwrap();
+    std::fs::write(root.join("dispatcher/rinzu.toml"), "[package]\nname=\"dispatcher\"\nlanguage=\"0.5\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n[native]\nsources=[\"api.c\"]\nheaders=[\"api.h\"]\nframeworks=[\"CoreFoundation\"]\n").unwrap();
+    std::fs::write(root.join("app/rinzu.toml"), "[package]\nname=\"dispatcher_app\"\nlanguage=\"0.5\"\n[dependencies]\ndispatcher={path=\"../dispatcher\"}\n").unwrap();
     for (path, contents) in [
         ("dispatcher/src/api.rinzu", include_str!("api.rinzu")),
         ("dispatcher/api.h", include_str!("api.h")),

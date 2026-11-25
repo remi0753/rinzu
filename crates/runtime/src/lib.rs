@@ -30,6 +30,8 @@ pub mod host_loop;
 #[cfg(unix)]
 pub mod json;
 pub mod key;
+#[cfg(feature = "test-native-lifetime-trace")]
+pub mod lifetime_trace;
 pub mod native_completion;
 #[cfg(unix)]
 pub mod native_diagnostics;

@@ -32,7 +32,8 @@ impl Fixture {
             Command::new(frozen_cli::path())
                 .args(args)
                 .current_dir(&self.0)
-                .env("RINZU_CACHE_DIR", self.0.join("cache")),
+                .env("RINZU_CACHE_DIR", self.0.join("cache"))
+                .env("RINZU_COMPILE_TIMINGS", "1"),
         )
     }
 }
@@ -47,6 +48,76 @@ fn rejected(output: Output, marker: &str) {
         String::from_utf8_lossy(&output.stderr).contains(marker),
         "{output:?}"
     );
+}
+
+fn timed(output: &Output, phase: &str, detail: Option<&str>) -> bool {
+    String::from_utf8_lossy(&output.stderr)
+        .lines()
+        .filter_map(|line| line.strip_prefix("RINZU_COMPILE_TIMING="))
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .any(|event| event["phase"] == phase && detail.is_none_or(|s| event["detail"] == s))
+}
+
+#[test]
+fn bundle_reuses_checked_inputs_and_runtime_object_until_inputs_change() {
+    let f = Fixture::new();
+    let package = f.0.join("app");
+    fs::create_dir_all(package.join("src")).unwrap();
+    fs::write(
+        package.join("rinzu.toml"),
+        "[package]\nname = \"cache_app\"\nlanguage = \"0.5\"\n",
+    )
+    .unwrap();
+    fs::write(
+        package.join("macos-app.json"),
+        r#"{"schema":"rinzu.macos-app-v1","identifier":"dev.rinzu.cache","name":"Cache App"}"#,
+    )
+    .unwrap();
+    let source = package.join("src/main.rinzu");
+    let write_source = |message| {
+        fs::write(
+            &source,
+            format!("import rinzu.stdio;\nfn main() {{ try {{ rinzu.stdio.writeLine(\"{message}\"); }} catch errors {{ panic(\"stdout write failed\"); }} }}\n"),
+        )
+        .unwrap();
+    };
+    let bundle = |name| {
+        let output = f.0.join(name);
+        let build = f.cli(&[
+            "bundle".as_ref(),
+            package.as_os_str(),
+            "--output".as_ref(),
+            output.as_os_str(),
+        ]);
+        assert!(build.status.success(), "{build:?}");
+        platform::success(&f.cli(&["bundle-verify".as_ref(), output.as_os_str()]));
+        (output, build)
+    };
+
+    write_source("before");
+    platform::success(&f.cli(&["check".as_ref(), package.as_os_str()]));
+    let (_, first) = bundle("First.app");
+    assert!(timed(&first, "jit.frontend.cache.hit", None));
+    assert!(timed(
+        &first,
+        "native.compile.clang",
+        Some("AOT runtime shim")
+    ));
+    let (_, second) = bundle("Second.app");
+    assert!(timed(&second, "jit.frontend.cache.hit", None));
+    assert!(timed(
+        &second,
+        "native.compile.hit",
+        Some("AOT runtime shim")
+    ));
+
+    write_source("after");
+    let (changed, third) = bundle("Changed.app");
+    assert!(timed(&third, "jit.frontend.cache.miss", None));
+    let output =
+        platform::bounded(Command::new(changed.join("Contents/MacOS/cache_app")).current_dir(&f.0));
+    platform::success(&output);
+    assert_eq!(output.stdout, b"after\n");
 }
 fn baseline(path: &Path) {
     let record: serde_json::Value =

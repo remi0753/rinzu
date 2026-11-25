@@ -4,7 +4,7 @@ use crate::ast::{
     TypeRefKind,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SourceTemplateSchema {
     pub kind: String,
     pub type_parameters: Vec<(String, Vec<String>)>,

@@ -51,8 +51,14 @@ def write_fixture(workspace, profile, rinzu):
         path.write_bytes(text.encode("utf-8"))
 
     write("rinzu.toml", '[package]\nname = "host"\nlanguage = "0.5"\n')
-    write("src/main.rinzu", '\ufeff// 😀日本\r\nimport model;fn main(){let n:Int=model.value();}')
-    write("src/model.rinzu", 'fn value()->String{return "disk";}fn hidden()->Int{return 7;}export value;')
+    write(
+        "src/main.rinzu",
+        "\ufeff// 😀日本\r\nimport model;fn main(){let n:Int=model.value();}",
+    )
+    write(
+        "src/model.rinzu",
+        'fn value()->String{return "disk";}fn hidden()->Int{return 7;}export value;',
+    )
     write("src/logic.rinzu", "fn logic() {}\n")
     write("coverage/rinzu.toml", '[package]\nname = "coverage"\nlanguage = "0.5"\n')
     write("coverage/src/main.rinzu", CATCH_SOURCE)
@@ -60,14 +66,19 @@ def write_fixture(workspace, profile, rinzu):
 
     settings = profile / "User/settings.json"
     settings.parent.mkdir(parents=True)
-    settings.write_text(json.dumps({
-        "chat.disableAIFeatures": True,
-        "extensions.autoCheckUpdates": False,
-        "extensions.autoUpdate": False,
-        "telemetry.telemetryLevel": "off",
-        "update.mode": "none",
-        "workbench.startupEditor": "none",
-    }), encoding="utf-8")
+    settings.write_text(
+        json.dumps(
+            {
+                "chat.disableAIFeatures": True,
+                "extensions.autoCheckUpdates": False,
+                "extensions.autoUpdate": False,
+                "telemetry.telemetryLevel": "off",
+                "update.mode": "none",
+                "workbench.startupEditor": "none",
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def run_host(code, rinzu, root, timeout):
@@ -119,7 +130,11 @@ def run_host(code, rinzu, root, timeout):
                         os.killpg(process.pid, signal.SIGKILL)
                     process.wait()
     if status:
-        if sys.platform == "darwin" and status == -signal.SIGABRT and not evidence.exists():
+        if (
+            sys.platform == "darwin"
+            and status == -signal.SIGABRT
+            and not evidence.exists()
+        ):
             raise RuntimeError(
                 "VS Code aborted before reporting tests. Run from a macOS desktop session "
                 "with permission to register applications."
@@ -127,8 +142,11 @@ def run_host(code, rinzu, root, timeout):
         raise RuntimeError(f"VS Code host exited with status {status}")
 
     result = json.loads(evidence.read_text(encoding="utf-8"))
-    if (result.get("schema") != "rinzu-editor-host-tests/1"
-            or result.get("completed") is not True or not result.get("cases")):
+    if (
+        result.get("schema") != "rinzu-editor-host-tests/1"
+        or result.get("completed") is not True
+        or not result.get("cases")
+    ):
         raise RuntimeError("VS Code did not report its integration test cases")
     for case in result["cases"]:
         print(f"{case['status']}  {case['name']}")
@@ -139,13 +157,21 @@ def run_host(code, rinzu, root, timeout):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--code", type=Path, default=default_code(), help="installed VS Code executable")
+    parser.add_argument(
+        "--code", type=Path, default=default_code(), help="installed VS Code executable"
+    )
     parser.add_argument("--rinzu", type=Path, default=ROOT / "target/debug/rinzu")
-    parser.add_argument("--timeout", type=int, default=180, help="host timeout in seconds")
+    parser.add_argument(
+        "--timeout", type=int, default=180, help="host timeout in seconds"
+    )
     args = parser.parse_args()
     if os.name != "posix":
         parser.error("the desktop host runner requires macOS or Linux")
-    if args.code is None or not args.code.is_file() or not os.access(args.code, os.X_OK):
+    if (
+        args.code is None
+        or not args.code.is_file()
+        or not os.access(args.code, os.X_OK)
+    ):
         parser.error("pass the executable of an installed desktop VS Code with --code")
     if not args.rinzu.is_file() or not os.access(args.rinzu, os.X_OK):
         parser.error("build the Rinzu driver and pass its executable with --rinzu")
@@ -158,7 +184,10 @@ def main():
         except (OSError, RuntimeError, ValueError) as error:
             log = root / "host.log"
             if log.exists():
-                print(log.read_text(encoding="utf-8", errors="replace")[-20000:], file=sys.stderr)
+                print(
+                    log.read_text(encoding="utf-8", errors="replace")[-20000:],
+                    file=sys.stderr,
+                )
             print(error, file=sys.stderr)
             return 1
     return 0

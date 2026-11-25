@@ -274,7 +274,7 @@ static void cache_head(struct Decoder *d, const uint8_t *data, size_t length) {
     d->key.length = 0;
     return;
   }
-  if (length != d->key.length || memcmp(d->key.data, data, length)) {
+  if (length != d->key.length || memcmp(d->key.data, data, length) != 0) {
     d->key.length = 0;
     append(&d->key, data, length, d->cache_limit);
     ++d->version;
@@ -340,7 +340,8 @@ int64_t rinzu_httpcodec_feed(void *decoder, const uint8_t *data, size_t length, 
   }
   d->frame.bodyLength = (int64_t)d->expected;
   d->complete = true;
-  int64_t end = (int64_t)(at + count);
+  /* Both operands and their sum are bounded by length <= INT64_MAX. */
+  int64_t end = (int64_t)at + (int64_t)count;
   /* An already-owned head and an empty body need only the new end offset.
      This receipt is below all HTTP and argument error statuses. */
   if (!d->expected && owned_head > 0 && owned_head == d->frame.headVersion &&

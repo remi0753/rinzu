@@ -1,17 +1,27 @@
 //! Substitute complete failure words, choosing each Future input's word once.
 //! Independent position substitution would invent [A,A] from [A,B] | [B,A].
 use super::*;
+use std::borrow::Cow;
 
-fn argument(input: &Input, arguments: &[Value], fallback: Value) -> Value {
+fn argument<'a>(
+    index: usize,
+    path: &[Projection],
+    arguments: &'a [Value],
+    fallback: impl Fn() -> Value,
+) -> Cow<'a, Value> {
     let mut actual = arguments
-        .get(input.index)
-        .cloned()
-        .unwrap_or_else(|| fallback.clone());
-    for projection in &input.path {
-        actual = actual.project(projection.clone(), fallback.clone());
+        .get(index)
+        .map_or_else(|| Cow::Owned(fallback()), Cow::Borrowed);
+    for projection in path {
+        actual = Cow::Owned(actual.project(projection.clone(), fallback()));
     }
     actual
 }
+
+fn unknown_error() -> Value {
+    Value::Error(BTreeSet::from([Tag::Any]))
+}
+
 fn unknown_future(bound: usize) -> Value {
     Value::Future {
         errors: language::unknown(bound),
@@ -22,11 +32,14 @@ fn unknown_future(bound: usize) -> Value {
 fn tag_value(tag: &Tag, name: &str, arguments: &[Value], bound: usize) -> Value {
     match tag {
         Tag::Parameter(input) if input.owner == name => {
-            argument(input, arguments, Value::Error(BTreeSet::from([Tag::Any])))
+            argument(input.index, &input.path, arguments, unknown_error).into_owned()
         }
         Tag::FutureElement(input, index) if input.owner == name => {
             let mut result = Value::Bottom;
-            for word in argument(input, arguments, unknown_future(bound)).future_errors(bound) {
+            let actual = argument(input.index, &input.path, arguments, || {
+                unknown_future(bound)
+            });
+            for word in actual.future_errors(bound) {
                 if let Some(tag) = word.prefix.get(*index) {
                     result
                         .join(Value::Error(BTreeSet::from([tag.clone()])).conditioned(word.guards));
@@ -55,7 +68,7 @@ fn alternatives(
         let mut expanded = Vec::new();
         match guard {
             language::Guard::FutureNeverReturns | language::Guard::FuturePanics => {
-                let actual = argument(input, arguments, Value::Plain);
+                let actual = argument(input.index, &input.path, arguments, || Value::Plain);
                 let paths = if matches!(guard, language::Guard::FuturePanics) {
                     actual.panic_guards()
                 } else {
@@ -70,7 +83,7 @@ fn alternatives(
                 }
             }
             language::Guard::FutureSuccess | language::Guard::Bool(_) => {
-                let actual = argument(input, arguments, Value::Plain);
+                let actual = argument(input.index, &input.path, arguments, || Value::Plain);
                 let paths = if let language::Guard::Bool(expected) = guard {
                     actual.bool_guards(*expected)
                 } else {
@@ -85,7 +98,10 @@ fn alternatives(
                 }
             }
             language::Guard::Future(shape) => {
-                let actual = argument(input, arguments, unknown_future(bound)).future_errors(bound);
+                let actual = argument(input.index, &input.path, arguments, || {
+                    unknown_future(bound)
+                })
+                .future_errors(bound);
                 for (guards, selected) in &alternatives {
                     for candidate in &actual {
                         if shape.is_some_and(|shape| {
@@ -114,12 +130,12 @@ fn alternatives(
                 let expected = Tag::Named(expected.clone());
                 for (guards, selected) in &alternatives {
                     let candidates = if position.is_none() {
-                        argument(input, arguments, Value::Error(BTreeSet::from([Tag::Any])))
-                            .thrown_errors()
+                        argument(input.index, &input.path, arguments, unknown_error).thrown_errors()
                     } else if let Some(candidate) = selected.get(&base) {
                         Language::from([candidate.clone()])
                     } else {
-                        argument(&base, arguments, unknown_future(bound)).future_errors(bound)
+                        argument(base.index, &base.path, arguments, || unknown_future(bound))
+                            .future_errors(bound)
                     };
                     for mut candidate in candidates {
                         let index = position.unwrap_or(0);
@@ -137,7 +153,8 @@ fn alternatives(
                 }
             }
             language::Guard::Variant(variant) => {
-                let actual = argument(input, arguments, Value::Plain).selection_guards(variant);
+                let actual = argument(input.index, &input.path, arguments, || Value::Plain)
+                    .selection_guards(variant);
                 for (guards, selected) in &alternatives {
                     for candidate in &actual {
                         if let Some(guards) = language::merge_guards(guards, candidate) {
@@ -147,7 +164,8 @@ fn alternatives(
                 }
             }
             language::Guard::Target(target) => {
-                let actual = argument(input, arguments, Value::Plain).target_guards(target);
+                let actual = argument(input.index, &input.path, arguments, || Value::Plain)
+                    .target_guards(target);
                 for (guards, selected) in &alternatives {
                     for candidate in &actual {
                         if let Some(guards) = language::merge_guards(guards, candidate) {
@@ -242,15 +260,7 @@ pub(super) fn value(input: &Value, name: &str, arguments: &[Value], bound: usize
             index,
             path,
             fallback,
-        } if owner == name => argument(
-            &Input {
-                owner: owner.clone(),
-                index: *index,
-                path: path.clone(),
-            },
-            arguments,
-            *fallback.clone(),
-        ),
+        } if owner == name => argument(*index, path, arguments, || *fallback.clone()).into_owned(),
         Value::Aggregate { ty, fields } => Value::Aggregate {
             ty: ty.clone(),
             fields: fields

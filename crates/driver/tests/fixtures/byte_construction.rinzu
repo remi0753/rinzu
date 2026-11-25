@@ -74,6 +74,15 @@ fn concatBounds() -> ByteArray {
 
 fn checks() {
     let empty = bytesApi.from(b"");
+    let noWords: List<Int> = [];
+    equal(bytesApi.packInt64LE(noWords), empty);
+    let words = [0x0123456789abcdef, -1, -9223372036854775808, 0x0123456789abcdef];
+    equal(
+        bytesApi.packInt64LE(words),
+        bytesApi.from(
+            b"\xef\xcd\xab\x89\x67\x45\x23\x01\xff\xff\xff\xff\xff\xff\xff\xff\x00\x00\x00\x00\x00\x00\x00\x80\xef\xcd\xab\x89\x67\x45\x23\x01"
+        )
+    );
     let bounded = concatBounds();
     let original = bytesApi.from(b"\x00\xffA\x80");
     let noChunks: List<ByteArray> = [];

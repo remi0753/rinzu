@@ -1,5 +1,8 @@
 //! Keep publication checks tied to one executable even when another Cargo
 //! invocation replaces the workspace binary during a long integration suite.
+// Some integration targets only exercise this helper on selected platforms.
+#![allow(dead_code)]
+
 static CLI: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
 
 #[cfg(unix)]

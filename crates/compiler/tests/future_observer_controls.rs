@@ -50,6 +50,23 @@ fn cancellation_after_completion_does_not_restore_an_observed_failure() {
         "async fn main(){let pending=fail();let observer=receive(pending);await observer;let cancelled=cancelFuture(observer);}",
     );
 }
+
+#[test]
+fn timeout_of_a_forwarded_receiver_restores_its_private_responsibility() {
+    lost(
+        "fn make()->Future<Unit>{return receive(fail());}fn stop(value:Future<Unit>){let timed=timeoutFuture(value);}async fn main(){let observer=make();let alias=observer;stop(alias);await observer;}",
+    );
+    accepted(
+        "fn stop(value:Future<Unit>){let timed=timeoutFuture(value);}async fn main(){let pending=fail();let observer=receive(pending);let alias=observer;stop(alias);try{await pending;}catch errors{}}",
+    );
+}
+
+#[test]
+fn timeout_after_receiver_completion_keeps_definite_observation() {
+    accepted(
+        "fn make()->Future<Unit>{return receive(fail());}async fn main(){let observer=make();let alias=observer;await alias;let timed=timeoutFuture(observer);}",
+    );
+}
 #[test]
 fn a_returned_observer_retains_private_failure_responsibility() {
     lost(
@@ -127,5 +144,142 @@ fn a_native_callback_cannot_hide_scope_shutdown_from_the_observation_proof() {
     );
     accepted(
         "native {fn invoke(handler:fn()->CInt32)->CInt32 symbol \"invoke\";}async fn main(){let zero=CInt32(0);let unused=fn()->CInt32{let shutdown=requestShutdown();return zero;};let pending=fail();let observer=receive(pending);try{let result=invoke(fn()->CInt32{return zero;});}catch errors{}}",
+    );
+}
+
+#[derive(Clone, Copy, Debug)]
+enum RouteStep {
+    Cancel(usize),
+    Timeout(usize),
+    Receive(usize),
+    Direct(usize),
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct RouteState {
+    observed: [bool; 2],
+    active: [bool; 3],
+}
+
+impl RouteState {
+    fn after(mut self, producers: [usize; 3], step: RouteStep) -> Self {
+        match step {
+            RouteStep::Cancel(receiver) | RouteStep::Timeout(receiver) => {
+                self.active[receiver] = false;
+            }
+            RouteStep::Receive(receiver) => {
+                if self.active[receiver] {
+                    self.observed[producers[receiver]] = true;
+                }
+            }
+            RouteStep::Direct(producer) => self.observed[producer] = true,
+        }
+        self
+    }
+
+    fn covered(self, producers: [usize; 3]) -> bool {
+        self.observed
+            .into_iter()
+            .enumerate()
+            .all(|(identity, observed)| {
+                observed
+                    || producers
+                        .iter()
+                        .zip(self.active)
+                        .any(|(&producer, active)| producer == identity && active)
+            })
+    }
+}
+
+fn delegation_program(producers: [usize; 3], route: &[RouteStep]) -> String {
+    use std::fmt::Write;
+    let mut body = String::from("async fn main(){\nlet p0=fail();\nlet p1=fail();\n");
+    for (i, producer) in producers.into_iter().enumerate() {
+        writeln!(body, "let r{i}=receive(p{producer});let alias{i}=r{i};").unwrap();
+    }
+    for (i, &step) in route.iter().enumerate() {
+        let line = match step {
+            RouteStep::Cancel(receiver) => format!("let result{i}=cancelFuture(alias{receiver});"),
+            RouteStep::Timeout(receiver) => {
+                format!("let result{i}=timeoutFuture(alias{receiver});")
+            }
+            RouteStep::Receive(receiver) => format!("await r{receiver};"),
+            RouteStep::Direct(producer) => format!("try{{await p{producer};}}catch errors{{}}"),
+        };
+        writeln!(body, "{line}").unwrap();
+    }
+    body.push('}');
+    body
+}
+
+#[test]
+fn receiver_control_preserves_observation_on_a_bounded_route_graph() {
+    use std::collections::{HashSet, VecDeque};
+    let mut checked = 0;
+    let mut rejected = 0;
+    let mut conservative = 0;
+    for producers in [[0, 0, 1], [0, 1, 1]] {
+        let initial = RouteState {
+            observed: [false; 2],
+            active: [true; 3],
+        };
+        let mut states = HashSet::from([initial]);
+        let mut queue = VecDeque::from([(initial, Vec::new())]);
+        let actions = (0..3)
+            .flat_map(|receiver| {
+                [
+                    RouteStep::Cancel(receiver),
+                    RouteStep::Timeout(receiver),
+                    RouteStep::Receive(receiver),
+                ]
+            })
+            .chain([RouteStep::Direct(0), RouteStep::Direct(1)])
+            .collect::<Vec<_>>();
+        while let Some((state, path)) = queue.pop_front() {
+            for &step in &actions {
+                let next = state.after(producers, step);
+                let mut route = path.clone();
+                route.push(step);
+                if states.insert(next) {
+                    queue.push_back((next, route.clone()));
+                }
+                let input = delegation_program(producers, &route);
+                let result = compile_source(&SourceFile::new(
+                    FileId(273),
+                    "observer-route-graph.rinzu",
+                    format!("{BASE}{input}"),
+                ));
+                checked += 1;
+                match result {
+                    Ok(_) => {
+                        assert!(
+                            next.covered(producers),
+                            "accepted an uncovered producer\n{input}"
+                        );
+                    }
+                    Err(ref diagnostics) => {
+                        assert!(
+                            diagnostics.iter().all(
+                                |diagnostic| diagnostic.code == DiagnosticCode::FutureDiscarded
+                            ),
+                            "{input}\n{diagnostics:#?}"
+                        );
+                        if next.covered(producers) {
+                            assert_ne!(
+                                next.observed, [true; 2],
+                                "discarded definite observation\n{input}\n{diagnostics:#?}"
+                            );
+                            conservative += 1;
+                        } else {
+                            rejected += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(rejected > 0 && checked > rejected + conservative);
+    println!(
+        "OBSERVER ROUTES checked={checked} rejected_uncovered={rejected} conservative={conservative}"
     );
 }

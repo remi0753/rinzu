@@ -4,32 +4,31 @@ use std::path::{Path, PathBuf};
 use rinzu_abi::target::Target;
 
 use super::{
-    ParsedModule, ResolvedSdkPackage, check_loaded, merge_packages, package_diagnostic,
-    read_package_manifest,
+    CheckedSdk, Loader, ParsedModule, ResolvedSdkPackage, SdkPackageObserver, check_loaded,
+    merge_packages, package_diagnostic, read_package_manifest,
 };
 use crate::compatibility::{LANGUAGE, RELEASE, version_parts};
 use crate::official_sdk::{self, OfficialSdk};
 use crate::standard_library::{self, sha256};
 use crate::{
     Diagnostic, DiagnosticCode, FrontendArtifact, Manifest, PackageId, PackageKind,
-    PackageLocation, PackageSource, PackageTestCase, PackageTestOptions, ResolvedGraph,
-    SourceRange, SourceSnapshot,
+    PackageLocation, PackageSource, PackageTestCase, ResolvedGraph, SdkCheckProgress, SourceRange,
+    SourceSnapshot,
 };
-
-type CheckedSdk = (ResolvedSdkPackage, Vec<ResolvedSdkPackage>);
 
 /// The declared graph is validated against its portable lock before this pass.
 /// Source imports extend it locally, in the same snapshot used to check each SDK.
-pub(super) struct CheckGraph {
+pub(super) struct CheckGraph<'a> {
     graph: ResolvedGraph,
     target: Target,
     names: HashMap<String, PackageId>,
     checked: HashMap<PackageId, CheckedSdk>,
     standard_root: Option<PathBuf>,
     official_root: Option<PathBuf>,
+    observe: Option<&'a mut SdkPackageObserver<'a>>,
 }
 
-impl CheckGraph {
+impl<'a> CheckGraph<'a> {
     pub(super) fn new(graph: ResolvedGraph, target: Target) -> Self {
         let names = graph
             .packages()
@@ -43,11 +42,19 @@ impl CheckGraph {
             checked: HashMap::new(),
             standard_root: None,
             official_root: None,
+            observe: None,
         }
     }
 
     pub(super) fn manifest(&self, id: PackageId) -> &Manifest {
         &self.graph.package(id).manifest
+    }
+
+    pub(super) fn archive_pin(&self, id: PackageId) -> Option<&crate::ArchivePin> {
+        match &self.graph.package(id).location.source {
+            PackageSource::Archive(pin) => Some(pin),
+            _ => None,
+        }
     }
 
     pub(super) fn is_toolchain(&self, id: PackageId) -> bool {
@@ -57,11 +64,65 @@ impl CheckGraph {
         )
     }
 
+    pub(super) fn sdk_frontend_key(
+        &self,
+        owner: PackageId,
+        loader: &Loader<'_, '_>,
+        discovered_sources: &[(PathBuf, String)],
+        dependencies: &[ResolvedSdkPackage],
+        external: &HashMap<String, HashMap<String, String>>,
+    ) -> Option<String> {
+        let node = self.graph.package(owner);
+        let _timing = crate::timing::span("frontend.sdk-cache.key").detail(&node.manifest.name);
+        let modules = loader
+            .modules
+            .iter()
+            .map(|module| {
+                let bytes = loader.source_inputs.get(&module.source_path)?;
+                Some((
+                    &module.canonical_path,
+                    module.syntax.file_id,
+                    &module.name,
+                    &module.imports.qualifiers,
+                    &module.imports.requested_paths,
+                    sha256(bytes),
+                ))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        // A dependency's key includes its current source inputs and the keys of
+        // its own imports, including implicit toolchain packages.
+        let dependencies = dependencies
+            .iter()
+            .map(|package| {
+                let id = self.names.get(&package.manifest.name)?;
+                self.checked.get(id)?.frontend_key.as_deref()
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let visible = external
+            .iter()
+            .map(|(name, bindings)| (name, bindings.iter().collect::<BTreeMap<_, _>>()))
+            .collect::<BTreeMap<_, _>>();
+        let bytes = serde_json::to_vec(&(
+            &node.location.source,
+            &node.manifest,
+            &self.manifest(ResolvedGraph::ROOT).language,
+            self.target.triple(),
+            discovered_sources,
+            modules,
+            dependencies,
+            visible,
+        ))
+        .ok()?;
+        Some(sha256(&bytes))
+    }
+
     pub(super) fn check(
         mut self,
         sources: &mut SourceSnapshot<'_>,
-        tests: Option<&PackageTestOptions>,
+        tests: Option<crate::package_tests::TestInput<'_>>,
+        observe: Option<&'a mut SdkPackageObserver<'a>>,
     ) -> Result<(Manifest, FrontendArtifact, Vec<PackageTestCase>), Vec<Diagnostic>> {
+        self.observe = observe;
         for id in self.graph.take_order() {
             let children: Vec<_> = self
                 .graph
@@ -70,22 +131,24 @@ impl CheckGraph {
                 .values()
                 .map(|child| &self.checked[child])
                 .collect();
-            let direct: Vec<_> = children
-                .iter()
-                .map(|(package, _)| package.clone())
-                .collect();
+            let direct: Vec<_> = children.iter().map(|child| child.package.clone()).collect();
             let mut dependencies = Vec::new();
             merge_packages(
                 &mut dependencies,
-                children.iter().flat_map(|(package, dependencies)| {
-                    dependencies.iter().chain(std::iter::once(package)).cloned()
+                children.iter().flat_map(|child| {
+                    child
+                        .dependencies
+                        .iter()
+                        .chain(std::iter::once(&child.package))
+                        .cloned()
                 }),
             )?;
             if id == ResolvedGraph::ROOT {
-                return check_loaded(&mut self, id, "", dependencies, &direct, sources, tests);
+                return check_loaded(&mut self, id, "", dependencies, &direct, sources, tests)
+                    .map(super::CheckedPackage::root);
             }
             let namespace = self.manifest(id).name.clone();
-            let (manifest, artifact, _) = check_loaded(
+            let checked = check_loaded(
                 &mut self,
                 id,
                 &namespace,
@@ -94,9 +157,24 @@ impl CheckGraph {
                 sources,
                 None,
             )?;
-            self.remember(id, manifest, artifact);
+            self.remember(id, checked.sdk());
+            let root = &self.graph.package(ResolvedGraph::ROOT).manifest;
+            if root.kind == PackageKind::Application
+                && let Some(observe) = self.observe.as_mut()
+            {
+                observe(root, SdkCheckProgress::Checked(&self.checked[&id].package));
+            }
         }
         unreachable!("the declared dependency order includes its root")
+    }
+
+    pub(super) fn sdk_packages_ready(&mut self, packages: &[ResolvedSdkPackage]) {
+        if let Some(observe) = self.observe.take() {
+            observe(
+                self.manifest(ResolvedGraph::ROOT),
+                SdkCheckProgress::Ready(packages),
+            );
+        }
     }
 
     pub(super) fn imports(
@@ -147,7 +225,11 @@ impl CheckGraph {
                 return Err(archive_error(range, &name));
             }
             let id = self.resolve(owner, &name, extra, range, sources)?;
-            let (package, dependencies) = &self.checked[&id];
+            let CheckedSdk {
+                package,
+                dependencies,
+                ..
+            } = &self.checked[&id];
             if published
                 && let Some(native) = dependencies
                     .iter()
@@ -239,12 +321,13 @@ impl CheckGraph {
             self.graph.connect(owner, name.into(), id);
             return Ok(id);
         }
+        sources.report_progress(crate::FrontendProgress::CheckingDependency(name));
         let (location, manifest) = self.load(name, extra, range, sources)?;
         let id = self.graph.add_package(owner, location, manifest);
         self.names.insert(name.into(), id);
         self.graph.connect(owner, name.into(), id);
-        let (manifest, artifact, _) = check_loaded(self, id, name, Vec::new(), &[], sources, None)?;
-        self.remember(id, manifest, artifact);
+        let checked = check_loaded(self, id, name, Vec::new(), &[], sources, None)?;
+        self.remember(id, checked.sdk());
         Ok(id)
     }
 
@@ -300,6 +383,7 @@ impl CheckGraph {
                 .canonical_path(&root.join("native"))
                 .map_err(|e| error(e.to_string()))?;
             official_sdk::check_native_files(&root, Path::new("native"), &files).map_err(error)?;
+            sources.record_native_tree(&root);
             for relative in files.keys().filter(|path| path.starts_with("native")) {
                 let path = sources
                     .canonical_path(&root.join(relative))
@@ -329,18 +413,8 @@ impl CheckGraph {
         Ok((location, manifest))
     }
 
-    fn remember(&mut self, id: PackageId, manifest: Manifest, artifact: FrontendArtifact) {
-        self.checked.insert(
-            id,
-            (
-                ResolvedSdkPackage {
-                    manifest,
-                    native_imports: Vec::new(),
-                    source: artifact.source_interface,
-                },
-                artifact.sdk_packages,
-            ),
-        );
+    fn remember(&mut self, id: PackageId, sdk: CheckedSdk) {
+        self.checked.insert(id, sdk);
         self.graph.complete(id);
     }
 }

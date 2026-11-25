@@ -1,31 +1,31 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/abi",
-    "crates/trace",
-    "crates/compiler",
-    "crates/codegen",
-    "crates/runtime",
-    "crates/bindgen",
-    "crates/driver",
-    "crates/conformance",
-    "crates/xtask",
+  "crates/abi",
+  "crates/trace",
+  "crates/compiler",
+  "crates/codegen",
+  "crates/runtime",
+  "crates/bindgen",
+  "crates/driver",
+  "crates/conformance",
+  "crates/xtask",
 ]
 default-members = [
-    "crates/abi",
-    "crates/trace",
-    "crates/compiler",
-    "crates/codegen",
-    "crates/runtime",
-    "crates/bindgen",
-    "crates/driver",
-    "crates/conformance",
-    "crates/xtask",
+  "crates/abi",
+  "crates/trace",
+  "crates/compiler",
+  "crates/codegen",
+  "crates/runtime",
+  "crates/bindgen",
+  "crates/driver",
+  "crates/conformance",
+  "crates/xtask",
 ]
 exclude = ["tests/runtime-model", "fuzz"]
 
 [workspace.package]
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.97"
 
@@ -60,9 +60,30 @@ undocumented_unsafe_blocks = "deny"
 [profile.dev.package.sha2]
 opt-level = 3
 
-# The VS Code extension normally uses the dev driver for interactive checks.
+# Keep the dev CLI responsive for interactive checks and JIT compilation.
 [profile.dev.package.rinzu-compiler]
-opt-level = 1
+opt-level = 3
+
+[profile.dev.package.rinzu-driver]
+opt-level = 2
+
+[profile.dev.package.rinzu-bindgen]
+opt-level = 2
+
+[profile.dev.package.serde_json]
+opt-level = 2
+
+[profile.dev.package.rinzu-codegen]
+opt-level = 2
+
+[profile.dev.package.cranelift-codegen]
+opt-level = 2
+
+[profile.dev.package.cranelift-frontend]
+opt-level = 2
+
+[profile.dev.package.regalloc2]
+opt-level = 2
 
 [profile.release]
 lto = "thin"

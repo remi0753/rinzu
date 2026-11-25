@@ -201,7 +201,7 @@ fn resolves_module_constants_and_calls_inside_interpolation() {
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname=\"formatted_app\"\nlanguage=\"0.2\"\n",
+        "[package]\nname=\"formatted_app\"\nlanguage=\"0.5\"\n",
     )
     .unwrap();
     std::fs::write(

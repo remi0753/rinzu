@@ -74,7 +74,7 @@ fn toolchain_stdio_resolves_without_dependency_and_cannot_be_replaced() {
     let manifest = root.join("rinzu.toml");
     std::fs::write(
         &manifest,
-        "[package]\nname=\"stdio_app\"\nlanguage=\"0.2\"\n",
+        "[package]\nname=\"stdio_app\"\nlanguage=\"0.5\"\n",
     )
     .unwrap();
     std::fs::write(
@@ -83,7 +83,7 @@ fn toolchain_stdio_resolves_without_dependency_and_cannot_be_replaced() {
     )
     .unwrap();
     rinzu_compiler::check_package(&root).unwrap();
-    std::fs::write(&manifest, "[package]\nname=\"stdio_app\"\nlanguage=\"0.2\"\n[dependencies]\n\"rinzu.stdio\"={path=\"../sdk\"}\n").unwrap();
+    std::fs::write(&manifest, "[package]\nname=\"stdio_app\"\nlanguage=\"0.5\"\n[dependencies]\n\"rinzu.stdio\"={path=\"../sdk\"}\n").unwrap();
     assert!(rinzu_compiler::check_package(&root).is_err());
     std::fs::remove_dir_all(root).unwrap();
 }

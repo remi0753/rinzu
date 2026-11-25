@@ -171,8 +171,19 @@ pub fn compile_source_async_jit(
     external_symbols: &BTreeMap<String, usize>,
     native_imports: &HashMap<String, u64>,
 ) -> Result<CompiledAsyncJit> {
-    crate::ensure_source_async_backend(module)?;
-    clif::compile_async_jit(module, external_symbols, native_imports)
+    prepare_source_async_jit(module, native_imports)?.publish(external_symbols.clone())
+}
+
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
+))]
+pub fn prepare_source_async_jit(
+    module: &IrModule,
+    native_imports: &HashMap<String, u64>,
+) -> Result<clif::PreparedAsyncJit> {
+    let (prepared, _) = clif::AsyncJitCompiler::new()?.prepare(module, native_imports, false)?;
+    Ok(prepared)
 }
 
 pub(crate) fn source_identities(module: &IrModule) -> (HashMap<u32, u64>, BTreeMap<u64, String>) {
@@ -212,7 +223,7 @@ pub fn run_baseline_jit_with_options(
         all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
     ))]
     {
-        clif::run(module, entry, options, None, None, Vec::new())
+        clif::run(module, entry, options, None, None, Vec::new(), None)
     }
 }
 
@@ -244,6 +255,7 @@ pub fn run_baseline_jit_with_native_packages(
             Some(native_packages),
             None,
             Vec::new(),
+            None,
         )
     }
 }
@@ -273,6 +285,28 @@ pub fn run_baseline_jit_with_arguments(
     source_packages: Option<crate::source_package::LoadedSourcePackages>,
     arguments: Vec<Vec<u8>>,
 ) -> Result<BaselineRun> {
+    run_baseline_jit_with_startup(
+        module,
+        entry,
+        options,
+        native_packages,
+        source_packages,
+        arguments,
+        None,
+    )
+}
+
+/// Notify the caller after native binding and W^X publication succeed, before
+/// the entry function executes. Application failure does not undo this proof.
+pub fn run_baseline_jit_with_startup(
+    module: &IrModule,
+    entry: &str,
+    options: BaselineOptions,
+    native_packages: Option<LoadedNativePackages>,
+    source_packages: Option<crate::source_package::LoadedSourcePackages>,
+    arguments: Vec<Vec<u8>>,
+    on_ready: Option<&mut dyn FnMut()>,
+) -> Result<BaselineRun> {
     crate::ensure_scalar_backend(module, true)?;
     #[cfg(not(any(
         all(target_os = "macos", target_arch = "aarch64"),
@@ -286,6 +320,7 @@ pub fn run_baseline_jit_with_arguments(
             native_packages,
             source_packages,
             arguments,
+            on_ready,
         );
         anyhow::bail!("source native package JIT is unavailable on this host")
     }
@@ -301,6 +336,7 @@ pub fn run_baseline_jit_with_arguments(
             native_packages,
             source_packages,
             arguments,
+            on_ready,
         )
     }
 }
@@ -424,12 +460,12 @@ pub fn emit_source_async_aot_object_for_target(
     )
 }
 
-/// C-JIT keeps its existing managed code backend; only its runtime plans use
-/// the AOT metadata format, so no C function definitions belong in that shim.
+/// Build the runtime tables for the C-JIT. Object bytes, C definitions and
+/// code-emission evidence are empty; JIT compilation supplies the actual code.
 pub fn emit_source_async_aot_plans(
     module: &IrModule,
     entry: &str,
-    native_imports: &HashMap<String, u64>,
+    _native_imports: &HashMap<String, u64>,
 ) -> Result<BaselineAotObject> {
     crate::ensure_source_async_backend(module)?;
     let target = Target::host().ok_or_else(|| anyhow!("unsupported async JIT host"))?;
@@ -442,5 +478,5 @@ pub fn emit_source_async_aot_plans(
         "native supplant is unavailable for {}",
         target.triple()
     );
-    clif::emit_aot(target, module, entry, native_imports, true, false)
+    clif::emit_async_plans(target, module, entry)
 }

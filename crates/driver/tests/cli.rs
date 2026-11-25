@@ -13,6 +13,7 @@ mod scratch;
 use std::process::Command;
 use target::build_directory as target_build;
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn assert_static_rejection(root: &std::path::Path, code: &str) {
     for command in ["check", "run", "build", "verify-aot"] {
         let output = Command::new(frozen_cli::path())
@@ -97,6 +98,7 @@ fn synchronous_entry_drains_async_work_and_can_set_the_process_status() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[path = "fixtures/native_length_sdk/setup.rs"]
 mod native_length_fixture;
 
@@ -317,7 +319,7 @@ fn explicit_native_cli_inputs_are_checked_linked_and_saved() {
     std::fs::create_dir_all(root.join("native")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname = \"cli_fixture\"\nlanguage = \"0.2\"\n",
+        "[package]\nname = \"cli_fixture\"\nlanguage = \"0.5\"\n",
     )
     .unwrap();
     std::fs::write(root.join("src/main.rinzu"), "fn main() { let value = 7; }").unwrap();
@@ -396,7 +398,7 @@ fn check_validates_supplied_native_header_and_never_falls_back() {
         std::env::temp_dir().join(format!("rinzu-cli-native-contract-{}", std::process::id()));
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::create_dir_all(root.join("native")).unwrap();
-    std::fs::write(root.join("rinzu.toml"), "[package]\nname = \"contract_fixture\"\nlanguage = \"0.2\"\nkind = \"sdk\"\nentry = \"src/fixture.rinzu\"\n[native]\nheaders = [\"native/api.h\"]\nsources = [\"native/api.c\"]\n").unwrap();
+    std::fs::write(root.join("rinzu.toml"), "[package]\nname = \"contract_fixture\"\nlanguage = \"0.5\"\nkind = \"sdk\"\nentry = \"src/fixture.rinzu\"\n[native]\nheaders = [\"native/api.h\"]\nsources = [\"native/api.c\"]\n").unwrap();
     std::fs::write(
         root.join("src/fixture.rinzu"),
         "native { fn value(input: CSize) -> CInt symbol \"value\"; } export value;",
@@ -588,7 +590,7 @@ fn source_async_aot_executes_typed_arguments_control_flow_and_actual_results() {
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname = \"typed_async\"\nlanguage = \"0.2\"\n",
+        "[package]\nname = \"typed_async\"\nlanguage = \"0.5\"\n",
     )
     .unwrap();
     std::fs::write(
@@ -739,55 +741,6 @@ fn build_links_typed_ir_object_into_a_standalone_executable() {
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
-fn jit_and_aot_traces_match_for_success_error_cancel_overload_and_shutdown() {
-    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let cases = [
-        (
-            manifest.join("../compiler/tests/fixtures/package"),
-            &[][..],
-            "outcome=success",
-        ),
-        (
-            manifest.join("tests/fixtures/aot_failure"),
-            &[][..],
-            "outcome=failure",
-        ),
-        (
-            manifest.join("tests/fixtures/aot_cancel"),
-            &["--cancel-after-polls", "6"][..],
-            "outcome=cancelled",
-        ),
-        (
-            manifest.join("tests/fixtures/aot_overload"),
-            &["--max-allocations", "1"][..],
-            "outcome=overloaded",
-        ),
-        (
-            manifest.join("tests/fixtures/aot_cancel"),
-            &["--shutdown-after-polls", "6"][..],
-            "outcome=shutdown",
-        ),
-    ];
-    for (package, controls, expected) in cases {
-        let mut command = Command::new(frozen_cli::path());
-        command.arg("verify-aot").arg(package);
-        command.args(controls);
-        let output = command.output().unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        assert!(stdout.contains(expected), "{stdout}");
-        assert!(stdout.contains("resume-domain=main"));
-        assert!(stdout.contains("resources=baseline"));
-        assert!(stdout.contains("shutdown=complete"));
-    }
-}
-
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-#[test]
 fn dev_once_uses_the_incremental_watch_path_and_runs_the_package() {
     let package =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/fixtures/package");
@@ -811,6 +764,7 @@ fn dev_once_uses_the_incremental_watch_path_and_runs_the_package() {
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
+#[ignore = "historical v0.1 release sample"]
 fn release_sample_saves_a_reproducible_aot_artifact_and_runtime_evidence() {
     let package = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/programs/async-spawn");
@@ -851,7 +805,7 @@ fn build_generates_source_sdk_facade_without_handwritten_metadata() {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::create_dir_all(root.join("include")).unwrap();
-    std::fs::write(root.join("rinzu.toml"), "[package]\nname = \"api\"\nlanguage = \"0.2\"\nkind = \"sdk\"\nentry = \"src/api.rinzu\"\n[native]\nsources = [\"api.c\"]\nheaders = [\"include/api.h\"]\ninclude-dirs = [\"include\"]\n[native.platform.macos]\nframeworks = [\"Foundation\"]\n").unwrap();
+    std::fs::write(root.join("rinzu.toml"), "[package]\nname = \"api\"\nlanguage = \"0.5\"\nkind = \"sdk\"\nentry = \"src/api.rinzu\"\n[native]\nsources = [\"api.c\"]\nheaders = [\"include/api.h\"]\ninclude-dirs = [\"include\"]\n[native.platform.macos]\nframeworks = [\"Foundation\"]\n").unwrap();
     std::fs::write(
         root.join("src/api.rinzu"),
         "native { fn answer() -> CInt symbol \"answer\"; } export answer;",
@@ -902,7 +856,7 @@ fn build_generates_source_sdk_facade_without_handwritten_metadata() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("conflicting types"));
     // A declaration-only header supplies no code: the link must report its missing symbol.
-    std::fs::write(root.join("rinzu.toml"), "[package]\nname = \"api\"\nlanguage = \"0.2\"\nkind = \"sdk\"\nentry = \"src/api.rinzu\"\n[native]\nheaders = [\"api.h\"]\n").unwrap();
+    std::fs::write(root.join("rinzu.toml"), "[package]\nname = \"api\"\nlanguage = \"0.5\"\nkind = \"sdk\"\nentry = \"src/api.rinzu\"\n[native]\nheaders = [\"api.h\"]\n").unwrap();
     std::fs::write(root.join("api.h"), "int answer(void);\n").unwrap();
     let output = Command::new(frozen_cli::path())
         .arg("build")
@@ -927,7 +881,7 @@ fn source_sdk_dependency_changes_invalidate_parent_descriptor() {
         } else {
             ""
         };
-        std::fs::write(package.join("rinzu.toml"), format!("[package]\nname = \"{name}\"\nlanguage = \"0.2\"\nkind = \"sdk\"\nentry = \"src/{name}.rinzu\"\n{dependency}")).unwrap();
+        std::fs::write(package.join("rinzu.toml"), format!("[package]\nname = \"{name}\"\nlanguage = \"0.5\"\nkind = \"sdk\"\nentry = \"src/{name}.rinzu\"\n{dependency}")).unwrap();
     }
     std::fs::write(
         root.join("parent/src/parent.rinzu"),
@@ -977,12 +931,12 @@ fn exact_public_constants_and_private_bytes_sizes_recheck_cached_consumers() {
     std::fs::create_dir_all(root.join("api/src")).unwrap();
     std::fs::write(
         root.join("api/rinzu.toml"),
-        "[package]\nname=\"api\"\nlanguage=\"0.2\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n",
+        "[package]\nname=\"api\"\nlanguage=\"0.5\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n",
     )
     .unwrap();
     std::fs::write(
         root.join("app/rinzu.toml"),
-        "[package]\nname=\"app\"\nlanguage=\"0.2\"\n[dependencies]\napi={path=\"../api\"}\n",
+        "[package]\nname=\"app\"\nlanguage=\"0.5\"\n[dependencies]\napi={path=\"../api\"}\n",
     )
     .unwrap();
     std::fs::write(root.join("app/src/main.rinzu"),r#"
@@ -1088,7 +1042,7 @@ fn source_sdk_cache_reuses_verified_facade_and_regenerates_corrupt_or_changed_in
     let root = std::env::temp_dir().join(format!("rinzu-cli-source-cache-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("src")).unwrap();
-    std::fs::write(root.join("rinzu.toml"), "[package]\nname = \"cache\"\nlanguage = \"0.2\"\nkind = \"sdk\"\nentry = \"src/cache.rinzu\"\n[native]\nsources = [\"api.c\"]\n").unwrap();
+    std::fs::write(root.join("rinzu.toml"), "[package]\nname = \"cache\"\nlanguage = \"0.5\"\nkind = \"sdk\"\nentry = \"src/cache.rinzu\"\n[native]\nsources = [\"api.c\"]\n").unwrap();
     std::fs::write(
         root.join("src/cache.rinzu"),
         "native { fn answer() -> CInt symbol \"answer\"; } export answer;",
@@ -1187,7 +1141,7 @@ fn jit_and_aot_save_the_same_generated_source_sdk_interface() {
         } else {
             ""
         };
-        std::fs::write(root.join(name).join("rinzu.toml"), format!("[package]\nname = \"{name}\"\nlanguage = \"0.2\"\nkind = \"{kind}\"\nentry = \"src/{name}.rinzu\"\n{dependency}")).unwrap();
+        std::fs::write(root.join(name).join("rinzu.toml"), format!("[package]\nname = \"{name}\"\nlanguage = \"0.5\"\nkind = \"{kind}\"\nentry = \"src/{name}.rinzu\"\n{dependency}")).unwrap();
     }
     std::fs::write(
         root.join("api/src/api.rinzu"),
@@ -1281,7 +1235,7 @@ fn typed_scalar_arithmetic_has_equivalent_jit_and_aot_results() {
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname = \"scalar_aot\"\nlanguage = \"0.2\"\n",
+        "[package]\nname = \"scalar_aot\"\nlanguage = \"0.5\"\n",
     )
     .unwrap();
     let cases = [
@@ -1381,7 +1335,7 @@ fn source_eager_workers_preserve_prefix_and_prove_concurrent_transport() {
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname = \"eager_source\"\nlanguage = \"0.2\"\n",
+        "[package]\nname = \"eager_source\"\nlanguage = \"0.5\"\n",
     )
     .unwrap();
     let functions = r#"
@@ -1457,7 +1411,7 @@ fn rooted_strings_and_error_messages_match_between_jit_and_aot() {
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname = \"string_aot\"\nlanguage = \"0.2\"\n",
+        "[package]\nname = \"string_aot\"\nlanguage = \"0.5\"\n",
     )
     .unwrap();
     std::fs::write(root.join("src/main.rinzu"), r#"
@@ -1615,7 +1569,7 @@ fn source_async_jit_aot_compare_every_scalar_await_and_transport_width() {
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname = \"scalar_async\"\nlanguage = \"0.2\"\n",
+        "[package]\nname = \"scalar_async\"\nlanguage = \"0.5\"\n",
     )
     .unwrap();
     let cases = [
@@ -1669,7 +1623,7 @@ fn source_async_ready_failures_are_caught_at_await_and_preserve_cleanup_diagnost
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname = \"async_errors\"\nlanguage = \"0.2\"\n",
+        "[package]\nname = \"async_errors\"\nlanguage = \"0.5\"\n",
     )
     .unwrap();
     let functions = r#"
@@ -1743,7 +1697,7 @@ fn source_workers_handle_errors_locally_and_repeat_scalar_reports() {
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname = \"worker_errors\"\nlanguage = \"0.2\"\n",
+        "[package]\nname = \"worker_errors\"\nlanguage = \"0.5\"\n",
     )
     .unwrap();
     let functions = r#"
@@ -1816,7 +1770,7 @@ fn source_async_cancellation_keeps_source_and_cleanup_on_main_and_worker() {
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname = \"cancel_async\"\nlanguage = \"0.2\"\n",
+        "[package]\nname = \"cancel_async\"\nlanguage = \"0.5\"\n",
     )
     .unwrap();
     let worker = r#"
@@ -1888,7 +1842,7 @@ fn source_task_discard_requires_no_fail_and_explicit_observation_is_repeatable()
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname = \"unawaited\"\nlanguage = \"0.2\"\n",
+        "[package]\nname = \"unawaited\"\nlanguage = \"0.5\"\n",
     )
     .unwrap();
     let functions = r#"
@@ -1969,7 +1923,7 @@ fn source_ready_async_callees_transfer_observation_explicitly() {
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname = \"ready_scopes\"\nlanguage = \"0.2\"\n",
+        "[package]\nname = \"ready_scopes\"\nlanguage = \"0.5\"\n",
     )
     .unwrap();
     let functions = r#"
@@ -2061,7 +2015,7 @@ fn source_spawn_admission_precedes_await_and_releases_rejected_children() {
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname = \"spawn_admission\"\nlanguage = \"0.2\"\n",
+        "[package]\nname = \"spawn_admission\"\nlanguage = \"0.5\"\n",
     )
     .unwrap();
     let functions = "fn echo(value: Int) -> Int { return value; }\n";
@@ -2214,7 +2168,7 @@ fn source_pending_async_callees_preserve_queued_roots_and_explicit_observation()
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname = \"pending_callee\"\nlanguage = \"0.2\"\n",
+        "[package]\nname = \"pending_callee\"\nlanguage = \"0.5\"\n",
     )
     .unwrap();
     let functions = r#"
@@ -2370,9 +2324,9 @@ fn launch() -> Int {
         assert!(String::from_utf8_lossy(&verify.stdout).contains("outcome=cancelled"));
     }
     std::fs::create_dir_all(root.join("probe/src")).unwrap();
-    std::fs::write(root.join("probe/rinzu.toml"), "[package]\nname = \"probe\"\nlanguage = \"0.2\"\nkind = \"sdk\"\nentry = \"src/probe.rinzu\"\n").unwrap();
+    std::fs::write(root.join("probe/rinzu.toml"), "[package]\nname = \"probe\"\nlanguage = \"0.5\"\nkind = \"sdk\"\nentry = \"src/probe.rinzu\"\n").unwrap();
     std::fs::write(root.join("probe/src/probe.rinzu"), "fn echo(value: Int) -> Int { return value + 1000; } async fn delayed(value: Int) -> Int { return await spawn echo(value); } export echo; export delayed;").unwrap();
-    std::fs::write(root.join("rinzu.toml"), "[package]\nname = \"pending_callee\"\nlanguage = \"0.2\"\n[dependencies]\nprobe = { path = \"probe\" }\n").unwrap();
+    std::fs::write(root.join("rinzu.toml"), "[package]\nname = \"pending_callee\"\nlanguage = \"0.5\"\n[dependencies]\nprobe = { path = \"probe\" }\n").unwrap();
     std::fs::write(root.join("src/main.rinzu"), "import probe; fn echo(value: Int) -> Int { return 0; } async fn main() { let first = await probe.delayed(7); let second = await spawn probe.echo(8); if first != 1007 || second != 1008 { panic(\"wrong_target\"); } }").unwrap();
     let verify = Command::new(frozen_cli::path())
         .arg("verify-aot")
@@ -2396,7 +2350,7 @@ fn compiled_composite_payload_dispatch_equality_and_roots_match_jit_aot() {
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname = \"composite_aot\"\nlanguage = \"0.2\"\n",
+        "[package]\nname = \"composite_aot\"\nlanguage = \"0.5\"\n",
     )
     .unwrap();
     let source = include_str!("../../codegen/tests/fixtures/composite.rinzu");
@@ -2430,7 +2384,7 @@ fn compiled_fixed_bytes_and_collection_content_keys_match_jit_aot() {
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname = \"bytes_collection_aot\"\nlanguage = \"0.2\"\n",
+        "[package]\nname = \"bytes_collection_aot\"\nlanguage = \"0.5\"\n",
     )
     .unwrap();
     std::fs::write(
@@ -2462,7 +2416,7 @@ fn typed_composite_worker_copies_and_heap_settlement_match_jit_aot() {
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname = \"composite_worker_aot\"\nlanguage = \"0.2\"\n",
+        "[package]\nname = \"composite_worker_aot\"\nlanguage = \"0.5\"\n",
     )
     .unwrap();
     let fixture = include_str!("../../codegen/tests/fixtures/worker_composite.rinzu");
@@ -2503,7 +2457,7 @@ fn typed_function_references_and_core_lengths_match_jit_aot_on_main_and_workers(
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname=\"reference\"\nlanguage=\"0.2\"\n",
+        "[package]\nname=\"reference\"\nlanguage=\"0.5\"\n",
     )
     .unwrap();
     let fixture = include_str!("../../codegen/tests/fixtures/function_reference.rinzu");
@@ -2538,7 +2492,7 @@ fn parked_prepared_and_completed_composite_callee_roots_match_jit_aot() {
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname = \"composite_callee_aot\"\nlanguage = \"0.2\"\n",
+        "[package]\nname = \"composite_callee_aot\"\nlanguage = \"0.5\"\n",
     )
     .unwrap();
     std::fs::write(

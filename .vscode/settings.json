@@ -5,7 +5,11 @@
   },
   "clangd.path": "${workspaceFolder}/tools/clangd",
   "clangd.useScriptAsExecutable": true,
-  "clangd.arguments": ["--background-index", "--clang-tidy", "--header-insertion=never"],
+  "clangd.arguments": [
+    "--background-index",
+    "--clang-tidy",
+    "--header-insertion=never"
+  ],
   "C_Cpp.intelliSenseEngine": "disabled",
   "files.associations": {
     "*.h": "c",

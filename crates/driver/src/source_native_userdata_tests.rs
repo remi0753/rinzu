@@ -82,6 +82,21 @@ fn supplant_context_results_settle_before_cancellation_and_shutdown() {
 
 #[test]
 fn context_results_restore_the_selected_input_and_release_after_null_errors() {
+    const CHILD: &str = "RINZU_CONTEXT_RESULTS_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        // Process-wide token counters must be observed without other runs.
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "source_native_userdata_tests::context_results_restore_the_selected_input_and_release_after_null_errors",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        return;
+    }
     let root = std::env::temp_dir().join(format!("rinzu-context-results-{}", std::process::id()));
     context_fixture::create_results(&root);
     let (manifest, artifact) = rinzu_compiler::check_package(&root.join("app")).unwrap();
@@ -195,8 +210,8 @@ fn ordinary_context_records_build_sdk_descriptors_and_callback_without_userdata_
     for name in ["app", "context"] {
         std::fs::create_dir_all(root.join(name).join("src")).unwrap();
     }
-    std::fs::write(root.join("context/rinzu.toml"), "[package]\nname=\"context\"\nlanguage=\"0.2\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n[native]\nsources=[\"api.c\"]\nheaders=[\"api.h\"]\n").unwrap();
-    std::fs::write(root.join("app/rinzu.toml"), "[package]\nname=\"context_app\"\nlanguage=\"0.2\"\n[dependencies]\ncontext={path=\"../context\"}\n").unwrap();
+    std::fs::write(root.join("context/rinzu.toml"), "[package]\nname=\"context\"\nlanguage=\"0.5\"\nkind=\"sdk\"\nentry=\"src/api.rinzu\"\n[native]\nsources=[\"api.c\"]\nheaders=[\"api.h\"]\n").unwrap();
+    std::fs::write(root.join("app/rinzu.toml"), "[package]\nname=\"context_app\"\nlanguage=\"0.5\"\n[dependencies]\ncontext={path=\"../context\"}\n").unwrap();
     std::fs::write(root.join("context/src/api.rinzu"), r#"
 type Context={id:Int,text:String};
 native{fn invoke(context:Context,handler:fn({text:String,id:Int})->Int)->Int symbol "context_invoke";}

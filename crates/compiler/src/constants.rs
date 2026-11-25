@@ -6,7 +6,7 @@ use crate::ast::{
 use crate::{AbiScalar, Diagnostic, DiagnosticCode, SourceRange};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct IntegerConstant {
     pub scalar: AbiScalar,
     pub value: i128,

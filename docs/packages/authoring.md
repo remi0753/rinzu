@@ -16,14 +16,24 @@ entry = "src/values.rinzu"
 
 Create `values/src/values.rinzu`:
 
-```rinzu
+````rinzu
 /// Return the supplied value without changing it.
+///
+/// ```rinzu-test
+/// import example.values as values;
+///
+/// fn main() {
+///     if values.identity<Int>(42) != 42 {
+///         panic("unexpected value");
+///     }
+/// }
+/// ```
 fn identity<T>(value: T) -> T {
     return value;
 }
 
 export identity;
-```
+````
 
 Check and build the package, then add it to an application's dependencies and call `example.values.identity<Int>(42)`.
 
@@ -35,6 +45,8 @@ rinzu build ./values
 Export public types used by signatures. Generic functions retain source templates and are checked when the consumer instantiates them. SDK build outputs include checked descriptors and native artifacts when required; they are not a binary-only package import format. Consumers still need the source package.
 
 Export a callback alias with `export Transform;` after declaring `type Transform<T, U> = fn (T) -> U;`. A consumer can write `import example.values as values;` and use `values.Transform<Int, String>` in a signature. Consumers can supply any function value of the expanded type. Export any nominal types and Errors the alias exposes.
+
+For SDK tests, create `.test.rinzu` files under `values/tests/` that import `example.values` through its public API. Run them with `rinzu test ./values/tests`. [Testing guide](../tooling/testing.md)
 
 ## Generate and compare API descriptions
 
@@ -65,4 +77,4 @@ Use `cpp` or `objcxx` for C++ or Objective-C++. The destination must not already
 
 Keep the exported C-compatible ABI stable. C++ and Objective-C++ exceptions must be contained inside the shim; do not unwind through managed frames. Specify allocator/release rules, physical Owner/thread requirements, callback lifetimes, cancellation behavior, and physical completion. A scaffold does not infer these contracts for an arbitrary library.
 
-Use [Native interoperability](../language/native-interop.md), the [ABI headers](../abi/README.md), and the [compiler development tools](../contributing.md) when implementing the boundary. Distribute required source, headers, native inputs, and external library requirements together.
+Use [Native interoperability](../language/native-interop.md) and the [ABI headers](../abi/README.md) when implementing the boundary. Distribute required source, headers, native inputs, and external library requirements together.

@@ -2,7 +2,7 @@
 
 Learn to write Rinzu programs, use libraries, organize packages, test applications, and distribute them. These pages describe source language `0.5` and the toolchain in this repository. Commands use `rinzu`; substitute `target/release/rinzu` if it is not on your PATH.
 
-Start with the introduction and follow the language chapters in order. A `rinzu-test` code block is a complete program that can be executed by the [documentation test runner](tooling/testing.md). Ordinary `rinzu` blocks can also contain file contents or fragments intended for a function body.
+Start with the introduction and follow the language chapters in order. A `rinzu-test` code block is a complete program that can be executed by the [documentation test runner](tooling/testing.md#execute-documentation-examples). Ordinary `rinzu` blocks can also contain file contents or fragments intended for a function body.
 
 ## Get started
 
@@ -56,9 +56,10 @@ Upgrading an existing project? See the [changelog and migration notes](../CHANGE
 - [AOT builds and distribution](tooling/distribution.md)
 - [Diagnostics and troubleshooting](tooling/diagnostics.md)
 
-## Reference and implementation
+## Reference
 
 - [Supported platforms and language boundaries](reference/support.md)
+- [Future observation and delegation specification](language/future-observation.md)
+- [Native lifetime during cancellation specification](abi/native-lifetime.md)
 - [C ABI and machine-readable schemas](abi/README.md)
 - [Third-party license inventory](reference/third-party-licenses.json)
-- [Compiler development](contributing.md)

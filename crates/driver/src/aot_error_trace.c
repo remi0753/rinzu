@@ -68,7 +68,7 @@ static void rinzu_error_trace_print_failure(const rinzu_failure_t *failure) {
   }
   printf("]");
 }
-static void rinzu_failure_print_traces(const rinzu_failure_state_t *state) {
+RINZU_PROGRAM_API void rinzu_failure_print_traces(const rinzu_failure_state_t *state) {
   if (!state->trace_stack || !state->trace_stack->enabled)
     return;
   const rinzu_observed_error_t **ordered = rinzu_failure_observed_order(state);

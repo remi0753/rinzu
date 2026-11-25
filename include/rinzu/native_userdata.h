@@ -1,5 +1,6 @@
 #ifndef RINZU_NATIVE_USERDATA_H
 #define RINZU_NATIVE_USERDATA_H
+#include "runtime_storage.h"
 #include "rinzu/thread_identity.h"
 #include "rinzu/managed_composite.h"
 
@@ -41,7 +42,7 @@ typedef struct {
 enum { RINZU_USERDATA_OK, RINZU_USERDATA_NULL };
 enum { RINZU_USERDATA_PREPARING, RINZU_USERDATA_OPEN, RINZU_USERDATA_SETTLING };
 
-static _Atomic size_t rinzu_userdata_total;
+RINZU_RUNTIME_GLOBAL _Atomic size_t rinzu_userdata_total;
 static inline void rinzu_userdata_fatal(void) {
   rinzu_interop_fatal();
 }

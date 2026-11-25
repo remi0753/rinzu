@@ -3,7 +3,7 @@
 //! These bindings are created after name and type checking. They have no source
 //! declaration syntax; the reactor IDs belong to the private runtime interface.
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum RuntimeFunction {
     ReadResourceSize,
     Sleep,

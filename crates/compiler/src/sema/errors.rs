@@ -18,7 +18,7 @@ pub(super) struct CatchSource {
     nonempty: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Rethrow {
     pub handler: SourceRange,
     pub elements: Vec<u32>,
@@ -369,7 +369,7 @@ impl Checker<'_> {
                 range,
             })
             .collect();
-            self.declarations.insert(
+            self.declarations.to_mut().insert(
                 SOURCE_LOCATION.to_owned(),
                 Declaration::Record(RecordDecl {
                     interfaces: Vec::new(),
@@ -438,7 +438,7 @@ impl Checker<'_> {
             if let Some(payload) = payload {
                 fields.push(("payload".into(), payload));
             }
-            self.error_schemas.insert(
+            self.error_schemas.to_mut().insert(
                 error.name.clone(),
                 SourceTypeSchema {
                     private_fields: Vec::new(),

@@ -86,6 +86,13 @@ fn encode(builder: &mut FunctionBuilder, ty: &SourceAbiType, value: Value) -> Re
     })
 }
 
+pub(super) fn stub_signature<M: Module>(module: &M) -> Signature {
+    let mut signature = module.make_signature();
+    signature.params.extend([AbiParam::new(types::I64); 2]);
+    signature.returns.push(AbiParam::new(types::I64));
+    signature
+}
+
 pub(crate) fn declare<M: Module>(
     module: &mut M,
     signatures: &[SourceNativeSignature],
@@ -102,9 +109,7 @@ pub(crate) fn declare<M: Module>(
             "duplicate source native signature"
         );
         let symbol = format!("rinzu_source_native_{index}");
-        let mut signature = module.make_signature();
-        signature.params.extend([AbiParam::new(types::I64); 2]);
-        signature.returns.push(AbiParam::new(types::I64));
+        let signature = stub_signature(module);
         let function = module.declare_function(&symbol, Linkage::Export, &signature)?;
         let mut context = module.make_context();
         context.func.signature = signature;

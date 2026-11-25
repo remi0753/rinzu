@@ -11,7 +11,7 @@ impl Engine<'_> {
                 self.contains_mutable_class(key, seen) || self.contains_mutable_class(value, seen)
             }
             Type::Named(name) if seen.insert(name.clone()) => {
-                let result = self.checked.source_types.get(name).is_some_and(|schema| {
+                let result = self.checked.memo_schema(name).is_some_and(|schema| {
                     schema.kind == "native-record"
                         || (schema.kind == "state"
                             && !self.private_environment(name)
@@ -55,6 +55,7 @@ impl Engine<'_> {
         for (parameter, value) in function.declaration.parameters.iter().zip(values) {
             state.env.insert(parameter.name.clone(), value.clone());
         }
+        crate::function_cache::context((self.context, site(expression.range)), context);
         let mut stack = self.stack.clone();
         stack.push(function.declaration.name.clone());
         let nested = Engine {

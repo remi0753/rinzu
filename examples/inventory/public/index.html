@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="ja">
   <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>在庫ダッシュボード</title>
-    <link rel="stylesheet" href="/assets/inventory.css">
+    <link rel="stylesheet" href="/assets/inventory.css" />
     <script src="/assets/inventory.js" defer></script>
   </head>
   <body>
@@ -20,7 +20,14 @@
           <form id="access">
             <label for="token">在庫 API トークン</label>
             <div class="fields">
-              <input id="token" type="password" minlength="20" maxlength="128" autocomplete="off" required>
+              <input
+                id="token"
+                type="password"
+                minlength="20"
+                maxlength="128"
+                autocomplete="off"
+                required
+              />
               <button type="submit">詳細を取得</button>
             </div>
           </form>
@@ -38,7 +45,14 @@
           <form id="quote" hidden>
             <label for="quantity">数量</label>
             <div class="fields">
-              <input id="quantity" type="number" min="1" max="100" value="1" required>
+              <input
+                id="quantity"
+                type="number"
+                min="1"
+                max="100"
+                value="1"
+                required
+              />
               <button type="submit">見積もり</button>
             </div>
             <output id="total" for="quantity"></output>

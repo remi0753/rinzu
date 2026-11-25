@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.0
+
+Rinzu 0.5.0 adds file-based tests, speeds up repeated JIT and AOT builds, and tightens the rules for observing asynchronous Errors. The source language remains `0.5`.
+
+### Upgrade from 0.4.0
+
+- Move source `test_*` functions into `tests/*.test.rinzu` files with their own `main`. Call `rinzu.testing.runCase` or `runAsyncCase` for named cases. Run `rinzu test ./app/tests` in place of `rinzu test ./app --unit`. File-based JSON reports use schema version 2. [Testing guide](docs/tooling/testing.md)
+- Update exact `[toolchain]` pins to `0.5.0`, refresh native build locks with `rinzu lock`, and rebuild generated SDK and AOT artifacts. [Manifests and dependencies](docs/packages/manifest.md#sdk-version-requirements)
+- Review diagnostics for fallible Futures that can be dropped, overwritten, or delegated to a receiver that can be cancelled before observing them. Await the result or transfer responsibility through a checked path. [Future observation](docs/language/future-observation.md)
+
+### New and improved
+
+- **Test files and named cases.** Discover and filter individual test files, run a named case with `--case`, and include explicit `rinzu-test` documentation examples in the same run. Each file has its own worker process and timeout. [Testing guide](docs/tooling/testing.md)
+- **JIT startup and AOT builds.** Reuse checked inputs and compiled code across runs, reuse AOT runtime objects across compatible builds, and show JIT startup stages with `rinzu run --progress=always`. [JIT progress](docs/tooling/cli.md#jit-progress) · [Local compiler cache](docs/tooling/cli.md#local-compiler-cache)
+- **Native async lifetimes.** Cancellation and timeout preserve the physical drain of work already started. The C ABI reference specifies when SDKs may reuse completion storage and release callback or notification resources. [Native lifetime](docs/abi/native-lifetime.md)
+- **Bytes and editor support.** `rinzu.bytes.packInt64LE` encodes a list of integers as little-endian bytes. The local VS Code extension `0.3.0` improves syntax highlighting and retains diagnostics for multiple open packages. [Core APIs](docs/libraries/core.md) · [Editor setup](docs/tooling/editor.md#use-the-local-vs-code-extension)
+
 ## 0.4.0
 
 Rinzu 0.4.0 adds x86_64 Linux with glibc and supports native SDK archives in the module manager. The source language remains `0.5`.

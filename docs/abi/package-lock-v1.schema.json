@@ -19,7 +19,14 @@
     "package": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "source", "manifestDigest", "exportsDigest", "dependencies", "nativeArtifacts"],
+      "required": [
+        "name",
+        "source",
+        "manifestDigest",
+        "exportsDigest",
+        "dependencies",
+        "nativeArtifacts"
+      ],
       "properties": {
         "name": { "type": "string", "minLength": 1 },
         "source": {

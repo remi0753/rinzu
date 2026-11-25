@@ -137,7 +137,7 @@ fn compiled_return_cleanup_roots_and_loop_routes_match_actual_aot() {
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname=\"return_finally\"\nlanguage=\"0.2\"\n",
+        "[package]\nname=\"return_finally\"\nlanguage=\"0.5\"\n",
     )
     .unwrap();
     std::fs::write(root.join("src/main.rinzu"), r#"

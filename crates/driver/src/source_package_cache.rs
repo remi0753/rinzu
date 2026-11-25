@@ -1,7 +1,9 @@
 use rinzu_bindgen::source_package::sha256;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+
+mod retention;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -20,16 +22,42 @@ pub fn directory(
     directory_in(root, &rinzu_compiler::standard_library::cache_root()?, wire)
 }
 
+pub(crate) fn runtime_directory(root: &Path, wire: &[u8]) -> Result<(PathBuf, String), String> {
+    user_directory(root, "jit-runtime-v1", wire)
+}
+
+pub(crate) fn user_directory(
+    root: &Path,
+    namespace: &str,
+    wire: &[u8],
+) -> Result<(PathBuf, String), String> {
+    directory_in_namespace(
+        root,
+        &rinzu_compiler::standard_library::cache_root()?,
+        namespace,
+        wire,
+    )
+}
+
 fn directory_in(root: &Path, cache_root: &Path, wire: &[u8]) -> Result<(PathBuf, String), String> {
+    directory_in_namespace(root, cache_root, "source-v4", wire)
+}
+
+fn directory_in_namespace(
+    root: &Path,
+    cache_root: &Path,
+    namespace: &str,
+    wire: &[u8],
+) -> Result<(PathBuf, String), String> {
     let root = root.canonicalize().map_err(|error| error.to_string())?;
     let cache_root = cache_root
         .canonicalize()
         .map_err(|error| error.to_string())?;
-    let environment = serde_json::to_vec(&(root.clone(), "source-v4", sha256(wire)))
-        .map_err(|error| error.to_string())?;
+    let environment =
+        serde_json::to_vec(&(root, namespace, sha256(wire))).map_err(|error| error.to_string())?;
     let key = sha256(&environment);
     let mut directory = cache_root.clone();
-    for component in ["source-v4", &key] {
+    for component in [namespace, &key] {
         directory.push(component);
         match std::fs::symlink_metadata(&directory) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
@@ -76,6 +104,7 @@ pub fn restore(
     expected: &BTreeMap<String, Vec<u8>>,
     facade: Option<&Path>,
 ) -> Result<bool, String> {
+    let _lease = retention::lock(directory, false)?;
     let Some(receipt) = read_file(&directory.join("receipt.json"))
         .and_then(|bytes| serde_json::from_slice::<Receipt>(&bytes).ok())
     else {
@@ -113,32 +142,44 @@ pub fn restore(
     Ok(true)
 }
 
-/// Each file is replaced atomically; the receipt is published last. Mixed generations never restore.
+/// Readers copy one sealed generation under a shared namespace lease. Writers
+/// publish the receipt last and reclaim old generations under the exclusive lease.
 pub fn store(
     directory: &Path,
     key: &str,
     files: &BTreeMap<String, Vec<u8>>,
     facade: Option<&Path>,
 ) -> Result<(), String> {
+    let _lease = retention::lock(directory, true)?;
+    match std::fs::create_dir(directory) {
+        Ok(()) => (),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
+        Err(error) => return Err(error.to_string()),
+    }
+    if !directory
+        .symlink_metadata()
+        .is_ok_and(|metadata| metadata.is_dir())
+    {
+        return Err("source cache generation is not a regular directory".into());
+    }
     fn replace(directory: &Path, name: &str, bytes: &[u8]) -> Result<(), String> {
+        use std::io::Write;
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|error| error.to_string())?
             .as_nanos();
         let temporary = directory.join(format!(".pending-{}-{nonce}", std::process::id()));
-        std::fs::write(&temporary, bytes).map_err(|error| error.to_string())?;
-        std::fs::rename(&temporary, directory.join(name)).map_err(|error| error.to_string())?;
-        Ok(())
-    }
-    for (name, bytes) in files {
-        replace(directory, name, bytes)?;
+        let mut file = std::fs::File::create_new(&temporary).map_err(|error| error.to_string())?;
+        let result = file
+            .write_all(bytes)
+            .and_then(|()| std::fs::rename(&temporary, directory.join(name)));
+        // Also remove the unpublished file if writing or renaming failed.
+        let _ = std::fs::remove_file(&temporary);
+        result.map_err(|error| error.to_string())
     }
     let facade = facade
         .map(|path| std::fs::read(path).map_err(|error| error.to_string()))
         .transpose()?;
-    if let Some(bytes) = &facade {
-        replace(directory, &facade_name(), bytes)?;
-    }
     let receipt = Receipt {
         schema: "rinzu.source-cache-v4".to_owned(),
         key: key.to_owned(),
@@ -148,10 +189,24 @@ pub fn store(
             .collect(),
         facade: facade.as_ref().map(|bytes| sha256(bytes)),
     };
-    replace(
+    let receipt = serde_json::to_vec(&receipt).map_err(|error| error.to_string())?;
+    let bytes = files.values().map(|bytes| bytes.len() as u64).sum::<u64>()
+        + facade.as_ref().map_or(0, |bytes| bytes.len() as u64)
+        + receipt.len() as u64;
+    if bytes > retention::LIMITS.bytes {
+        return Err("source cache generation exceeds the namespace capacity".into());
+    }
+    for (name, bytes) in files {
+        replace(directory, name, bytes)?;
+    }
+    if let Some(bytes) = &facade {
+        replace(directory, &facade_name(), bytes)?;
+    }
+    replace(directory, "receipt.json", &receipt)?;
+    retention::collect(
+        directory.parent().ok_or("missing cache namespace")?,
         directory,
-        "receipt.json",
-        &serde_json::to_vec(&receipt).map_err(|error| error.to_string())?,
+        retention::LIMITS,
     )
 }
 
@@ -203,26 +258,40 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 }
-/// Load a completed SDK generation before regenerating its final descriptor and
-/// linking its facade. The caller supplies the freshly validated input key and
-/// the exact allowed output names. Every output is verified before any is used.
+/// Load a completed generation with the caller's exact output names.
 pub fn completed(
     directory: &Path,
     key: &str,
-    names: &std::collections::BTreeSet<String>,
+    names: &BTreeSet<String>,
 ) -> Option<BTreeMap<String, Vec<u8>>> {
-    let receipt: Receipt =
-        serde_json::from_slice(&read_file(&directory.join("receipt.json"))?).ok()?;
-    if receipt.schema != "rinzu.source-cache-v4"
-        || receipt.key != key
-        || receipt.facade.is_some()
-        || receipt.files.keys().ne(names.iter())
-    {
+    completed_with_inventory(directory, key, &[], |_| Some((names.clone(), ())))
+        .map(|(files, ())| files)
+}
+
+/// Check fixed metadata first when it describes a variable output inventory.
+pub(crate) fn completed_with_inventory<T>(
+    directory: &Path,
+    key: &str,
+    metadata: &[&str],
+    inventory: impl FnOnce(&BTreeMap<String, Vec<u8>>) -> Option<(BTreeSet<String>, T)>,
+) -> Option<(BTreeMap<String, Vec<u8>>, T)> {
+    completed_with_reader(directory, key, metadata, inventory, read_file)
+}
+
+pub(crate) fn completed_with_reader<T>(
+    directory: &Path,
+    key: &str,
+    metadata: &[&str],
+    inventory: impl FnOnce(&BTreeMap<String, Vec<u8>>) -> Option<(BTreeSet<String>, T)>,
+    read: impl Fn(&Path) -> Option<Vec<u8>>,
+) -> Option<(BTreeMap<String, Vec<u8>>, T)> {
+    let _lease = retention::lock(directory, false).ok()?;
+    let receipt: Receipt = serde_json::from_slice(&read(&directory.join("receipt.json"))?).ok()?;
+    if receipt.schema != "rinzu.source-cache-v4" || receipt.key != key || receipt.facade.is_some() {
         return None;
     }
-    let mut files = BTreeMap::new();
-    for (name, digest) in receipt.files {
-        let path = Path::new(&name);
+    let read_member = |name: &str, digest: &str| {
+        let path = Path::new(name);
         if path.components().count() != 1
             || !matches!(
                 path.components().next(),
@@ -231,13 +300,27 @@ pub fn completed(
         {
             return None;
         }
-        let bytes = read_file(&directory.join(&name))?;
-        if sha256(&bytes) != digest {
-            return None;
-        }
-        files.insert(name, bytes);
+        let bytes = read(&directory.join(path))?;
+        (sha256(&bytes) == digest).then_some(bytes)
+    };
+    let mut files = BTreeMap::new();
+    for &name in metadata {
+        files.insert(
+            name.to_owned(),
+            read_member(name, receipt.files.get(name)?)?,
+        );
     }
-    Some(files)
+    let (names, data) = inventory(&files)?;
+    if receipt.files.keys().ne(names.iter()) {
+        return None;
+    }
+    for (name, digest) in receipt.files {
+        if let std::collections::btree_map::Entry::Vacant(entry) = files.entry(name) {
+            let bytes = read_member(entry.key(), &digest)?;
+            entry.insert(bytes);
+        }
+    }
+    Some((files, data))
 }
 
 #[cfg(test)]

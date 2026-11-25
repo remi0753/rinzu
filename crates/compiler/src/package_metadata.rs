@@ -1,7 +1,7 @@
 //! Import identities for the retained versioned native package ABI.
 //! SDK authoring uses source declarations and generated source-package v2.
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NativeImport {
     pub export_name: String,
     pub import_key: u64,

@@ -30,15 +30,21 @@ fn instrument(app: &Path, sanitized: bool) -> PathBuf {
         "call->words[index] = (uint64_t)(uintptr_t)rinzu_userdata_prepare(\n          rinzu_context_userdata(context), data, call->userdata_scope, (size_t)parameter->length,\n          bits);",
         "const char *selected=getenv(\"RINZU_TEST_USERDATA_ARGUMENT\"); if (selected && index==(size_t)strtoull(selected,NULL,10)) rinzu_test_arm(\"RINZU_TEST_USERDATA_PREPARE\"); call->words[index]=(uint64_t)(uintptr_t)rinzu_userdata_prepare(rinzu_context_userdata(context),data,call->userdata_scope,(size_t)parameter->length,bits); rinzu_test_budget=-1;",
     );
+    let returned =
+        r#"RINZU_NATIVE_CALL_EVENT("call_return", plan, rinzu_native_plans[plan].symbol);"#;
     runtime = replace(
         runtime,
-        "call->phase = 1;\n  if (call->bounded)",
-        "call->phase = 1; rinzu_test_marker('R'); rinzu_test_arm(\"RINZU_TEST_USERDATA_RETURN\");\n  if (call->bounded)",
+        returned,
+        &format!(
+            "{returned}\n  rinzu_test_marker('R');\n  rinzu_test_arm(\"RINZU_TEST_USERDATA_RETURN\");"
+        ),
     );
+    let released =
+        r#"RINZU_NATIVE_CALL_EVENT("call_env_free", plan, rinzu_native_plans[plan].symbol);"#;
     runtime = replace(
         runtime,
-        "free(call);\n}\n#ifdef RINZU_AOT_HAS_SUPPLANT",
-        "free(call); rinzu_test_budget=-1;\n}\n#ifdef RINZU_AOT_HAS_SUPPLANT",
+        released,
+        &format!("{released}\n  rinzu_test_budget = -1;"),
     );
     runtime = replace(
         runtime,

@@ -38,7 +38,9 @@ A Future's completion is stable. Repeated await observes the same completion. A 
 
 ## Observe possible failures
 
-The compiler tracks responsibility for a Future that can produce an ordinary Error, including aliases, fields, collections, returns, and closure captures. Await it, return it to a responsible caller, or hand responsibility to code proven to observe it. A Future can be discarded only when ordinary failure cannot escape it, a property inferred by the compiler.
+The compiler tracks responsibility for a Future that can produce an ordinary Error, including aliases, fields, collections, returns, and closure captures. Await it, return it to a responsible caller, or hand responsibility to code whose checked contract preserves or discharges that responsibility. A Future can be discarded only when ordinary failure cannot escape it, a property inferred by the compiler; responsibilities retained in its result or captures remain separate.
+
+Delegation is provisional. Cancelling an unfinished observer or changing a field on which it depends can restore the original responsibility. Completing a parent does not complete its unawaited observers. This check does not promise termination or observation within a finite time. See [Future observation and delegation](future-observation.md) for the normative rules.
 
 Unit results and readiness are not proof that failure is impossible. A `try all` block does not automatically observe tasks created inside it. When an outer Future returns data containing another Future, observing the outer result does not observe the inner Future.
 
@@ -51,6 +53,8 @@ Workers do not expose shared mutable memory, executor selection, or a public wor
 ## Cancellation and shutdown
 
 `rinzu.future.isReady(future)` checks readiness. `rinzu.future.cancel(future)` and `rinzu.future.timeout(future)` request the corresponding completion behavior for supported Main Futures. Completed results are not overwritten. Cancellation still waits for native and child work to physically settle before releasing their environments.
+
+The Bool returned by cancel or timeout reports whether the runtime accepted a new control request. It does not confirm physical completion. A later request for an already controlled or completed Future returns false. SDK publication, runtime collection, helper return, and environment release are separate conditions; see [Native lifetime during cancellation](../abi/native-lifetime.md) for the normative state machines.
 
 `rinzu.shutdown.request()` requests cooperative Root shutdown. To set an exit status, call `rinzu.process.setExitStatus(0..255)` before requesting shutdown. Cleanup failure or runtime failure still produces a failure status.
 

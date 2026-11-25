@@ -1,0 +1,40 @@
+import rinzu.future;
+import rinzu.stdio;
+
+error Failed {
+    payload: String
+}
+
+async fn fail() -> String {
+    throw Failed(message: "failure", payload: "held failure");
+}
+
+async fn receive(pending: Future<String>) {
+    try {
+        let value = await pending;
+    }
+    catch errors {}
+}
+
+async fn main() {
+    let pending = fail();
+    let observer = receive(pending);
+    let alias = observer;
+    let first = rinzu.future.timeout(alias);
+    let second = rinzu.future.cancel(observer);
+    var message = "missing failure";
+    try {
+        let value = await pending;
+    }
+    catch [problem: Failed] {
+        message = problem.payload;
+    }
+    try {
+        rinzu.stdio.writeLine(first);
+        rinzu.stdio.writeLine(second);
+        rinzu.stdio.writeLine(message);
+    }
+    catch errors {
+        panic("output failed");
+    }
+}

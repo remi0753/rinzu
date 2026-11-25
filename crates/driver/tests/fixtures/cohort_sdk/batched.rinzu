@@ -1,0 +1,113 @@
+import cohort;
+import rinzu.future as future;
+import rinzu.native as bridge;
+
+fn answer() -> CSize fallback 0 {
+    return CSize(7183);
+}
+
+async fn main() {
+    try {
+        let old = cohort.start(0, answer);
+        let oldFirst = bridge.transferred(old);
+        let oldSecond = bridge.transferred(old);
+        if cohort.controlled() == CInt(1) {
+            let won = future.cancel(oldFirst);
+            if !won {
+                panic("old cancellation lost");
+            }
+        }
+        let peer = cohort.start(1, answer);
+        let peerFirst = bridge.transferred(peer);
+        let peerSecond = bridge.transferred(peer);
+        let publishedOld = cohort.publish(0);
+        let oldValue = await oldSecond;
+        if oldValue != 7183 {
+            panic("old payload");
+        }
+        let retiredOld = cohort.retire(0);
+        let replacement = cohort.start(2, answer);
+        let newFirst = bridge.transferred(replacement);
+        let newSecond = bridge.transferred(replacement);
+        let polling = bridge.completed(cohort.pollStart(answer));
+        let lateCancel = future.cancel(oldFirst);
+        let lateTimeout = future.timeout(oldSecond);
+        if lateCancel || lateTimeout {
+            panic("old control won after reuse");
+        }
+        let oldAlias = await oldSecond;
+        let cachedOld = cohort.alias(oldAlias);
+        let status = cohort.status();
+        let peerLeads = cohort.batchFirst() == CInt(1);
+        let staggered = cohort.staggered() == CInt(1);
+        if !staggered {
+            let publishedPollBefore = cohort.pollPublish();
+            await polling;
+            let retiredPollBefore = cohort.pollRetire();
+        }
+        if peerLeads {
+            let capturePeer = cohort.capture(1);
+            if staggered {
+                let firstPeer = await peerFirst;
+                let secondPeer = await peerSecond;
+                if firstPeer != 29 || secondPeer != 29 {
+                    panic("peer payload before the second exchange");
+                }
+                let retirePeerEarly = cohort.retire(1);
+            }
+            let captureNew = cohort.capture(2);
+        }
+        else {
+            let captureReplacement = cohort.capture(2);
+            if staggered {
+                let firstNew = await newFirst;
+                let secondNew = await newSecond;
+                if firstNew != 65537 || secondNew != 65537 {
+                    panic("replacement payload before the second exchange");
+                }
+                let retireNewEarly = cohort.retire(2);
+            }
+            let captureOther = cohort.capture(1);
+        }
+        let notified = cohort.notifyBatch();
+        if !staggered || !peerLeads {
+            let afterPeer = await peerFirst;
+            let afterPeerSecond = await peerSecond;
+            if afterPeer != 29 || afterPeerSecond != 29 {
+                panic("peer payload after batching");
+            }
+            let retirePeer = cohort.retire(1);
+        }
+        if !staggered || peerLeads {
+            let afterNew = await newFirst;
+            let afterNewSecond = await newSecond;
+            if afterNew != 65537 || afterNewSecond != 65537 {
+                panic("replacement payload after batching");
+            }
+            let retireNew = cohort.retire(2);
+        }
+        if staggered {
+            let publishedPollAfter = cohort.pollPublish();
+            await polling;
+            let retiredPollAfter = cohort.pollRetire();
+        }
+        let finished = cohort.finish();
+        await polling;
+        let savedOld = await oldSecond;
+        let savedPeer = await peerFirst;
+        let savedPeerSecond = await peerSecond;
+        let savedNew = await newFirst;
+        let savedNewSecond = await newSecond;
+        if savedOld != 7183
+            || savedPeer != 29
+            || savedPeerSecond != 29
+            || savedNew != 65537
+            || savedNewSecond != 65537 {
+            panic("cached result after carrier retirement");
+        }
+        let last = await oldFirst;
+    }
+    catch errors {
+        panic("batched cohort failed");
+    }
+}

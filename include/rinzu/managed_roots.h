@@ -67,7 +67,7 @@ static inline void rinzu_managed_frame_cache_put(rinzu_managed_frame_cache_t *ca
   size_t bytes = rinzu_managed_frame_bytes(frame);
   if (cache->count < RINZU_MANAGED_FRAME_CACHE_COUNT && bytes <= RINZU_MANAGED_FRAME_CACHE_BYTES &&
       cache->bytes <= RINZU_MANAGED_FRAME_CACHE_BYTES - bytes) {
-    if (atomic_load_explicit(&rinzu_resource_enabled, memory_order_relaxed)) {
+    if (rinzu_resource_observing()) {
       rinzu_managed_frame_cache_charge(bytes);
       frame->allocation = 3;
     }

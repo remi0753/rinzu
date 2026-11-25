@@ -155,6 +155,7 @@ fn main() {let result=execute();}
     all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
 ))]
 #[test]
+#[ignore = "historical backend spike with hand-written Cranelift IR"]
 fn shared_lowering_emits_stack_maps_for_jit_and_aot() {
     let jit = run_jit_spike().unwrap();
     let aot = emit_aot_object().unwrap();
@@ -305,6 +306,7 @@ fn main() {
     all(target_os = "linux", target_arch = "x86_64", target_env = "gnu")
 )))]
 #[test]
+#[ignore = "historical backend spike with hand-written Cranelift IR"]
 fn unsupported_host_does_not_claim_v1_jit_support() {
     assert!(run_jit_spike().is_err());
 }

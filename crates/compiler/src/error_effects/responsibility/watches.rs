@@ -300,8 +300,7 @@ impl Engine<'_> {
                 }
                 let ty = self
                     .checked
-                    .source_types
-                    .get(owner)?
+                    .memo_schema(owner)?
                     .fields
                     .iter()
                     .find(|(field, _)| field == name)?

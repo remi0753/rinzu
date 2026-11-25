@@ -1,5 +1,6 @@
 use rinzu_compiler::{
     FileId, IrFunction, OperationKind, SourceFile, Type, compile_source, virtual_bytes_options,
+    virtual_options,
 };
 
 fn functions() -> Vec<IrFunction> {
@@ -7,6 +8,8 @@ fn functions() -> Vec<IrFunction> {
         FileId(92),
         "virtual-bytes-options.rinzu",
         r#"
+import rinzu.list as lists;
+
 fn leaf(data: ByteArray, start: Int, end: Int) -> ByteArray {
     switch bytesSlice(data, start, end) {
         case Option.Some(piece): { return piece; }
@@ -40,12 +43,45 @@ fn scalar(data: ByteArray) -> Int {
         case Option.None: { return -1; }
     }
 }
+fn words(data: List<Int>) -> Int {
+    switch lists.get(data, 0) {
+        case Option.Some(value): { return value; }
+        case Option.None: { return -1; }
+    }
+}
+fn references(data: List<ByteArray>) -> ByteArray {
+    switch lists.get(data, 0) {
+        case Option.Some(value): { return value; }
+        case Option.None: { return byteArray(b"invalid"); }
+    }
+}
+fn escaping_words(data: List<Int>) -> Option<Int> { return lists.get(data, 0); }
 fn main() {}
 "#,
     ))
     .unwrap()
     .ir
     .functions
+}
+
+#[test]
+fn immediate_indexed_switches_keep_scalar_bits_out_of_reference_roots() {
+    for function in functions() {
+        let plan = virtual_options(&function);
+        match function.name.as_str() {
+            "scalar" | "words" => {
+                assert!(!plan.values.is_empty());
+                assert_eq!(plan.values, plan.scalar_values);
+                assert_eq!(plan.scalar_locals.len(), 1);
+            }
+            "leaf" | "references" => {
+                assert!(!plan.values.is_empty());
+                assert!(plan.scalar_values.is_empty());
+                assert!(plan.scalar_locals.is_empty());
+            }
+            _ => assert!(plan.values.is_empty(), "{}", function.name),
+        }
+    }
 }
 
 #[test]

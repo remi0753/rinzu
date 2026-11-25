@@ -369,3 +369,148 @@ int main(void){
     }
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[cfg(feature = "test-native-lifetime-trace")]
+#[test]
+fn allocation_failure_does_not_drain_a_live_native_registration() {
+    const CHILD: &str = "RINZU_TEST_FATAL_NATIVE_DRAIN";
+    const MARKER: &[u8] = b"NATIVE_DRAIN_AND_SDK_REFERENCE_LIVE\n";
+    if std::env::var_os(CHILD).is_some() {
+        use rinzu_runtime::lifetime_trace::DomainTrace;
+        use rinzu_runtime::native_completion::{
+            CompletionPointer, NotifiedNativeCompletion, TransferNativeCompletion,
+        };
+        use rinzu_runtime::reactor::AsyncReactor;
+        use rinzu_runtime::scheduler::{Resolution, ResolveResult, TaskId};
+        use rinzu_runtime::standalone::OperationMailbox;
+        use std::sync::atomic::Ordering;
+
+        let probe = Arc::new(DomainTrace::default()).probe(0);
+        let reactor = AsyncReactor::with_lifetime_trace(Arc::new(|| {}), Arc::clone(&probe));
+        let mut mailbox = OperationMailbox::new(Default::default(), Arc::new(|| {}));
+        let carriers = [7183, 7184].map(|result| TransferNativeCompletion {
+            result,
+            ..Default::default()
+        });
+        let raw = carriers
+            .each_ref()
+            .map(|carrier| std::ptr::from_ref(&carrier.completion).cast_mut());
+        let start = |i: usize, mailbox: &mut OperationMailbox| {
+            let ticket = mailbox.admit(TaskId(1), "retain SDK drain".into()).unwrap();
+            let id = ticket.operation;
+            // SAFETY: the array pins these carriers through the child process.
+            let pointer = unsafe { CompletionPointer::new(raw[i] as usize) };
+            let receipt = reactor.submit_native_transfer(ticket, pointer).unwrap();
+            probe.wait_for("registered", id.0, 1);
+            (id, receipt)
+        };
+        let (completed_id, completed) = start(0, &mut mailbox);
+        let (pending_id, pending) = start(1, &mut mailbox);
+        // SAFETY: the producer has finished preparation and exchanges this carrier once.
+        let sdk = unsafe { NotifiedNativeCompletion::capture_with_lifetime_trace(raw[0], &probe) }
+            .unwrap();
+        sdk.notify();
+        let packet = reactor.wait_completion(Duration::from_secs(30)).unwrap();
+        assert_eq!(packet.operation, completed_id);
+        mailbox.take_resolutions().unwrap();
+        assert_eq!(
+            mailbox.settle(completed_id).unwrap(),
+            Resolution::Completed(Ok(()))
+        );
+        assert_eq!(completed.native_transfer_result(), Some(7183));
+        assert_eq!(pending.request_cancel(), ResolveResult::Won);
+        assert!(reactor.try_completion().unwrap().is_none());
+        reactor.trace_progress().unwrap();
+        probe.wait_for("trace_progress_refs", 0, 1);
+        assert!(
+            probe
+                .events()
+                .contains(&format!("trace_progress_refs,0,{},3", sdk.address()))
+        );
+        assert_eq!(
+            carriers[1].completion.notification.load(Ordering::Acquire),
+            sdk.address()
+        );
+        assert!(
+            !probe
+                .events()
+                .iter()
+                .any(|line| line.starts_with(&format!("physical,{},", pending_id.0)))
+        );
+        let new_ticket = mailbox.admit(TaskId(1), "next receipt".into()).unwrap();
+        // SAFETY: this provider allocation stays live if the fatal allocator is bypassed.
+        let pointer = unsafe { CompletionPointer::new(raw[1] as usize) };
+        let _cleanup = Cleanup;
+        // SAFETY: MARKER is a static byte slice valid for all bytes passed to write.
+        let written =
+            unsafe { libc::write(libc::STDOUT_FILENO, MARKER.as_ptr().cast(), MARKER.len()) };
+        assert_eq!(written, MARKER.len() as isize);
+        seal_stderr();
+        FAIL.with(|flag| flag.set(true));
+        let _ = reactor.submit_native_transfer(new_ticket, pointer);
+        FAIL.with(|flag| flag.set(false));
+        std::process::exit(99);
+    }
+
+    let output = bounded_output(
+        Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "allocation_failure_does_not_drain_a_live_native_registration",
+                "--nocapture",
+            ])
+            .env(CHILD, "1"),
+    );
+    assert_eq!(output.status.code(), Some(71), "{output:?}");
+    assert!(output.stdout.ends_with(MARKER), "{output:?}");
+    assert!(output.stderr.is_empty(), "{output:?}");
+}
+
+#[test]
+fn c_allocation_failure_does_not_drain_a_live_native_registration() {
+    struct Scratch(std::path::PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = Scratch(
+        std::env::temp_dir().join(format!("rinzu-c-fatal-native-drain-{}", std::process::id())),
+    );
+    std::fs::create_dir(&root.0).unwrap();
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    for sanitized in [false, true] {
+        let binary = root
+            .0
+            .join(if sanitized { "sanitized" } else { "ordinary" });
+        let mut command = native::clang();
+        command
+            .args([
+                "-std=c11", "-O1", "-g", "-pthread", "-Wall", "-Wextra", "-Werror",
+            ])
+            .arg(manifest.join("tests/fixtures/allocation_with_native_drain.c"))
+            .arg("-I")
+            .arg(manifest.join("../../include"));
+        if sanitized {
+            command.args(["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]);
+        }
+        let compiled = command.arg("-o").arg(&binary).output().unwrap();
+        assert!(compiled.status.success(), "{compiled:?}");
+        let output = bounded_output(
+            Command::new(binary)
+                .env("RINZU_NATIVE_COMPLETION_NOTIFY", "1")
+                .env("RINZU_NATIVE_COMPLETION_DIRECT", "1")
+                .env("ASAN_OPTIONS", "detect_leaks=0:abort_on_error=1")
+                .env("UBSAN_OPTIONS", "halt_on_error=1"),
+        );
+        assert_eq!(output.status.code(), Some(71), "{output:?}");
+        assert_eq!(
+            output.stdout, b"NATIVE_DRAIN_AND_SDK_REFERENCE_LIVE\n",
+            "{output:?}"
+        );
+        assert_eq!(
+            output.stderr, b"rinzu: required runtime resource unavailable (71)\n",
+            "{output:?}"
+        );
+    }
+}

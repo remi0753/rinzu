@@ -243,7 +243,7 @@ fn sdl_invalid_native_record_writeback_exits_86_before_catch_or_finally() {
             ),
         );
     std::fs::write(source, native).unwrap();
-    std::fs::write(root.join("app/rinzu.toml"),"[package]\nname=\"sdl_record_fault\"\nlanguage=\"0.2\"\n[dependencies]\n\"rinzu.sdl2\"={path=\"../sdl2\"}\n").unwrap();
+    std::fs::write(root.join("app/rinzu.toml"),"[package]\nname=\"sdl_record_fault\"\nlanguage=\"0.5\"\n[dependencies]\n\"rinzu.sdl2\"={path=\"../sdl2\"}\n").unwrap();
     std::fs::write(
         root.join("app/src/main.rinzu"),
         r#"

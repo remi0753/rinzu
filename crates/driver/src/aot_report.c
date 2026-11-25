@@ -7,7 +7,7 @@
 static char *rinzu_report_bytes;
 static size_t rinzu_report_length, rinzu_report_capacity;
 static int rinzu_report_active;
-static void rinzu_report_begin(void) {
+RINZU_PROGRAM_API void rinzu_report_begin(void) {
   rinzu_report_active = 1;
 }
 static int rinzu_report_printf(const char *format, ...) {
@@ -48,7 +48,7 @@ static int rinzu_report_printf(const char *format, ...) {
   rinzu_report_length += count;
   return length;
 }
-static int rinzu_report_flush(void) {
+RINZU_PROGRAM_API int rinzu_report_flush(void) {
   const char *path = getenv("RINZU_EVIDENCE_OUTPUT");
   if (path && fflush(NULL))
     _Exit(86);
@@ -75,8 +75,8 @@ static int rinzu_report_flush(void) {
 }
 #else
 /* Compiled JIT already captures reports in its per-image native buffer. */
-static void rinzu_report_begin(void) {}
-static int rinzu_report_flush(void) {
+RINZU_PROGRAM_API void rinzu_report_begin(void) {}
+RINZU_PROGRAM_API int rinzu_report_flush(void) {
   return 0;
 }
 #endif

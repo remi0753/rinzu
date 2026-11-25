@@ -19,14 +19,18 @@ pub(super) fn range(site: Site) -> SourceRange {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(
+    Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub(super) enum Key {
     Int(i64),
     String(String),
     Bool(bool),
     Iteration(Site),
 }
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(
+    Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub(super) enum Access {
     Field(String, String),
     Element(String, Option<Key>, Site),
@@ -47,13 +51,17 @@ impl Access {
         }
     }
 }
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(
+    Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub(super) struct Parameter {
     pub owner: String,
     pub index: usize,
     pub path: Vec<Access>,
 }
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(
+    Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub(super) enum Token {
     Input(Parameter),
     Local(Site, u32, bool),
@@ -80,7 +88,7 @@ impl Token {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
 pub(super) enum FutureResult {
     Success(Box<Tracked>),
     Failure(language::Word),
@@ -90,7 +98,7 @@ pub(super) enum FutureResult {
     // Keep the alternatives on the Future and select them at its await sites.
     Cases(Vec<FutureCase>),
 }
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
 pub(super) struct FutureCase {
     pub guards: language::Guards,
     pub result: FutureResult,
@@ -238,7 +246,7 @@ fn visit_set(tokens: &mut BTreeSet<Token>, visit: &mut impl FnMut(&mut Token, &m
         })
         .collect();
 }
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
 pub(super) enum Tracked {
     Reference {
         identity: Token,

@@ -8,7 +8,7 @@ import subprocess
 from native_toolchain import clang, tool_timeout
 
 ROOT = Path(__file__).resolve().parents[2]
-PRELUDE = r'''
+PRELUDE = r"""
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -91,8 +91,8 @@ static void rinzu_aot_async_resume(RinzuContext *c, RinzuAsyncTask *t) {
   }
   t->continuation.running = 0;
 }
-'''
-POSTLUDE = r'''
+"""
+POSTLUDE = r"""
 static void setup(RinzuAsyncState *s, size_t count) {
   *s = (RinzuAsyncState){0}; total = visited = allocations = releases = 0;
   for (size_t i = 0; i < count; ++i) append(s);
@@ -137,39 +137,68 @@ int main(int argc, char **argv) {
            allocations, allocations * n * sizeof(uint64_t), count);
   }
 }
-'''
+"""
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--source', type=Path, default=ROOT / 'crates/driver/src/aot_source_async.c')
-    p.add_argument('--workdir', type=Path, required=True)
-    p.add_argument('--baseline', action='store_true', help='Allow heap allocation for small snapshots')
+    p.add_argument(
+        "--source", type=Path, default=ROOT / "crates/driver/src/aot_source_async.c"
+    )
+    p.add_argument("--workdir", type=Path, required=True)
+    p.add_argument(
+        "--baseline",
+        action="store_true",
+        help="Allow heap allocation for small snapshots",
+    )
     args = p.parse_args()
     args.workdir.mkdir(parents=True, exist_ok=True)
     text = args.source.read_text()
-    start = text.index('static int rinzu_aot_async_compare_handles(')
-    end = text.index('\n}\n', text.index('static void rinzu_aot_async_resume_ready(', start)) + 3
+    start = text.index("static int rinzu_aot_async_compare_handles(")
+    end = (
+        text.index(
+            "\n}\n", text.index("static void rinzu_aot_async_resume_ready(", start)
+        )
+        + 3
+    )
     post = POSTLUDE
     if args.baseline:
-        post = post.replace('assert(allocations == (n > 64));', 'assert(allocations == (n > 0));')
-        post = post.replace('assert(!allocations && !releases);', 'assert(allocations == 2 && releases == 2);')
-        post = post.replace('allocations == 1 && releases == 1', 'allocations == 2 && releases == 2')
-    source = args.workdir / 'ready.c'
+        post = post.replace(
+            "assert(allocations == (n > 64));", "assert(allocations == (n > 0));"
+        )
+        post = post.replace(
+            "assert(!allocations && !releases);",
+            "assert(allocations == 2 && releases == 2);",
+        )
+        post = post.replace(
+            "allocations == 1 && releases == 1", "allocations == 2 && releases == 2"
+        )
+    source = args.workdir / "ready.c"
     source.write_text(PRELUDE + text[start:end] + post)
     runs = []
     for sanitized in [False, True]:
-        binary = args.workdir / ('san' if sanitized else 'ready')
-        command = [*clang(), '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
-                   str(source), '-o', str(binary)]
+        binary = args.workdir / ("san" if sanitized else "ready")
+        command = [
+            *clang(),
+            "-std=c11",
+            "-O2",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(source),
+            "-o",
+            str(binary),
+        ]
         if sanitized:
-            command += ['-fsanitize=address,undefined', '-fno-sanitize-recover=all']
+            command += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
         subprocess.run(command, check=True, timeout=tool_timeout(120))
         run = subprocess.run([str(binary)], check=True, capture_output=True, text=True)
         runs.append(dict(sanitized=sanitized, stdout=run.stdout))
-    (args.workdir / 'tests.json').write_text(json.dumps(dict(passed=True, cases=runs), indent=2) + '\n')
+    (args.workdir / "tests.json").write_text(
+        json.dumps(dict(passed=True, cases=runs), indent=2) + "\n"
+    )
     print(json.dumps(runs))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

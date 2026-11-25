@@ -79,11 +79,31 @@ pub(crate) fn write_sources(directory: &Path) -> Result<(), String> {
         fs::write(directory.join("source-platform.runtime.c"), &source)
             .map_err(|error| error.to_string())?;
     }
-    fs::write(
-        directory.join("compiled-async.c"),
-        crate::compiled_async::runtime_source(&object, &source, true),
-    )
-    .map_err(|error| error.to_string())?;
+    let jit_source = crate::compiled_async::runtime_source(&object, &source, true);
+    fs::write(directory.join("compiled-async.c"), &jit_source)
+        .map_err(|error| error.to_string())?;
+    // Match prepare_runtime's default resource-report configuration before
+    // splitting: the environment adapter is local to the common/AOT runtime.
+    let jit_source = jit_source.replace("if (rinzu_resource_report_from_env()) return 1;", "");
+    let split = crate::compiled_async::source::Sources::split(&object, jit_source, false)?;
+    for (name, contents) in split.files {
+        fs::write(directory.join(name), contents).map_err(|error| error.to_string())?;
+    }
+    // The tooling copy retains template locations through the same split and
+    // linkage replacements; the plain copy remains the real compilation input.
+    let mapped =
+        crate::compiled_async::runtime_source_with_locations(&object, &source, true, Some(&root));
+    let mapped = mapped.replace("if (rinzu_resource_report_from_env()) return 1;", "");
+    let mapped = crate::compiled_async::source::Sources::split_with_locations(
+        &object,
+        mapped,
+        false,
+        Some(&root),
+    )?;
+    for (name, contents) in mapped.files {
+        fs::write(directory.join(format!("mapped-{name}")), contents)
+            .map_err(|error| error.to_string())?;
+    }
 
     let source = rinzu_compiler::SourceFile::new(
         rinzu_compiler::FileId(1),

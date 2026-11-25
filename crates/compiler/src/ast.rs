@@ -1,6 +1,6 @@
 use crate::{FileId, SourceRange};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Module {
     pub file_id: FileId,
     pub imports: Vec<Import>,
@@ -10,7 +10,7 @@ pub struct Module {
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Export {
     pub path: Vec<String>,
     /// Synthesized from an exported owner type, never written as a method export.
@@ -18,7 +18,7 @@ pub struct Export {
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Import {
     /// Dotted target segments, or the qualifier for a file import.
     pub path: Vec<String>,
@@ -46,20 +46,20 @@ impl Import {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ImportAlias {
     pub name: String,
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct FileImport {
     pub path: String,
     pub path_range: SourceRange,
     pub alias_range: SourceRange,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Declaration {
     Interface(InterfaceDecl),
     Function(FunctionDecl),
@@ -98,7 +98,7 @@ impl Declaration {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FunctionDecl {
     pub name: String,
     pub is_private: bool,
@@ -117,7 +117,7 @@ pub struct FunctionDecl {
 }
 
 /// A declared upper bound on escaping ordinary Errors. An empty list is nothrow.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ErrorContract {
     pub types: Vec<TypeRef>,
     pub range: SourceRange,
@@ -139,7 +139,7 @@ pub(crate) fn error_bound_spelling(bound: Option<&[String]>) -> String {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct InterfaceDecl {
     pub name: String,
     pub type_parameters: Vec<TypeParameter>,
@@ -147,14 +147,14 @@ pub struct InterfaceDecl {
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Parameter {
     pub name: String,
     pub ty: TypeRef,
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordDecl {
     pub mutable: bool,
     pub name: String,
@@ -164,7 +164,7 @@ pub struct RecordDecl {
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct EnumDecl {
     pub name: String,
     pub type_parameters: Vec<TypeParameter>,
@@ -173,7 +173,7 @@ pub struct EnumDecl {
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ErrorDecl {
     pub name: String,
     pub type_parameters: Vec<TypeParameter>,
@@ -181,21 +181,21 @@ pub struct ErrorDecl {
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ErrorPayloadDecl {
     pub optional: bool,
     pub ty: TypeRef,
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct EnumVariant {
     pub name: String,
     pub fields: Vec<FieldDecl>,
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FieldDecl {
     pub name: String,
     /// Immutable after aggregate construction. Methods are not fields.
@@ -205,7 +205,7 @@ pub struct FieldDecl {
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TypeParameter {
     pub name: String,
     pub constraints: Vec<String>,
@@ -213,13 +213,13 @@ pub struct TypeParameter {
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TypeRef {
     pub kind: TypeRefKind,
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TypeRefKind {
     Record(Vec<FieldDecl>),
     Named(Vec<String>),
@@ -251,31 +251,31 @@ impl TypeRef {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Block {
     pub statements: Vec<Statement>,
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Statement {
     pub kind: StatementKind,
     pub range: SourceRange,
 }
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AllCatch {
     pub binding: String,
     pub binding_range: SourceRange,
     pub body: Block,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CatchBinding {
     pub name: String,
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CatchElement {
     pub binding: Option<CatchBinding>,
     pub ty: TypeRef,
@@ -284,7 +284,7 @@ pub struct CatchElement {
     pub(crate) type_spelling: std::sync::Arc<str>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum CatchPattern {
     Binding(CatchBinding),
     List {
@@ -318,7 +318,7 @@ impl CatchPattern {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CatchClause {
     pub pattern: CatchPattern,
     pub body: Block,
@@ -338,7 +338,7 @@ impl CatchClause {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum StatementKind {
     Throw(Expression),
     Rethrow {
@@ -414,7 +414,7 @@ pub enum StatementKind {
     },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SwitchCase {
     pub path: Vec<String>,
     pub bindings: Vec<String>,
@@ -435,13 +435,13 @@ impl SwitchCase {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Expression {
     pub kind: ExpressionKind,
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ExpressionKind {
     Function(Box<FunctionDecl>),
     Record(Vec<RecordField>),
@@ -498,7 +498,7 @@ pub enum ExpressionKind {
     },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordField {
     pub name: String,
     pub annotation: Option<TypeRef>,
@@ -506,7 +506,7 @@ pub struct RecordField {
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TypeAliasDecl {
     pub name: String,
     pub type_parameters: Vec<TypeParameter>,
@@ -514,13 +514,13 @@ pub struct TypeAliasDecl {
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Arguments {
     Positional(Vec<Expression>),
     Named(Vec<(String, Expression, SourceRange)>),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Literal {
     Bool(bool),
     Int(i64),
@@ -531,13 +531,13 @@ pub enum Literal {
     Bytes(Vec<u8>),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum UnaryOperator {
     Not,
     Negate,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum BinaryOperator {
     Or,
     And,
@@ -554,7 +554,7 @@ pub enum BinaryOperator {
     Remainder,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ConstantDecl {
     pub name: String,
     pub annotation: Option<TypeRef>,
@@ -562,27 +562,27 @@ pub struct ConstantDecl {
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct NativeBlock {
     pub members: Vec<NativeMember>,
     pub range: SourceRange,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum NativeMember {
     Opaque { name: String, range: SourceRange },
     Record(RecordDecl),
     Function(NativeFunctionDecl),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum NativeBinding {
     Symbol(String),
     /// Created by the compiler for standard-library calls, never parsed.
     Runtime(crate::RuntimeFunction),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct NativeFunctionDecl {
     pub name: String,
     pub is_async: bool,

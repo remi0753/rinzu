@@ -1,5 +1,5 @@
 /* Each parked Main activation shares the Domain machine; CPU Workers own one. */
-static rinzu_owner_transition_t *rinzu_context_transitions(RinzuContext *context) {
+RINZU_PROGRAM_API rinzu_owner_transition_t *rinzu_context_transitions(RinzuContext *context) {
   rinzu_owner_transition_t *owner =
       context->shared_transitions ? context->shared_transitions : &context->transitions;
   rinzu_owner_transition_init(owner);

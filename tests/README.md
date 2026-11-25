@@ -8,4 +8,4 @@
 
 Generated binaries, test captures, and resource reports are local artifacts and are not committed.
 
-[Compiler development](../docs/contributing.md)
+[Compiler development](../CONTRIBUTING.md)

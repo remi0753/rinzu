@@ -144,6 +144,20 @@ int main(int argc, char **argv) {
     a[offsetof(struct Pair, flag)] = 1;
     changed = 99;
     memcpy(b + offsetof(struct Pair, x), &changed, sizeof(changed));
+    uint64_t fresh = create(&data);
+    rinzu_native_record_argument_t during_entry[] = {{fresh, &layout}, {first, &layout}};
+    retained_roots = data.published_root_count;
+    scratch_allocations = data.native_record_allocations;
+    budget = 0;
+    assert(rinzu_native_record_prepare(&data, during_entry, 2, &inner) == RINZU_VALUE_BUSY &&
+           !inner);
+    budget = -1;
+    assert(data.published_root_count == retained_roots &&
+           data.native_record_allocations == scratch_allocations);
+    assert(!rinzu_managed_project(&data, fresh, 2, -1, 0, &slot) && slot.bits == 1);
+    assert(rinzu_managed_project(&data, first, 2, -1, 0, &slot) == RINZU_VALUE_BUSY);
+    memcpy(&changed, a + offsetof(struct Pair, x), sizeof(changed));
+    assert(changed == 42);
     if (argc > 1 && !strcmp(argv[1], "early-release"))
       rinzu_native_record_release(&data, loan);
     if (argc > 1 && !strcmp(argv[1], "early-commit"))

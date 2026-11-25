@@ -31,17 +31,17 @@ Use `//` for a line comment and `/* ... */` for a block comment. A `///` comment
 
 ## Literals
 
-| Example | Meaning |
-| --- | --- |
-| `true`, `false` | Bool |
-| `42`, `0xff`, `0b1010`, `1_000` | Integer |
-| `1.5` | Floating-point value |
-| `"hello"`, `f"value={value}"` | String and formatted string |
-| `r#"raw text"#` | Raw string |
-| `b"\x00\xff"` | Fixed-size bytes |
-| `[1, 2, 3]` | List |
-| `{"answer": 42}` | Map |
-| `{x: Int = 1, y: Int = 2}` | Record |
+| Example                         | Meaning                     |
+| ------------------------------- | --------------------------- |
+| `true`, `false`                 | Bool                        |
+| `42`, `0xff`, `0b1010`, `1_000` | Integer                     |
+| `1.5`                           | Floating-point value        |
+| `"hello"`, `f"value={value}"`   | String and formatted string |
+| `r#"raw text"#`                 | Raw string                  |
+| `b"\x00\xff"`                   | Fixed-size bytes            |
+| `[1, 2, 3]`                     | List                        |
+| `{"answer": 42}`                | Map                         |
+| `{x: Int = 1, y: Int = 2}`      | Record                      |
 
 Maps use `key: value`; records use `field = value`, with an optional field type before `=`. Add a type annotation when the context cannot determine an empty collection or numeric width.
 

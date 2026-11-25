@@ -1,0 +1,5 @@
+name,control,collect_first,accepted,decision,payload
+cancel_before_publication,1,0,1,cancelled,9223372036854775807
+timeout_before_publication,2,0,1,timed_out,-9223372036854775808
+cancel_after_owner_collection,1,1,0,completed,-9223372036854775808
+timeout_after_owner_collection,2,1,0,completed,9223372036854775807

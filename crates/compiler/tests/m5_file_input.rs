@@ -153,7 +153,7 @@ fn explicit_unicode_file_ignores_nearby_manifest_lock_and_src_entry() {
 }
 
 #[test]
-fn directory_preserves_package_selection_and_language() {
+fn directory_preserves_package_selection_and_legacy_manifest_version() {
     let scratch = Scratch::new();
     scratch.package();
     scratch.write("outside.rinzu", "fn main() {}");

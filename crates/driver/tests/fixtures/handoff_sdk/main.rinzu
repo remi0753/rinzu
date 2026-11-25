@@ -1,0 +1,33 @@
+import handoff;
+import rinzu.future as future;
+import rinzu.native as bridge;
+
+fn answer() -> CSize fallback 0 {
+    return CSize(7183);
+}
+
+async fn main() {
+    try {
+        let completion = handoff.start(answer);
+        let pending = bridge.transferred(completion);
+        let mode = handoff.controlled();
+        if mode == CInt(1) {
+            let cancelled = future.cancel(pending);
+        }
+        if mode == CInt(2) {
+            let timedOut = future.timeout(pending);
+        }
+        try {
+            let result = await pending;
+            if result != 7183 {
+                panic("wrong payload");
+            }
+        }
+        finally {
+            let joined = handoff.finish();
+        }
+    }
+    catch errors {
+        panic("native handoff failed");
+    }
+}

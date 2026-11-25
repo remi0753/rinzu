@@ -2,7 +2,7 @@
 use super::{
     BlockId, ConstantValue, IrFunction, IrModule, Operation, OperationKind as O, Terminator,
     ValueId, operation_cleanup_chain, operation_error_edge, operation_failure_target,
-    virtual_bytes_options,
+    virtual_options,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -227,7 +227,7 @@ fn analyze(function: &IrFunction, closed: &HashSet<String>) -> Option<Plan> {
             )
         })
         .collect();
-    let virtuals = virtual_bytes_options(function);
+    let virtuals = virtual_options(function).values;
     let mut incoming: HashMap<_, _> = blocks
         .keys()
         .map(|id| {

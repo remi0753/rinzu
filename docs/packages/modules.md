@@ -57,7 +57,9 @@ fn main() {
 
 Resolve paths relative to the importing file. A file path must name a `.rinzu` source and cannot contain control characters.
 
-Package imports must remain within the package's canonical `src/` directory. Standalone file graphs may use relative paths outside the entry directory, including `..`, or absolute file paths. Import cycles and conflicting aliases are rejected.
+Local file imports from `src/` resolve within the package's canonical `src/` directory. Standalone file graphs may use relative paths outside the entry directory, including `..`, or absolute file paths. Import cycles and conflicting aliases are rejected.
+
+A test file under `tests/` resolves dotted local imports under `src/`. Relative file imports from the test tree can reach `src/` and the same package's `tests/`. Files under `src/` still resolve package-local imports within `src/` during a test run. See [Testing](../tooling/testing.md).
 
 The same canonical file keeps the same identity through multiple aliases or dotted/path imports. Distinct files with identical text still declare distinct nominal types. Only the chosen entry's main is the program entry.
 

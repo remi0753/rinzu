@@ -2,14 +2,14 @@ use std::path::{Path, PathBuf};
 
 use crate::{Diagnostic, DiagnosticCode};
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FileId(pub u32);
 
 impl FileId {
     pub const MANIFEST: Self = Self(0);
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SourceRange {
     pub file_id: FileId,
     pub start_byte: u32,

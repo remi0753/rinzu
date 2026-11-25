@@ -13,6 +13,10 @@
 #define RINZU_RTLD_FIRST RTLD_FIRST
 #endif
 #include <sys/stat.h>
+#ifndef RINZU_SOURCE_DLOPEN
+#define RINZU_SOURCE_DLOPEN dlopen
+#endif
+/* RINZU_JIT_SHARED_BEGIN */
 typedef struct {
   unsigned char key[32];
   const char *symbol;
@@ -34,6 +38,7 @@ typedef struct {
   int check_digest;
   unsigned char digest[32];
 } RinzuNativeSlot;
+/* RINZU_JIT_SHARED_END */
 static _Noreturn void rinzu_source_package_failure(void) {
   static const char message[] = "rinzu: invalid source package artifact during AOT startup\n";
   (void)write(STDERR_FILENO, message, sizeof message - 1);
@@ -50,7 +55,7 @@ static _Noreturn void rinzu_native_binding_failure(const char *reason, const cha
   (void)write(STDERR_FILENO, "\n", 1);
   rinzu_source_package_failure();
 }
-static char *rinzu_source_executable_directory(void) {
+RINZU_PROGRAM_API char *rinzu_source_executable_directory(void) {
 #ifdef __linux__
   errno = 0;
   char *resolved = realpath("/proc/self/exe", NULL);
@@ -78,7 +83,7 @@ static char *rinzu_source_executable_directory(void) {
   *slash = 0;
   return resolved;
 }
-static char *rinzu_source_path(const char *root, const char *relative) {
+RINZU_PROGRAM_API char *rinzu_source_path(const char *root, const char *relative) {
   size_t a = strlen(root), b = strlen(relative);
   if (a > SIZE_MAX - b - 2)
     _Exit(71);
@@ -99,7 +104,7 @@ static char *rinzu_source_path(const char *root, const char *relative) {
     rinzu_source_package_failure();
   return resolved;
 }
-static void rinzu_source_file(const char *path, const unsigned char expected[32]) {
+RINZU_PROGRAM_API void rinzu_source_file(const char *path, const unsigned char expected[32]) {
   errno = 0;
   FILE *file = fopen(path, "rb");
   if (!file) {
@@ -287,7 +292,7 @@ static void rinzu_native_initialize(const char *facade, void *facade_handle, con
     if (image->check_digest)
       rinzu_source_file(path, image->digest);
     errno = 0;
-    handles[i] = dlopen(path, RTLD_NOW | RTLD_LOCAL | RINZU_RTLD_FIRST);
+    handles[i] = RINZU_SOURCE_DLOPEN(path, RTLD_NOW | RTLD_LOCAL | RINZU_RTLD_FIRST);
     if (!handles[i]) {
       if (errno == ENOMEM)
         _Exit(71);
@@ -332,14 +337,14 @@ static void rinzu_native_initialize(const char *facade, void *facade_handle, con
   free(handles);
   free(addresses);
 }
-static void rinzu_source_table(const char *path, const uint8_t *wire, size_t wire_length,
-                               const RinzuExpectedImport *expected, size_t count,
-                               const void **staged, const char *facade_identity,
-                               const char *directory, const RinzuNativeImage *images,
-                               size_t image_count, const RinzuNativeSlot *slots, size_t slot_count,
-                               const char *digest) {
+RINZU_PROGRAM_API void rinzu_source_table(const char *path, const uint8_t *wire, size_t wire_length,
+                                          const RinzuExpectedImport *expected, size_t count,
+                                          const void **staged, const char *facade_identity,
+                                          const char *directory, const RinzuNativeImage *images,
+                                          size_t image_count, const RinzuNativeSlot *slots,
+                                          size_t slot_count, const char *digest) {
   errno = 0;
-  void *handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+  void *handle = RINZU_SOURCE_DLOPEN(path, RTLD_NOW | RTLD_LOCAL);
   if (!handle) {
     if (errno == ENOMEM)
       _Exit(71);

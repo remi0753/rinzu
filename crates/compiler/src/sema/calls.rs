@@ -723,6 +723,7 @@ impl Checker<'_> {
         };
         let ty = Type::Future(Box::new(source_abi_type(&signature.result)));
         self.source_signatures
+            .to_mut()
             .insert(name.clone(), signature.clone());
         self.source_native_calls.insert(range, signature);
         context.facts.has_native = true;

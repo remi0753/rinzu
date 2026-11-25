@@ -9,13 +9,15 @@ RUNTIME_LIB_DIR := $(abspath $(if $(CARGO_TARGET_DIR),$(CARGO_TARGET_DIR),$(ROOT
 RUNTIME_LINK := -L$(RUNTIME_LIB_DIR) -lrinzu_runtime -Wl,-rpath,$(RUNTIME_LIB_DIR)
 HOST_CFLAGS := $(CFLAGS) -I$(ROOT)/include
 
-.PHONY: sanitize memory-sanitize thread-sanitize race-sanitize production-sanitize production-thread-sanitize runtime clean
+.PHONY: sanitize memory-sanitize thread-sanitize race-sanitize production-sanitize production-thread-sanitize historical-sanitize runtime clean
 
-sanitize: $(BUILD_DIR)/callback_fixture_asan $(BUILD_DIR)/json_core_asan production-sanitize
-	$(abspath $(BUILD_DIR))/callback_fixture_asan
+sanitize: $(BUILD_DIR)/json_core_asan production-sanitize
 	$(abspath $(BUILD_DIR))/json_core_asan
 
-thread-sanitize: $(BUILD_DIR)/callback_fixture_tsan production-thread-sanitize
+thread-sanitize: production-thread-sanitize
+
+historical-sanitize: $(BUILD_DIR)/callback_fixture_asan $(BUILD_DIR)/callback_fixture_tsan
+	$(abspath $(BUILD_DIR))/callback_fixture_asan
 	$(abspath $(BUILD_DIR))/callback_fixture_tsan
 
 memory-sanitize: sanitize

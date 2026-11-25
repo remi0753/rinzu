@@ -12,6 +12,21 @@ use rinzu_compiler::{NativeCliInputs, ResolvedSdkPackage, SourceAbiType, SourceS
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+pub(crate) fn compiler_digest() -> Result<String, String> {
+    static DIGEST: std::sync::OnceLock<Result<String, String>> = std::sync::OnceLock::new();
+    DIGEST
+        .get_or_init(|| {
+            std::env::current_exe()
+                .map_err(|error| error.to_string())
+                .and_then(|path| {
+                    std::fs::read(path)
+                        .map(|bytes| sha256(&bytes))
+                        .map_err(|error| error.to_string())
+                })
+        })
+        .clone()
+}
+
 fn abi_type(ty: &SourceAbiType) -> String {
     ty.canonical_name()
 }
@@ -333,20 +348,7 @@ pub(super) fn build(
     let mut build_inputs =
         crate::native_fingerprint::normalize(&package.manifest.root, &contract.fingerprint)?;
     crate::native_fingerprint::source_inputs(&package.manifest, source, &mut build_inputs)?;
-    static COMPILER_DIGEST: std::sync::OnceLock<Result<String, String>> =
-        std::sync::OnceLock::new();
-    let compiler_digest = COMPILER_DIGEST
-        .get_or_init(|| {
-            std::env::current_exe()
-                .map_err(|error| error.to_string())
-                .and_then(|path| {
-                    std::fs::read(path)
-                        .map(|bytes| sha256(&bytes))
-                        .map_err(|error| error.to_string())
-                })
-        })
-        .clone()?;
-    build_inputs.insert("rinzu.compiler-binary".to_owned(), compiler_digest);
+    build_inputs.insert("rinzu.compiler-binary".to_owned(), compiler_digest()?);
     build_inputs.extend(crate::toolchain_bundle::build_inputs()?);
     build_inputs.insert(
         "rinzu.native-data-contract".into(),

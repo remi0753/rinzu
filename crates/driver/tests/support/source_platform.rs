@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+#[path = "../../../../tests/support/native.rs"]
+mod native;
 #[path = "../../../../tests/support/process.rs"]
 mod process;
 // Integration targets use different subsets of the shared runners.
@@ -10,35 +12,54 @@ pub use process::{bounded, bounded_tool};
 pub fn success(output: &Output) {
     assert!(output.status.success(), "{output:?}");
 }
+
+pub fn clang() -> Command {
+    native::clang()
+}
+
+pub fn link_runtime(command: &mut Command) {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let runtime = manifest.join("../runtime");
+    command
+        .arg(runtime.join("src/callback_entry.c"))
+        .arg(native::callback_template(&runtime));
+    if cfg!(target_os = "linux") {
+        command
+            .arg(runtime.join("src/arch/x86_64/continuation.S"))
+            .args(["-fPIE", "-pie", "-Wl,-z,noexecstack", "-lm"]);
+    } else {
+        command
+            .arg(runtime.join("src/owner_dispatcher.c"))
+            .args(["-framework", "CoreFoundation"]);
+    }
+    command.arg("-I").arg(manifest.join("../../include"));
+}
+
 pub fn sanitize(binary: &Path) -> PathBuf {
     let sanitized = binary.with_file_name("source-sanitized");
-    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    success(&bounded_tool(
-        Command::new("clang")
-            .args([
-                "-std=c11",
-                "-O1",
-                "-g",
-                "-Wall",
-                "-Wextra",
-                "-Werror",
-                // Generated runtime retains labels for unreachable IR blocks.
-                "-Wno-unused-label",
-                "-pthread",
-                "-fsanitize=address,undefined",
-                "-fno-omit-frame-pointer",
-            ])
-            .arg(binary.with_extension("o"))
-            .arg(binary.with_extension("runtime.c"))
-            .arg(manifest.join("../runtime/src/callback_entry.c"))
-            .arg(manifest.join("../runtime/src/callback_template.S"))
-            .arg(manifest.join("../runtime/src/owner_dispatcher.c"))
-            .args(["-framework", "CoreFoundation"])
-            .arg("-I")
-            .arg(manifest.join("../../include"))
-            .arg("-o")
-            .arg(&sanitized),
-    ));
+    let mut compiler = clang();
+    compiler
+        .args([
+            "-std=c11",
+            "-O1",
+            "-g",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            // Generated runtime retains labels for unreachable IR blocks.
+            "-Wno-unused-label",
+            "-pthread",
+            "-fsanitize=address,undefined",
+            "-fno-omit-frame-pointer",
+        ])
+        .arg(binary.with_extension("o"))
+        .arg(binary.with_extension("runtime.c"));
+    link_runtime(&mut compiler);
+    if cfg!(target_os = "linux") {
+        // The generated source-package loader verifies and opens SDK images.
+        compiler.args(["-lcrypto", "-ldl"]);
+    }
+    success(&bounded_tool(compiler.arg("-o").arg(&sanitized)));
     for extension in ["source-packages", "resources"] {
         if !binary.with_extension(extension).exists() {
             continue;
@@ -51,6 +72,7 @@ pub fn sanitize(binary: &Path) -> PathBuf {
     }
     sanitized
 }
+#[cfg(target_os = "macos")]
 pub fn sign(binary: &Path, root: &Path) {
     let entitlements = root.join("adhoc-sdk.plist");
     std::fs::write(&entitlements,"<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>com.apple.security.cs.disable-library-validation</key><true/></dict></plist>").unwrap();

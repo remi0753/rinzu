@@ -3,6 +3,66 @@
 use super::*;
 use crate::ast_walk::{self, Visitor};
 
+pub(super) struct CachedProbe {
+    revision: usize,
+    scope_independent: bool,
+    probe: crate::sema::TypeProbe,
+}
+
+// The expression checker uses declarations and signatures without checking
+// any callee body. Keep the bodies in the specialization output.
+pub(super) fn probe_declaration(declaration: &Declaration) -> Declaration {
+    match declaration {
+        Declaration::Function(function) => Declaration::Function(probe_function(function)),
+        _ => declaration.clone(),
+    }
+}
+
+pub(super) fn probe_function(function: &FunctionDecl) -> FunctionDecl {
+    FunctionDecl {
+        name: function.name.clone(),
+        is_private: function.is_private,
+        lexical_owner: function.lexical_owner.clone(),
+        owner_type_parameter_count: function.owner_type_parameter_count,
+        type_parameters: function.type_parameters.clone(),
+        is_async: function.is_async,
+        parameters: function.parameters.clone(),
+        result: function.result.clone(),
+        error_contract: function.error_contract.clone(),
+        body: Block {
+            statements: Vec::new(),
+            range: function.body.range,
+        },
+        fallback: function.fallback.clone(),
+        range: function.range,
+    }
+}
+
+pub(super) fn same_probe_declaration(left: &Declaration, right: &Declaration) -> bool {
+    match (left, right) {
+        (Declaration::Function(a), Declaration::Function(b)) => {
+            a.name == b.name
+                && a.is_private == b.is_private
+                && a.lexical_owner == b.lexical_owner
+                && a.owner_type_parameter_count == b.owner_type_parameter_count
+                && a.type_parameters == b.type_parameters
+                && a.is_async == b.is_async
+                && a.parameters == b.parameters
+                && a.result == b.result
+                && a.error_contract == b.error_contract
+                && a.fallback == b.fallback
+                && a.body.range == b.body.range
+                && a.range == b.range
+        }
+        (Declaration::Record(a), Declaration::Record(b)) => a == b,
+        (Declaration::Enum(a), Declaration::Enum(b)) => a == b,
+        (Declaration::Error(a), Declaration::Error(b)) => a == b,
+        (Declaration::Constant(a), Declaration::Constant(b)) => a == b,
+        (Declaration::TypeAlias(a), Declaration::TypeAlias(b)) => a == b,
+        _ => false,
+    }
+}
+
 impl Expander<'_> {
     fn weak_argument(&self, value: &Expression) -> bool {
         if numeric_only(value) {
@@ -235,15 +295,75 @@ impl Expander<'_> {
         expected: Option<&TypeRef>,
         data_operation: Option<crate::DataOperation>,
     ) -> Option<TypeRef> {
-        let mut module = self.module.clone();
-        let mut declarations = self.known.clone();
-        for declaration in &self.output {
-            declarations.insert(declaration.name().to_owned(), declaration.clone());
+        let revision = self.signature_revision;
+        if !self
+            .type_probe
+            .as_ref()
+            .is_some_and(|cached| cached.scope_independent && cached.revision == revision)
+        {
+            self.probe_builds += 1;
+            let (module, scope_independent) = self.probe_module()?;
+            self.type_probe = Some(CachedProbe {
+                revision,
+                scope_independent,
+                probe: crate::sema::TypeProbe::new(
+                    module,
+                    self.options,
+                    self.option_shadow_modules,
+                ),
+            });
         }
+        let function = match self.known.get(&self.function_name) {
+            Some(Declaration::Function(function)) => Some(function),
+            _ => None,
+        };
+        let mut ty = crate::sema::probe_expression_type(
+            &self.type_probe.as_ref()?.probe,
+            self.options,
+            expression,
+            expected,
+            crate::sema::ProbeScope {
+                function,
+                locals: &self.type_locals,
+                option_shadow_modules: self.option_shadow_modules,
+            },
+            data_operation,
+        )?;
+        // The checker can synthesize prelude Option instances while probing.
+        // Keep those instances available to subsequent probes and constraints.
+        self.ty(&mut ty, &HashMap::new(), expression.range.instance)
+            .ok()?;
+        Some(ty)
+    }
+
+    fn probe_module(&mut self) -> Option<(Module, bool)> {
+        let mut module = self.module.clone();
+        let output_len = self.output.len();
+        let declarations: HashMap<_, _> = self
+            .known
+            .values()
+            .chain(&self.output)
+            .map(|declaration| (declaration.name(), declaration))
+            .collect();
         module.declarations = declarations
             .into_values()
             .filter(|d| parameters(d).is_empty())
+            .map(probe_declaration)
             .collect();
+        // A fixed Bytes length may resolve names or expressions in the
+        // current expansion scope. Rebuild those snapshots for each probe.
+        struct ScopeDependent(bool);
+        impl Visitor for ScopeDependent {
+            fn ty(&mut self, ty: &mut TypeRef) {
+                if let TypeRefKind::Bytes(length) = &ty.kind
+                    && !matches!(length.kind, ExpressionKind::Literal(_))
+                {
+                    self.0 = true;
+                }
+            }
+        }
+        let mut scope_dependent = ScopeDependent(false);
+        ast_walk::module(&mut module, &mut scope_dependent);
         // Resolve signatures without checking bodies. This also makes concrete
         // nominal instances available when a non-generic helper returns one.
         for declaration in &mut module.declarations {
@@ -272,36 +392,18 @@ impl Expander<'_> {
                 _ => {}
             }
         }
-        for declaration in &self.output {
+        // Signature resolution can append instances. Earlier concrete
+        // declarations are already in the snapshot.
+        for declaration in &self.output[output_len..] {
             if !module
                 .declarations
                 .iter()
                 .any(|d| d.name() == declaration.name())
             {
-                module.declarations.push(declaration.clone());
+                module.declarations.push(probe_declaration(declaration));
             }
         }
-        let function = match self.known.get(&self.function_name) {
-            Some(Declaration::Function(function)) => Some(function),
-            _ => None,
-        };
-        let mut ty = crate::sema::probe_expression_type(
-            &module,
-            self.options,
-            expression,
-            expected,
-            crate::sema::ProbeScope {
-                function,
-                locals: &self.type_locals,
-                option_shadow_modules: self.option_shadow_modules,
-            },
-            data_operation,
-        )?;
-        // The checker can synthesize prelude Option instances while probing.
-        // Keep those instances available to subsequent probes and constraints.
-        self.ty(&mut ty, &HashMap::new(), expression.range.instance)
-            .ok()?;
-        Some(ty)
+        Some((module, !scope_dependent.0))
     }
 
     fn abstract_type(&self, ty: &TypeRef) -> TypeRef {

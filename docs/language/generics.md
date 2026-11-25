@@ -37,10 +37,10 @@ A generic class or enum can define instance and static methods, and each method 
 
 Markers describe compiler-controlled capabilities. They are not user-implemented interfaces.
 
-| Marker | Enables |
-| --- | --- |
-| `Equality` | Content equality through `==` and `!=` |
-| `Key` | A value as a Map key |
+| Marker         | Enables                                   |
+| -------------- | ----------------------------------------- |
+| `Equality`     | Content equality through `==` and `!=`    |
+| `Key`          | A value as a Map key                      |
 | `Transferable` | Snapshot transfer into or out of a Worker |
 
 Combine constraints with `+`, for example `fn compare<T: Transferable + Equality>(value: T) -> Bool`. Omitting a marker adds no declaration constraint, but operations still check their own requirements when the function is instantiated.

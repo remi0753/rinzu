@@ -161,6 +161,7 @@ async fn main() { let value = await spawn bad(200); }
         "main",
         SourceAsyncOptions::default(),
         admission,
+        None,
     )
     .unwrap();
     let failure = run.failure_details.unwrap();

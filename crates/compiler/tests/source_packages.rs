@@ -821,7 +821,7 @@ impl Package {
         ));
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::write(root.join("rinzu.toml"), format!(
-            "[package]\nname = \"fixture\"\nlanguage = \"0.2\"\nkind = \"{kind}\"\nentry = \"src/{entry}.rinzu\"\n"
+            "[package]\nname = \"fixture\"\nlanguage = \"0.5\"\nkind = \"{kind}\"\nentry = \"src/{entry}.rinzu\"\n"
         )).unwrap();
         for (name, source) in modules {
             std::fs::write(root.join(format!("src/{name}.rinzu")), source).unwrap();

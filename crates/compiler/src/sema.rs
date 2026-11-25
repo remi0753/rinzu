@@ -1,7 +1,9 @@
+use std::borrow::Cow;
+use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 
 mod calls;
-mod errors;
+pub(crate) mod errors;
 mod statements;
 mod types;
 
@@ -18,7 +20,7 @@ use crate::{
     AbiScalar, Diagnostic, DiagnosticCode, IntegerConstant, SourceRange, evaluate_module_constants,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum NativeCallClass {
     NativeSafe,
     OwnerThreadSync,
@@ -51,7 +53,7 @@ pub struct CompilerOptions {
     pub exported_methods: HashSet<String>,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FunctionFacts {
     pub is_async: bool,
     pub may_fail: bool,
@@ -63,7 +65,7 @@ pub struct FunctionFacts {
     pub native_requirements: Vec<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CheckedFunction {
     pub declaration: FunctionDecl,
     pub parameter_types: Vec<Type>,
@@ -74,14 +76,14 @@ pub struct CheckedFunction {
     pub error_types: Vec<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SupplantCall {
     pub targets: Vec<String>,
     pub reference: Option<String>,
     pub signature: FunctionReferenceType,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SourceTypeSchema {
     pub kind: String,
     /// Private storage remains in the complete safety/layout graph.
@@ -92,21 +94,22 @@ pub struct SourceTypeSchema {
     pub variants: Vec<(String, Vec<(String, Type)>)>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct BoundFunction {
     pub target: String,
     pub signature: FunctionReferenceType,
     pub captures: Vec<(String, Type)>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct IndirectSignature {
     pub signature: FunctionReferenceType,
     pub contract: Option<SourceRange>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CheckedModule {
+    #[serde(skip)] // Editor overlays are never saved as a disk compilation.
     pub(crate) editor_effects: Option<crate::error_effects::EditorEffects>,
     pub(crate) error_upcasts: HashMap<SourceRange, Type>,
     pub(crate) error_patterns: HashMap<SourceRange, Type>,
@@ -146,7 +149,7 @@ pub struct CheckedModule {
 impl CheckedModule {
     #[must_use]
     pub fn expression_type(&self, range: SourceRange) -> Option<&Type> {
-        self.expression_types.get(&range)
+        self.fact_expression(&range)
     }
 }
 
@@ -260,32 +263,85 @@ pub(crate) struct ProbeScope<'a> {
     pub option_shadow_modules: &'a HashSet<String>,
 }
 
+/// The declarations and signatures shared by expression probes in the same
+/// specialization state. Each check has fresh diagnostics and expression facts.
+pub(crate) struct TypeProbe {
+    module: Module,
+    declarations: HashMap<String, Declaration>,
+    functions: HashMap<String, FunctionSignature>,
+    constants: std::collections::BTreeMap<String, IntegerConstant>,
+    error_schemas: std::collections::BTreeMap<String, SourceTypeSchema>,
+    source_signatures: HashMap<String, crate::SourceNativeSignature>,
+    native_types: HashMap<String, Type>,
+    generated_instance: u32,
+}
+
+impl TypeProbe {
+    pub(crate) fn new(
+        module: Module,
+        options: &CompilerOptions,
+        option_shadow_modules: &HashSet<String>,
+    ) -> Self {
+        let native_types = types::index_native_types(&module);
+        let mut checker = Checker {
+            native_types: OnceCell::from(Cow::Borrowed(&native_types)),
+            ..Checker::new(&module, options, option_shadow_modules)
+        };
+        checker.collect_declarations();
+        checker.constants = Cow::Owned(evaluate_module_constants(&module).unwrap_or_default());
+        checker.prepare_error_types();
+        checker.collect_function_signatures();
+        if let Ok(signatures) = crate::native_interface::source_native_signatures_with_records(
+            &module,
+            |ty, constants| checker.native_context_record(ty, constants),
+        ) {
+            checker.source_signatures = Cow::Owned(
+                signatures
+                    .into_iter()
+                    .map(|s| (s.name.clone(), s))
+                    .collect(),
+            );
+        }
+        let declarations = checker.declarations.into_owned();
+        let functions = checker.functions.into_owned();
+        let constants = checker.constants.into_owned();
+        let error_schemas = checker.error_schemas.into_owned();
+        let source_signatures = checker.source_signatures.into_owned();
+        let generated_instance = checker.generated_instance;
+        Self {
+            module,
+            declarations,
+            functions,
+            constants,
+            error_schemas,
+            source_signatures,
+            native_types,
+            generated_instance,
+        }
+    }
+}
+
 /// Generic constraint collection uses the ordinary expression checker, including
 /// literal defaults, record canonicalization and numeric rules. This probe has
 /// no effect/escape authority; the fully specialized program is checked again.
 pub(crate) fn probe_expression_type(
-    module: &Module,
+    probe: &TypeProbe,
     options: &CompilerOptions,
     expression: &Expression,
     expected: Option<&TypeRef>,
     scope: ProbeScope<'_>,
     data_operation: Option<crate::DataOperation>,
 ) -> Option<TypeRef> {
-    let mut checker = Checker::new(module, options, scope.option_shadow_modules);
-    checker.collect_declarations();
-    checker.constants = evaluate_module_constants(module).unwrap_or_default();
-    checker.prepare_error_types();
-    checker.collect_function_signatures();
-    if let Ok(signatures) =
-        crate::native_interface::source_native_signatures_with_records(module, |ty, constants| {
-            checker.native_context_record(ty, constants)
-        })
-    {
-        checker.source_signatures = signatures
-            .into_iter()
-            .map(|s| (s.name.clone(), s))
-            .collect();
-    }
+    let mut checker = Checker {
+        declarations: Cow::Borrowed(&probe.declarations),
+        functions: Cow::Borrowed(&probe.functions),
+        constants: Cow::Borrowed(&probe.constants),
+        error_schemas: Cow::Borrowed(&probe.error_schemas),
+        source_signatures: Cow::Borrowed(&probe.source_signatures),
+        native_types: OnceCell::from(Cow::Borrowed(&probe.native_types)),
+        generated_instance: probe.generated_instance,
+        ..Checker::new(&probe.module, options, scope.option_shadow_modules)
+    };
     let function = FunctionDecl {
         error_contract: None,
         // The caller's identity determines which methods are visible in this
@@ -415,6 +471,15 @@ pub(crate) fn check_module_with_validation(
     options: &CompilerOptions,
     check_responsibility: bool,
 ) -> Result<CheckedModule, Vec<Diagnostic>> {
+    check_module_cached(module, options, check_responsibility, None)
+}
+
+pub(crate) fn check_module_cached(
+    module: &Module,
+    options: &CompilerOptions,
+    check_responsibility: bool,
+    mut cache: Option<&mut crate::FunctionFrontendCache>,
+) -> Result<CheckedModule, Vec<Diagnostic>> {
     let _timing = crate::timing::span("frontend.check");
     let mut module = module.clone();
     crate::package::link_builtin_imports(&mut module)?;
@@ -478,11 +543,18 @@ pub(crate) fn check_module_with_validation(
     let mut editor_effects = options
         .editor_file
         .map(crate::error_effects::EditorEffects::new);
+    if editor_effects.is_some() || !check_responsibility {
+        cache = None;
+    }
+    if let Some(cache) = &mut cache {
+        cache.retain_functions(&checked);
+    }
     let summaries = crate::error_effects::analyze(
         &checked,
         !options.is_library,
         editor_effects.as_mut(),
         check_responsibility,
+        cache,
     )?;
     checked.editor_effects = editor_effects;
     for function in &mut checked.functions {
@@ -499,7 +571,7 @@ pub(crate) fn resolve_source_native_signatures(
     let option_shadow_modules = crate::core::option_shadow_modules(module);
     let mut checker = Checker::new(module, &options, &option_shadow_modules);
     checker.collect_declarations();
-    checker.constants = evaluate_module_constants(module)?;
+    checker.constants = Cow::Owned(evaluate_module_constants(module)?);
     let signatures =
         crate::native_interface::source_native_signatures_with_records(module, |ty, constants| {
             checker.native_context_record(ty, constants)
@@ -515,7 +587,7 @@ pub(crate) fn resolve_source_native_signatures(
 }
 
 struct Checker<'a> {
-    error_schemas: std::collections::BTreeMap<String, SourceTypeSchema>,
+    error_schemas: Cow<'a, std::collections::BTreeMap<String, SourceTypeSchema>>,
     error_upcasts: HashMap<SourceRange, Type>,
     error_patterns: HashMap<SourceRange, Type>,
     rethrows: HashMap<SourceRange, errors::Rethrow>,
@@ -537,14 +609,15 @@ struct Checker<'a> {
     module: &'a Module,
     source_syntax: &'a Module,
     options: &'a CompilerOptions,
-    declarations: HashMap<String, Declaration>,
-    functions: HashMap<String, FunctionSignature>,
+    declarations: Cow<'a, HashMap<String, Declaration>>,
+    functions: Cow<'a, HashMap<String, FunctionSignature>>,
     expression_types: HashMap<SourceRange, Type>,
     direct_facts: HashMap<String, DirectFacts>,
     native_calls: HashMap<SourceRange, NativeCallClass>,
     source_native_calls: HashMap<SourceRange, crate::SourceNativeSignature>,
     native_record_reads: HashSet<SourceRange>,
-    source_signatures: HashMap<String, crate::SourceNativeSignature>,
+    source_signatures: Cow<'a, HashMap<String, crate::SourceNativeSignature>>,
+    native_types: OnceCell<Cow<'a, HashMap<String, Type>>>,
     indirect_fields: HashMap<SourceRange, String>,
     source_indirect_fields: HashMap<SourceRange, String>,
     closure_conversion: bool,
@@ -554,7 +627,7 @@ struct Checker<'a> {
     indirect_signatures: HashMap<SourceRange, IndirectSignature>,
     error_conversions: HashMap<SourceRange, ErrorConversion>,
     supplant_calls: HashMap<SourceRange, SupplantCall>,
-    constants: std::collections::BTreeMap<String, IntegerConstant>,
+    constants: Cow<'a, std::collections::BTreeMap<String, IntegerConstant>>,
     constant_references: HashMap<SourceRange, IntegerConstant>,
     byte_coercions: HashMap<SourceRange, (u64, u64)>,
     fallbacks: HashMap<String, crate::FallbackConstant>,
@@ -568,7 +641,7 @@ impl<'a> Checker<'a> {
         option_shadow_modules: &'a HashSet<String>,
     ) -> Self {
         Self {
-            error_schemas: std::collections::BTreeMap::new(),
+            error_schemas: Cow::default(),
             error_upcasts: HashMap::new(),
             error_patterns: HashMap::new(),
             rethrows: HashMap::new(),
@@ -590,14 +663,15 @@ impl<'a> Checker<'a> {
             module,
             source_syntax: module,
             options,
-            declarations: HashMap::new(),
-            functions: HashMap::new(),
+            declarations: Cow::default(),
+            functions: Cow::default(),
             expression_types: HashMap::new(),
             direct_facts: HashMap::new(),
             native_calls: HashMap::new(),
             source_native_calls: HashMap::new(),
             native_record_reads: HashSet::new(),
-            source_signatures: HashMap::new(),
+            source_signatures: Cow::default(),
+            native_types: OnceCell::new(),
             indirect_fields: HashMap::new(),
             source_indirect_fields: HashMap::new(),
             closure_conversion: false,
@@ -607,7 +681,7 @@ impl<'a> Checker<'a> {
             indirect_signatures: HashMap::new(),
             error_conversions: HashMap::new(),
             supplant_calls: HashMap::new(),
-            constants: std::collections::BTreeMap::new(),
+            constants: Cow::default(),
             constant_references: HashMap::new(),
             byte_coercions: HashMap::new(),
             fallbacks: HashMap::new(),
@@ -619,18 +693,20 @@ impl<'a> Checker<'a> {
         let _timing = crate::timing::span("frontend.typecheck");
         self.collect_declarations();
         match evaluate_module_constants(self.module) {
-            Ok(values) => self.constants = values,
+            Ok(values) => self.constants = Cow::Owned(values),
             Err(errors) => self.diagnostics.extend(errors),
         }
         self.prepare_error_types();
         self.validate_type_declarations();
-        self.source_signatures = crate::native_interface::source_native_signatures_with_records(
-            self.module,
-            |ty, constants| self.native_context_record(ty, constants),
-        )?
-        .into_iter()
-        .map(|signature| (signature.name.clone(), signature))
-        .collect();
+        self.source_signatures = Cow::Owned(
+            crate::native_interface::source_native_signatures_with_records(
+                self.module,
+                |ty, constants| self.native_context_record(ty, constants),
+            )?
+            .into_iter()
+            .map(|signature| (signature.name.clone(), signature))
+            .collect(),
+        );
         self.validate_generic_requirements();
         self.collect_function_signatures();
         self.collect_bindings();
@@ -734,6 +810,7 @@ impl<'a> Checker<'a> {
             }
         }
         let mut source_native_signatures: Vec<_> = std::mem::take(&mut self.source_signatures)
+            .into_owned()
             .into_values()
             .collect();
         source_native_signatures.sort_by(|a, b| a.name.cmp(&b.name));
@@ -817,7 +894,7 @@ impl<'a> Checker<'a> {
             error_conversions: self.error_conversions,
             supplant_calls: self.supplant_calls,
             source_native_signatures,
-            constants: self.constants,
+            constants: self.constants.into_owned(),
             constant_references: self.constant_references,
             byte_coercions: self.byte_coercions,
         })
@@ -849,6 +926,7 @@ impl<'a> Checker<'a> {
             }
             if let Some(previous) = self
                 .declarations
+                .to_mut()
                 .insert(declaration.name().to_owned(), declaration.clone())
             {
                 self.diagnostics.push(
@@ -1099,13 +1177,16 @@ impl<'a> Checker<'a> {
     }
 
     fn collect_function_signatures(&mut self) {
+        let constants = self.constants.clone();
         for declaration in &self.module.declarations {
             let Declaration::Function(function) = declaration else {
                 continue;
             };
-            let mut signature_constants = self.constants.clone();
+            let mut signature_constants = Cow::Borrowed(constants.as_ref());
             for parameter in &function.parameters {
-                signature_constants.remove(&parameter.name);
+                if signature_constants.contains_key(&parameter.name) {
+                    signature_constants.to_mut().remove(&parameter.name);
+                }
             }
             let mut parameter_names = HashMap::new();
             let mut parameters = Vec::new();
@@ -1144,7 +1225,7 @@ impl<'a> Checker<'a> {
                     "declare the inner result type and return it after awaiting nested work",
                 ));
             }
-            self.functions.insert(
+            self.functions.to_mut().insert(
                 function.name.clone(),
                 FunctionSignature {
                     parameters,
@@ -1331,7 +1412,7 @@ impl<'a> Checker<'a> {
         &self,
         context: &FunctionContext<'_>,
     ) -> std::collections::BTreeMap<String, IntegerConstant> {
-        let mut values = self.constants.clone();
+        let mut values = self.constants.clone().into_owned();
         for (name, local) in &context.locals {
             if let Some(value) = local.constant {
                 values.insert(name.clone(), value);
@@ -2213,7 +2294,7 @@ impl<'a> Checker<'a> {
         }
         if !self.declarations.contains_key(&name) {
             let payload = self.generated_type_ref(payload, range);
-            self.declarations.insert(
+            self.declarations.to_mut().insert(
                 name.clone(),
                 Declaration::Enum(EnumDecl {
                     interfaces: Vec::new(),
@@ -2454,7 +2535,7 @@ impl<'a> Checker<'a> {
         function.result = self.generated_type_ref(&result, function.result.range);
         crate::lambdas::rewrite(&mut function, &names);
         function.parameters = parameters;
-        self.functions.insert(
+        self.functions.to_mut().insert(
             function.name.clone(),
             FunctionSignature {
                 parameters: parameter_types,
@@ -2464,7 +2545,7 @@ impl<'a> Checker<'a> {
                 range,
             },
         );
-        self.declarations.insert(
+        self.declarations.to_mut().insert(
             function.name.clone(),
             Declaration::Function(function.clone()),
         );
@@ -2566,7 +2647,7 @@ impl<'a> Checker<'a> {
                     range,
                 })
                 .collect();
-            self.declarations.insert(
+            self.declarations.to_mut().insert(
                 identity.clone(),
                 Declaration::Record(crate::ast::RecordDecl {
                     interfaces: Vec::new(),
@@ -2821,7 +2902,7 @@ impl<'a> Checker<'a> {
 
     fn infer_facts(&self) -> HashMap<String, FunctionFacts> {
         let mut result = HashMap::new();
-        for (name, signature) in &self.functions {
+        for (name, signature) in self.functions.iter() {
             let direct = self.direct_facts.get(name).cloned().unwrap_or_default();
             result.insert(
                 name.clone(),

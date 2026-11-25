@@ -159,12 +159,16 @@ impl ReferenceIndex {
     pub(super) fn bind_elf(
         &self,
         source: &SourceNativeInterface,
-        directory: &Path,
         toolchain: &TargetClang,
-        provider_name: &str,
         package: &ResolvedSdkPackage,
         selections: Vec<(&rinzu_compiler::SourceNativeSignature, &Definition)>,
+        output: ProviderOutput<'_>,
     ) -> Result<(NativeBindingPlan, BTreeMap<String, String>), String> {
+        let ProviderOutput {
+            directory,
+            name: provider_name,
+            record: record_provider,
+        } = output;
         let mut inputs = self.inputs.clone();
         let mut images = Vec::new();
         for path in &self.link_paths {
@@ -231,13 +235,11 @@ impl ReferenceIndex {
             }
             std::fs::write(&companion, anchors).map_err(|error| error.to_string())?;
             let output = directory.join(provider_name);
-            let mut command = toolchain.shared_command(provider_name);
-            command
-                .args(["-fno-builtin", "-fno-lto", "-Wl,-t,-Bsymbolic-functions"])
-                .arg("-I")
-                .arg(directory)
-                .arg(&companion);
-            crate::source_native_package::add_package_flags(&mut command, package, false)?;
+            let mut command = provider_source(toolchain, package, directory, provider_name)?;
+            if let Some(key) = record_provider {
+                *key = record_provider_input(&mut command, toolchain, directory);
+            }
+            command.arg("-Wl,-t,-Bsymbolic-functions");
             for path in &self.link_paths {
                 if path.extension().is_some_and(|ext| ext == "a") {
                     command
@@ -248,15 +250,18 @@ impl ReferenceIndex {
                     command.arg(path);
                 }
             }
+            let link = rinzu_compiler::timing::span("native.package.link.provider")
+                .detail(&package.manifest.name);
             let linked = crate::cli_diagnostics::tool_output(
                 command.arg("-o").arg(&output).output(),
                 Some(&output),
                 "ELF native provider linking",
                 "clang",
             )?;
+            drop(link);
             let trace = String::from_utf8(linked.stdout).map_err(|error| error.to_string())?;
             inputs.extend(crate::native_fingerprint::link_inputs(
-                directory,
+                &package.manifest.root,
                 &toolchain.sysroot,
                 &trace,
             )?);

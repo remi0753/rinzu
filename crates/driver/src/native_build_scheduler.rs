@@ -5,6 +5,7 @@ pub fn build<T: Send>(
     names: &[String],
     dependencies: &[BTreeSet<String>],
     jobs: usize,
+    priority: Option<usize>,
     build_one: impl Fn(usize, &BTreeMap<String, String>) -> Result<(T, String), String> + Sync,
 ) -> Result<(Vec<T>, BTreeMap<String, String>), String> {
     assert!(jobs > 0 && names.len() == dependencies.len());
@@ -23,7 +24,8 @@ pub fn build<T: Send>(
         let mut completed = 0;
         let mut errors = BTreeMap::<usize, (String, Vec<String>)>::new();
         loop {
-            for index in 0..names.len() {
+            // A job that is already running keeps one of the configured slots.
+            for index in priority.into_iter().chain(0..names.len()) {
                 if active == jobs {
                     break;
                 }
@@ -106,7 +108,7 @@ mod tests {
         ];
         let (send, receive) = mpsc::channel();
         let receive = Mutex::new(receive);
-        let (outputs, digests) = build(&names, &dependencies, 2, |index, inputs| {
+        let (outputs, digests) = build(&names, &dependencies, 2, None, |index, inputs| {
             if index == 1 {
                 receive
                     .lock()
@@ -132,6 +134,7 @@ mod tests {
             &["first".into(), "second".into()],
             &[BTreeSet::new(), BTreeSet::new()],
             2,
+            None,
             |index, _| {
                 if index == 0 {
                     receive
@@ -155,6 +158,7 @@ mod tests {
             &["consumer".into()],
             &[BTreeSet::from(["missing".into()])],
             2,
+            None,
             |_, _| unreachable!(),
         );
         assert!(result.unwrap_err().contains("missing dependency or cycle"));

@@ -38,8 +38,10 @@ mod dev;
 mod diagnostics;
 mod editor_protocol;
 mod format_cli;
+mod frontend_run_cache;
 mod future_identity;
 mod input;
+mod jit_progress;
 #[cfg(test)]
 mod m5_cli_tests;
 mod macos_bundle;
@@ -176,7 +178,7 @@ fn run(mut arguments: impl Iterator<Item = OsString>) -> Result<(), String> {
             let path = parsed
                 .path
                 .map_or_else(|| env::current_dir().map_err(|error| error.to_string()), Ok)?;
-            match input::check(&path, &parsed.input, &parsed.native) {
+            match input::check_for_build(&path, &parsed.input, &parsed.native) {
                 Ok(context) => {
                     let manifest = context.metadata;
                     let artifact = context.artifact;
@@ -207,29 +209,55 @@ fn run(mut arguments: impl Iterator<Item = OsString>) -> Result<(), String> {
             let path = parsed
                 .path
                 .map_or_else(|| env::current_dir().map_err(|error| error.to_string()), Ok)?;
-            if let Some(report) = parsed.diagnostic_report {
-                return diagnostics::run_package(
-                    path,
+            let progress = jit_progress::Session::start(parsed.progress, &path);
+            let outcome = (|| {
+                if let Some(report) = parsed.diagnostic_report {
+                    return diagnostics::run_package(
+                        path,
+                        parsed.trace,
+                        &parsed.native,
+                        parsed.resource_report.as_ref(),
+                        report,
+                        &parsed.input,
+                        &program_arguments,
+                    );
+                }
+                PROGRAM_EXIT_STATUS.with(|status| status.set(0));
+                let checked = input::check_for_run(&path, &parsed.input, &parsed.native)?;
+                let context = checked.context;
+                if let Some(resources) = &parsed.resource_report {
+                    input::protect_outputs(&context, std::slice::from_ref(&resources.path))?;
+                }
+                let mut pending = checked.pending;
+                let mut publish = || {
+                    if let Some(cache) = pending.take() {
+                        cache.store(&context);
+                    }
+                };
+                run_checked_package(
+                    &context.metadata,
+                    &context.artifact,
                     parsed.trace,
-                    &parsed.native,
                     parsed.resource_report.as_ref(),
-                    report,
-                    &parsed.input,
                     &program_arguments,
-                );
-            }
-            PROGRAM_EXIT_STATUS.with(|status| status.set(0));
-            let context = input::check(&path, &parsed.input, &parsed.native)?;
-            if let Some(resources) = &parsed.resource_report {
-                input::protect_outputs(&context, std::slice::from_ref(&resources.path))?;
-            }
-            run_checked_package(
-                &context.metadata,
-                &context.artifact,
-                parsed.trace,
-                parsed.resource_report.as_ref(),
-                &program_arguments,
-            )
+                    RunPreparation {
+                        dependencies: checked.dependencies,
+                        frontend_generation: checked.generation.as_deref(),
+                        on_ready: Some(&mut publish),
+                    },
+                )?;
+                if PROGRAM_EXIT_STATUS.with(std::cell::Cell::get) == 0 {
+                    publish();
+                }
+                Ok(())
+            })();
+            let exit_code = if outcome.is_ok() {
+                PROGRAM_EXIT_STATUS.with(std::cell::Cell::get)
+            } else {
+                1
+            };
+            progress.finish(outcome.is_err(), exit_code);
+            outcome
         }
         Some("bundle") => macos_bundle::run(arguments),
         Some("bundle-verify") => macos_bundle::verify(arguments),
@@ -238,7 +266,7 @@ fn run(mut arguments: impl Iterator<Item = OsString>) -> Result<(), String> {
             let path = parsed
                 .path
                 .map_or_else(|| env::current_dir().map_err(|error| error.to_string()), Ok)?;
-            let context = input::check(&path, &parsed.input, &parsed.native)?;
+            let context = input::check_for_build(&path, &parsed.input, &parsed.native)?;
             if context.metadata.kind == rinzu_compiler::PackageKind::Sdk {
                 input::validate_native_inputs(&context.metadata, &context.artifact)?;
                 let directory = parsed.output.unwrap_or_else(|| context.default_output());
@@ -481,7 +509,7 @@ fn run(mut arguments: impl Iterator<Item = OsString>) -> Result<(), String> {
         }
         Some("help" | "--help" | "-h") | None => {
             println!(
-                "Rinzu toolchain\n\nCommands:\n  editor --stdio [workspace-path] (versioned JSON lines)\n  fmt <file|directory>... [--check | --write] (use - for stdin)\n  check [file|directory] [input options] [native inputs]\n  run [file|directory] [input options] [--trace] [--diagnostic-report file] [resource options] [native inputs] [-- args...]\n  diagnose report.json [--resources file] [--native-log file] [--trace file] [--exit-record file] [--format text|json]\n  test [path] [resource options] [native inputs] (run test package main)\n  test [path] --unit [--doc file] [--list] [--filter text] [--format text|json] [--timeout-ms n]\n  test [path] --doc file (explicit rinzu-test blocks)\n  resource options: --resource-report file, --resource-interval-ms n (default 100; 0=start/end)\n  build [file|directory] [input options] [--output file] [native inputs]\n  bundle [package] [--config macos-app.json] [--output path.app] [native inputs]\n  bundle-verify path.app (inventory + code-signature integrity)\n  modules add <SDK name> <HTTPS URL or archive path>\n  modules sync [--offline]\n  modules relock\n  lock [path] [--check] [native inputs]\n  api [SDK path] [--output file] [--compare previous.json] [--markdown file] [native inputs]\n  input options: --language 0.5 (file only), --target host-target\n  file mode: standard/local imports, ordinary native modules and async standard libraries; no manifest needed\n  native inputs (file/package): -L path, -l name, --native-object path\n  optional ABI headers (file/package): --native-header path; no header required\n  native scope: explicitly link providers (such as -lSystem on macOS or -lc on Linux); -L/headers do not grant access\n  native validation: unresolved/duplicate/target/header mismatch rejected; no guarantee for wrong ABI/native faults\n  AOT distribution: move executable with .source-packages/.resources/native artifacts; native image identities must match\n  migration: rebuild source-package 2.6; SDK cache v4; refresh package locks explicitly\n  verify-aot [file|directory] [input options] [native inputs] [--cancel-after-polls n | --cancel-worker-after-polls n | --max-allocations n | --shutdown-after-polls n] [-- args...]\n  package-only commands below and test/lock/api/editor workspace require a directory; editor initialize.entry selects a file\n  verify-appkit [path] [--output bundle]\n  verify-async [path]\n  dev [path] [--once] [--poll-ms n] [-- args...]\n  dev [path] --restart cooperative [--shutdown-timeout-ms n] [--on-timeout force] [--stdin null] [-- args...]\n  release [path] [--output directory]\n  toolchain-bundle --output directory (bin/rinzu + share/rinzu)\n  standard imports: core/error/string/bytes/number/future/native/list/map/option/stdio/timer/io/process/json/stream/testing/shutdown/http/http.server/httpcodec/socket; no SDK path needed\n  official SDK imports: codec/log/sqlite/sdl2 (toolchain bundle)\n  doctor [--sdk name]\n  run-empty\n  --version"
+                "Rinzu toolchain\n\nCommands:\n  editor --stdio [workspace-path] (versioned JSON lines)\n  fmt <file|directory>... [--check | --write] (use - for stdin)\n  check [file|directory] [input options] [native inputs]\n  run [file|directory] [input options] [--progress auto|always|never] [--trace] [--diagnostic-report file] [resource options] [native inputs] [-- args...]\n  diagnose report.json [--resources file] [--native-log file] [--trace file] [--exit-record file] [--format text|json]\n  test [path] [resource options] [native inputs] (run test package main)\n  test tests[/directory] [--list] [--filter text] [--format text|json] [--timeout-ms n]\n  test tests/file.test.rinzu [--case name] [test options] [native inputs]\n  test [path] --doc file (explicit rinzu-test blocks)\n  resource options: --resource-report file, --resource-interval-ms n (default 100; 0=start/end)\n  JIT progress: --progress=auto|always|never (default auto; terminals only, disabled in CI)\n  build [file|directory] [input options] [--output file] [native inputs]\n  bundle [package] [--config macos-app.json] [--output path.app] [native inputs]\n  bundle-verify path.app (inventory + code-signature integrity)\n  modules add <SDK name> <HTTPS URL or archive path>\n  modules sync [--offline]\n  modules relock\n  lock [path] [--check] [native inputs]\n  api [SDK path] [--output file] [--compare previous.json] [--markdown file] [native inputs]\n  input options: --language 0.5 (file only), --target host-target\n  file mode: standard/local imports, ordinary native modules and async standard libraries; no manifest needed\n  native inputs (file/package): -L path, -l name, --native-object path\n  optional ABI headers (file/package): --native-header path; no header required\n  native scope: explicitly link providers (such as -lSystem on macOS or -lc on Linux); -L/headers do not grant access\n  native validation: unresolved/duplicate/target/header mismatch rejected; no guarantee for wrong ABI/native faults\n  AOT distribution: move executable with .source-packages/.resources/native artifacts; native image identities must match\n  migration: rebuild source-package 2.6; SDK cache v4; refresh package locks explicitly\n  verify-aot [file|directory] [input options] [native inputs] [--cancel-after-polls n | --cancel-worker-after-polls n | --max-allocations n | --shutdown-after-polls n] [-- args...]\n  package-only commands below and lock/api/editor workspace require a directory; editor initialize.entry selects a file\n  verify-appkit [path] [--output bundle]\n  verify-async [path]\n  dev [path] [--once] [--poll-ms n] [-- args...]\n  dev [path] --restart cooperative [--shutdown-timeout-ms n] [--on-timeout force] [--stdin null] [-- args...]\n  release [path] [--output directory]\n  toolchain-bundle --output directory (bin/rinzu + share/rinzu)\n  standard imports: core/error/string/bytes/number/future/native/list/map/option/stdio/timer/io/process/json/stream/testing/shutdown/http/http.server/httpcodec/socket; no SDK path needed\n  official SDK imports: codec/log/sqlite/sdl2 (toolchain bundle)\n  doctor [--sdk name]\n  run-empty\n  --version"
             );
             Ok(())
         }
@@ -508,7 +536,21 @@ fn run_package_with_native_inputs(
 ) -> Result<(), String> {
     PROGRAM_EXIT_STATUS.with(|status| status.set(0));
     let (manifest, artifact) = input::check_package(&path, inputs)?;
-    run_checked_package(&manifest, &artifact, show_trace, resource_config, &[])
+    run_checked_package(
+        &manifest,
+        &artifact,
+        show_trace,
+        resource_config,
+        &[],
+        RunPreparation::default(),
+    )
+}
+
+#[derive(Default)]
+struct RunPreparation<'a> {
+    dependencies: Option<native_package::PreparedDependencies>,
+    frontend_generation: Option<&'a str>,
+    on_ready: Option<&'a mut dyn FnMut()>,
 }
 
 fn run_checked_package(
@@ -517,7 +559,24 @@ fn run_checked_package(
     show_trace: bool,
     resource_config: Option<&rinzu_runtime::resource_report::Config>,
     program_arguments: &[OsString],
+    preparation: RunPreparation<'_>,
 ) -> Result<(), String> {
+    let RunPreparation {
+        dependencies,
+        frontend_generation,
+        mut on_ready,
+    } = preparation;
+    let mut ready = || {
+        if let Some(publish) = on_ready.as_deref_mut() {
+            publish();
+        }
+        jit_progress::main_started();
+    };
+    let preparation = RunPreparation {
+        dependencies,
+        frontend_generation,
+        on_ready: Some(&mut ready),
+    };
     let uses_c = aot::uses_compiled_async(artifact);
     let mut report = if !uses_c {
         resource_config
@@ -540,6 +599,7 @@ fn run_checked_package(
         resource_config,
         &mut report,
         program_arguments,
+        preparation,
     );
     if let Some(report) = report {
         report
@@ -556,7 +616,13 @@ fn run_package_engines(
     resource_config: Option<&rinzu_runtime::resource_report::Config>,
     report: &mut Option<rinzu_runtime::resource_report::Session>,
     program_arguments: &[OsString],
+    preparation: RunPreparation<'_>,
 ) -> Result<(), String> {
+    let RunPreparation {
+        dependencies,
+        frontend_generation,
+        mut on_ready,
+    } = preparation;
     let main_facts = artifact
         .checked
         .functions
@@ -605,6 +671,11 @@ fn run_package_engines(
                 resource_config,
                 show_trace,
                 program_arguments,
+                RunPreparation {
+                    dependencies,
+                    frontend_generation,
+                    on_ready,
+                },
             )?;
             diagnostics::observe_compiled(&execution);
             package_tests::observe_compiled(&execution);
@@ -658,29 +729,48 @@ fn run_package_engines(
         )
         .map_err(|error| format!("configure source async runtime: {error:#}"))?;
         options.arguments = argument_bytes(program_arguments);
-        let built =
-            if has_native_artifacts || has_source_packages || !artifact.native_inputs.is_empty() {
-                let built = native_package::build_artifact(manifest, artifact)?;
-                built.validate_source_packages()?;
-                source_package_bundle::save(
-                    &built.source_packages,
-                    &input::publication_directory(manifest, artifact, &built.directory),
-                )?;
-                options.native_packages = Some(
-                    rinzu_codegen::LoadedNativePackages::load(&built.artifacts)
-                        .map_err(|error| format!("load native SDK packages: {error:#}"))?,
-                );
-                options.source_packages = Some(built.load_source_packages()?);
-                Some(built)
-            } else {
-                None
-            };
-        let execute = if package_tests::is_worker() || diagnostics::is_active() {
-            rinzu_codegen::run_source_async_report
+        let built = if has_native_artifacts
+            || has_source_packages
+            || !artifact.native_inputs.is_empty()
+        {
+            jit_progress::phase("Preparing native dependencies");
+            let built =
+                native_package::build_artifact_with_dependencies(manifest, artifact, dependencies)?;
+            built.validate_source_packages()?;
+            source_package_bundle::save(
+                &built.source_packages,
+                &input::publication_directory(manifest, artifact, &built.directory),
+            )?;
+            options.native_packages = Some(
+                rinzu_codegen::LoadedNativePackages::load(&built.artifacts)
+                    .map_err(|error| format!("load native SDK packages: {error:#}"))?,
+            );
+            options.source_packages = Some(built.load_source_packages()?);
+            Some(built)
         } else {
-            rinzu_codegen::run_source_async
+            None
         };
-        let execution = execute(&artifact.ir, "main", options)
+        let execute = if package_tests::is_worker() || diagnostics::is_active() {
+            rinzu_codegen::run_source_async_report_with_startup
+        } else {
+            rinzu_codegen::run_source_async_with_startup
+        };
+        let mut ready = || {
+            if let Some(built) = &built {
+                for pending in built
+                    .source_packages
+                    .iter()
+                    .filter_map(|package| package.pending_early_cache.as_ref())
+                {
+                    pending.store();
+                }
+            }
+            if let Some(publish) = on_ready.as_deref_mut() {
+                publish();
+            }
+        };
+        jit_progress::phase("Preparing continuation runtime");
+        let execution = execute(&artifact.ir, "main", options, Some(&mut ready))
             .map_err(|error| format!("source async runtime failed: {error:#}"));
         if let Some(built) = built {
             let _ = std::fs::remove_dir_all(built.directory);
@@ -731,7 +821,9 @@ fn run_package_engines(
     };
     let execution =
         if has_native_artifacts || has_source_packages || !artifact.native_inputs.is_empty() {
-            let built = native_package::build_artifact(manifest, artifact)?;
+            jit_progress::phase("Preparing native dependencies");
+            let built =
+                native_package::build_artifact_with_dependencies(manifest, artifact, dependencies)?;
             let _scratch = verify_capture::TemporaryDirectory(built.directory.clone());
             built.validate_source_packages()?;
             source_package_bundle::save(
@@ -740,23 +832,39 @@ fn run_package_engines(
             )?;
             let loaded = rinzu_codegen::LoadedNativePackages::load(&built.artifacts)
                 .map_err(|error| format!("load native SDK packages: {error:#}"))?;
-            rinzu_codegen::run_baseline_jit_with_arguments(
+            let mut ready = || {
+                for pending in built
+                    .source_packages
+                    .iter()
+                    .filter_map(|package| package.pending_early_cache.as_ref())
+                {
+                    pending.store();
+                }
+                if let Some(publish) = on_ready.as_deref_mut() {
+                    publish();
+                }
+            };
+            jit_progress::phase("Compiling JIT code");
+            rinzu_codegen::run_baseline_jit_with_startup(
                 &artifact.ir,
                 "main",
                 options,
                 Some(loaded),
                 Some(built.load_source_packages()?),
                 arguments,
+                Some(&mut ready),
             )
             .map_err(jit_error)?
         } else {
-            rinzu_codegen::run_baseline_jit_with_arguments(
+            jit_progress::phase("Compiling JIT code");
+            rinzu_codegen::run_baseline_jit_with_startup(
                 &artifact.ir,
                 "main",
                 options,
                 None,
                 None,
                 arguments,
+                on_ready,
             )
             .map_err(jit_error)?
         };

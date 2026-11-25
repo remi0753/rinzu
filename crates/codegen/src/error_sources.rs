@@ -1,6 +1,7 @@
 //! Source coordinates use the same stable file identities as diagnostics.
 use rinzu_compiler::IrModule;
 use rinzu_runtime::data::SourceCatalog;
+use std::fmt::Write;
 use std::sync::Arc;
 
 pub fn format_error_traces(module: &IrModule, failure: &rinzu_runtime::failure::Failure) -> String {
@@ -32,15 +33,27 @@ pub(crate) fn catalog(module: &IrModule) -> Arc<SourceCatalog> {
 
 pub(crate) fn c_source(module: &IrModule) -> String {
     let catalog = catalog(module);
-    let mut output = "static const rinzu_source_entry_t rinzu_program_sources[] = {\n".to_owned();
+    let mut output = String::new();
     for (file, positions) in &catalog.positions {
-        let name = &catalog.files[file];
+        if positions.is_empty() {
+            continue;
+        }
+        let name = crate::data_schema::c_string(&catalog.files[file]);
+        writeln!(
+            output,
+            "static const char rinzu_source_name_{file}[] = {name};"
+        )
+        .unwrap();
+    }
+    output.push_str("static const rinzu_source_entry_t rinzu_program_sources[] = {\n");
+    for (file, positions) in &catalog.positions {
+        let length = catalog.files[file].len();
         for (byte, (line, column)) in positions {
-            output.push_str(&format!(
-                "{{UINT64_C({file}),{byte},{line},{column},{}, {}}},\n",
-                crate::data_schema::c_string(name),
-                name.len()
-            ));
+            writeln!(
+                output,
+                "{{UINT64_C({file}),{byte},{line},{column},rinzu_source_name_{file},{length}}},"
+            )
+            .unwrap();
         }
     }
     output.push_str("{0,0,0,0,NULL,0}};\nstatic void rinzu_configure_program_sources(rinzu_managed_data_t *data) { data->source_entries = rinzu_program_sources; data->source_entry_count = sizeof rinzu_program_sources / sizeof *rinzu_program_sources - 1; }\n");

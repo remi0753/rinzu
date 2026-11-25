@@ -11,13 +11,12 @@ impl Engine<'_> {
         values: &[Tracked],
         state: &mut State,
     ) {
-        let source_abi = !self.checked.native_calls.contains_key(&expression.range);
+        let source_abi = !self.checked.fact_native_calls(&expression.range).is_some();
         for (argument, value) in arguments.iter().zip(values) {
-            let captured = self.checked.native_captures.contains_key(&argument.range);
+            let captured = self.checked.fact_native_captures(&argument.range).is_some();
             let targets = self
                 .checked
-                .reference_targets
-                .get(&argument.range)
+                .fact_reference_targets(&argument.range)
                 .cloned()
                 .or_else(|| {
                     if let ExpressionKind::Name(path) = &argument.kind
@@ -30,22 +29,12 @@ impl Engine<'_> {
                 });
             let Some(targets) = targets else { continue };
             for (index, name) in targets.into_iter().enumerate() {
-                if !captured
-                    && self
-                        .checked
-                        .source_native_signatures
-                        .iter()
-                        .any(|signature| signature.name == name)
-                {
+                if !captured && self.checked.memo_native(&name).is_some() {
                     // This is the original physical C function pointer. It
                     // enters no managed body or managed input adapter.
                     continue;
                 }
-                let function = self
-                    .checked
-                    .functions
-                    .iter()
-                    .find(|function| function.declaration.name == name);
+                let function = self.checked.memo_function(&name);
                 if function.is_some_and(|function| function.callback_fallback.is_some()) {
                     // Sema checked a constant matching the result ABI. Both
                     // bridges settle/release the failure before returning it.
@@ -53,7 +42,11 @@ impl Engine<'_> {
                 }
                 let effect = value.effect();
                 let candidates = if captured {
-                    let Type::Named(ty) = &self.checked.native_captures[&argument.range] else {
+                    let Type::Named(ty) = &self
+                        .checked
+                        .fact_native_captures(&argument.range)
+                        .expect("checked native captures")
+                    else {
                         unreachable!("checked private callback environment")
                     };
                     effect

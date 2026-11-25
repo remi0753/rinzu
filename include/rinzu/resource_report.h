@@ -1,3 +1,6 @@
+#ifndef RINZU_RESOURCE_API
+#define RINZU_RESOURCE_API static
+#endif
 #ifndef RINZU_RESOURCE_REPORT_H
 #define RINZU_RESOURCE_REPORT_H
 #include "rinzu/resource_counters.h"
@@ -346,7 +349,7 @@ static inline void *rinzu_resource_sample_loop(void *unused) {
     _Exit(86);
   return NULL;
 }
-static inline int rinzu_resource_report_start(const char *path, uint64_t interval) {
+RINZU_RESOURCE_API int rinzu_resource_report_start(const char *path, uint64_t interval) {
   if (!path)
     return 0;
   int descriptor = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
@@ -402,7 +405,7 @@ static inline int rinzu_resource_report_from_env(void) {
   }
   return rinzu_resource_report_start(path, interval);
 }
-static inline int rinzu_resource_report_finish(void) {
+RINZU_RESOURCE_API int rinzu_resource_report_finish(void) {
   if (!rinzu_resource_file)
     return 0;
   if (rinzu_resource_sampling) {

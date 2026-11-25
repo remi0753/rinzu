@@ -733,7 +733,7 @@ fn callback_sites_keep_resolved_private_lengths_targets_and_exact_public_fn_type
     let root = std::env::temp_dir().join(format!("rinzu-callback-artifact-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("src")).unwrap();
-    std::fs::write(root.join("rinzu.toml"), "[package]\nname = \"callback\"\nlanguage = \"0.2\"\nkind = \"sdk\"\nentry = \"src/api.rinzu\"\n[native]\nsources = [\"api.c\"]\n").unwrap();
+    std::fs::write(root.join("rinzu.toml"), "[package]\nname = \"callback\"\nlanguage = \"0.5\"\nkind = \"sdk\"\nentry = \"src/api.rinzu\"\n[native]\nsources = [\"api.c\"]\n").unwrap();
     std::fs::write(root.join("api.c"), "uint64_t invoke(uint64_t (*cb)(const unsigned char *), const unsigned char *data) { return cb(data); }\n").unwrap();
     let source = |n| {
         format!(
@@ -916,7 +916,7 @@ fn generated_facade_owns_typed_imports_for_source_archive_and_shared_inputs() {
                 format!("objects = [\"{name}\"]")
             }
         };
-        std::fs::write(root.join("rinzu.toml"), format!("[package]\nname = \"api\"\nlanguage = \"0.2\"\nkind = \"sdk\"\nentry = \"src/api.rinzu\"\n[native]\nheaders = [\"api.h\"]\n{native}\n")).unwrap();
+        std::fs::write(root.join("rinzu.toml"), format!("[package]\nname = \"api\"\nlanguage = \"0.5\"\nkind = \"sdk\"\nentry = \"src/api.rinzu\"\n[native]\nheaders = [\"api.h\"]\n{native}\n")).unwrap();
         let (manifest, artifact) = rinzu_compiler::check_package(&root).unwrap();
         let package = ResolvedSdkPackage {
             manifest,
@@ -973,7 +973,7 @@ fn record_callback_library_only_and_service_only_builds() {
         if name == "record" {
             std::fs::write(root.join("api.h"), "#include <stdint.h>\nstruct Pair { int32_t x; double y; }; int32_t read_pair(const struct Pair *pair, int32_t (*callback)(int32_t));\n").unwrap();
         }
-        std::fs::write(root.join("rinzu.toml"), format!("[package]\nname = \"{name}\"\nlanguage = \"0.2\"\nkind = \"sdk\"\nentry = \"src/api.rinzu\"\n[native]\n{flags}\n")).unwrap();
+        std::fs::write(root.join("rinzu.toml"), format!("[package]\nname = \"{name}\"\nlanguage = \"0.5\"\nkind = \"sdk\"\nentry = \"src/api.rinzu\"\n[native]\n{flags}\n")).unwrap();
         let (manifest, artifact) = rinzu_compiler::check_package(&root).unwrap();
         let package = ResolvedSdkPackage {
             manifest,
@@ -1051,7 +1051,7 @@ fn checkout_location_and_timestamps_do_not_change_source_interface() {
             "#include \"value header.h\"\nint answer(void) { return ANSWER; }\n",
         )
         .unwrap();
-        std::fs::write(root.join("rinzu.toml"), "[package]\nname = \"api\"\nlanguage = \"0.2\"\nkind = \"sdk\"\nentry = \"src/api.rinzu\"\n[native]\nheaders = [\"api.h\"]\nsources = [\"api.c\"]\ninclude-dirs = [\".\"]\n").unwrap();
+        std::fs::write(root.join("rinzu.toml"), "[package]\nname = \"api\"\nlanguage = \"0.5\"\nkind = \"sdk\"\nentry = \"src/api.rinzu\"\n[native]\nheaders = [\"api.h\"]\nsources = [\"api.c\"]\ninclude-dirs = [\".\"]\n").unwrap();
         let (manifest, artifact) = rinzu_compiler::check_package(&root).unwrap();
         let package = ResolvedSdkPackage {
             manifest,
@@ -1103,7 +1103,7 @@ fn selected_library_content_invalidates_digest_and_rpath_resolves_facade_depende
         "native { fn answer() -> CInt symbol \"answer\"; } export answer;",
     )
     .unwrap();
-    std::fs::write(root.join("rinzu.toml"), "[package]\nname = \"api\"\nlanguage = \"0.2\"\nkind = \"sdk\"\nentry = \"src/api.rinzu\"\n[native]\nsearch-paths = [\"native\"]\nlibraries = [\"answer\"]\n").unwrap();
+    std::fs::write(root.join("rinzu.toml"), "[package]\nname = \"api\"\nlanguage = \"0.5\"\nkind = \"sdk\"\nentry = \"src/api.rinzu\"\n[native]\nsearch-paths = [\"native\"]\nlibraries = [\"answer\"]\n").unwrap();
     let (manifest, artifact) = rinzu_compiler::check_package(&root).unwrap();
     let package = ResolvedSdkPackage {
         manifest,

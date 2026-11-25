@@ -149,6 +149,30 @@ pub(crate) fn configure_clang(toolchain: &TargetClang, command: &mut Command) {
         .env_remove("MACOSX_DEPLOYMENT_TARGET");
 }
 
+pub(crate) fn closed_object(bytes: &[u8]) -> bool {
+    let Ok(file) = object::read::macho::MachOFile64::<object::Endianness>::parse(bytes) else {
+        return false;
+    };
+    let Ok(mut commands) = file.macho_load_commands() else {
+        return false;
+    };
+    loop {
+        match commands.next() {
+            Ok(Some(command)) if command.cmd() != object::macho::LC_LINKER_OPTION => {}
+            Ok(None) => return true,
+            _ => return false,
+        }
+    }
+}
+
+pub(crate) fn verify_code_signatures(paths: &[&std::path::Path]) -> bool {
+    Command::new("/usr/bin/codesign")
+        .args(["--verify", "--strict"])
+        .args(paths)
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

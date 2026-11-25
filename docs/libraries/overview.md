@@ -2,24 +2,24 @@
 
 The toolchain bundles the following modules. Import them directly in either a standalone file or a package. Do not add them to `[dependencies]`: standard modules cannot be replaced with local packages.
 
-| Module | Purpose | Details |
-| --- | --- | --- |
-| `rinzu.core`, `rinzu.error`, `rinzu.string`, `rinzu.bytes`, `rinzu.number`, `rinzu.future`, `rinzu.native` | Built-in types, panic, Error access, text, bytes, numbers, tasks, and native services | [Core APIs](core.md) |
-| `rinzu.list` | List queries, immutable updates and bulk construction | [Collection APIs](collections.md) |
-| `rinzu.map` | Map queries, immutable updates and bulk construction | [Collection APIs](collections.md) |
-| `rinzu.option` | Optional transformations, chained lookups and lazy defaults | [Option helpers](../language/enums.md#option-helpers) |
-| `rinzu.stdio` | Synchronous display of language values | Below |
-| `rinzu.timer` | Asynchronous sleep | Below |
-| `rinzu.io` | Files, standard input/output, clocks, resource cleanup | [I/O](io.md) |
-| `rinzu.process` | Program arguments, environment, process ID, exit status, error output | Below |
-| `rinzu.json` | Validate, read, build and write JSON | [JSON](json.md) |
-| `rinzu.stream` | Pull-based file streams | [I/O](io.md) |
-| `rinzu.testing` | Assertions | [Testing](../tooling/testing.md) |
-| `rinzu.shutdown` | Signal registration and cooperative shutdown | [Async](../language/async.md) |
-| `rinzu.http` | Bounded HTTP/HTTPS client | [Networking](networking.md) |
-| `rinzu.http.server` | HTTP routing, application dispatch, and an HTTP/1.1 listener | [Networking](networking.md#http-application-dispatch) |
-| `rinzu.socket` | Nonblocking TCP listener and stream | [Networking](networking.md) |
-| `rinzu.httpcodec` | Request-line validation and incremental HTTP/1.1 request decoding | [Networking](networking.md#incremental-http-decoding) |
+| Module                                                                                                     | Purpose                                                                               | Details                                               |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `rinzu.core`, `rinzu.error`, `rinzu.string`, `rinzu.bytes`, `rinzu.number`, `rinzu.future`, `rinzu.native` | Built-in types, panic, Error access, text, bytes, numbers, tasks, and native services | [Core APIs](core.md)                                  |
+| `rinzu.list`                                                                                               | List queries, immutable updates and bulk construction                                 | [Collection APIs](collections.md)                     |
+| `rinzu.map`                                                                                                | Map queries, immutable updates and bulk construction                                  | [Collection APIs](collections.md)                     |
+| `rinzu.option`                                                                                             | Optional transformations, chained lookups and lazy defaults                           | [Option helpers](../language/enums.md#option-helpers) |
+| `rinzu.stdio`                                                                                              | Synchronous display of language values                                                | Below                                                 |
+| `rinzu.timer`                                                                                              | Asynchronous sleep                                                                    | Below                                                 |
+| `rinzu.io`                                                                                                 | Files, standard input/output, clocks, resource cleanup                                | [I/O](io.md)                                          |
+| `rinzu.process`                                                                                            | Program arguments, environment, process ID, exit status, error output                 | Below                                                 |
+| `rinzu.json`                                                                                               | Validate, read, build and write JSON                                                  | [JSON](json.md)                                       |
+| `rinzu.stream`                                                                                             | Pull-based file streams                                                               | [I/O](io.md)                                          |
+| `rinzu.testing`                                                                                            | Assertions                                                                            | [Testing](../tooling/testing.md)                      |
+| `rinzu.shutdown`                                                                                           | Signal registration and cooperative shutdown                                          | [Async](../language/async.md)                         |
+| `rinzu.http`                                                                                               | Bounded HTTP/HTTPS client                                                             | [Networking](networking.md)                           |
+| `rinzu.http.server`                                                                                        | HTTP routing, application dispatch, and an HTTP/1.1 listener                          | [Networking](networking.md#http-application-dispatch) |
+| `rinzu.socket`                                                                                             | Nonblocking TCP listener and stream                                                   | [Networking](networking.md)                           |
+| `rinzu.httpcodec`                                                                                          | Request-line validation and incremental HTTP/1.1 request decoding                     | [Networking](networking.md#incremental-http-decoding) |
 
 Use qualified module names for new code. [Legacy built-in names](core.md#compatibility-names) still resolve without an import.
 

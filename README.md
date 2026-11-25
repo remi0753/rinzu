@@ -15,9 +15,9 @@ fn main() {
 }
 ```
 
-Rinzu supports JIT and AOT on **macOS arm64** and **x86_64 Linux with glibc**. Both targets support async tasks, Workers, and native SDKs. The source language version is `0.5` and the toolchain version is `0.4.0`.
+Rinzu supports JIT and AOT on **macOS arm64** and **x86_64 Linux with glibc**. Both targets support async tasks, Workers, and native SDKs. The source language version is `0.5` and the toolchain version is `0.5.0`.
 
-[Documentation](docs/README.md) · [Introduction](docs/introduction.md) · [Installation](docs/getting-started/installation.md) · [Quick start](docs/getting-started/quickstart.md) · [Changelog](CHANGELOG.md)
+[Documentation](docs/README.md) · [Introduction](docs/introduction.md) · [Installation](docs/getting-started/installation.md) · [Quick start](docs/getting-started/quickstart.md) · [Testing](docs/tooling/testing.md) · [Changelog](CHANGELOG.md)
 
 ## Build and run
 
@@ -45,15 +45,15 @@ A standalone source file needs no manifest. Use a package with `rinzu.toml` for 
 
 ## Repository layout
 
-| Directory | Contents |
-| --- | --- |
-| `crates/` | Compiler, code generation, runtime, CLI, and development commands |
-| `sdk/` | Standard library sources and additional SDKs |
-| [`examples/`](examples/inventory/README.md) | Runnable applications, including the HTTP inventory dashboard |
-| `include/rinzu/` | Native boundary and runtime C headers |
-| `docs/` | Language, library, and development documentation |
-| `tests/` | Regression fixtures, integration runners, and runtime models |
-| `fuzz/` | Source formatter and event trace fuzz targets |
-| `tools/` | Native analysis, formatting support, SDK generation, and VS Code integration |
+| Directory                                   | Contents                                                                     |
+| ------------------------------------------- | ---------------------------------------------------------------------------- |
+| `crates/`                                   | Compiler, code generation, runtime, CLI, and development commands            |
+| `sdk/`                                      | Standard library sources and additional SDKs                                 |
+| [`examples/`](examples/inventory/README.md) | Runnable applications, including the HTTP inventory dashboard                |
+| `include/rinzu/`                            | Native boundary and runtime C headers                                        |
+| `docs/`                                     | Language, library, and toolchain documentation                               |
+| `tests/`                                    | Regression fixtures, integration runners, and runtime models                 |
+| `fuzz/`                                     | Source formatter and event trace fuzz targets                                |
+| `tools/`                                    | Native analysis, formatting support, SDK generation, and VS Code integration |
 
-See [Compiler development](docs/contributing.md) to work on the implementation.
+See [Compiler development](CONTRIBUTING.md) to work on the implementation.

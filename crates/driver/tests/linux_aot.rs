@@ -173,8 +173,8 @@ async fn main() {
 }
 
 #[test]
-fn test_cli_runs_package_main_and_confirms_unit_test_settlement() {
-    let scratch = Scratch::new("rinzu-linux-unit");
+fn test_cli_runs_package_main_and_confirms_test_file_settlement() {
+    let scratch = Scratch::new("rinzu-linux-tests");
     let root = scratch.path();
     fs::create_dir(root.join("src")).unwrap();
     fs::write(
@@ -187,35 +187,47 @@ fn test_cli_runs_package_main_and_confirms_unit_test_settlement() {
     let legacy = cli(root, "test", root).output().unwrap();
     assert_success(&legacy);
     assert!(String::from_utf8_lossy(&legacy.stderr).contains("baseline JIT"));
+    let tests = root.join("tests");
+    fs::create_dir(&tests).unwrap();
     fs::write(
-        source,
+        tests.join("sync.test.rinzu"),
+        "import rinzu.testing; fn main() { rinzu.testing.runCase(\"sync\", fn () {}); }",
+    )
+    .unwrap();
+    fs::write(
+        tests.join("async.test.rinzu"),
         r#"
+import rinzu.testing;
 import rinzu.timer;
 
-fn test_sync() {}
-
-async fn test_async() {
-    await rinzu.timer.sleep(1);
+async fn main() {
+    await rinzu.testing.runAsyncCase("async", async fn () {
+        await rinzu.timer.sleep(1);
+    });
 }
 "#,
     )
     .unwrap();
-    let tested = cli(root, "test", root)
-        .args(["--unit", "--format", "json", "--timeout-ms", "360000"])
+    let tested = cli(root, "test", &tests)
+        .args(["--format", "json", "--timeout-ms", "360000"])
         .output()
         .unwrap();
     let report: serde_json::Value = serde_json::from_slice(&tested.stdout)
         .unwrap_or_else(|error| panic!("{error}: {tested:?}"));
     assert!(tested.status.success(), "{report:#}");
     assert_eq!(report["summary"]["passed"], 2, "{report}");
-    let cases = report["cases"].as_array().unwrap();
-    for name in ["test_async", "test_sync"] {
+    assert_eq!(report["caseSummary"]["passed"], 2, "{report}");
+    let cases = report["entries"].as_array().unwrap();
+    for name in ["async", "sync"] {
         let case = cases
             .iter()
-            .find(|case| case["identity"].as_str().unwrap().ends_with(name))
+            .find(|case| {
+                case["identity"].as_str().unwrap() == format!("file:tests/{name}.test.rinzu")
+            })
             .unwrap();
         assert_eq!(case["worker"]["engine"], "compiled-jit", "{case}");
         assert_eq!(case["settlement"], "confirmed", "{case}");
+        assert_eq!(case["cases"][0]["name"], name, "{case}");
     }
 }
 

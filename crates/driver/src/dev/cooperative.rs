@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Instant;
 
-use rinzu_compiler::{Manifest, SourceCache, SourceSnapshot};
+use rinzu_compiler::{Manifest, SourceCache};
 use serde_json::{Value, json};
 
 use super::DevOptions;
@@ -115,44 +115,49 @@ struct InputWatcher {
 }
 impl InputWatcher {
     fn check(&mut self, package: &Path) -> bool {
-        let mut snapshot = SourceSnapshot::new(&mut self.cache, BTreeMap::new());
-        let result = rinzu_compiler::check_package_with_sources(package, &mut snapshot);
-        let mut paths = snapshot
-            .input_receipts()
-            .into_iter()
-            .map(|receipt| receipt.0)
-            .collect::<BTreeSet<_>>();
+        let mut paths = BTreeSet::new();
+        let result = crate::input::check_for_dev(package, &mut self.cache, &mut paths);
         match result {
-            Ok((manifest, artifact)) => {
-                paths.extend(artifact.module_graph.iter().flat_map(|module| {
-                    module
-                        .imports
-                        .iter()
-                        .filter_map(|import| import.requested_path.clone())
-                }));
+            Ok(context) => {
                 let mut roots = BTreeSet::new();
-                for manifest in std::iter::once(&manifest).chain(
-                    artifact
+                for module in &context.artifact.module_graph {
+                    paths.extend(
+                        module
+                            .imports
+                            .iter()
+                            .filter_map(|import| import.requested_path.clone()),
+                    );
+                }
+                for sdk in &context.artifact.sdk_packages {
+                    if let Some(source) = &sdk.source {
+                        for module in &source.module_graph {
+                            paths.extend(
+                                module
+                                    .imports
+                                    .iter()
+                                    .filter_map(|import| import.requested_path.clone()),
+                            );
+                        }
+                    }
+                }
+                for manifest in std::iter::once(&context.metadata).chain(
+                    context
+                        .artifact
                         .sdk_packages
                         .iter()
-                        .map(|package| &package.manifest),
+                        .map(|sdk| &sdk.manifest),
                 ) {
                     add_manifest_inputs(manifest, &mut paths, &mut roots);
                 }
-                if !snapshot.disk_is_current() {
-                    eprintln!("dev preflight inputs changed during check; old run retained");
-                    return false;
-                }
                 self.paths = paths;
                 self.source_roots = roots;
-                drop(snapshot);
                 self.cache.retain_paths(&self.paths);
                 eprintln!("dev preflight accepted");
                 true
             }
-            Err(errors) => {
+            Err(error) => {
                 self.paths.extend(paths);
-                crate::cli_diagnostics::emit_snapshot(&errors, &snapshot);
+                eprintln!("{error}");
                 false
             }
         }

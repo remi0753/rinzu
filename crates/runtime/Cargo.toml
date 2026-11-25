@@ -6,6 +6,7 @@ rust-version.workspace = true
 
 [features]
 test-dispatcher-probe = []
+test-native-lifetime-trace = []
 
 [lib]
 crate-type = ["rlib", "staticlib", "cdylib"]
@@ -18,6 +19,7 @@ rinzu-abi = { path = "../abi" }
 
 [dev-dependencies]
 rinzu-compiler = { path = "../compiler" }
+rinzu-runtime-model = { path = "../../tests/runtime-model" }
 
 [build-dependencies]
 cc.workspace = true

@@ -1,0 +1,75 @@
+import cohort;
+import rinzu.future as future;
+import rinzu.native as bridge;
+
+fn answer() -> CSize fallback 0 {
+    return CSize(7183);
+}
+
+async fn main() {
+    try {
+        let controlled = cohort.controlled();
+        let c0 = cohort.start(0, answer);
+        let f00 = bridge.transferred(c0);
+        let f01 = bridge.transferred(c0);
+        if controlled == CInt(1) {
+            let cancelled = future.cancel(f00);
+            if !cancelled {
+                panic("cancel lost");
+            }
+        }
+        let c1 = cohort.start(1, answer);
+        let f10 = bridge.transferred(c1);
+        let f11 = bridge.transferred(c1);
+        let v10 = await f10;
+        let v11 = await f11;
+        if v10 != 29 || v11 != 29 {
+            panic("early payload");
+        }
+        let r1 = cohort.retire(1);
+        if cohort.polling() == CInt(1) {
+            let cp = cohort.pollStart(answer);
+            let fp = bridge.completed(cp);
+            let pp = cohort.pollPublish();
+            await fp;
+            let rp = cohort.pollRetire();
+        }
+        let p0 = cohort.publish(0);
+        let v0 = await f01;
+        if v0 != 7183 {
+            panic("old payload");
+        }
+        let r0 = cohort.retire(0);
+        let c2 = cohort.start(2, answer);
+        let f20 = bridge.transferred(c2);
+        let f21 = bridge.transferred(c2);
+        let late0 = future.cancel(f00);
+        let late1 = future.timeout(f01);
+        if late0 || late1 {
+            panic("stale control won");
+        }
+        let cached = await f01;
+        let alias = cohort.alias(cached);
+        let status = cohort.status();
+        let p2 = cohort.publish(2);
+        let v20 = await f20;
+        let v21 = await f21;
+        if v20 != 65537 || v21 != 65537 {
+            panic("replacement payload");
+        }
+        let r2 = cohort.retire(2);
+        let finished = cohort.finish();
+        let cached0 = await f01;
+        let cached10 = await f10;
+        let cached11 = await f11;
+        let cached20 = await f20;
+        let cached21 = await f21;
+        if cached0 != 7183 || cached10 != 29 || cached11 != 29 || cached20 != 65537 || cached21 != 65537 {
+            panic("cached value after SDK storage free");
+        }
+        let last = await f00;
+    }
+    catch errors {
+        panic("extended cohort failed");
+    }
+}

@@ -1,0 +1,38 @@
+import rinzu.io;
+import rinzu.stdio;
+import rinzu.future as future;
+
+async fn turn() {}
+
+async fn main() {
+    try {
+        let input = await rinzu.io.standardInput();
+        try all {
+            let reading = rinzu.io.read(input, 1);
+            try {
+                await turn();
+                if rinzu.io.liveOperations() == 0 || rinzu.io.liveBuffers() == 0 {
+                    panic("read did not retain its buffer");
+                }
+                let cancelled = future.cancel(reading);
+                if !cancelled {
+                    panic("pending pipe read was already complete");
+                }
+            }
+            finally {
+                let result = await reading;
+            }
+            panic("read cancellation was lost");
+        }
+        finally {
+            let closed = await rinzu.io.close(input);
+            if rinzu.io.liveOperations() != 0 || rinzu.io.liveFiles() != 0 || rinzu.io.liveBuffers() != 0 {
+                panic("native read outlived close");
+            }
+            rinzu.stdio.writeLine("active-io-cancel-settled");
+        }
+    }
+    catch errors {
+        panic("unexpected io failure");
+    }
+}

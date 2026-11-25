@@ -2,7 +2,9 @@
 //! Unknown or mutable storage is never treated as an infallible Future.
 use super::*;
 
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(
+    Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub(crate) enum Projection {
     Field(String, String),
     Element(String, (u32, u32, u32, u32, u32)),
@@ -79,7 +81,18 @@ mod tests {
     }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub(super) enum Value {
     #[default]
     Bottom,

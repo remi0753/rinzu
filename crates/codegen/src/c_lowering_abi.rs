@@ -59,6 +59,11 @@ pub(super) const C_HELPERS: &[(&str, &str, &[&str])] = &[
         &["void *", "int64_t", "int64_t", "int64_t", "int64_t"],
     ),
     (
+        "rinzu_baseline_indexed_option_owner_proven",
+        "int64_t",
+        &["void *", "int64_t", "int64_t", "int64_t", "uint64_t *"],
+    ),
+    (
         "rinzu_baseline_bytes_int_length_owner_proven",
         "int64_t",
         &["void *", "int64_t"],
@@ -138,6 +143,11 @@ pub(super) const C_HELPERS: &[(&str, &str, &[&str])] = &[
         "rinzu_baseline_bytes_slice_payload",
         "int64_t",
         &["void *", "int64_t", "int64_t", "int64_t", "int64_t"],
+    ),
+    (
+        "rinzu_baseline_indexed_option",
+        "int64_t",
+        &["void *", "int64_t", "int64_t", "int64_t", "uint64_t *"],
     ),
     ("rinzu_baseline_catch_error", "int64_t", &["void *"]),
     ("rinzu_baseline_check_local", "void", &["void *", "int64_t"]),

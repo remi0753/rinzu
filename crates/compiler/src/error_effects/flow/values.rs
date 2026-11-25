@@ -15,7 +15,10 @@ impl Analyzer<'_> {
         env: &Environment,
         name: &str,
     ) -> Vec<language::Guards> {
-        if self.checked.indirect_calls.contains_key(&expression.range)
+        if self
+            .checked
+            .fact_indirect_calls(&expression.range)
+            .is_some()
             && env.contains_key(&target[0])
         {
             self.project_name(target, env, Value::Plain)
@@ -57,18 +60,7 @@ impl Analyzer<'_> {
     /// is never writable by source programs. Keep its existing state schema
     /// and marker/ABI rules, while retaining its constructor's immutable facts.
     fn closure_environment(&self, ty: &str) -> bool {
-        let Some(file) = self.checked.closure_source else {
-            return false;
-        };
-        self.checked.syntax.declarations.iter().any(|declaration| {
-            let Declaration::Record(record) = declaration else {
-                return false;
-            };
-            record.name == ty
-                && record.range.file_id == file
-                && record.fields.len() == 1
-                && record.fields[0].name == "environment"
-        })
+        self.checked.memo_private_environment(ty)
     }
     pub(super) fn project_name(
         &self,
@@ -87,7 +79,7 @@ impl Analyzer<'_> {
         for field in &path[1..] {
             let next = owner
                 .as_ref()
-                .and_then(|owner| self.checked.source_types.get(owner))
+                .and_then(|owner| self.checked.memo_schema(owner))
                 .and_then(|schema| schema.fields.iter().find(|(name, _)| name == field))
                 .map(|(_, ty)| ty.clone());
             value = value.project(
@@ -109,8 +101,7 @@ impl Analyzer<'_> {
             return Value::Plain;
         };
         self.checked
-            .source_types
-            .get(name)
+            .memo_schema(name)
             .and_then(|schema| schema.variants.iter().find(|(name, _)| name == variant))
             .and_then(|(_, fields)| fields.get(index))
             .map_or(Value::Plain, |(_, ty)| self.typed(ty))
@@ -146,7 +137,7 @@ impl Analyzer<'_> {
         let Type::Named(ty) = self.checked.expression_type(expression.range)? else {
             return None;
         };
-        let schema = self.checked.source_types.get(ty)?;
+        let schema = self.checked.memo_schema(ty)?;
         // A class alias may be mutated through another name. Preserve facts
         // only for immutable records / classes whose fields are all const.
         (schema.kind == "record" || self.closure_environment(ty)).then(|| Value::Aggregate {
@@ -218,7 +209,7 @@ impl Analyzer<'_> {
         let Type::Named(ty) = self.checked.expression_type(expression.range)? else {
             return None;
         };
-        let schema = self.checked.source_types.get(ty)?;
+        let schema = self.checked.memo_schema(ty)?;
         let target_name = target.join(".");
         if (schema.kind == "record" || self.closure_environment(ty)) && target_name == *ty {
             let fields = match arguments {
@@ -271,7 +262,7 @@ impl Analyzer<'_> {
         values: &[Value],
     ) -> Option<Value> {
         use crate::DataOperation::*;
-        let operation = self.checked.data_operations.get(&expression.range)?;
+        let operation = self.checked.fact_data_operations(&expression.range)?;
         let first = values.first()?;
         let collection_type = match &expression.kind {
             ExpressionKind::Call {
@@ -348,8 +339,7 @@ impl Analyzer<'_> {
                 let Type::Named(entry) = entry.as_ref() else {
                     return None;
                 };
-                let [(_, key), (_, value)] =
-                    self.checked.source_types.get(entry)?.fields.as_slice()
+                let [(_, key), (_, value)] = self.checked.memo_schema(entry)?.fields.as_slice()
                 else {
                     return None;
                 };

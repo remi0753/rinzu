@@ -45,6 +45,7 @@ pub(crate) const PUBLIC_MODULES: &[(&str, &[(&str, &str)])] = &[
             ("slice", "bytesSlice"),
             ("concat", "bytesConcat"),
             ("concatAll", "bytesConcatAll"),
+            ("packInt64LE", "bytesPackInt64LE"),
             ("copy", "bytesCopy"),
             ("xor", "bytesXor"),
             ("findAny", "bytesFindAny"),
@@ -200,6 +201,9 @@ pub(crate) fn data_signature(op: crate::DataOperation, input: &Type) -> Option<(
         (BytesConcatAll, Type::List(element)) if **element == Type::Bytes => {
             (vec![input.clone()], Type::Bytes)
         }
+        (BytesPackInt64LE, Type::List(element)) if **element == Type::Int => {
+            (vec![input.clone()], Type::Bytes)
+        }
         (BytesCopy, Type::Bytes) => (vec![Type::Bytes], Type::Bytes),
         (BytesXor, Type::Bytes) => (vec![Type::Bytes, Type::Scalar(AbiScalar::U8)], Type::Bytes),
         (BytesFindAny | BytesFindNotAny, Type::Bytes) => (
@@ -330,13 +334,13 @@ pub(crate) fn reference_signature(name: &str) -> Option<FunctionReferenceType> {
     })
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum CoreLengthKind {
     Utf8,
     Bytes,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 #[repr(u8)]
 pub enum TaskControlKind {
     Ready,

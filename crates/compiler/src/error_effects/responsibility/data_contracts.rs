@@ -21,7 +21,7 @@ pub(super) fn immutable_result(checked: &CheckedModule, ty: &Type) -> bool {
                 if !seen.insert(name.clone()) {
                     return true;
                 }
-                let result = checked.source_types.get(name).is_some_and(|schema| {
+                let result = checked.memo_schema(name).is_some_and(|schema| {
                     (schema.kind == "record"
                         || (schema.kind == "state"
                             && schema.const_fields.len() == schema.fields.len()))
@@ -45,7 +45,7 @@ fn data_type(checked: &CheckedModule, ty: &Type, seen: &mut BTreeSet<String>) ->
             if !seen.insert(name.clone()) {
                 return true;
             }
-            let result = checked.source_types.get(name).is_some_and(|schema| {
+            let result = checked.memo_schema(name).is_some_and(|schema| {
                 schema
                     .fields
                     .iter()
@@ -105,16 +105,21 @@ pub(super) fn functions(checked: &CheckedModule) -> BTreeSet<String> {
 }
 
 impl Engine<'_> {
+    fn memo_data_function(&self, name: &str) -> bool {
+        crate::function_cache::read(|| crate::function_cache::Read::DataFunction(name.into()));
+        self.data_functions.contains(name)
+    }
+
     pub fn can_use_data_contract(&self, name: &str) -> bool {
         // A read-only data summary has no ordered writes to collapse when its
         // caller owns Futures. Mutating summaries keep the contextual alias
         // rule: primitive writes can decide a later observation path.
-        self.data_functions.contains(name)
+        self.memo_data_function(name)
             && (self.contracts.get(name).is_some_and(|contract| {
                 !contract.mutates && !contract.mutates_async && !contract.disrupts_observers
             }) || self
                 .stack
                 .iter()
-                .all(|caller| self.data_functions.contains(caller)))
+                .all(|caller| self.memo_data_function(caller)))
     }
 }

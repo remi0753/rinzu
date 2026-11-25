@@ -69,6 +69,8 @@ pub(super) fn native_fatal(code: i32) -> ! {
     rinzu_runtime::native_fatal::terminate(code)
 }
 
+// Native bridge hooks are consumed by the macOS Rust source runner. They stay
+// typechecked alongside shared heap logic on the other compilation targets.
 impl OwnerValues {
     pub(super) fn enable_gc_stress(&mut self) {
         self.heap.enable_gc_stress();
@@ -657,6 +659,10 @@ impl OwnerValues {
     pub(super) fn is_managed_activation(&self) -> bool {
         self.transitions.state() == rinzu_runtime::transition::ExecutionState::Managed
     }
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub(super) fn callback_scope(&self) -> rinzu_runtime::transition::CallbackScope {
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         self.note_owner_turn();
@@ -764,10 +770,18 @@ impl OwnerValues {
         Ok(())
     }
 
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub fn native_userdata_enter(&mut self) -> NativeUserDataScope {
         self.userdata.enter_scope(&self.heap, &self.data)
     }
 
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub fn native_userdata_prepare(
         &mut self,
         scope: NativeUserDataScope,
@@ -794,9 +808,17 @@ impl OwnerValues {
             .bits())
     }
 
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub fn native_userdata_open(&mut self, scope: NativeUserDataScope) {
         self.userdata.open(&self.heap, scope);
     }
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub fn native_userdata_expect_result(
         &mut self,
         scope: NativeUserDataScope,
@@ -807,6 +829,10 @@ impl OwnerValues {
             .expect_result(&self.heap, &self.data, scope, ty);
         Ok(())
     }
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub fn native_userdata_receive_result(
         &mut self,
         scope: NativeUserDataScope,
@@ -823,21 +849,37 @@ impl OwnerValues {
             .map_err(|rinzu_runtime::data::NativeUserDataError::Null| ErrorKind::NullNativeValue)?;
         Ok(Value::Managed { ty, handle })
     }
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub fn native_userdata_finish_result(&mut self, scope: NativeUserDataScope) {
         self.userdata
             .finish_result(&self.heap, &mut self.userdata_roots, scope);
     }
 
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub fn native_userdata_returned(&mut self, scope: NativeUserDataScope) {
         self.userdata
             .returned(&self.heap, &mut self.userdata_roots, scope);
     }
 
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub fn native_userdata_discard(&mut self, scope: NativeUserDataScope) {
         self.userdata
             .discard_prepared(&self.heap, &mut self.userdata_roots, scope);
     }
 
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub fn native_userdata_admit(
         &mut self,
         scope: NativeUserDataScope,
@@ -851,10 +893,18 @@ impl OwnerValues {
             .unwrap_or_else(|_| native_fatal(71));
         self.callback_errors.push(failure);
     }
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub fn take_callback_errors(&mut self) -> Vec<Failure> {
         std::mem::take(&mut self.callback_errors)
     }
 
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub fn native_userdata_resolve(
         &mut self,
         invocation: NativeUserDataInvocation,
@@ -872,6 +922,10 @@ impl OwnerValues {
         Ok(Value::Managed { ty, handle })
     }
 
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub fn native_userdata_settle(&mut self, invocation: NativeUserDataInvocation) {
         self.userdata
             .settle(&self.heap, &mut self.userdata_roots, invocation);
@@ -916,6 +970,10 @@ impl OwnerValues {
         Ok(result)
     }
 
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub fn callback_capture_variant(&mut self, value: &Value, expected: &Type) -> Result<usize> {
         let Value::Managed { ty, handle } = value else {
             bail!("callback capture is not managed")
@@ -1502,6 +1560,10 @@ pub(super) struct OwnerFrame {
     identity: u64,
 }
 impl OwnerFrame {
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     pub(super) fn native_scope(&self) -> rinzu_runtime::transition::NativeScope {
         let owner = self.owner.borrow();
         owner

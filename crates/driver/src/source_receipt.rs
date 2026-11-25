@@ -631,27 +631,24 @@ mod tests {
     }
 
     #[test]
-    fn generated_unit_entry_keeps_labels_and_only_guards_physical_sources() {
-        let temporary = fixture("unit-graph");
+    fn generated_test_entry_keeps_labels_and_only_guards_physical_sources() {
+        let temporary = fixture("test-graph");
         std::fs::create_dir(temporary.0.join("src")).unwrap();
+        std::fs::create_dir(temporary.0.join("tests")).unwrap();
         std::fs::write(
             temporary.0.join("rinzu.toml"),
-            "[package]\nname=\"unit_receipt\"\nlanguage=\"0.5\"\n",
+            "[package]\nname=\"test_receipt\"\nlanguage=\"0.5\"\n",
         )
         .unwrap();
-        let entry = temporary.0.join("src/main.rinzu");
-        std::fs::write(&entry, formatted("fn test_value() {}")).unwrap();
-        let (_, artifact, _) = rinzu_compiler::check_package_tests(
+        let entry = temporary.0.join("tests/value.test.rinzu");
+        std::fs::write(&entry, formatted("fn main() {}")).unwrap();
+        let (_, artifact, _) = rinzu_compiler::check_package_test_file(
             &temporary.0,
+            &entry,
             &mut rinzu_compiler::SourceSnapshot::new(
                 &mut rinzu_compiler::SourceCache::default(),
                 Default::default(),
             ),
-            &rinzu_compiler::PackageTestOptions {
-                unit: true,
-                selected: Some("unit:main::test_value".into()),
-                ..Default::default()
-            },
         )
         .unwrap();
         let snapshot =

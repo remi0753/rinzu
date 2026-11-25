@@ -54,7 +54,7 @@ toolchain = "0.3.0"
 
 `modules add` checks manifest requirements throughout the dependency graph before updating the project. `modules sync` restores the pinned sources. Compilation checks those requirements again and resolves the official API in the active toolchain. Published archives can use standard modules and archive-compatible official SDKs such as `rinzu.codec` and `rinzu.log`. Applications and local SDKs can also import official SDKs with additional native inputs.
 
-An optional `[toolchain]` section with `version = "0.4.0"` in the root project requires that exact release. Invoke the matching executable; the manifest does not install or switch toolchains. After changing the declared language level, run `rinzu modules relock` to refresh declaration fingerprints using the same installed and pinned sources.
+An optional `[toolchain]` section with `version = "0.5.0"` in the root project requires that exact release. Invoke the matching executable; the manifest does not install or switch toolchains. After changing the declared language level, run `rinzu modules relock` to refresh declaration fingerprints using the same installed and pinned sources.
 
 ## SDK manifests
 
@@ -73,7 +73,7 @@ An SDK can contain pure source or native implementations. Its default entry is `
 
 ## Native build inputs
 
-An application or SDK can declare native inputs:
+An SDK can declare native inputs in its manifest.
 
 ```toml
 [native]
@@ -85,6 +85,8 @@ libraries = ["System"]
 
 Other supported keys are `objects`, `search-paths`, `frameworks`, and `config-tools`. Paths are relative to their owning package. Headers support ABI checks; link inputs select providers. Unknown sections and keys are errors, so custom metadata should live in a separate file. `macos-app.json` holds application bundle settings.
 
+Applications can use native SDK dependencies and supply extra link inputs with the CLI's `-L`, `-l`, `--native-object`, and `--native-header` options. The same options are available for file tests. [CLI inputs](../tooling/cli.md#shared-inputs)
+
 Use `[native.platform.macos]` and `[native.platform.linux]` to add sources or link inputs for one operating system. The selected table extends the common `[native]` table. Linux native package locks use `rinzu.lock.x86_64-unknown-linux-gnu`. macOS package locks use `rinzu.lock`.
 
 ## Locks and caches
@@ -95,6 +97,8 @@ rinzu lock ./my-app --check
 ```
 
 `rinzu.lock` pins the checked dependency graph, source/native inputs, toolchain, and platform context. Existing locks are checked before execution/build and must be refreshed explicitly after an intended change. Use the same `-L`, `-l`, object, and header inputs when generating and checking a lock. `rinzu.modules.lock` pins the portable archive selection used to restore sources.
+
+File tests use their own checked source graph and native inputs, with archive dependencies resolved through `rinzu.modules.lock`. The root package's build lock applies to the ordinary package graph. [Testing guide](../tooling/testing.md)
 
 Caches live in the user's Rinzu cache directory; `RINZU_CACHE_DIR` selects a different root. Cached generated files and receipts are validated and can be rebuilt when invalid. A lock and a cache serve different purposes; neither is a remote package registry.
 

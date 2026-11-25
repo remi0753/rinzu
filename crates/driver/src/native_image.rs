@@ -24,6 +24,12 @@ impl ImageProbe {
         self.prime_mode(paths, true)
     }
 
+    /// Batch known system paths before indexing them in selection order.
+    pub fn prime_for_index(&mut self, paths: &[PathBuf]) {
+        // Retain the per-image checks and diagnostics if a batch is incomplete.
+        let _ = self.prime_full(paths.iter().map(PathBuf::as_path));
+    }
+
     pub fn report(&self, image: &NativeProviderImage) -> Option<&str> {
         let path = Path::new(&image.path);
         (image.sha256.is_none()
@@ -59,7 +65,7 @@ impl ImageProbe {
             let mut command = Command::new("xcrun");
             command.args(["dyld_info", "-arch", "arm64e", "-uuid"]);
             if full {
-                command.args(["-dependents", "-exports", "-segments", "-function_starts"]);
+                command.args(["-dependents", "-exports", "-segments"]);
             }
             command.args(chunk);
             let output = super::native_binding::run(command, "inspect native UUID/target batch")?;

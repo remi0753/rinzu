@@ -273,7 +273,7 @@ int64_t rinzu_baseline_supplant_settle(void *raw, int64_t handle) {
   free(call);
   return (int64_t)slot;
 }
-static void rinzu_aot_supplant_init(RinzuAsyncState *state) {
+RINZU_PROGRAM_API void rinzu_aot_supplant_init(RinzuAsyncState *state) {
   rinzu_supplant_init(&state->supplant_gate);
   state->foreign_queue = rinzu_foreign_new(NULL, NULL);
   rinzu_foreign_attach_main(state->foreign_queue);
@@ -284,7 +284,7 @@ static void rinzu_aot_supplant_init(RinzuAsyncState *state) {
   rinzu_async_set_completion_wake(&state->runtime, rinzu_aot_completion_wake, state->foreign_queue);
   state->root->foreign_queue = state->foreign_queue;
 }
-static void rinzu_aot_supplant_finish(RinzuAsyncState *state) {
+RINZU_PROGRAM_API void rinzu_aot_supplant_finish(RinzuAsyncState *state) {
   if (state->supplants || state->active_supplant)
     _Exit(86);
   for (rinzu_async_future_t *future = state->runtime.futures; future; future = future->next)

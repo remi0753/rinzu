@@ -113,16 +113,15 @@ extern "C" {
 #ifndef FFC_API
 #define FFC_API
 
-#define FFC_VERSION_YEAR  26
+#define FFC_VERSION_YEAR 26
 #define FFC_VERSION_MONTH 09
 #define FFC_VERSION_BUILD 01
 #define FFC_VERSION ((FFC_VERSION_YEAR << 16) | (FFC_VERSION_MONTH << 8) | (FFC_VERSION_BUILD))
 #define FFC_VERSION_STRINGIFY_(x) #x
 #define FFC_VERSION_STRINGIFY(x) FFC_VERSION_STRINGIFY_(x)
-#define FFC_VERSION_STRING \
-  FFC_VERSION_STRINGIFY(FFC_VERSION_YEAR) "." \
-  FFC_VERSION_STRINGIFY(FFC_VERSION_MONTH) "." \
-  FFC_VERSION_STRINGIFY(FFC_VERSION_BUILD)
+#define FFC_VERSION_STRING                                                                         \
+  FFC_VERSION_STRINGIFY(FFC_VERSION_YEAR)                                                          \
+  "." FFC_VERSION_STRINGIFY(FFC_VERSION_MONTH) "." FFC_VERSION_STRINGIFY(FFC_VERSION_BUILD)
 
 #include <stddef.h>
 #include <stdint.h>
@@ -130,11 +129,11 @@ extern "C" {
 /* always_inline marker for internal static helpers.
  * common.h re-uses this same definition under an #ifndef guard. */
 #if defined(_MSC_VER)
-  #define ffc_inline __forceinline
+#define ffc_inline __forceinline
 #elif defined(__GNUC__) || defined(__clang__)
-  #define ffc_inline __attribute__((always_inline)) inline
+#define ffc_inline __attribute__((always_inline)) inline
 #else
-  #define ffc_inline inline
+#define ffc_inline inline
 #endif
 
 typedef uint32_t ffc_outcome;
@@ -153,27 +152,23 @@ typedef struct ffc_result {
 
 typedef uint64_t ffc_format;
 enum ffc_format_bits {
-  FFC_FORMAT_FLAG_SCIENTIFIC         = 1ULL << 0,
-  FFC_FORMAT_FLAG_FIXED              = 1ULL << 2, // Gap is present in fast_float original
-  FFC_FORMAT_FLAG_HEX                = 1ULL << 3,
-  FFC_FORMAT_FLAG_NO_INFNAN          = 1ULL << 4,
-  FFC_FORMAT_FLAG_BASIC_JSON         = 1ULL << 5,
-  FFC_FORMAT_FLAG_BASIC_FORTRAN      = 1ULL << 6,
+  FFC_FORMAT_FLAG_SCIENTIFIC = 1ULL << 0,
+  FFC_FORMAT_FLAG_FIXED = 1ULL << 2, // Gap is present in fast_float original
+  FFC_FORMAT_FLAG_HEX = 1ULL << 3,
+  FFC_FORMAT_FLAG_NO_INFNAN = 1ULL << 4,
+  FFC_FORMAT_FLAG_BASIC_JSON = 1ULL << 5,
+  FFC_FORMAT_FLAG_BASIC_FORTRAN = 1ULL << 6,
   FFC_FORMAT_FLAG_ALLOW_LEADING_PLUS = 1ULL << 7,
-  FFC_FORMAT_FLAG_SKIP_WHITE_SPACE   = 1ULL << 8,
+  FFC_FORMAT_FLAG_SKIP_WHITE_SPACE = 1ULL << 8,
 
   /* Presets */
   FFC_PRESET_GENERAL = FFC_FORMAT_FLAG_FIXED | FFC_FORMAT_FLAG_SCIENTIFIC,
 
-  FFC_PRESET_JSON = FFC_FORMAT_FLAG_BASIC_JSON |
-                       FFC_PRESET_GENERAL |
-                       FFC_FORMAT_FLAG_NO_INFNAN,
+  FFC_PRESET_JSON = FFC_FORMAT_FLAG_BASIC_JSON | FFC_PRESET_GENERAL | FFC_FORMAT_FLAG_NO_INFNAN,
 
-  FFC_PRESET_JSON_OR_INFNAN = FFC_FORMAT_FLAG_BASIC_JSON |
-                                 FFC_PRESET_GENERAL,
+  FFC_PRESET_JSON_OR_INFNAN = FFC_FORMAT_FLAG_BASIC_JSON | FFC_PRESET_GENERAL,
 
-  FFC_PRESET_FORTRAN = FFC_FORMAT_FLAG_BASIC_FORTRAN |
-                          FFC_PRESET_GENERAL
+  FFC_PRESET_FORTRAN = FFC_FORMAT_FLAG_BASIC_FORTRAN | FFC_PRESET_GENERAL
 };
 
 typedef struct ffc_parse_options {
@@ -208,7 +203,7 @@ typedef enum ffc_parse_outcome {
  * A simplified API; the result will be 0.0 on error, not uninitialized.
  * If outcome is null, it will not be written to
  */
-double     ffc_parse_double_simple(size_t len, const char *input, ffc_outcome *outcome);
+double ffc_parse_double_simple(size_t len, const char *input, ffc_outcome *outcome);
 ffc_result ffc_parse_double(size_t len, const char *input, double *out);
 /**
  * Implements the fast_float algorithm from https://github.com/fastfloat/fast_float
@@ -253,51 +248,56 @@ ffc_result ffc_parse_double(size_t len, const char *input, double *out);
  *    not, so the GCC branch is C-only.
  *  - Elsewhere the API is left out-of-line. */
 #if defined(__clang__)
-#  define FFC_API_INLINE __attribute__((always_inline))
+#define FFC_API_INLINE __attribute__((always_inline))
 #elif defined(__GNUC__) && !defined(__cplusplus)
-#  define FFC_API_INLINE extern __attribute__((always_inline)) inline
+#define FFC_API_INLINE extern __attribute__((always_inline)) inline
 #else
-#  define FFC_API_INLINE
+#define FFC_API_INLINE
 #endif
 
 /* Double parsing is always inlined in the FFC_IMPL TU. */
 #ifdef FFC_IMPL
-#  define FFC_DOUBLE_IMPL_INLINE FFC_API_INLINE
+#define FFC_DOUBLE_IMPL_INLINE FFC_API_INLINE
 #else
-#  define FFC_DOUBLE_IMPL_INLINE
+#define FFC_DOUBLE_IMPL_INLINE
 #endif
 
 /* Float parsing is inlined only when FFC_ENABLE_FLOAT_INLINING is also
  * defined: it speeds up float parsing considerably but grows the caller and
  * has been measured to cost double parsing in the same TU a few percent. */
 #if defined(FFC_IMPL) && defined(FFC_ENABLE_FLOAT_INLINING)
-#  define FFC_FLOAT_IMPL_INLINE FFC_API_INLINE
+#define FFC_FLOAT_IMPL_INLINE FFC_API_INLINE
 #else
-#  define FFC_FLOAT_IMPL_INLINE
+#define FFC_FLOAT_IMPL_INLINE
 #endif
 
-FFC_DOUBLE_IMPL_INLINE ffc_result ffc_from_chars_double(const char *start, const char *end, double* out);
-FFC_DOUBLE_IMPL_INLINE ffc_result ffc_from_chars_double_options(const char *start, const char *end, double* out, ffc_parse_options options);
+FFC_DOUBLE_IMPL_INLINE ffc_result ffc_from_chars_double(const char *start, const char *end,
+                                                        double *out);
+FFC_DOUBLE_IMPL_INLINE ffc_result ffc_from_chars_double_options(const char *start, const char *end,
+                                                                double *out,
+                                                                ffc_parse_options options);
 
 /*
  * A simplified API; the result will be 0.0 on error, not uninitialized.
  * If outcome is null, it will not be written to
  */
-float      ffc_parse_float_simple(size_t len, const char *s, ffc_outcome *outcome);
+float ffc_parse_float_simple(size_t len, const char *s, ffc_outcome *outcome);
 ffc_result ffc_parse_float(size_t len, const char *s, float *out);
-FFC_FLOAT_IMPL_INLINE ffc_result ffc_from_chars_float(const char *start,  const char *end, float* out);
-FFC_FLOAT_IMPL_INLINE ffc_result ffc_from_chars_float_options(const char *start,  const char *end, float* out, ffc_parse_options options);
-
-
+FFC_FLOAT_IMPL_INLINE ffc_result ffc_from_chars_float(const char *start, const char *end,
+                                                      float *out);
+FFC_FLOAT_IMPL_INLINE ffc_result ffc_from_chars_float_options(const char *start, const char *end,
+                                                              float *out,
+                                                              ffc_parse_options options);
 
 /*
  * A simplified API; the result will be 0 on error, not uninitialized.
  * If outcome is null, it will not be written to
  */
-int64_t  ffc_parse_i64_simple(size_t len, const char *input, int base, ffc_outcome *outcome);
-ffc_result ffc_parse_i64(size_t len, const char *input, int base, int64_t  *out);
-ffc_result ffc_from_chars_i64(char const* first, char const* last, int base, int64_t* out);
-ffc_result ffc_from_chars_i64_options(const char *start, const char *end, int base, int64_t* out, ffc_parse_options options);
+int64_t ffc_parse_i64_simple(size_t len, const char *input, int base, ffc_outcome *outcome);
+ffc_result ffc_parse_i64(size_t len, const char *input, int base, int64_t *out);
+ffc_result ffc_from_chars_i64(char const *first, char const *last, int base, int64_t *out);
+ffc_result ffc_from_chars_i64_options(const char *start, const char *end, int base, int64_t *out,
+                                      ffc_parse_options options);
 
 /*
  * A simplified API; the result will be 0 on error, not uninitialized.
@@ -305,17 +305,19 @@ ffc_result ffc_from_chars_i64_options(const char *start, const char *end, int ba
  */
 uint64_t ffc_parse_u64_simple(size_t len, const char *input, int base, ffc_outcome *outcome);
 ffc_result ffc_parse_u64(size_t len, const char *input, int base, uint64_t *out);
-ffc_result ffc_from_chars_u64(char const* first, char const* last, int base, uint64_t* out);
-ffc_result ffc_from_chars_u64_options(const char *start, const char *end, int base, uint64_t* out, ffc_parse_options options);
+ffc_result ffc_from_chars_u64(char const *first, char const *last, int base, uint64_t *out);
+ffc_result ffc_from_chars_u64_options(const char *start, const char *end, int base, uint64_t *out,
+                                      ffc_parse_options options);
 
 /*
  * A simplified API; the result will be 0 on error, not uninitialized.
  * If outcome is null, it will not be written to
  */
-int32_t  ffc_parse_i32_simple(size_t len, const char *input, int base, ffc_outcome *outcome);
-ffc_result ffc_parse_i32(size_t len, const char *input, int base, int32_t  *out);
-ffc_result ffc_from_chars_i32(char const* first, char const* last, int base, int32_t* out);
-ffc_result ffc_from_chars_i32_options(const char *start, const char *end, int base, int32_t* out, ffc_parse_options options);
+int32_t ffc_parse_i32_simple(size_t len, const char *input, int base, ffc_outcome *outcome);
+ffc_result ffc_parse_i32(size_t len, const char *input, int base, int32_t *out);
+ffc_result ffc_from_chars_i32(char const *first, char const *last, int base, int32_t *out);
+ffc_result ffc_from_chars_i32_options(const char *start, const char *end, int base, int32_t *out,
+                                      ffc_parse_options options);
 
 /*
  * A simplified API; the result will be 0 on error, not uninitialized.
@@ -323,8 +325,9 @@ ffc_result ffc_from_chars_i32_options(const char *start, const char *end, int ba
  */
 uint32_t ffc_parse_u32_simple(size_t len, const char *input, int base, ffc_outcome *outcome);
 ffc_result ffc_parse_u32(size_t len, const char *input, int base, uint32_t *out);
-ffc_result ffc_from_chars_u32(char const* first, char const* last, int base, uint32_t* out);
-ffc_result ffc_from_chars_u32_options(const char *start, const char *end, int base, uint32_t* out, ffc_parse_options options);
+ffc_result ffc_from_chars_u32(char const *first, char const *last, int base, uint32_t *out);
+ffc_result ffc_from_chars_u32_options(const char *start, const char *end, int base, uint32_t *out,
+                                      ffc_parse_options options);
 
 /**
  * Parse a JSON number from the range [start, end) and return an int64_t or a double
@@ -338,7 +341,7 @@ ffc_result ffc_from_chars_u32_options(const char *start, const char *end, int ba
 
 typedef uint32_t ffc_json_number_kind;
 enum ffc_json_number_kind_bits {
-  FFC_JSON_NUM_KIND_INT64  = 0,
+  FFC_JSON_NUM_KIND_INT64 = 0,
   FFC_JSON_NUM_KIND_DOUBLE = 1,
 };
 
@@ -346,7 +349,7 @@ typedef struct ffc_json_number {
   ffc_json_number_kind kind;
   union {
     int64_t i64;
-    double  f64;
+    double f64;
   } value;
 } ffc_json_number;
 
@@ -389,31 +392,33 @@ size_t ffc_format_double_fixed(char *buf, size_t cap, double value, int places);
 
 #ifndef ffc_inline
 #if defined(_MSC_VER)
-  #define ffc_inline __forceinline
+#define ffc_inline __forceinline
 #elif defined(__GNUC__) || defined(__clang__)
-  #define ffc_inline __attribute__((always_inline)) inline
+#define ffc_inline __attribute__((always_inline)) inline
 #else
-  #define ffc_inline inline
+#define ffc_inline inline
 #endif
 #endif
 
 #if FFC_DEBUG
 #include <stdio.h>
-#define ffc_debug(...) do { fprintf(stderr, __VA_ARGS__); } while(0)
+#define ffc_debug(...)                                                                             \
+  do {                                                                                             \
+    fprintf(stderr, __VA_ARGS__);                                                                  \
+  } while (0)
 #else
-#define ffc_debug(...) do { } while(0)
+#define ffc_debug(...)                                                                             \
+  do {                                                                                             \
+  } while (0)
 #endif
 
-
-ffc_internal ffc_inline
-uint64_t ffc_get_double_bits(double d) {
+ffc_internal ffc_inline uint64_t ffc_get_double_bits(double d) {
   uint64_t bits;
   memcpy(&bits, &d, sizeof(double));
   return bits;
 }
 
-ffc_internal ffc_inline
-uint32_t ffc_get_float_bits(float d) {
+ffc_internal ffc_inline uint32_t ffc_get_float_bits(float d) {
   uint32_t bits;
   memcpy(&bits, &d, sizeof(float));
   return bits;
@@ -436,8 +441,8 @@ enum ffc_value_kind_bits {
 };
 
 typedef union ffc_int_value {
-  int64_t  s64;
-  int32_t  s32;
+  int64_t s64;
+  int32_t s32;
   uint64_t u64;
   uint32_t u32;
 } ffc_int_value;
@@ -450,14 +455,11 @@ enum ffc_int_kind_bits {
   FFC_INT_KIND_U32 = 3,
 };
 
-ffc_internal ffc_inline
-bool ffc_int_kind_is_signed(ffc_int_kind ik) {
+ffc_internal ffc_inline bool ffc_int_kind_is_signed(ffc_int_kind ik) {
   return ik == FFC_INT_KIND_S64 || ik == FFC_INT_KIND_S32;
 }
 
-
-ffc_internal ffc_inline
-ffc_value_bits ffc_get_value_bits(ffc_value value, ffc_value_kind vk) {
+ffc_internal ffc_inline ffc_value_bits ffc_get_value_bits(ffc_value value, ffc_value_kind vk) {
   ffc_value_bits bits;
   if (vk == FFC_VALUE_KIND_DOUBLE) {
     bits.di = ffc_get_double_bits(value.d);
@@ -467,22 +469,27 @@ ffc_value_bits ffc_get_value_bits(ffc_value value, ffc_value_kind vk) {
   return bits;
 }
 
-ffc_internal ffc_inline
-uint64_t ffc_int_value_max(ffc_int_kind ik) {
+ffc_internal ffc_inline uint64_t ffc_int_value_max(ffc_int_kind ik) {
   switch (ik) {
-  case FFC_INT_KIND_S64: return INT64_MAX;
-  case FFC_INT_KIND_S32: return INT32_MAX;
-  case FFC_INT_KIND_U64: return UINT64_MAX;
-  case FFC_INT_KIND_U32: return UINT32_MAX;
-  default: return 0; // should never happen
+  case FFC_INT_KIND_S64:
+    return INT64_MAX;
+  case FFC_INT_KIND_S32:
+    return INT32_MAX;
+  case FFC_INT_KIND_U64:
+    return UINT64_MAX;
+  case FFC_INT_KIND_U32:
+    return UINT32_MAX;
+  default:
+    return 0; // should never happen
   }
 }
 
-#define ffc_set_value(ptr, value_kind, value) \
-    (((value_kind) == FFC_VALUE_KIND_DOUBLE) ? ((ptr)->d = (double)(value)) : ((ptr)->f = (float)(value)))
+#define ffc_set_value(ptr, value_kind, value)                                                      \
+  (((value_kind) == FFC_VALUE_KIND_DOUBLE) ? ((ptr)->d = (double)(value))                          \
+                                           : ((ptr)->f = (float)(value)))
 
-#define ffc_read_value(ptr, value_kind) \
-    (((value_kind) == FFC_VALUE_KIND_DOUBLE) ? (ptr)->d : (ptr)->f)
+#define ffc_read_value(ptr, value_kind)                                                            \
+  (((value_kind) == FFC_VALUE_KIND_DOUBLE) ? (ptr)->d : (ptr)->f)
 
 typedef struct ffc_adjusted_mantissa {
   uint64_t mantissa;
@@ -502,16 +509,13 @@ ffc_internal ffc_inline size_t ffc_get_value_size(ffc_value_kind vk) {
 
 /********************* context crack: word size *********************/
 
-#if (defined(__x86_64) || defined(__x86_64__) || defined(_M_X64) ||            \
-     defined(__amd64) || defined(__aarch64__) || defined(_M_ARM64) ||          \
-     defined(__MINGW64__) || defined(__s390x__) ||                             \
-     (defined(__ppc64__) || defined(__PPC64__) || defined(__ppc64le__) ||      \
-      defined(__PPC64LE__)) ||                                                 \
+#if (defined(__x86_64) || defined(__x86_64__) || defined(_M_X64) || defined(__amd64) ||            \
+     defined(__aarch64__) || defined(_M_ARM64) || defined(__MINGW64__) || defined(__s390x__) ||    \
+     (defined(__ppc64__) || defined(__PPC64__) || defined(__ppc64le__) || defined(__PPC64LE__)) || \
      defined(__loongarch64) || (defined(__riscv) && __riscv_xlen == 64))
 #define FFC_64BIT 1
-#elif (defined(__i386) || defined(__i386__) || defined(_M_IX86) ||             \
-       defined(__arm__) || defined(_M_ARM) || defined(__ppc__) ||              \
-       defined(__MINGW32__) || defined(__EMSCRIPTEN__) ||                      \
+#elif (defined(__i386) || defined(__i386__) || defined(_M_IX86) || defined(__arm__) ||             \
+       defined(_M_ARM) || defined(__ppc__) || defined(__MINGW32__) || defined(__EMSCRIPTEN__) ||   \
        (defined(__riscv) && __riscv_xlen == 32))
 #define FFC_32BIT 1
 #else
@@ -531,7 +535,7 @@ ffc_internal ffc_inline size_t ffc_get_value_size(ffc_value_kind vk) {
 #endif
 
 /********************* context crack: intrinsics *********************/
-#if ((defined(_WIN32) || defined(_WIN64)) && !defined(__clang__)) ||           \
+#if ((defined(_WIN32) || defined(_WIN64)) && !defined(__clang__)) ||                               \
     (defined(_M_ARM64) && !defined(__MINGW32__))
 #include <intrin.h>
 #endif
@@ -578,9 +582,9 @@ ffc_internal ffc_inline size_t ffc_get_value_size(ffc_value_kind vk) {
 #endif
 
 /********************* context crack: simd *********************/
-#if defined(__SSE2__) || (defined(FFC_VISUAL_STUDIO) &&                  \
-                          (defined(_M_AMD64) || defined(_M_X64) ||             \
-                           (defined(_M_IX86_FP) && _M_IX86_FP == 2)))
+#if defined(__SSE2__) ||                                                                           \
+    (defined(FFC_VISUAL_STUDIO) &&                                                                 \
+     (defined(_M_AMD64) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP == 2)))
 #define FFC_SSE2 1
 #endif
 
@@ -592,7 +596,6 @@ ffc_internal ffc_inline size_t ffc_get_value_size(ffc_value_kind vk) {
 #define FFC_HAS_SIMD 1
 #endif
 
-
 #ifdef FFC_SSE2
 #include <emmintrin.h>
 #endif
@@ -601,12 +604,10 @@ ffc_internal ffc_inline size_t ffc_get_value_size(ffc_value_kind vk) {
 #include <arm_neon.h>
 #endif
 
-
 #if defined(__GNUC__)
 // disable -Wcast-align=strict (GCC only)
-#define FFC_SIMD_DISABLE_WARNINGS                                        \
-  _Pragma("GCC diagnostic push")                                               \
-      _Pragma("GCC diagnostic ignored \"-Wcast-align\"")
+#define FFC_SIMD_DISABLE_WARNINGS                                                                  \
+  _Pragma("GCC diagnostic push") _Pragma("GCC diagnostic ignored \"-Wcast-align\"")
 #else
 #define FFC_SIMD_DISABLE_WARNINGS
 #endif
@@ -617,26 +618,45 @@ ffc_internal ffc_inline size_t ffc_get_value_size(ffc_value_kind vk) {
 #define FFC_SIMD_RESTORE_WARNINGS
 #endif
 
-ffc_internal ffc_inline
-uint32_t ffc_count_leading_zeroes(uint64_t x) {
+ffc_internal ffc_inline uint32_t ffc_count_leading_zeroes(uint64_t x) {
 #if defined(__GNUC__) || defined(__clang__)
   return x ? (uint32_t)__builtin_clzll(x) : 64u;
 #else
-  if (x == 0) return 64u;
+  if (x == 0)
+    return 64u;
   uint32_t n = 0;
-  if ((x >> 32) == 0) { n |= 32; x <<= 32; }
-  if ((x >> 48) == 0) { n |= 16; x <<= 16; }
-  if ((x >> 56) == 0) { n |=  8; x <<=  8; }
-  if ((x >> 60) == 0) { n |=  4; x <<=  4; }
-  if ((x >> 62) == 0) { n |=  2; x <<=  2; }
-  if ((x >> 63) == 0) { n |=  1; }
+  if ((x >> 32) == 0) {
+    n |= 32;
+    x <<= 32;
+  }
+  if ((x >> 48) == 0) {
+    n |= 16;
+    x <<= 16;
+  }
+  if ((x >> 56) == 0) {
+    n |= 8;
+    x <<= 8;
+  }
+  if ((x >> 60) == 0) {
+    n |= 4;
+    x <<= 4;
+  }
+  if ((x >> 62) == 0) {
+    n |= 2;
+    x <<= 2;
+  }
+  if ((x >> 63) == 0) {
+    n |= 1;
+  }
   return n;
 #endif
 }
 
-typedef struct ffc_u128 { uint64_t low; uint64_t high; } ffc_u128;
-ffc_internal ffc_inline
-ffc_u128 ffc_mul_u64(uint64_t a, uint64_t b) {
+typedef struct ffc_u128 {
+  uint64_t low;
+  uint64_t high;
+} ffc_u128;
+ffc_internal ffc_inline ffc_u128 ffc_mul_u64(uint64_t a, uint64_t b) {
 #if defined(__SIZEOF_INT128__)
   __uint128_t z = ((__uint128_t)a) * ((__uint128_t)b);
   ffc_u128 output;
@@ -650,7 +670,7 @@ ffc_u128 ffc_mul_u64(uint64_t a, uint64_t b) {
   uint64_t b1 = b >> 32;
 
   uint64_t w0 = a0 * b0;
-  uint64_t t  = (a1 * b0) + (w0 >> 32);
+  uint64_t t = (a1 * b0) + (w0 >> 32);
   uint64_t w1 = t & 0xFFFFFFFF;
   uint64_t w2 = t >> 32;
   w1 += a0 * b1;
@@ -667,29 +687,26 @@ ffc_internal ffc_inline uint64_t ffc_emulu(uint32_t x, uint32_t y) {
   return x * (uint64_t)y;
 }
 
-ffc_internal ffc_inline
-uint64_t ffc_umul128_generic(uint64_t ab, uint64_t cd, uint64_t *hi) {
+ffc_internal ffc_inline uint64_t ffc_umul128_generic(uint64_t ab, uint64_t cd, uint64_t *hi) {
   uint64_t ad = ffc_emulu((uint32_t)(ab >> 32), (uint32_t)cd);
   uint64_t bd = ffc_emulu((uint32_t)ab, (uint32_t)cd);
   uint64_t adbc = ad + ffc_emulu((uint32_t)ab, (uint32_t)(cd >> 32));
   uint64_t adbc_carry = (uint64_t)(adbc < ad);
   uint64_t lo = bd + (adbc << 32);
-  *hi = ffc_emulu((uint32_t)(ab >> 32), (uint32_t)(cd >> 32)) + (adbc >> 32) +
-        (adbc_carry << 32) + (uint64_t)(lo < bd);
+  *hi = ffc_emulu((uint32_t)(ab >> 32), (uint32_t)(cd >> 32)) + (adbc >> 32) + (adbc_carry << 32) +
+        (uint64_t)(lo < bd);
   return lo;
 }
 
 // compute 64-bit a*b
-ffc_internal ffc_inline
-ffc_u128 ffc_full_multiplication(uint64_t a, uint64_t b) {
+ffc_internal ffc_inline ffc_u128 ffc_full_multiplication(uint64_t a, uint64_t b) {
   ffc_u128 answer;
 #if defined(_M_ARM64) && !defined(__MINGW32__)
   // ARM64 has native support for 64-bit multiplications, no need to emulate
   // But MinGW on ARM64 doesn't have native support for 64-bit multiplications
   answer.high = __umulh(a, b);
   answer.low = a * b;
-#elif (defined(_WIN64) && !defined(__clang__) &&   \
-                                   !defined(_M_ARM64) && !defined(__GNUC__))
+#elif (defined(_WIN64) && !defined(__clang__) && !defined(_M_ARM64) && !defined(__GNUC__))
   answer.low = _umul128(a, b, &answer.high); // _umul128 not available on ARM64
 #elif defined(FFC_64BIT) && defined(__SIZEOF_INT128__)
   __uint128_t r = ((__uint128_t)a) * b;
@@ -701,101 +718,743 @@ ffc_u128 ffc_full_multiplication(uint64_t a, uint64_t b) {
   return answer;
 }
 
-#define FFC_DOUBLE_SMALLEST_POWER_OF_10        -342
-#define FFC_DOUBLE_LARGEST_POWER_OF_10         308
-#define FFC_DOUBLE_SIGN_INDEX                  63
-#define FFC_DOUBLE_INFINITE_POWER              0x7FF
-#define FFC_DOUBLE_MANTISSA_EXPLICIT_BITS      52
-#define FFC_DOUBLE_MINIMUM_EXPONENT            -1023
-#define FFC_DOUBLE_MIN_EXPONENT_ROUND_TO_EVEN  -4
-#define FFC_DOUBLE_MAX_EXPONENT_ROUND_TO_EVEN  23
-#define FFC_DOUBLE_MAX_EXPONENT_FAST_PATH      22
-#define FFC_DOUBLE_MAX_MANTISSA_FAST_PATH      ((uint64_t)(2) << FFC_DOUBLE_MANTISSA_EXPLICIT_BITS)
-#define FFC_DOUBLE_EXPONENT_MASK               0x7FF0000000000000
-#define FFC_DOUBLE_MANTISSA_MASK               0x000FFFFFFFFFFFFF
-#define FFC_DOUBLE_HIDDEN_BIT_MASK             0x0010000000000000
-#define FFC_DOUBLE_MAX_DIGITS                  769
+#define FFC_DOUBLE_SMALLEST_POWER_OF_10 -342
+#define FFC_DOUBLE_LARGEST_POWER_OF_10 308
+#define FFC_DOUBLE_SIGN_INDEX 63
+#define FFC_DOUBLE_INFINITE_POWER 0x7FF
+#define FFC_DOUBLE_MANTISSA_EXPLICIT_BITS 52
+#define FFC_DOUBLE_MINIMUM_EXPONENT -1023
+#define FFC_DOUBLE_MIN_EXPONENT_ROUND_TO_EVEN -4
+#define FFC_DOUBLE_MAX_EXPONENT_ROUND_TO_EVEN 23
+#define FFC_DOUBLE_MAX_EXPONENT_FAST_PATH 22
+#define FFC_DOUBLE_MAX_MANTISSA_FAST_PATH ((uint64_t)(2) << FFC_DOUBLE_MANTISSA_EXPLICIT_BITS)
+#define FFC_DOUBLE_EXPONENT_MASK 0x7FF0000000000000
+#define FFC_DOUBLE_MANTISSA_MASK 0x000FFFFFFFFFFFFF
+#define FFC_DOUBLE_HIDDEN_BIT_MASK 0x0010000000000000
+#define FFC_DOUBLE_MAX_DIGITS 769
 
-#define FFC_FLOAT_SMALLEST_POWER_OF_10         -64
-#define FFC_FLOAT_LARGEST_POWER_OF_10          38
-#define FFC_FLOAT_SIGN_INDEX                   31
-#define FFC_FLOAT_INFINITE_POWER               0xFF
-#define FFC_FLOAT_MANTISSA_EXPLICIT_BITS       23
-#define FFC_FLOAT_MINIMUM_EXPONENT             -127
-#define FFC_FLOAT_MIN_EXPONENT_ROUND_TO_EVEN   -17
-#define FFC_FLOAT_MAX_EXPONENT_ROUND_TO_EVEN   10
-#define FFC_FLOAT_MAX_EXPONENT_FAST_PATH       10
-#define FFC_FLOAT_MAX_MANTISSA_FAST_PATH       ((uint64_t)(2) << FFC_FLOAT_MANTISSA_EXPLICIT_BITS)
-#define FFC_FLOAT_EXPONENT_MASK                0x7F800000
-#define FFC_FLOAT_MANTISSA_MASK                0x007FFFFF
-#define FFC_FLOAT_HIDDEN_BIT_MASK              0x00800000
-#define FFC_FLOAT_MAX_DIGITS                   114
+#define FFC_FLOAT_SMALLEST_POWER_OF_10 -64
+#define FFC_FLOAT_LARGEST_POWER_OF_10 38
+#define FFC_FLOAT_SIGN_INDEX 31
+#define FFC_FLOAT_INFINITE_POWER 0xFF
+#define FFC_FLOAT_MANTISSA_EXPLICIT_BITS 23
+#define FFC_FLOAT_MINIMUM_EXPONENT -127
+#define FFC_FLOAT_MIN_EXPONENT_ROUND_TO_EVEN -17
+#define FFC_FLOAT_MAX_EXPONENT_ROUND_TO_EVEN 10
+#define FFC_FLOAT_MAX_EXPONENT_FAST_PATH 10
+#define FFC_FLOAT_MAX_MANTISSA_FAST_PATH ((uint64_t)(2) << FFC_FLOAT_MANTISSA_EXPLICIT_BITS)
+#define FFC_FLOAT_EXPONENT_MASK 0x7F800000
+#define FFC_FLOAT_MANTISSA_MASK 0x007FFFFF
+#define FFC_FLOAT_HIDDEN_BIT_MASK 0x00800000
+#define FFC_FLOAT_MAX_DIGITS 114
 
 #if (FLT_EVAL_METHOD != 1) && (FLT_EVAL_METHOD != 0)
-  #define FFC_DOUBLE_MIN_EXPONENT_FAST_PATH 0
-  #define FFC_FLOAT_MIN_EXPONENT_FAST_PATH  0
+#define FFC_DOUBLE_MIN_EXPONENT_FAST_PATH 0
+#define FFC_FLOAT_MIN_EXPONENT_FAST_PATH 0
 #else
-  #define FFC_DOUBLE_MIN_EXPONENT_FAST_PATH -22
-  #define FFC_FLOAT_MIN_EXPONENT_FAST_PATH  -10
+#define FFC_DOUBLE_MIN_EXPONENT_FAST_PATH -22
+#define FFC_FLOAT_MIN_EXPONENT_FAST_PATH -10
 #endif
 
-#define ffc_const(value_kind, name) (value_kind == FFC_VALUE_KIND_DOUBLE ? FFC_DOUBLE_##name : FFC_FLOAT_##name)
+#define ffc_const(value_kind, name)                                                                \
+  (value_kind == FFC_VALUE_KIND_DOUBLE ? FFC_DOUBLE_##name : FFC_FLOAT_##name)
 
-#define FFC_POWERS_OF_5_NUMBER_OF_ENTRIES (2 * (FFC_DOUBLE_LARGEST_POWER_OF_10 - FFC_DOUBLE_SMALLEST_POWER_OF_10 + 1))
+#define FFC_POWERS_OF_5_NUMBER_OF_ENTRIES                                                          \
+  (2 * (FFC_DOUBLE_LARGEST_POWER_OF_10 - FFC_DOUBLE_SMALLEST_POWER_OF_10 + 1))
 
 // Powers of five from 5^-342 all the way to 5^308 rounded toward one.
 ffc_internal uint64_t FFC_POWERS_OF_FIVE[FFC_POWERS_OF_5_NUMBER_OF_ENTRIES] = {
-  0xeef453d6923bd65a, 0x113faa2906a13b3f, 0x9558b4661b6565f8, 0x4ac7ca59a424c507, 0xbaaee17fa23ebf76, 0x5d79bcf00d2df649, 0xe95a99df8ace6f53, 0xf4d82c2c107973dc, 0x91d8a02bb6c10594, 0x79071b9b8a4be869, 0xb64ec836a47146f9, 0x9748e2826cdee284, 0xe3e27a444d8d98b7, 0xfd1b1b2308169b25, 0x8e6d8c6ab0787f72, 0xfe30f0f5e50e20f7, 0xb208ef855c969f4f, 0xbdbd2d335e51a935, 0xde8b2b66b3bc4723, 0xad2c788035e61382, 0x8b16fb203055ac76, 0x4c3bcb5021afcc31, 0xaddcb9e83c6b1793, 0xdf4abe242a1bbf3d, 0xd953e8624b85dd78, 0xd71d6dad34a2af0d, 0x87d4713d6f33aa6b, 0x8672648c40e5ad68, 0xa9c98d8ccb009506, 0x680efdaf511f18c2, 0xd43bf0effdc0ba48, 0x212bd1b2566def2, 0x84a57695fe98746d, 0x14bb630f7604b57, 0xa5ced43b7e3e9188, 0x419ea3bd35385e2d, 0xcf42894a5dce35ea, 0x52064cac828675b9, 0x818995ce7aa0e1b2, 0x7343efebd1940993, 0xa1ebfb4219491a1f, 0x1014ebe6c5f90bf8, 0xca66fa129f9b60a6, 0xd41a26e077774ef6, 0xfd00b897478238d0, 0x8920b098955522b4, 0x9e20735e8cb16382, 0x55b46e5f5d5535b0, 0xc5a890362fddbc62, 0xeb2189f734aa831d, 0xf712b443bbd52b7b, 0xa5e9ec7501d523e4, 0x9a6bb0aa55653b2d, 0x47b233c92125366e, 0xc1069cd4eabe89f8, 0x999ec0bb696e840a, 0xf148440a256e2c76, 0xc00670ea43ca250d, 0x96cd2a865764dbca, 0x380406926a5e5728, 0xbc807527ed3e12bc, 0xc605083704f5ecf2, 0xeba09271e88d976b, 0xf7864a44c633682e, 0x93445b8731587ea3, 0x7ab3ee6afbe0211d, 0xb8157268fdae9e4c, 0x5960ea05bad82964, 0xe61acf033d1a45df, 0x6fb92487298e33bd, 0x8fd0c16206306bab, 0xa5d3b6d479f8e056, 0xb3c4f1ba87bc8696, 0x8f48a4899877186c, 0xe0b62e2929aba83c, 0x331acdabfe94de87, 0x8c71dcd9ba0b4925, 0x9ff0c08b7f1d0b14, 0xaf8e5410288e1b6f, 0x7ecf0ae5ee44dd9, 0xdb71e91432b1a24a, 0xc9e82cd9f69d6150, 0x892731ac9faf056e, 0xbe311c083a225cd2, 0xab70fe17c79ac6ca, 0x6dbd630a48aaf406, 0xd64d3d9db981787d, 0x92cbbccdad5b108, 0x85f0468293f0eb4e, 0x25bbf56008c58ea5, 0xa76c582338ed2621, 0xaf2af2b80af6f24e, 0xd1476e2c07286faa, 0x1af5af660db4aee1, 0x82cca4db847945ca, 0x50d98d9fc890ed4d, 0xa37fce126597973c, 0xe50ff107bab528a0, 0xcc5fc196fefd7d0c, 0x1e53ed49a96272c8, 0xff77b1fcbebcdc4f, 0x25e8e89c13bb0f7a, 0x9faacf3df73609b1, 0x77b191618c54e9ac, 0xc795830d75038c1d, 0xd59df5b9ef6a2417, 0xf97ae3d0d2446f25, 0x4b0573286b44ad1d, 0x9becce62836ac577, 0x4ee367f9430aec32, 0xc2e801fb244576d5, 0x229c41f793cda73f, 0xf3a20279ed56d48a, 0x6b43527578c1110f, 0x9845418c345644d6, 0x830a13896b78aaa9, 0xbe5691ef416bd60c, 0x23cc986bc656d553, 0xedec366b11c6cb8f, 0x2cbfbe86b7ec8aa8, 0x94b3a202eb1c3f39, 0x7bf7d71432f3d6a9, 0xb9e08a83a5e34f07, 0xdaf5ccd93fb0cc53, 0xe858ad248f5c22c9, 0xd1b3400f8f9cff68, 0x91376c36d99995be, 0x23100809b9c21fa1, 0xb58547448ffffb2d, 0xabd40a0c2832a78a, 0xe2e69915b3fff9f9, 0x16c90c8f323f516c, 0x8dd01fad907ffc3b, 0xae3da7d97f6792e3, 0xb1442798f49ffb4a, 0x99cd11cfdf41779c, 0xdd95317f31c7fa1d, 0x40405643d711d583, 0x8a7d3eef7f1cfc52, 0x482835ea666b2572, 0xad1c8eab5ee43b66, 0xda3243650005eecf, 0xd863b256369d4a40, 0x90bed43e40076a82, 0x873e4f75e2224e68, 0x5a7744a6e804a291, 0xa90de3535aaae202, 0x711515d0a205cb36, 0xd3515c2831559a83, 0xd5a5b44ca873e03, 0x8412d9991ed58091, 0xe858790afe9486c2, 0xa5178fff668ae0b6, 0x626e974dbe39a872, 0xce5d73ff402d98e3, 0xfb0a3d212dc8128f, 0x80fa687f881c7f8e, 0x7ce66634bc9d0b99, 0xa139029f6a239f72, 0x1c1fffc1ebc44e80, 0xc987434744ac874e, 0xa327ffb266b56220, 0xfbe9141915d7a922, 0x4bf1ff9f0062baa8, 0x9d71ac8fada6c9b5, 0x6f773fc3603db4a9, 0xc4ce17b399107c22, 0xcb550fb4384d21d3, 0xf6019da07f549b2b, 0x7e2a53a146606a48, 0x99c102844f94e0fb, 0x2eda7444cbfc426d, 0xc0314325637a1939, 0xfa911155fefb5308, 0xf03d93eebc589f88, 0x793555ab7eba27ca, 0x96267c7535b763b5, 0x4bc1558b2f3458de, 0xbbb01b9283253ca2, 0x9eb1aaedfb016f16, 0xea9c227723ee8bcb, 0x465e15a979c1cadc, 0x92a1958a7675175f, 0xbfacd89ec191ec9, 0xb749faed14125d36, 0xcef980ec671f667b, 0xe51c79a85916f484, 0x82b7e12780e7401a, 0x8f31cc0937ae58d2, 0xd1b2ecb8b0908810, 0xb2fe3f0b8599ef07, 0x861fa7e6dcb4aa15, 0xdfbdcece67006ac9, 0x67a791e093e1d49a, 0x8bd6a141006042bd, 0xe0c8bb2c5c6d24e0, 0xaecc49914078536d, 0x58fae9f773886e18, 0xda7f5bf590966848, 0xaf39a475506a899e, 0x888f99797a5e012d, 0x6d8406c952429603, 0xaab37fd7d8f58178, 0xc8e5087ba6d33b83, 0xd5605fcdcf32e1d6, 0xfb1e4a9a90880a64, 0x855c3be0a17fcd26, 0x5cf2eea09a55067f, 0xa6b34ad8c9dfc06f, 0xf42faa48c0ea481e, 0xd0601d8efc57b08b, 0xf13b94daf124da26, 0x823c12795db6ce57, 0x76c53d08d6b70858, 0xa2cb1717b52481ed, 0x54768c4b0c64ca6e, 0xcb7ddcdda26da268, 0xa9942f5dcf7dfd09, 0xfe5d54150b090b02, 0xd3f93b35435d7c4c, 0x9efa548d26e5a6e1, 0xc47bc5014a1a6daf, 0xc6b8e9b0709f109a, 0x359ab6419ca1091b, 0xf867241c8cc6d4c0, 0xc30163d203c94b62, 0x9b407691d7fc44f8, 0x79e0de63425dcf1d, 0xc21094364dfb5636, 0x985915fc12f542e4, 0xf294b943e17a2bc4, 0x3e6f5b7b17b2939d, 0x979cf3ca6cec5b5a, 0xa705992ceecf9c42, 0xbd8430bd08277231, 0x50c6ff782a838353, 0xece53cec4a314ebd, 0xa4f8bf5635246428, 0x940f4613ae5ed136, 0x871b7795e136be99, 0xb913179899f68584, 0x28e2557b59846e3f, 0xe757dd7ec07426e5, 0x331aeada2fe589cf, 0x9096ea6f3848984f, 0x3ff0d2c85def7621, 0xb4bca50b065abe63, 0xfed077a756b53a9, 0xe1ebce4dc7f16dfb, 0xd3e8495912c62894, 0x8d3360f09cf6e4bd, 0x64712dd7abbbd95c, 0xb080392cc4349dec, 0xbd8d794d96aacfb3, 0xdca04777f541c567, 0xecf0d7a0fc5583a0, 0x89e42caaf9491b60, 0xf41686c49db57244, 0xac5d37d5b79b6239, 0x311c2875c522ced5, 0xd77485cb25823ac7, 0x7d633293366b828b, 0x86a8d39ef77164bc, 0xae5dff9c02033197, 0xa8530886b54dbdeb, 0xd9f57f830283fdfc, 0xd267caa862a12d66, 0xd072df63c324fd7b, 0x8380dea93da4bc60, 0x4247cb9e59f71e6d, 0xa46116538d0deb78, 0x52d9be85f074e608, 0xcd795be870516656, 0x67902e276c921f8b, 0x806bd9714632dff6, 0xba1cd8a3db53b6, 0xa086cfcd97bf97f3, 0x80e8a40eccd228a4, 0xc8a883c0fdaf7df0, 0x6122cd128006b2cd, 0xfad2a4b13d1b5d6c, 0x796b805720085f81, 0x9cc3a6eec6311a63, 0xcbe3303674053bb0, 0xc3f490aa77bd60fc, 0xbedbfc4411068a9c, 0xf4f1b4d515acb93b, 0xee92fb5515482d44, 0x991711052d8bf3c5, 0x751bdd152d4d1c4a, 0xbf5cd54678eef0b6, 0xd262d45a78a0635d, 0xef340a98172aace4, 0x86fb897116c87c34, 0x9580869f0e7aac0e, 0xd45d35e6ae3d4da0, 0xbae0a846d2195712, 0x8974836059cca109, 0xe998d258869facd7, 0x2bd1a438703fc94b, 0x91ff83775423cc06, 0x7b6306a34627ddcf, 0xb67f6455292cbf08, 0x1a3bc84c17b1d542, 0xe41f3d6a7377eeca, 0x20caba5f1d9e4a93, 0x8e938662882af53e, 0x547eb47b7282ee9c, 0xb23867fb2a35b28d, 0xe99e619a4f23aa43, 0xdec681f9f4c31f31, 0x6405fa00e2ec94d4, 0x8b3c113c38f9f37e, 0xde83bc408dd3dd04, 0xae0b158b4738705e, 0x9624ab50b148d445, 0xd98ddaee19068c76, 0x3badd624dd9b0957, 0x87f8a8d4cfa417c9, 0xe54ca5d70a80e5d6, 0xa9f6d30a038d1dbc, 0x5e9fcf4ccd211f4c, 0xd47487cc8470652b, 0x7647c3200069671f, 0x84c8d4dfd2c63f3b, 0x29ecd9f40041e073, 0xa5fb0a17c777cf09, 0xf468107100525890, 0xcf79cc9db955c2cc, 0x7182148d4066eeb4, 0x81ac1fe293d599bf, 0xc6f14cd848405530, 0xa21727db38cb002f, 0xb8ada00e5a506a7c, 0xca9cf1d206fdc03b, 0xa6d90811f0e4851c, 0xfd442e4688bd304a, 0x908f4a166d1da663, 0x9e4a9cec15763e2e, 0x9a598e4e043287fe, 0xc5dd44271ad3cdba, 0x40eff1e1853f29fd, 0xf7549530e188c128, 0xd12bee59e68ef47c, 0x9a94dd3e8cf578b9, 0x82bb74f8301958ce, 0xc13a148e3032d6e7, 0xe36a52363c1faf01, 0xf18899b1bc3f8ca1, 0xdc44e6c3cb279ac1, 0x96f5600f15a7b7e5, 0x29ab103a5ef8c0b9, 0xbcb2b812db11a5de, 0x7415d448f6b6f0e7, 0xebdf661791d60f56, 0x111b495b3464ad21, 0x936b9fcebb25c995, 0xcab10dd900beec34, 0xb84687c269ef3bfb, 0x3d5d514f40eea742, 0xe65829b3046b0afa, 0xcb4a5a3112a5112, 0x8ff71a0fe2c2e6dc, 0x47f0e785eaba72ab, 0xb3f4e093db73a093, 0x59ed216765690f56, 0xe0f218b8d25088b8, 0x306869c13ec3532c, 0x8c974f7383725573, 0x1e414218c73a13fb, 0xafbd2350644eeacf, 0xe5d1929ef90898fa, 0xdbac6c247d62a583, 0xdf45f746b74abf39, 0x894bc396ce5da772, 0x6b8bba8c328eb783, 0xab9eb47c81f5114f, 0x66ea92f3f326564, 0xd686619ba27255a2, 0xc80a537b0efefebd, 0x8613fd0145877585, 0xbd06742ce95f5f36, 0xa798fc4196e952e7, 0x2c48113823b73704, 0xd17f3b51fca3a7a0, 0xf75a15862ca504c5, 0x82ef85133de648c4, 0x9a984d73dbe722fb, 0xa3ab66580d5fdaf5, 0xc13e60d0d2e0ebba, 0xcc963fee10b7d1b3, 0x318df905079926a8, 0xffbbcfe994e5c61f, 0xfdf17746497f7052, 0x9fd561f1fd0f9bd3, 0xfeb6ea8bedefa633, 0xc7caba6e7c5382c8, 0xfe64a52ee96b8fc0, 0xf9bd690a1b68637b, 0x3dfdce7aa3c673b0, 0x9c1661a651213e2d, 0x6bea10ca65c084e, 0xc31bfa0fe5698db8, 0x486e494fcff30a62, 0xf3e2f893dec3f126, 0x5a89dba3c3efccfa, 0x986ddb5c6b3a76b7, 0xf89629465a75e01c, 0xbe89523386091465, 0xf6bbb397f1135823, 0xee2ba6c0678b597f, 0x746aa07ded582e2c, 0x94db483840b717ef, 0xa8c2a44eb4571cdc, 0xba121a4650e4ddeb, 0x92f34d62616ce413, 0xe896a0d7e51e1566, 0x77b020baf9c81d17, 0x915e2486ef32cd60, 0xace1474dc1d122e, 0xb5b5ada8aaff80b8, 0xd819992132456ba, 0xe3231912d5bf60e6, 0x10e1fff697ed6c69, 0x8df5efabc5979c8f, 0xca8d3ffa1ef463c1, 0xb1736b96b6fd83b3, 0xbd308ff8a6b17cb2, 0xddd0467c64bce4a0, 0xac7cb3f6d05ddbde, 0x8aa22c0dbef60ee4, 0x6bcdf07a423aa96b, 0xad4ab7112eb3929d, 0x86c16c98d2c953c6, 0xd89d64d57a607744, 0xe871c7bf077ba8b7, 0x87625f056c7c4a8b, 0x11471cd764ad4972, 0xa93af6c6c79b5d2d, 0xd598e40d3dd89bcf, 0xd389b47879823479, 0x4aff1d108d4ec2c3, 0x843610cb4bf160cb, 0xcedf722a585139ba, 0xa54394fe1eedb8fe, 0xc2974eb4ee658828, 0xce947a3da6a9273e, 0x733d226229feea32, 0x811ccc668829b887, 0x806357d5a3f525f, 0xa163ff802a3426a8, 0xca07c2dcb0cf26f7, 0xc9bcff6034c13052, 0xfc89b393dd02f0b5, 0xfc2c3f3841f17c67, 0xbbac2078d443ace2, 0x9d9ba7832936edc0, 0xd54b944b84aa4c0d, 0xc5029163f384a931, 0xa9e795e65d4df11, 0xf64335bcf065d37d, 0x4d4617b5ff4a16d5, 0x99ea0196163fa42e, 0x504bced1bf8e4e45, 0xc06481fb9bcf8d39, 0xe45ec2862f71e1d6, 0xf07da27a82c37088, 0x5d767327bb4e5a4c, 0x964e858c91ba2655, 0x3a6a07f8d510f86f, 0xbbe226efb628afea, 0x890489f70a55368b, 0xeadab0aba3b2dbe5, 0x2b45ac74ccea842e, 0x92c8ae6b464fc96f, 0x3b0b8bc90012929d, 0xb77ada0617e3bbcb, 0x9ce6ebb40173744, 0xe55990879ddcaabd, 0xcc420a6a101d0515, 0x8f57fa54c2a9eab6, 0x9fa946824a12232d, 0xb32df8e9f3546564, 0x47939822dc96abf9, 0xdff9772470297ebd, 0x59787e2b93bc56f7, 0x8bfbea76c619ef36, 0x57eb4edb3c55b65a, 0xaefae51477a06b03, 0xede622920b6b23f1, 0xdab99e59958885c4, 0xe95fab368e45eced, 0x88b402f7fd75539b, 0x11dbcb0218ebb414, 0xaae103b5fcd2a881, 0xd652bdc29f26a119, 0xd59944a37c0752a2, 0x4be76d3346f0495f, 0x857fcae62d8493a5, 0x6f70a4400c562ddb, 0xa6dfbd9fb8e5b88e, 0xcb4ccd500f6bb952, 0xd097ad07a71f26b2, 0x7e2000a41346a7a7, 0x825ecc24c873782f, 0x8ed400668c0c28c8, 0xa2f67f2dfa90563b, 0x728900802f0f32fa, 0xcbb41ef979346bca, 0x4f2b40a03ad2ffb9, 0xfea126b7d78186bc, 0xe2f610c84987bfa8, 0x9f24b832e6b0f436, 0xdd9ca7d2df4d7c9, 0xc6ede63fa05d3143, 0x91503d1c79720dbb, 0xf8a95fcf88747d94, 0x75a44c6397ce912a, 0x9b69dbe1b548ce7c, 0xc986afbe3ee11aba, 0xc24452da229b021b, 0xfbe85badce996168, 0xf2d56790ab41c2a2, 0xfae27299423fb9c3, 0x97c560ba6b0919a5, 0xdccd879fc967d41a, 0xbdb6b8e905cb600f, 0x5400e987bbc1c920, 0xed246723473e3813, 0x290123e9aab23b68, 0x9436c0760c86e30b, 0xf9a0b6720aaf6521, 0xb94470938fa89bce, 0xf808e40e8d5b3e69, 0xe7958cb87392c2c2, 0xb60b1d1230b20e04, 0x90bd77f3483bb9b9, 0xb1c6f22b5e6f48c2, 0xb4ecd5f01a4aa828, 0x1e38aeb6360b1af3, 0xe2280b6c20dd5232, 0x25c6da63c38de1b0, 0x8d590723948a535f, 0x579c487e5a38ad0e, 0xb0af48ec79ace837, 0x2d835a9df0c6d851, 0xdcdb1b2798182244, 0xf8e431456cf88e65, 0x8a08f0f8bf0f156b, 0x1b8e9ecb641b58ff, 0xac8b2d36eed2dac5, 0xe272467e3d222f3f, 0xd7adf884aa879177, 0x5b0ed81dcc6abb0f, 0x86ccbb52ea94baea, 0x98e947129fc2b4e9, 0xa87fea27a539e9a5, 0x3f2398d747b36224, 0xd29fe4b18e88640e, 0x8eec7f0d19a03aad, 0x83a3eeeef9153e89, 0x1953cf68300424ac, 0xa48ceaaab75a8e2b, 0x5fa8c3423c052dd7, 0xcdb02555653131b6, 0x3792f412cb06794d, 0x808e17555f3ebf11, 0xe2bbd88bbee40bd0, 0xa0b19d2ab70e6ed6, 0x5b6aceaeae9d0ec4, 0xc8de047564d20a8b, 0xf245825a5a445275, 0xfb158592be068d2e, 0xeed6e2f0f0d56712, 0x9ced737bb6c4183d, 0x55464dd69685606b, 0xc428d05aa4751e4c, 0xaa97e14c3c26b886, 0xf53304714d9265df, 0xd53dd99f4b3066a8, 0x993fe2c6d07b7fab, 0xe546a8038efe4029, 0xbf8fdb78849a5f96, 0xde98520472bdd033, 0xef73d256a5c0f77c, 0x963e66858f6d4440, 0x95a8637627989aad, 0xdde7001379a44aa8, 0xbb127c53b17ec159, 0x5560c018580d5d52, 0xe9d71b689dde71af, 0xaab8f01e6e10b4a6, 0x9226712162ab070d, 0xcab3961304ca70e8, 0xb6b00d69bb55c8d1, 0x3d607b97c5fd0d22, 0xe45c10c42a2b3b05, 0x8cb89a7db77c506a, 0x8eb98a7a9a5b04e3, 0x77f3608e92adb242, 0xb267ed1940f1c61c, 0x55f038b237591ed3, 0xdf01e85f912e37a3, 0x6b6c46dec52f6688, 0x8b61313bbabce2c6, 0x2323ac4b3b3da015, 0xae397d8aa96c1b77, 0xabec975e0a0d081a, 0xd9c7dced53c72255, 0x96e7bd358c904a21, 0x881cea14545c7575, 0x7e50d64177da2e54, 0xaa242499697392d2, 0xdde50bd1d5d0b9e9, 0xd4ad2dbfc3d07787, 0x955e4ec64b44e864, 0x84ec3c97da624ab4, 0xbd5af13bef0b113e, 0xa6274bbdd0fadd61, 0xecb1ad8aeacdd58e, 0xcfb11ead453994ba, 0x67de18eda5814af2, 0x81ceb32c4b43fcf4, 0x80eacf948770ced7, 0xa2425ff75e14fc31, 0xa1258379a94d028d, 0xcad2f7f5359a3b3e, 0x96ee45813a04330, 0xfd87b5f28300ca0d, 0x8bca9d6e188853fc, 0x9e74d1b791e07e48, 0x775ea264cf55347e, 0xc612062576589dda, 0x95364afe032a819e, 0xf79687aed3eec551, 0x3a83ddbd83f52205, 0x9abe14cd44753b52, 0xc4926a9672793543, 0xc16d9a0095928a27, 0x75b7053c0f178294, 0xf1c90080baf72cb1, 0x5324c68b12dd6339, 0x971da05074da7bee, 0xd3f6fc16ebca5e04, 0xbce5086492111aea, 0x88f4bb1ca6bcf585, 0xec1e4a7db69561a5, 0x2b31e9e3d06c32e6, 0x9392ee8e921d5d07, 0x3aff322e62439fd0, 0xb877aa3236a4b449, 0x9befeb9fad487c3, 0xe69594bec44de15b, 0x4c2ebe687989a9b4, 0x901d7cf73ab0acd9, 0xf9d37014bf60a11, 0xb424dc35095cd80f, 0x538484c19ef38c95, 0xe12e13424bb40e13, 0x2865a5f206b06fba, 0x8cbccc096f5088cb, 0xf93f87b7442e45d4, 0xafebff0bcb24aafe, 0xf78f69a51539d749, 0xdbe6fecebdedd5be, 0xb573440e5a884d1c, 0x89705f4136b4a597, 0x31680a88f8953031, 0xabcc77118461cefc, 0xfdc20d2b36ba7c3e, 0xd6bf94d5e57a42bc, 0x3d32907604691b4d, 0x8637bd05af6c69b5, 0xa63f9a49c2c1b110, 0xa7c5ac471b478423, 0xfcf80dc33721d54, 0xd1b71758e219652b, 0xd3c36113404ea4a9, 0x83126e978d4fdf3b, 0x645a1cac083126ea, 0xa3d70a3d70a3d70a, 0x3d70a3d70a3d70a4, 0xcccccccccccccccc, 0xcccccccccccccccd, 0x8000000000000000, 0x0, 0xa000000000000000, 0x0, 0xc800000000000000, 0x0, 0xfa00000000000000, 0x0, 0x9c40000000000000, 0x0, 0xc350000000000000, 0x0, 0xf424000000000000, 0x0, 0x9896800000000000, 0x0, 0xbebc200000000000, 0x0, 0xee6b280000000000, 0x0, 0x9502f90000000000, 0x0, 0xba43b74000000000, 0x0, 0xe8d4a51000000000, 0x0, 0x9184e72a00000000, 0x0, 0xb5e620f480000000, 0x0, 0xe35fa931a0000000, 0x0, 0x8e1bc9bf04000000, 0x0, 0xb1a2bc2ec5000000, 0x0, 0xde0b6b3a76400000, 0x0, 0x8ac7230489e80000, 0x0, 0xad78ebc5ac620000, 0x0, 0xd8d726b7177a8000, 0x0, 0x878678326eac9000, 0x0, 0xa968163f0a57b400, 0x0, 0xd3c21bcecceda100, 0x0, 0x84595161401484a0, 0x0, 0xa56fa5b99019a5c8, 0x0, 0xcecb8f27f4200f3a, 0x0, 0x813f3978f8940984, 0x4000000000000000, 0xa18f07d736b90be5, 0x5000000000000000, 0xc9f2c9cd04674ede, 0xa400000000000000, 0xfc6f7c4045812296, 0x4d00000000000000, 0x9dc5ada82b70b59d, 0xf020000000000000, 0xc5371912364ce305, 0x6c28000000000000, 0xf684df56c3e01bc6, 0xc732000000000000, 0x9a130b963a6c115c, 0x3c7f400000000000, 0xc097ce7bc90715b3, 0x4b9f100000000000, 0xf0bdc21abb48db20, 0x1e86d40000000000, 0x96769950b50d88f4, 0x1314448000000000, 0xbc143fa4e250eb31, 0x17d955a000000000, 0xeb194f8e1ae525fd, 0x5dcfab0800000000, 0x92efd1b8d0cf37be, 0x5aa1cae500000000, 0xb7abc627050305ad, 0xf14a3d9e40000000, 0xe596b7b0c643c719, 0x6d9ccd05d0000000, 0x8f7e32ce7bea5c6f, 0xe4820023a2000000, 0xb35dbf821ae4f38b, 0xdda2802c8a800000, 0xe0352f62a19e306e, 0xd50b2037ad200000, 0x8c213d9da502de45, 0x4526f422cc340000, 0xaf298d050e4395d6, 0x9670b12b7f410000, 0xdaf3f04651d47b4c, 0x3c0cdd765f114000, 0x88d8762bf324cd0f, 0xa5880a69fb6ac800, 0xab0e93b6efee0053, 0x8eea0d047a457a00, 0xd5d238a4abe98068, 0x72a4904598d6d880, 0x85a36366eb71f041, 0x47a6da2b7f864750, 0xa70c3c40a64e6c51, 0x999090b65f67d924, 0xd0cf4b50cfe20765, 0xfff4b4e3f741cf6d, 0x82818f1281ed449f, 0xbff8f10e7a8921a4, 0xa321f2d7226895c7, 0xaff72d52192b6a0d, 0xcbea6f8ceb02bb39, 0x9bf4f8a69f764490, 0xfee50b7025c36a08, 0x2f236d04753d5b4, 0x9f4f2726179a2245, 0x1d762422c946590, 0xc722f0ef9d80aad6, 0x424d3ad2b7b97ef5, 0xf8ebad2b84e0d58b, 0xd2e0898765a7deb2, 0x9b934c3b330c8577, 0x63cc55f49f88eb2f, 0xc2781f49ffcfa6d5, 0x3cbf6b71c76b25fb, 0xf316271c7fc3908a, 0x8bef464e3945ef7a, 0x97edd871cfda3a56, 0x97758bf0e3cbb5ac, 0xbde94e8e43d0c8ec, 0x3d52eeed1cbea317, 0xed63a231d4c4fb27, 0x4ca7aaa863ee4bdd, 0x945e455f24fb1cf8, 0x8fe8caa93e74ef6a, 0xb975d6b6ee39e436, 0xb3e2fd538e122b44, 0xe7d34c64a9c85d44, 0x60dbbca87196b616, 0x90e40fbeea1d3a4a, 0xbc8955e946fe31cd, 0xb51d13aea4a488dd, 0x6babab6398bdbe41, 0xe264589a4dcdab14, 0xc696963c7eed2dd1, 0x8d7eb76070a08aec, 0xfc1e1de5cf543ca2, 0xb0de65388cc8ada8, 0x3b25a55f43294bcb, 0xdd15fe86affad912, 0x49ef0eb713f39ebe, 0x8a2dbf142dfcc7ab, 0x6e3569326c784337, 0xacb92ed9397bf996, 0x49c2c37f07965404, 0xd7e77a8f87daf7fb, 0xdc33745ec97be906, 0x86f0ac99b4e8dafd, 0x69a028bb3ded71a3, 0xa8acd7c0222311bc, 0xc40832ea0d68ce0c, 0xd2d80db02aabd62b, 0xf50a3fa490c30190, 0x83c7088e1aab65db, 0x792667c6da79e0fa, 0xa4b8cab1a1563f52, 0x577001b891185938, 0xcde6fd5e09abcf26, 0xed4c0226b55e6f86, 0x80b05e5ac60b6178, 0x544f8158315b05b4, 0xa0dc75f1778e39d6, 0x696361ae3db1c721, 0xc913936dd571c84c, 0x3bc3a19cd1e38e9, 0xfb5878494ace3a5f, 0x4ab48a04065c723, 0x9d174b2dcec0e47b, 0x62eb0d64283f9c76, 0xc45d1df942711d9a, 0x3ba5d0bd324f8394, 0xf5746577930d6500, 0xca8f44ec7ee36479, 0x9968bf6abbe85f20, 0x7e998b13cf4e1ecb, 0xbfc2ef456ae276e8, 0x9e3fedd8c321a67e, 0xefb3ab16c59b14a2, 0xc5cfe94ef3ea101e, 0x95d04aee3b80ece5, 0xbba1f1d158724a12, 0xbb445da9ca61281f, 0x2a8a6e45ae8edc97, 0xea1575143cf97226, 0xf52d09d71a3293bd, 0x924d692ca61be758, 0x593c2626705f9c56, 0xb6e0c377cfa2e12e, 0x6f8b2fb00c77836c, 0xe498f455c38b997a, 0xb6dfb9c0f956447, 0x8edf98b59a373fec, 0x4724bd4189bd5eac, 0xb2977ee300c50fe7, 0x58edec91ec2cb657, 0xdf3d5e9bc0f653e1, 0x2f2967b66737e3ed, 0x8b865b215899f46c, 0xbd79e0d20082ee74, 0xae67f1e9aec07187, 0xecd8590680a3aa11, 0xda01ee641a708de9, 0xe80e6f4820cc9495, 0x884134fe908658b2, 0x3109058d147fdcdd, 0xaa51823e34a7eede, 0xbd4b46f0599fd415, 0xd4e5e2cdc1d1ea96, 0x6c9e18ac7007c91a, 0x850fadc09923329e, 0x3e2cf6bc604ddb0, 0xa6539930bf6bff45, 0x84db8346b786151c, 0xcfe87f7cef46ff16, 0xe612641865679a63, 0x81f14fae158c5f6e, 0x4fcb7e8f3f60c07e, 0xa26da3999aef7749, 0xe3be5e330f38f09d, 0xcb090c8001ab551c, 0x5cadf5bfd3072cc5, 0xfdcb4fa002162a63, 0x73d9732fc7c8f7f6, 0x9e9f11c4014dda7e, 0x2867e7fddcdd9afa, 0xc646d63501a1511d, 0xb281e1fd541501b8, 0xf7d88bc24209a565, 0x1f225a7ca91a4226, 0x9ae757596946075f, 0x3375788de9b06958, 0xc1a12d2fc3978937, 0x52d6b1641c83ae, 0xf209787bb47d6b84, 0xc0678c5dbd23a49a, 0x9745eb4d50ce6332, 0xf840b7ba963646e0, 0xbd176620a501fbff, 0xb650e5a93bc3d898, 0xec5d3fa8ce427aff, 0xa3e51f138ab4cebe, 0x93ba47c980e98cdf, 0xc66f336c36b10137, 0xb8a8d9bbe123f017, 0xb80b0047445d4184, 0xe6d3102ad96cec1d, 0xa60dc059157491e5, 0x9043ea1ac7e41392, 0x87c89837ad68db2f, 0xb454e4a179dd1877, 0x29babe4598c311fb, 0xe16a1dc9d8545e94, 0xf4296dd6fef3d67a, 0x8ce2529e2734bb1d, 0x1899e4a65f58660c, 0xb01ae745b101e9e4, 0x5ec05dcff72e7f8f, 0xdc21a1171d42645d, 0x76707543f4fa1f73, 0x899504ae72497eba, 0x6a06494a791c53a8, 0xabfa45da0edbde69, 0x487db9d17636892, 0xd6f8d7509292d603, 0x45a9d2845d3c42b6, 0x865b86925b9bc5c2, 0xb8a2392ba45a9b2, 0xa7f26836f282b732, 0x8e6cac7768d7141e, 0xd1ef0244af2364ff, 0x3207d795430cd926, 0x8335616aed761f1f, 0x7f44e6bd49e807b8, 0xa402b9c5a8d3a6e7, 0x5f16206c9c6209a6, 0xcd036837130890a1, 0x36dba887c37a8c0f, 0x802221226be55a64, 0xc2494954da2c9789, 0xa02aa96b06deb0fd, 0xf2db9baa10b7bd6c, 0xc83553c5c8965d3d, 0x6f92829494e5acc7, 0xfa42a8b73abbf48c, 0xcb772339ba1f17f9, 0x9c69a97284b578d7, 0xff2a760414536efb, 0xc38413cf25e2d70d, 0xfef5138519684aba, 0xf46518c2ef5b8cd1, 0x7eb258665fc25d69, 0x98bf2f79d5993802, 0xef2f773ffbd97a61, 0xbeeefb584aff8603, 0xaafb550ffacfd8fa, 0xeeaaba2e5dbf6784, 0x95ba2a53f983cf38, 0x952ab45cfa97a0b2, 0xdd945a747bf26183, 0xba756174393d88df, 0x94f971119aeef9e4, 0xe912b9d1478ceb17, 0x7a37cd5601aab85d, 0x91abb422ccb812ee, 0xac62e055c10ab33a, 0xb616a12b7fe617aa, 0x577b986b314d6009, 0xe39c49765fdf9d94, 0xed5a7e85fda0b80b, 0x8e41ade9fbebc27d, 0x14588f13be847307, 0xb1d219647ae6b31c, 0x596eb2d8ae258fc8, 0xde469fbd99a05fe3, 0x6fca5f8ed9aef3bb, 0x8aec23d680043bee, 0x25de7bb9480d5854, 0xada72ccc20054ae9, 0xaf561aa79a10ae6a, 0xd910f7ff28069da4, 0x1b2ba1518094da04, 0x87aa9aff79042286, 0x90fb44d2f05d0842, 0xa99541bf57452b28, 0x353a1607ac744a53, 0xd3fa922f2d1675f2, 0x42889b8997915ce8, 0x847c9b5d7c2e09b7, 0x69956135febada11, 0xa59bc234db398c25, 0x43fab9837e699095, 0xcf02b2c21207ef2e, 0x94f967e45e03f4bb, 0x8161afb94b44f57d, 0x1d1be0eebac278f5, 0xa1ba1ba79e1632dc, 0x6462d92a69731732, 0xca28a291859bbf93, 0x7d7b8f7503cfdcfe, 0xfcb2cb35e702af78, 0x5cda735244c3d43e, 0x9defbf01b061adab, 0x3a0888136afa64a7, 0xc56baec21c7a1916, 0x88aaa1845b8fdd0, 0xf6c69a72a3989f5b, 0x8aad549e57273d45, 0x9a3c2087a63f6399, 0x36ac54e2f678864b, 0xc0cb28a98fcf3c7f, 0x84576a1bb416a7dd, 0xf0fdf2d3f3c30b9f, 0x656d44a2a11c51d5, 0x969eb7c47859e743, 0x9f644ae5a4b1b325, 0xbc4665b596706114, 0x873d5d9f0dde1fee, 0xeb57ff22fc0c7959, 0xa90cb506d155a7ea, 0x9316ff75dd87cbd8, 0x9a7f12442d588f2, 0xb7dcbf5354e9bece, 0xc11ed6d538aeb2f, 0xe5d3ef282a242e81, 0x8f1668c8a86da5fa, 0x8fa475791a569d10, 0xf96e017d694487bc, 0xb38d92d760ec4455, 0x37c981dcc395a9ac, 0xe070f78d3927556a, 0x85bbe253f47b1417, 0x8c469ab843b89562, 0x93956d7478ccec8e, 0xaf58416654a6babb, 0x387ac8d1970027b2, 0xdb2e51bfe9d0696a, 0x6997b05fcc0319e, 0x88fcf317f22241e2, 0x441fece3bdf81f03, 0xab3c2fddeeaad25a, 0xd527e81cad7626c3, 0xd60b3bd56a5586f1, 0x8a71e223d8d3b074, 0x85c7056562757456, 0xf6872d5667844e49, 0xa738c6bebb12d16c, 0xb428f8ac016561db, 0xd106f86e69d785c7, 0xe13336d701beba52, 0x82a45b450226b39c, 0xecc0024661173473, 0xa34d721642b06084, 0x27f002d7f95d0190, 0xcc20ce9bd35c78a5, 0x31ec038df7b441f4, 0xff290242c83396ce, 0x7e67047175a15271, 0x9f79a169bd203e41, 0xf0062c6e984d386, 0xc75809c42c684dd1, 0x52c07b78a3e60868, 0xf92e0c3537826145, 0xa7709a56ccdf8a82, 0x9bbcc7a142b17ccb, 0x88a66076400bb691, 0xc2abf989935ddbfe, 0x6acff893d00ea435, 0xf356f7ebf83552fe, 0x583f6b8c4124d43, 0x98165af37b2153de, 0xc3727a337a8b704a, 0xbe1bf1b059e9a8d6, 0x744f18c0592e4c5c, 0xeda2ee1c7064130c, 0x1162def06f79df73, 0x9485d4d1c63e8be7, 0x8addcb5645ac2ba8, 0xb9a74a0637ce2ee1, 0x6d953e2bd7173692, 0xe8111c87c5c1ba99, 0xc8fa8db6ccdd0437, 0x910ab1d4db9914a0, 0x1d9c9892400a22a2, 0xb54d5e4a127f59c8, 0x2503beb6d00cab4b, 0xe2a0b5dc971f303a, 0x2e44ae64840fd61d, 0x8da471a9de737e24, 0x5ceaecfed289e5d2, 0xb10d8e1456105dad, 0x7425a83e872c5f47, 0xdd50f1996b947518, 0xd12f124e28f77719, 0x8a5296ffe33cc92f, 0x82bd6b70d99aaa6f, 0xace73cbfdc0bfb7b, 0x636cc64d1001550b, 0xd8210befd30efa5a, 0x3c47f7e05401aa4e, 0x8714a775e3e95c78, 0x65acfaec34810a71, 0xa8d9d1535ce3b396, 0x7f1839a741a14d0d, 0xd31045a8341ca07c, 0x1ede48111209a050, 0x83ea2b892091e44d, 0x934aed0aab460432, 0xa4e4b66b68b65d60, 0xf81da84d5617853f, 0xce1de40642e3f4b9, 0x36251260ab9d668e, 0x80d2ae83e9ce78f3, 0xc1d72b7c6b426019, 0xa1075a24e4421730, 0xb24cf65b8612f81f, 0xc94930ae1d529cfc, 0xdee033f26797b627, 0xfb9b7cd9a4a7443c, 0x169840ef017da3b1, 0x9d412e0806e88aa5, 0x8e1f289560ee864e, 0xc491798a08a2ad4e, 0xf1a6f2bab92a27e2, 0xf5b5d7ec8acb58a2, 0xae10af696774b1db, 0x9991a6f3d6bf1765, 0xacca6da1e0a8ef29, 0xbff610b0cc6edd3f, 0x17fd090a58d32af3, 0xeff394dcff8a948e, 0xddfc4b4cef07f5b0, 0x95f83d0a1fb69cd9, 0x4abdaf101564f98e, 0xbb764c4ca7a4440f, 0x9d6d1ad41abe37f1, 0xea53df5fd18d5513, 0x84c86189216dc5ed, 0x92746b9be2f8552c, 0x32fd3cf5b4e49bb4, 0xb7118682dbb66a77, 0x3fbc8c33221dc2a1, 0xe4d5e82392a40515, 0xfabaf3feaa5334a, 0x8f05b1163ba6832d, 0x29cb4d87f2a7400e, 0xb2c71d5bca9023f8, 0x743e20e9ef511012, 0xdf78e4b2bd342cf6, 0x914da9246b255416, 0x8bab8eefb6409c1a, 0x1ad089b6c2f7548e, 0xae9672aba3d0c320, 0xa184ac2473b529b1, 0xda3c0f568cc4f3e8, 0xc9e5d72d90a2741e, 0x8865899617fb1871, 0x7e2fa67c7a658892, 0xaa7eebfb9df9de8d, 0xddbb901b98feeab7, 0xd51ea6fa85785631, 0x552a74227f3ea565, 0x8533285c936b35de, 0xd53a88958f87275f, 0xa67ff273b8460356, 0x8a892abaf368f137, 0xd01fef10a657842c, 0x2d2b7569b0432d85, 0x8213f56a67f6b29b, 0x9c3b29620e29fc73, 0xa298f2c501f45f42, 0x8349f3ba91b47b8f, 0xcb3f2f7642717713, 0x241c70a936219a73, 0xfe0efb53d30dd4d7, 0xed238cd383aa0110, 0x9ec95d1463e8a506, 0xf4363804324a40aa, 0xc67bb4597ce2ce48, 0xb143c6053edcd0d5, 0xf81aa16fdc1b81da, 0xdd94b7868e94050a, 0x9b10a4e5e9913128, 0xca7cf2b4191c8326, 0xc1d4ce1f63f57d72, 0xfd1c2f611f63a3f0, 0xf24a01a73cf2dccf, 0xbc633b39673c8cec, 0x976e41088617ca01, 0xd5be0503e085d813, 0xbd49d14aa79dbc82, 0x4b2d8644d8a74e18, 0xec9c459d51852ba2, 0xddf8e7d60ed1219e, 0x93e1ab8252f33b45, 0xcabb90e5c942b503, 0xb8da1662e7b00a17, 0x3d6a751f3b936243, 0xe7109bfba19c0c9d, 0xcc512670a783ad4, 0x906a617d450187e2, 0x27fb2b80668b24c5, 0xb484f9dc9641e9da, 0xb1f9f660802dedf6, 0xe1a63853bbd26451, 0x5e7873f8a0396973, 0x8d07e33455637eb2, 0xdb0b487b6423e1e8, 0xb049dc016abc5e5f, 0x91ce1a9a3d2cda62, 0xdc5c5301c56b75f7, 0x7641a140cc7810fb, 0x89b9b3e11b6329ba, 0xa9e904c87fcb0a9d, 0xac2820d9623bf429, 0x546345fa9fbdcd44, 0xd732290fbacaf133, 0xa97c177947ad4095, 0x867f59a9d4bed6c0, 0x49ed8eabcccc485d, 0xa81f301449ee8c70, 0x5c68f256bfff5a74, 0xd226fc195c6a2f8c, 0x73832eec6fff3111, 0x83585d8fd9c25db7, 0xc831fd53c5ff7eab, 0xa42e74f3d032f525, 0xba3e7ca8b77f5e55, 0xcd3a1230c43fb26f, 0x28ce1bd2e55f35eb, 0x80444b5e7aa7cf85, 0x7980d163cf5b81b3, 0xa0555e361951c366, 0xd7e105bcc332621f, 0xc86ab5c39fa63440, 0x8dd9472bf3fefaa7, 0xfa856334878fc150, 0xb14f98f6f0feb951, 0x9c935e00d4b9d8d2, 0x6ed1bf9a569f33d3, 0xc3b8358109e84f07, 0xa862f80ec4700c8, 0xf4a642e14c6262c8, 0xcd27bb612758c0fa, 0x98e7e9cccfbd7dbd, 0x8038d51cb897789c, 0xbf21e44003acdd2c, 0xe0470a63e6bd56c3, 0xeeea5d5004981478, 0x1858ccfce06cac74, 0x95527a5202df0ccb, 0xf37801e0c43ebc8, 0xbaa718e68396cffd, 0xd30560258f54e6ba, 0xe950df20247c83fd, 0x47c6b82ef32a2069, 0x91d28b7416cdd27e, 0x4cdc331d57fa5441, 0xb6472e511c81471d, 0xe0133fe4adf8e952, 0xe3d8f9e563a198e5, 0x58180fddd97723a6, 0x8e679c2f5e44ff8f, 0x570f09eaa7ea7648
-};
+    0xeef453d6923bd65a, 0x113faa2906a13b3f,
+    0x9558b4661b6565f8, 0x4ac7ca59a424c507,
+    0xbaaee17fa23ebf76, 0x5d79bcf00d2df649,
+    0xe95a99df8ace6f53, 0xf4d82c2c107973dc,
+    0x91d8a02bb6c10594, 0x79071b9b8a4be869,
+    0xb64ec836a47146f9, 0x9748e2826cdee284,
+    0xe3e27a444d8d98b7, 0xfd1b1b2308169b25,
+    0x8e6d8c6ab0787f72, 0xfe30f0f5e50e20f7,
+    0xb208ef855c969f4f, 0xbdbd2d335e51a935,
+    0xde8b2b66b3bc4723, 0xad2c788035e61382,
+    0x8b16fb203055ac76, 0x4c3bcb5021afcc31,
+    0xaddcb9e83c6b1793, 0xdf4abe242a1bbf3d,
+    0xd953e8624b85dd78, 0xd71d6dad34a2af0d,
+    0x87d4713d6f33aa6b, 0x8672648c40e5ad68,
+    0xa9c98d8ccb009506, 0x680efdaf511f18c2,
+    0xd43bf0effdc0ba48, 0x212bd1b2566def2,
+    0x84a57695fe98746d, 0x14bb630f7604b57,
+    0xa5ced43b7e3e9188, 0x419ea3bd35385e2d,
+    0xcf42894a5dce35ea, 0x52064cac828675b9,
+    0x818995ce7aa0e1b2, 0x7343efebd1940993,
+    0xa1ebfb4219491a1f, 0x1014ebe6c5f90bf8,
+    0xca66fa129f9b60a6, 0xd41a26e077774ef6,
+    0xfd00b897478238d0, 0x8920b098955522b4,
+    0x9e20735e8cb16382, 0x55b46e5f5d5535b0,
+    0xc5a890362fddbc62, 0xeb2189f734aa831d,
+    0xf712b443bbd52b7b, 0xa5e9ec7501d523e4,
+    0x9a6bb0aa55653b2d, 0x47b233c92125366e,
+    0xc1069cd4eabe89f8, 0x999ec0bb696e840a,
+    0xf148440a256e2c76, 0xc00670ea43ca250d,
+    0x96cd2a865764dbca, 0x380406926a5e5728,
+    0xbc807527ed3e12bc, 0xc605083704f5ecf2,
+    0xeba09271e88d976b, 0xf7864a44c633682e,
+    0x93445b8731587ea3, 0x7ab3ee6afbe0211d,
+    0xb8157268fdae9e4c, 0x5960ea05bad82964,
+    0xe61acf033d1a45df, 0x6fb92487298e33bd,
+    0x8fd0c16206306bab, 0xa5d3b6d479f8e056,
+    0xb3c4f1ba87bc8696, 0x8f48a4899877186c,
+    0xe0b62e2929aba83c, 0x331acdabfe94de87,
+    0x8c71dcd9ba0b4925, 0x9ff0c08b7f1d0b14,
+    0xaf8e5410288e1b6f, 0x7ecf0ae5ee44dd9,
+    0xdb71e91432b1a24a, 0xc9e82cd9f69d6150,
+    0x892731ac9faf056e, 0xbe311c083a225cd2,
+    0xab70fe17c79ac6ca, 0x6dbd630a48aaf406,
+    0xd64d3d9db981787d, 0x92cbbccdad5b108,
+    0x85f0468293f0eb4e, 0x25bbf56008c58ea5,
+    0xa76c582338ed2621, 0xaf2af2b80af6f24e,
+    0xd1476e2c07286faa, 0x1af5af660db4aee1,
+    0x82cca4db847945ca, 0x50d98d9fc890ed4d,
+    0xa37fce126597973c, 0xe50ff107bab528a0,
+    0xcc5fc196fefd7d0c, 0x1e53ed49a96272c8,
+    0xff77b1fcbebcdc4f, 0x25e8e89c13bb0f7a,
+    0x9faacf3df73609b1, 0x77b191618c54e9ac,
+    0xc795830d75038c1d, 0xd59df5b9ef6a2417,
+    0xf97ae3d0d2446f25, 0x4b0573286b44ad1d,
+    0x9becce62836ac577, 0x4ee367f9430aec32,
+    0xc2e801fb244576d5, 0x229c41f793cda73f,
+    0xf3a20279ed56d48a, 0x6b43527578c1110f,
+    0x9845418c345644d6, 0x830a13896b78aaa9,
+    0xbe5691ef416bd60c, 0x23cc986bc656d553,
+    0xedec366b11c6cb8f, 0x2cbfbe86b7ec8aa8,
+    0x94b3a202eb1c3f39, 0x7bf7d71432f3d6a9,
+    0xb9e08a83a5e34f07, 0xdaf5ccd93fb0cc53,
+    0xe858ad248f5c22c9, 0xd1b3400f8f9cff68,
+    0x91376c36d99995be, 0x23100809b9c21fa1,
+    0xb58547448ffffb2d, 0xabd40a0c2832a78a,
+    0xe2e69915b3fff9f9, 0x16c90c8f323f516c,
+    0x8dd01fad907ffc3b, 0xae3da7d97f6792e3,
+    0xb1442798f49ffb4a, 0x99cd11cfdf41779c,
+    0xdd95317f31c7fa1d, 0x40405643d711d583,
+    0x8a7d3eef7f1cfc52, 0x482835ea666b2572,
+    0xad1c8eab5ee43b66, 0xda3243650005eecf,
+    0xd863b256369d4a40, 0x90bed43e40076a82,
+    0x873e4f75e2224e68, 0x5a7744a6e804a291,
+    0xa90de3535aaae202, 0x711515d0a205cb36,
+    0xd3515c2831559a83, 0xd5a5b44ca873e03,
+    0x8412d9991ed58091, 0xe858790afe9486c2,
+    0xa5178fff668ae0b6, 0x626e974dbe39a872,
+    0xce5d73ff402d98e3, 0xfb0a3d212dc8128f,
+    0x80fa687f881c7f8e, 0x7ce66634bc9d0b99,
+    0xa139029f6a239f72, 0x1c1fffc1ebc44e80,
+    0xc987434744ac874e, 0xa327ffb266b56220,
+    0xfbe9141915d7a922, 0x4bf1ff9f0062baa8,
+    0x9d71ac8fada6c9b5, 0x6f773fc3603db4a9,
+    0xc4ce17b399107c22, 0xcb550fb4384d21d3,
+    0xf6019da07f549b2b, 0x7e2a53a146606a48,
+    0x99c102844f94e0fb, 0x2eda7444cbfc426d,
+    0xc0314325637a1939, 0xfa911155fefb5308,
+    0xf03d93eebc589f88, 0x793555ab7eba27ca,
+    0x96267c7535b763b5, 0x4bc1558b2f3458de,
+    0xbbb01b9283253ca2, 0x9eb1aaedfb016f16,
+    0xea9c227723ee8bcb, 0x465e15a979c1cadc,
+    0x92a1958a7675175f, 0xbfacd89ec191ec9,
+    0xb749faed14125d36, 0xcef980ec671f667b,
+    0xe51c79a85916f484, 0x82b7e12780e7401a,
+    0x8f31cc0937ae58d2, 0xd1b2ecb8b0908810,
+    0xb2fe3f0b8599ef07, 0x861fa7e6dcb4aa15,
+    0xdfbdcece67006ac9, 0x67a791e093e1d49a,
+    0x8bd6a141006042bd, 0xe0c8bb2c5c6d24e0,
+    0xaecc49914078536d, 0x58fae9f773886e18,
+    0xda7f5bf590966848, 0xaf39a475506a899e,
+    0x888f99797a5e012d, 0x6d8406c952429603,
+    0xaab37fd7d8f58178, 0xc8e5087ba6d33b83,
+    0xd5605fcdcf32e1d6, 0xfb1e4a9a90880a64,
+    0x855c3be0a17fcd26, 0x5cf2eea09a55067f,
+    0xa6b34ad8c9dfc06f, 0xf42faa48c0ea481e,
+    0xd0601d8efc57b08b, 0xf13b94daf124da26,
+    0x823c12795db6ce57, 0x76c53d08d6b70858,
+    0xa2cb1717b52481ed, 0x54768c4b0c64ca6e,
+    0xcb7ddcdda26da268, 0xa9942f5dcf7dfd09,
+    0xfe5d54150b090b02, 0xd3f93b35435d7c4c,
+    0x9efa548d26e5a6e1, 0xc47bc5014a1a6daf,
+    0xc6b8e9b0709f109a, 0x359ab6419ca1091b,
+    0xf867241c8cc6d4c0, 0xc30163d203c94b62,
+    0x9b407691d7fc44f8, 0x79e0de63425dcf1d,
+    0xc21094364dfb5636, 0x985915fc12f542e4,
+    0xf294b943e17a2bc4, 0x3e6f5b7b17b2939d,
+    0x979cf3ca6cec5b5a, 0xa705992ceecf9c42,
+    0xbd8430bd08277231, 0x50c6ff782a838353,
+    0xece53cec4a314ebd, 0xa4f8bf5635246428,
+    0x940f4613ae5ed136, 0x871b7795e136be99,
+    0xb913179899f68584, 0x28e2557b59846e3f,
+    0xe757dd7ec07426e5, 0x331aeada2fe589cf,
+    0x9096ea6f3848984f, 0x3ff0d2c85def7621,
+    0xb4bca50b065abe63, 0xfed077a756b53a9,
+    0xe1ebce4dc7f16dfb, 0xd3e8495912c62894,
+    0x8d3360f09cf6e4bd, 0x64712dd7abbbd95c,
+    0xb080392cc4349dec, 0xbd8d794d96aacfb3,
+    0xdca04777f541c567, 0xecf0d7a0fc5583a0,
+    0x89e42caaf9491b60, 0xf41686c49db57244,
+    0xac5d37d5b79b6239, 0x311c2875c522ced5,
+    0xd77485cb25823ac7, 0x7d633293366b828b,
+    0x86a8d39ef77164bc, 0xae5dff9c02033197,
+    0xa8530886b54dbdeb, 0xd9f57f830283fdfc,
+    0xd267caa862a12d66, 0xd072df63c324fd7b,
+    0x8380dea93da4bc60, 0x4247cb9e59f71e6d,
+    0xa46116538d0deb78, 0x52d9be85f074e608,
+    0xcd795be870516656, 0x67902e276c921f8b,
+    0x806bd9714632dff6, 0xba1cd8a3db53b6,
+    0xa086cfcd97bf97f3, 0x80e8a40eccd228a4,
+    0xc8a883c0fdaf7df0, 0x6122cd128006b2cd,
+    0xfad2a4b13d1b5d6c, 0x796b805720085f81,
+    0x9cc3a6eec6311a63, 0xcbe3303674053bb0,
+    0xc3f490aa77bd60fc, 0xbedbfc4411068a9c,
+    0xf4f1b4d515acb93b, 0xee92fb5515482d44,
+    0x991711052d8bf3c5, 0x751bdd152d4d1c4a,
+    0xbf5cd54678eef0b6, 0xd262d45a78a0635d,
+    0xef340a98172aace4, 0x86fb897116c87c34,
+    0x9580869f0e7aac0e, 0xd45d35e6ae3d4da0,
+    0xbae0a846d2195712, 0x8974836059cca109,
+    0xe998d258869facd7, 0x2bd1a438703fc94b,
+    0x91ff83775423cc06, 0x7b6306a34627ddcf,
+    0xb67f6455292cbf08, 0x1a3bc84c17b1d542,
+    0xe41f3d6a7377eeca, 0x20caba5f1d9e4a93,
+    0x8e938662882af53e, 0x547eb47b7282ee9c,
+    0xb23867fb2a35b28d, 0xe99e619a4f23aa43,
+    0xdec681f9f4c31f31, 0x6405fa00e2ec94d4,
+    0x8b3c113c38f9f37e, 0xde83bc408dd3dd04,
+    0xae0b158b4738705e, 0x9624ab50b148d445,
+    0xd98ddaee19068c76, 0x3badd624dd9b0957,
+    0x87f8a8d4cfa417c9, 0xe54ca5d70a80e5d6,
+    0xa9f6d30a038d1dbc, 0x5e9fcf4ccd211f4c,
+    0xd47487cc8470652b, 0x7647c3200069671f,
+    0x84c8d4dfd2c63f3b, 0x29ecd9f40041e073,
+    0xa5fb0a17c777cf09, 0xf468107100525890,
+    0xcf79cc9db955c2cc, 0x7182148d4066eeb4,
+    0x81ac1fe293d599bf, 0xc6f14cd848405530,
+    0xa21727db38cb002f, 0xb8ada00e5a506a7c,
+    0xca9cf1d206fdc03b, 0xa6d90811f0e4851c,
+    0xfd442e4688bd304a, 0x908f4a166d1da663,
+    0x9e4a9cec15763e2e, 0x9a598e4e043287fe,
+    0xc5dd44271ad3cdba, 0x40eff1e1853f29fd,
+    0xf7549530e188c128, 0xd12bee59e68ef47c,
+    0x9a94dd3e8cf578b9, 0x82bb74f8301958ce,
+    0xc13a148e3032d6e7, 0xe36a52363c1faf01,
+    0xf18899b1bc3f8ca1, 0xdc44e6c3cb279ac1,
+    0x96f5600f15a7b7e5, 0x29ab103a5ef8c0b9,
+    0xbcb2b812db11a5de, 0x7415d448f6b6f0e7,
+    0xebdf661791d60f56, 0x111b495b3464ad21,
+    0x936b9fcebb25c995, 0xcab10dd900beec34,
+    0xb84687c269ef3bfb, 0x3d5d514f40eea742,
+    0xe65829b3046b0afa, 0xcb4a5a3112a5112,
+    0x8ff71a0fe2c2e6dc, 0x47f0e785eaba72ab,
+    0xb3f4e093db73a093, 0x59ed216765690f56,
+    0xe0f218b8d25088b8, 0x306869c13ec3532c,
+    0x8c974f7383725573, 0x1e414218c73a13fb,
+    0xafbd2350644eeacf, 0xe5d1929ef90898fa,
+    0xdbac6c247d62a583, 0xdf45f746b74abf39,
+    0x894bc396ce5da772, 0x6b8bba8c328eb783,
+    0xab9eb47c81f5114f, 0x66ea92f3f326564,
+    0xd686619ba27255a2, 0xc80a537b0efefebd,
+    0x8613fd0145877585, 0xbd06742ce95f5f36,
+    0xa798fc4196e952e7, 0x2c48113823b73704,
+    0xd17f3b51fca3a7a0, 0xf75a15862ca504c5,
+    0x82ef85133de648c4, 0x9a984d73dbe722fb,
+    0xa3ab66580d5fdaf5, 0xc13e60d0d2e0ebba,
+    0xcc963fee10b7d1b3, 0x318df905079926a8,
+    0xffbbcfe994e5c61f, 0xfdf17746497f7052,
+    0x9fd561f1fd0f9bd3, 0xfeb6ea8bedefa633,
+    0xc7caba6e7c5382c8, 0xfe64a52ee96b8fc0,
+    0xf9bd690a1b68637b, 0x3dfdce7aa3c673b0,
+    0x9c1661a651213e2d, 0x6bea10ca65c084e,
+    0xc31bfa0fe5698db8, 0x486e494fcff30a62,
+    0xf3e2f893dec3f126, 0x5a89dba3c3efccfa,
+    0x986ddb5c6b3a76b7, 0xf89629465a75e01c,
+    0xbe89523386091465, 0xf6bbb397f1135823,
+    0xee2ba6c0678b597f, 0x746aa07ded582e2c,
+    0x94db483840b717ef, 0xa8c2a44eb4571cdc,
+    0xba121a4650e4ddeb, 0x92f34d62616ce413,
+    0xe896a0d7e51e1566, 0x77b020baf9c81d17,
+    0x915e2486ef32cd60, 0xace1474dc1d122e,
+    0xb5b5ada8aaff80b8, 0xd819992132456ba,
+    0xe3231912d5bf60e6, 0x10e1fff697ed6c69,
+    0x8df5efabc5979c8f, 0xca8d3ffa1ef463c1,
+    0xb1736b96b6fd83b3, 0xbd308ff8a6b17cb2,
+    0xddd0467c64bce4a0, 0xac7cb3f6d05ddbde,
+    0x8aa22c0dbef60ee4, 0x6bcdf07a423aa96b,
+    0xad4ab7112eb3929d, 0x86c16c98d2c953c6,
+    0xd89d64d57a607744, 0xe871c7bf077ba8b7,
+    0x87625f056c7c4a8b, 0x11471cd764ad4972,
+    0xa93af6c6c79b5d2d, 0xd598e40d3dd89bcf,
+    0xd389b47879823479, 0x4aff1d108d4ec2c3,
+    0x843610cb4bf160cb, 0xcedf722a585139ba,
+    0xa54394fe1eedb8fe, 0xc2974eb4ee658828,
+    0xce947a3da6a9273e, 0x733d226229feea32,
+    0x811ccc668829b887, 0x806357d5a3f525f,
+    0xa163ff802a3426a8, 0xca07c2dcb0cf26f7,
+    0xc9bcff6034c13052, 0xfc89b393dd02f0b5,
+    0xfc2c3f3841f17c67, 0xbbac2078d443ace2,
+    0x9d9ba7832936edc0, 0xd54b944b84aa4c0d,
+    0xc5029163f384a931, 0xa9e795e65d4df11,
+    0xf64335bcf065d37d, 0x4d4617b5ff4a16d5,
+    0x99ea0196163fa42e, 0x504bced1bf8e4e45,
+    0xc06481fb9bcf8d39, 0xe45ec2862f71e1d6,
+    0xf07da27a82c37088, 0x5d767327bb4e5a4c,
+    0x964e858c91ba2655, 0x3a6a07f8d510f86f,
+    0xbbe226efb628afea, 0x890489f70a55368b,
+    0xeadab0aba3b2dbe5, 0x2b45ac74ccea842e,
+    0x92c8ae6b464fc96f, 0x3b0b8bc90012929d,
+    0xb77ada0617e3bbcb, 0x9ce6ebb40173744,
+    0xe55990879ddcaabd, 0xcc420a6a101d0515,
+    0x8f57fa54c2a9eab6, 0x9fa946824a12232d,
+    0xb32df8e9f3546564, 0x47939822dc96abf9,
+    0xdff9772470297ebd, 0x59787e2b93bc56f7,
+    0x8bfbea76c619ef36, 0x57eb4edb3c55b65a,
+    0xaefae51477a06b03, 0xede622920b6b23f1,
+    0xdab99e59958885c4, 0xe95fab368e45eced,
+    0x88b402f7fd75539b, 0x11dbcb0218ebb414,
+    0xaae103b5fcd2a881, 0xd652bdc29f26a119,
+    0xd59944a37c0752a2, 0x4be76d3346f0495f,
+    0x857fcae62d8493a5, 0x6f70a4400c562ddb,
+    0xa6dfbd9fb8e5b88e, 0xcb4ccd500f6bb952,
+    0xd097ad07a71f26b2, 0x7e2000a41346a7a7,
+    0x825ecc24c873782f, 0x8ed400668c0c28c8,
+    0xa2f67f2dfa90563b, 0x728900802f0f32fa,
+    0xcbb41ef979346bca, 0x4f2b40a03ad2ffb9,
+    0xfea126b7d78186bc, 0xe2f610c84987bfa8,
+    0x9f24b832e6b0f436, 0xdd9ca7d2df4d7c9,
+    0xc6ede63fa05d3143, 0x91503d1c79720dbb,
+    0xf8a95fcf88747d94, 0x75a44c6397ce912a,
+    0x9b69dbe1b548ce7c, 0xc986afbe3ee11aba,
+    0xc24452da229b021b, 0xfbe85badce996168,
+    0xf2d56790ab41c2a2, 0xfae27299423fb9c3,
+    0x97c560ba6b0919a5, 0xdccd879fc967d41a,
+    0xbdb6b8e905cb600f, 0x5400e987bbc1c920,
+    0xed246723473e3813, 0x290123e9aab23b68,
+    0x9436c0760c86e30b, 0xf9a0b6720aaf6521,
+    0xb94470938fa89bce, 0xf808e40e8d5b3e69,
+    0xe7958cb87392c2c2, 0xb60b1d1230b20e04,
+    0x90bd77f3483bb9b9, 0xb1c6f22b5e6f48c2,
+    0xb4ecd5f01a4aa828, 0x1e38aeb6360b1af3,
+    0xe2280b6c20dd5232, 0x25c6da63c38de1b0,
+    0x8d590723948a535f, 0x579c487e5a38ad0e,
+    0xb0af48ec79ace837, 0x2d835a9df0c6d851,
+    0xdcdb1b2798182244, 0xf8e431456cf88e65,
+    0x8a08f0f8bf0f156b, 0x1b8e9ecb641b58ff,
+    0xac8b2d36eed2dac5, 0xe272467e3d222f3f,
+    0xd7adf884aa879177, 0x5b0ed81dcc6abb0f,
+    0x86ccbb52ea94baea, 0x98e947129fc2b4e9,
+    0xa87fea27a539e9a5, 0x3f2398d747b36224,
+    0xd29fe4b18e88640e, 0x8eec7f0d19a03aad,
+    0x83a3eeeef9153e89, 0x1953cf68300424ac,
+    0xa48ceaaab75a8e2b, 0x5fa8c3423c052dd7,
+    0xcdb02555653131b6, 0x3792f412cb06794d,
+    0x808e17555f3ebf11, 0xe2bbd88bbee40bd0,
+    0xa0b19d2ab70e6ed6, 0x5b6aceaeae9d0ec4,
+    0xc8de047564d20a8b, 0xf245825a5a445275,
+    0xfb158592be068d2e, 0xeed6e2f0f0d56712,
+    0x9ced737bb6c4183d, 0x55464dd69685606b,
+    0xc428d05aa4751e4c, 0xaa97e14c3c26b886,
+    0xf53304714d9265df, 0xd53dd99f4b3066a8,
+    0x993fe2c6d07b7fab, 0xe546a8038efe4029,
+    0xbf8fdb78849a5f96, 0xde98520472bdd033,
+    0xef73d256a5c0f77c, 0x963e66858f6d4440,
+    0x95a8637627989aad, 0xdde7001379a44aa8,
+    0xbb127c53b17ec159, 0x5560c018580d5d52,
+    0xe9d71b689dde71af, 0xaab8f01e6e10b4a6,
+    0x9226712162ab070d, 0xcab3961304ca70e8,
+    0xb6b00d69bb55c8d1, 0x3d607b97c5fd0d22,
+    0xe45c10c42a2b3b05, 0x8cb89a7db77c506a,
+    0x8eb98a7a9a5b04e3, 0x77f3608e92adb242,
+    0xb267ed1940f1c61c, 0x55f038b237591ed3,
+    0xdf01e85f912e37a3, 0x6b6c46dec52f6688,
+    0x8b61313bbabce2c6, 0x2323ac4b3b3da015,
+    0xae397d8aa96c1b77, 0xabec975e0a0d081a,
+    0xd9c7dced53c72255, 0x96e7bd358c904a21,
+    0x881cea14545c7575, 0x7e50d64177da2e54,
+    0xaa242499697392d2, 0xdde50bd1d5d0b9e9,
+    0xd4ad2dbfc3d07787, 0x955e4ec64b44e864,
+    0x84ec3c97da624ab4, 0xbd5af13bef0b113e,
+    0xa6274bbdd0fadd61, 0xecb1ad8aeacdd58e,
+    0xcfb11ead453994ba, 0x67de18eda5814af2,
+    0x81ceb32c4b43fcf4, 0x80eacf948770ced7,
+    0xa2425ff75e14fc31, 0xa1258379a94d028d,
+    0xcad2f7f5359a3b3e, 0x96ee45813a04330,
+    0xfd87b5f28300ca0d, 0x8bca9d6e188853fc,
+    0x9e74d1b791e07e48, 0x775ea264cf55347e,
+    0xc612062576589dda, 0x95364afe032a819e,
+    0xf79687aed3eec551, 0x3a83ddbd83f52205,
+    0x9abe14cd44753b52, 0xc4926a9672793543,
+    0xc16d9a0095928a27, 0x75b7053c0f178294,
+    0xf1c90080baf72cb1, 0x5324c68b12dd6339,
+    0x971da05074da7bee, 0xd3f6fc16ebca5e04,
+    0xbce5086492111aea, 0x88f4bb1ca6bcf585,
+    0xec1e4a7db69561a5, 0x2b31e9e3d06c32e6,
+    0x9392ee8e921d5d07, 0x3aff322e62439fd0,
+    0xb877aa3236a4b449, 0x9befeb9fad487c3,
+    0xe69594bec44de15b, 0x4c2ebe687989a9b4,
+    0x901d7cf73ab0acd9, 0xf9d37014bf60a11,
+    0xb424dc35095cd80f, 0x538484c19ef38c95,
+    0xe12e13424bb40e13, 0x2865a5f206b06fba,
+    0x8cbccc096f5088cb, 0xf93f87b7442e45d4,
+    0xafebff0bcb24aafe, 0xf78f69a51539d749,
+    0xdbe6fecebdedd5be, 0xb573440e5a884d1c,
+    0x89705f4136b4a597, 0x31680a88f8953031,
+    0xabcc77118461cefc, 0xfdc20d2b36ba7c3e,
+    0xd6bf94d5e57a42bc, 0x3d32907604691b4d,
+    0x8637bd05af6c69b5, 0xa63f9a49c2c1b110,
+    0xa7c5ac471b478423, 0xfcf80dc33721d54,
+    0xd1b71758e219652b, 0xd3c36113404ea4a9,
+    0x83126e978d4fdf3b, 0x645a1cac083126ea,
+    0xa3d70a3d70a3d70a, 0x3d70a3d70a3d70a4,
+    0xcccccccccccccccc, 0xcccccccccccccccd,
+    0x8000000000000000, 0x0,
+    0xa000000000000000, 0x0,
+    0xc800000000000000, 0x0,
+    0xfa00000000000000, 0x0,
+    0x9c40000000000000, 0x0,
+    0xc350000000000000, 0x0,
+    0xf424000000000000, 0x0,
+    0x9896800000000000, 0x0,
+    0xbebc200000000000, 0x0,
+    0xee6b280000000000, 0x0,
+    0x9502f90000000000, 0x0,
+    0xba43b74000000000, 0x0,
+    0xe8d4a51000000000, 0x0,
+    0x9184e72a00000000, 0x0,
+    0xb5e620f480000000, 0x0,
+    0xe35fa931a0000000, 0x0,
+    0x8e1bc9bf04000000, 0x0,
+    0xb1a2bc2ec5000000, 0x0,
+    0xde0b6b3a76400000, 0x0,
+    0x8ac7230489e80000, 0x0,
+    0xad78ebc5ac620000, 0x0,
+    0xd8d726b7177a8000, 0x0,
+    0x878678326eac9000, 0x0,
+    0xa968163f0a57b400, 0x0,
+    0xd3c21bcecceda100, 0x0,
+    0x84595161401484a0, 0x0,
+    0xa56fa5b99019a5c8, 0x0,
+    0xcecb8f27f4200f3a, 0x0,
+    0x813f3978f8940984, 0x4000000000000000,
+    0xa18f07d736b90be5, 0x5000000000000000,
+    0xc9f2c9cd04674ede, 0xa400000000000000,
+    0xfc6f7c4045812296, 0x4d00000000000000,
+    0x9dc5ada82b70b59d, 0xf020000000000000,
+    0xc5371912364ce305, 0x6c28000000000000,
+    0xf684df56c3e01bc6, 0xc732000000000000,
+    0x9a130b963a6c115c, 0x3c7f400000000000,
+    0xc097ce7bc90715b3, 0x4b9f100000000000,
+    0xf0bdc21abb48db20, 0x1e86d40000000000,
+    0x96769950b50d88f4, 0x1314448000000000,
+    0xbc143fa4e250eb31, 0x17d955a000000000,
+    0xeb194f8e1ae525fd, 0x5dcfab0800000000,
+    0x92efd1b8d0cf37be, 0x5aa1cae500000000,
+    0xb7abc627050305ad, 0xf14a3d9e40000000,
+    0xe596b7b0c643c719, 0x6d9ccd05d0000000,
+    0x8f7e32ce7bea5c6f, 0xe4820023a2000000,
+    0xb35dbf821ae4f38b, 0xdda2802c8a800000,
+    0xe0352f62a19e306e, 0xd50b2037ad200000,
+    0x8c213d9da502de45, 0x4526f422cc340000,
+    0xaf298d050e4395d6, 0x9670b12b7f410000,
+    0xdaf3f04651d47b4c, 0x3c0cdd765f114000,
+    0x88d8762bf324cd0f, 0xa5880a69fb6ac800,
+    0xab0e93b6efee0053, 0x8eea0d047a457a00,
+    0xd5d238a4abe98068, 0x72a4904598d6d880,
+    0x85a36366eb71f041, 0x47a6da2b7f864750,
+    0xa70c3c40a64e6c51, 0x999090b65f67d924,
+    0xd0cf4b50cfe20765, 0xfff4b4e3f741cf6d,
+    0x82818f1281ed449f, 0xbff8f10e7a8921a4,
+    0xa321f2d7226895c7, 0xaff72d52192b6a0d,
+    0xcbea6f8ceb02bb39, 0x9bf4f8a69f764490,
+    0xfee50b7025c36a08, 0x2f236d04753d5b4,
+    0x9f4f2726179a2245, 0x1d762422c946590,
+    0xc722f0ef9d80aad6, 0x424d3ad2b7b97ef5,
+    0xf8ebad2b84e0d58b, 0xd2e0898765a7deb2,
+    0x9b934c3b330c8577, 0x63cc55f49f88eb2f,
+    0xc2781f49ffcfa6d5, 0x3cbf6b71c76b25fb,
+    0xf316271c7fc3908a, 0x8bef464e3945ef7a,
+    0x97edd871cfda3a56, 0x97758bf0e3cbb5ac,
+    0xbde94e8e43d0c8ec, 0x3d52eeed1cbea317,
+    0xed63a231d4c4fb27, 0x4ca7aaa863ee4bdd,
+    0x945e455f24fb1cf8, 0x8fe8caa93e74ef6a,
+    0xb975d6b6ee39e436, 0xb3e2fd538e122b44,
+    0xe7d34c64a9c85d44, 0x60dbbca87196b616,
+    0x90e40fbeea1d3a4a, 0xbc8955e946fe31cd,
+    0xb51d13aea4a488dd, 0x6babab6398bdbe41,
+    0xe264589a4dcdab14, 0xc696963c7eed2dd1,
+    0x8d7eb76070a08aec, 0xfc1e1de5cf543ca2,
+    0xb0de65388cc8ada8, 0x3b25a55f43294bcb,
+    0xdd15fe86affad912, 0x49ef0eb713f39ebe,
+    0x8a2dbf142dfcc7ab, 0x6e3569326c784337,
+    0xacb92ed9397bf996, 0x49c2c37f07965404,
+    0xd7e77a8f87daf7fb, 0xdc33745ec97be906,
+    0x86f0ac99b4e8dafd, 0x69a028bb3ded71a3,
+    0xa8acd7c0222311bc, 0xc40832ea0d68ce0c,
+    0xd2d80db02aabd62b, 0xf50a3fa490c30190,
+    0x83c7088e1aab65db, 0x792667c6da79e0fa,
+    0xa4b8cab1a1563f52, 0x577001b891185938,
+    0xcde6fd5e09abcf26, 0xed4c0226b55e6f86,
+    0x80b05e5ac60b6178, 0x544f8158315b05b4,
+    0xa0dc75f1778e39d6, 0x696361ae3db1c721,
+    0xc913936dd571c84c, 0x3bc3a19cd1e38e9,
+    0xfb5878494ace3a5f, 0x4ab48a04065c723,
+    0x9d174b2dcec0e47b, 0x62eb0d64283f9c76,
+    0xc45d1df942711d9a, 0x3ba5d0bd324f8394,
+    0xf5746577930d6500, 0xca8f44ec7ee36479,
+    0x9968bf6abbe85f20, 0x7e998b13cf4e1ecb,
+    0xbfc2ef456ae276e8, 0x9e3fedd8c321a67e,
+    0xefb3ab16c59b14a2, 0xc5cfe94ef3ea101e,
+    0x95d04aee3b80ece5, 0xbba1f1d158724a12,
+    0xbb445da9ca61281f, 0x2a8a6e45ae8edc97,
+    0xea1575143cf97226, 0xf52d09d71a3293bd,
+    0x924d692ca61be758, 0x593c2626705f9c56,
+    0xb6e0c377cfa2e12e, 0x6f8b2fb00c77836c,
+    0xe498f455c38b997a, 0xb6dfb9c0f956447,
+    0x8edf98b59a373fec, 0x4724bd4189bd5eac,
+    0xb2977ee300c50fe7, 0x58edec91ec2cb657,
+    0xdf3d5e9bc0f653e1, 0x2f2967b66737e3ed,
+    0x8b865b215899f46c, 0xbd79e0d20082ee74,
+    0xae67f1e9aec07187, 0xecd8590680a3aa11,
+    0xda01ee641a708de9, 0xe80e6f4820cc9495,
+    0x884134fe908658b2, 0x3109058d147fdcdd,
+    0xaa51823e34a7eede, 0xbd4b46f0599fd415,
+    0xd4e5e2cdc1d1ea96, 0x6c9e18ac7007c91a,
+    0x850fadc09923329e, 0x3e2cf6bc604ddb0,
+    0xa6539930bf6bff45, 0x84db8346b786151c,
+    0xcfe87f7cef46ff16, 0xe612641865679a63,
+    0x81f14fae158c5f6e, 0x4fcb7e8f3f60c07e,
+    0xa26da3999aef7749, 0xe3be5e330f38f09d,
+    0xcb090c8001ab551c, 0x5cadf5bfd3072cc5,
+    0xfdcb4fa002162a63, 0x73d9732fc7c8f7f6,
+    0x9e9f11c4014dda7e, 0x2867e7fddcdd9afa,
+    0xc646d63501a1511d, 0xb281e1fd541501b8,
+    0xf7d88bc24209a565, 0x1f225a7ca91a4226,
+    0x9ae757596946075f, 0x3375788de9b06958,
+    0xc1a12d2fc3978937, 0x52d6b1641c83ae,
+    0xf209787bb47d6b84, 0xc0678c5dbd23a49a,
+    0x9745eb4d50ce6332, 0xf840b7ba963646e0,
+    0xbd176620a501fbff, 0xb650e5a93bc3d898,
+    0xec5d3fa8ce427aff, 0xa3e51f138ab4cebe,
+    0x93ba47c980e98cdf, 0xc66f336c36b10137,
+    0xb8a8d9bbe123f017, 0xb80b0047445d4184,
+    0xe6d3102ad96cec1d, 0xa60dc059157491e5,
+    0x9043ea1ac7e41392, 0x87c89837ad68db2f,
+    0xb454e4a179dd1877, 0x29babe4598c311fb,
+    0xe16a1dc9d8545e94, 0xf4296dd6fef3d67a,
+    0x8ce2529e2734bb1d, 0x1899e4a65f58660c,
+    0xb01ae745b101e9e4, 0x5ec05dcff72e7f8f,
+    0xdc21a1171d42645d, 0x76707543f4fa1f73,
+    0x899504ae72497eba, 0x6a06494a791c53a8,
+    0xabfa45da0edbde69, 0x487db9d17636892,
+    0xd6f8d7509292d603, 0x45a9d2845d3c42b6,
+    0x865b86925b9bc5c2, 0xb8a2392ba45a9b2,
+    0xa7f26836f282b732, 0x8e6cac7768d7141e,
+    0xd1ef0244af2364ff, 0x3207d795430cd926,
+    0x8335616aed761f1f, 0x7f44e6bd49e807b8,
+    0xa402b9c5a8d3a6e7, 0x5f16206c9c6209a6,
+    0xcd036837130890a1, 0x36dba887c37a8c0f,
+    0x802221226be55a64, 0xc2494954da2c9789,
+    0xa02aa96b06deb0fd, 0xf2db9baa10b7bd6c,
+    0xc83553c5c8965d3d, 0x6f92829494e5acc7,
+    0xfa42a8b73abbf48c, 0xcb772339ba1f17f9,
+    0x9c69a97284b578d7, 0xff2a760414536efb,
+    0xc38413cf25e2d70d, 0xfef5138519684aba,
+    0xf46518c2ef5b8cd1, 0x7eb258665fc25d69,
+    0x98bf2f79d5993802, 0xef2f773ffbd97a61,
+    0xbeeefb584aff8603, 0xaafb550ffacfd8fa,
+    0xeeaaba2e5dbf6784, 0x95ba2a53f983cf38,
+    0x952ab45cfa97a0b2, 0xdd945a747bf26183,
+    0xba756174393d88df, 0x94f971119aeef9e4,
+    0xe912b9d1478ceb17, 0x7a37cd5601aab85d,
+    0x91abb422ccb812ee, 0xac62e055c10ab33a,
+    0xb616a12b7fe617aa, 0x577b986b314d6009,
+    0xe39c49765fdf9d94, 0xed5a7e85fda0b80b,
+    0x8e41ade9fbebc27d, 0x14588f13be847307,
+    0xb1d219647ae6b31c, 0x596eb2d8ae258fc8,
+    0xde469fbd99a05fe3, 0x6fca5f8ed9aef3bb,
+    0x8aec23d680043bee, 0x25de7bb9480d5854,
+    0xada72ccc20054ae9, 0xaf561aa79a10ae6a,
+    0xd910f7ff28069da4, 0x1b2ba1518094da04,
+    0x87aa9aff79042286, 0x90fb44d2f05d0842,
+    0xa99541bf57452b28, 0x353a1607ac744a53,
+    0xd3fa922f2d1675f2, 0x42889b8997915ce8,
+    0x847c9b5d7c2e09b7, 0x69956135febada11,
+    0xa59bc234db398c25, 0x43fab9837e699095,
+    0xcf02b2c21207ef2e, 0x94f967e45e03f4bb,
+    0x8161afb94b44f57d, 0x1d1be0eebac278f5,
+    0xa1ba1ba79e1632dc, 0x6462d92a69731732,
+    0xca28a291859bbf93, 0x7d7b8f7503cfdcfe,
+    0xfcb2cb35e702af78, 0x5cda735244c3d43e,
+    0x9defbf01b061adab, 0x3a0888136afa64a7,
+    0xc56baec21c7a1916, 0x88aaa1845b8fdd0,
+    0xf6c69a72a3989f5b, 0x8aad549e57273d45,
+    0x9a3c2087a63f6399, 0x36ac54e2f678864b,
+    0xc0cb28a98fcf3c7f, 0x84576a1bb416a7dd,
+    0xf0fdf2d3f3c30b9f, 0x656d44a2a11c51d5,
+    0x969eb7c47859e743, 0x9f644ae5a4b1b325,
+    0xbc4665b596706114, 0x873d5d9f0dde1fee,
+    0xeb57ff22fc0c7959, 0xa90cb506d155a7ea,
+    0x9316ff75dd87cbd8, 0x9a7f12442d588f2,
+    0xb7dcbf5354e9bece, 0xc11ed6d538aeb2f,
+    0xe5d3ef282a242e81, 0x8f1668c8a86da5fa,
+    0x8fa475791a569d10, 0xf96e017d694487bc,
+    0xb38d92d760ec4455, 0x37c981dcc395a9ac,
+    0xe070f78d3927556a, 0x85bbe253f47b1417,
+    0x8c469ab843b89562, 0x93956d7478ccec8e,
+    0xaf58416654a6babb, 0x387ac8d1970027b2,
+    0xdb2e51bfe9d0696a, 0x6997b05fcc0319e,
+    0x88fcf317f22241e2, 0x441fece3bdf81f03,
+    0xab3c2fddeeaad25a, 0xd527e81cad7626c3,
+    0xd60b3bd56a5586f1, 0x8a71e223d8d3b074,
+    0x85c7056562757456, 0xf6872d5667844e49,
+    0xa738c6bebb12d16c, 0xb428f8ac016561db,
+    0xd106f86e69d785c7, 0xe13336d701beba52,
+    0x82a45b450226b39c, 0xecc0024661173473,
+    0xa34d721642b06084, 0x27f002d7f95d0190,
+    0xcc20ce9bd35c78a5, 0x31ec038df7b441f4,
+    0xff290242c83396ce, 0x7e67047175a15271,
+    0x9f79a169bd203e41, 0xf0062c6e984d386,
+    0xc75809c42c684dd1, 0x52c07b78a3e60868,
+    0xf92e0c3537826145, 0xa7709a56ccdf8a82,
+    0x9bbcc7a142b17ccb, 0x88a66076400bb691,
+    0xc2abf989935ddbfe, 0x6acff893d00ea435,
+    0xf356f7ebf83552fe, 0x583f6b8c4124d43,
+    0x98165af37b2153de, 0xc3727a337a8b704a,
+    0xbe1bf1b059e9a8d6, 0x744f18c0592e4c5c,
+    0xeda2ee1c7064130c, 0x1162def06f79df73,
+    0x9485d4d1c63e8be7, 0x8addcb5645ac2ba8,
+    0xb9a74a0637ce2ee1, 0x6d953e2bd7173692,
+    0xe8111c87c5c1ba99, 0xc8fa8db6ccdd0437,
+    0x910ab1d4db9914a0, 0x1d9c9892400a22a2,
+    0xb54d5e4a127f59c8, 0x2503beb6d00cab4b,
+    0xe2a0b5dc971f303a, 0x2e44ae64840fd61d,
+    0x8da471a9de737e24, 0x5ceaecfed289e5d2,
+    0xb10d8e1456105dad, 0x7425a83e872c5f47,
+    0xdd50f1996b947518, 0xd12f124e28f77719,
+    0x8a5296ffe33cc92f, 0x82bd6b70d99aaa6f,
+    0xace73cbfdc0bfb7b, 0x636cc64d1001550b,
+    0xd8210befd30efa5a, 0x3c47f7e05401aa4e,
+    0x8714a775e3e95c78, 0x65acfaec34810a71,
+    0xa8d9d1535ce3b396, 0x7f1839a741a14d0d,
+    0xd31045a8341ca07c, 0x1ede48111209a050,
+    0x83ea2b892091e44d, 0x934aed0aab460432,
+    0xa4e4b66b68b65d60, 0xf81da84d5617853f,
+    0xce1de40642e3f4b9, 0x36251260ab9d668e,
+    0x80d2ae83e9ce78f3, 0xc1d72b7c6b426019,
+    0xa1075a24e4421730, 0xb24cf65b8612f81f,
+    0xc94930ae1d529cfc, 0xdee033f26797b627,
+    0xfb9b7cd9a4a7443c, 0x169840ef017da3b1,
+    0x9d412e0806e88aa5, 0x8e1f289560ee864e,
+    0xc491798a08a2ad4e, 0xf1a6f2bab92a27e2,
+    0xf5b5d7ec8acb58a2, 0xae10af696774b1db,
+    0x9991a6f3d6bf1765, 0xacca6da1e0a8ef29,
+    0xbff610b0cc6edd3f, 0x17fd090a58d32af3,
+    0xeff394dcff8a948e, 0xddfc4b4cef07f5b0,
+    0x95f83d0a1fb69cd9, 0x4abdaf101564f98e,
+    0xbb764c4ca7a4440f, 0x9d6d1ad41abe37f1,
+    0xea53df5fd18d5513, 0x84c86189216dc5ed,
+    0x92746b9be2f8552c, 0x32fd3cf5b4e49bb4,
+    0xb7118682dbb66a77, 0x3fbc8c33221dc2a1,
+    0xe4d5e82392a40515, 0xfabaf3feaa5334a,
+    0x8f05b1163ba6832d, 0x29cb4d87f2a7400e,
+    0xb2c71d5bca9023f8, 0x743e20e9ef511012,
+    0xdf78e4b2bd342cf6, 0x914da9246b255416,
+    0x8bab8eefb6409c1a, 0x1ad089b6c2f7548e,
+    0xae9672aba3d0c320, 0xa184ac2473b529b1,
+    0xda3c0f568cc4f3e8, 0xc9e5d72d90a2741e,
+    0x8865899617fb1871, 0x7e2fa67c7a658892,
+    0xaa7eebfb9df9de8d, 0xddbb901b98feeab7,
+    0xd51ea6fa85785631, 0x552a74227f3ea565,
+    0x8533285c936b35de, 0xd53a88958f87275f,
+    0xa67ff273b8460356, 0x8a892abaf368f137,
+    0xd01fef10a657842c, 0x2d2b7569b0432d85,
+    0x8213f56a67f6b29b, 0x9c3b29620e29fc73,
+    0xa298f2c501f45f42, 0x8349f3ba91b47b8f,
+    0xcb3f2f7642717713, 0x241c70a936219a73,
+    0xfe0efb53d30dd4d7, 0xed238cd383aa0110,
+    0x9ec95d1463e8a506, 0xf4363804324a40aa,
+    0xc67bb4597ce2ce48, 0xb143c6053edcd0d5,
+    0xf81aa16fdc1b81da, 0xdd94b7868e94050a,
+    0x9b10a4e5e9913128, 0xca7cf2b4191c8326,
+    0xc1d4ce1f63f57d72, 0xfd1c2f611f63a3f0,
+    0xf24a01a73cf2dccf, 0xbc633b39673c8cec,
+    0x976e41088617ca01, 0xd5be0503e085d813,
+    0xbd49d14aa79dbc82, 0x4b2d8644d8a74e18,
+    0xec9c459d51852ba2, 0xddf8e7d60ed1219e,
+    0x93e1ab8252f33b45, 0xcabb90e5c942b503,
+    0xb8da1662e7b00a17, 0x3d6a751f3b936243,
+    0xe7109bfba19c0c9d, 0xcc512670a783ad4,
+    0x906a617d450187e2, 0x27fb2b80668b24c5,
+    0xb484f9dc9641e9da, 0xb1f9f660802dedf6,
+    0xe1a63853bbd26451, 0x5e7873f8a0396973,
+    0x8d07e33455637eb2, 0xdb0b487b6423e1e8,
+    0xb049dc016abc5e5f, 0x91ce1a9a3d2cda62,
+    0xdc5c5301c56b75f7, 0x7641a140cc7810fb,
+    0x89b9b3e11b6329ba, 0xa9e904c87fcb0a9d,
+    0xac2820d9623bf429, 0x546345fa9fbdcd44,
+    0xd732290fbacaf133, 0xa97c177947ad4095,
+    0x867f59a9d4bed6c0, 0x49ed8eabcccc485d,
+    0xa81f301449ee8c70, 0x5c68f256bfff5a74,
+    0xd226fc195c6a2f8c, 0x73832eec6fff3111,
+    0x83585d8fd9c25db7, 0xc831fd53c5ff7eab,
+    0xa42e74f3d032f525, 0xba3e7ca8b77f5e55,
+    0xcd3a1230c43fb26f, 0x28ce1bd2e55f35eb,
+    0x80444b5e7aa7cf85, 0x7980d163cf5b81b3,
+    0xa0555e361951c366, 0xd7e105bcc332621f,
+    0xc86ab5c39fa63440, 0x8dd9472bf3fefaa7,
+    0xfa856334878fc150, 0xb14f98f6f0feb951,
+    0x9c935e00d4b9d8d2, 0x6ed1bf9a569f33d3,
+    0xc3b8358109e84f07, 0xa862f80ec4700c8,
+    0xf4a642e14c6262c8, 0xcd27bb612758c0fa,
+    0x98e7e9cccfbd7dbd, 0x8038d51cb897789c,
+    0xbf21e44003acdd2c, 0xe0470a63e6bd56c3,
+    0xeeea5d5004981478, 0x1858ccfce06cac74,
+    0x95527a5202df0ccb, 0xf37801e0c43ebc8,
+    0xbaa718e68396cffd, 0xd30560258f54e6ba,
+    0xe950df20247c83fd, 0x47c6b82ef32a2069,
+    0x91d28b7416cdd27e, 0x4cdc331d57fa5441,
+    0xb6472e511c81471d, 0xe0133fe4adf8e952,
+    0xe3d8f9e563a198e5, 0x58180fddd97723a6,
+    0x8e679c2f5e44ff8f, 0x570f09eaa7ea7648};
 
 // lookup table for ascii values
 ffc_internal bool FFC_SPACE_LUT[256] = {
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-};
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 ffc_internal ffc_inline bool ffc_is_space(char c) {
   return FFC_SPACE_LUT[(uint8_t)c];
 }
 
 ffc_internal uint8_t FFC_CHAR_TO_DIGIT_LUT[] = {
-      255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-      255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-      255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-      255, 255, 255, 0,   1,   2,   3,   4,   5,   6,   7,   8,   9,   255, 255,
-      255, 255, 255, 255, 255, 10,  11,  12,  13,  14,  15,  16,  17,  18,  19,
-      20,  21,  22,  23,  24,  25,  26,  27,  28,  29,  30,  31,  32,  33,  34,
-      35,  255, 255, 255, 255, 255, 255, 10,  11,  12,  13,  14,  15,  16,  17,
-      18,  19,  20,  21,  22,  23,  24,  25,  26,  27,  28,  29,  30,  31,  32,
-      33,  34,  35,  255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-      255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-      255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-      255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-      255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-      255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-      255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-      255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-      255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-      255};
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0,   1,   2,   3,   4,   5,   6,   7,   8,
+    9,   255, 255, 255, 255, 255, 255, 255, 10,  11,  12,  13,  14,  15,  16,  17,  18,  19,  20,
+    21,  22,  23,  24,  25,  26,  27,  28,  29,  30,  31,  32,  33,  34,  35,  255, 255, 255, 255,
+    255, 255, 10,  11,  12,  13,  14,  15,  16,  17,  18,  19,  20,  21,  22,  23,  24,  25,  26,
+    27,  28,  29,  30,  31,  32,  33,  34,  35,  255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255};
 
-ffc_internal ffc_inline
-uint8_t ffc_char_to_digit(char c) {
+ffc_internal ffc_inline uint8_t ffc_char_to_digit(char c) {
   return FFC_CHAR_TO_DIGIT_LUT[(uint8_t)c];
 }
 
 // Indexed by a 'base' but offset by 2, first entry is base 2, 64 digits, checks out right?
-ffc_internal size_t FFC_MAXDIGITS_OF_BASE_U64[] = {
-    64, 41, 32, 28, 25, 23, 22, 21, 20, 19, 18, 18, 17, 17, 16, 16, 16, 16,
-    15, 15, 15, 15, 14, 14, 14, 14, 14, 14, 14, 13, 13, 13, 13, 13, 13};
+ffc_internal size_t FFC_MAXDIGITS_OF_BASE_U64[] = {64, 41, 32, 28, 25, 23, 22, 21, 20, 19, 18, 18,
+                                                   17, 17, 16, 16, 16, 16, 15, 15, 15, 15, 14, 14,
+                                                   14, 14, 14, 14, 14, 13, 13, 13, 13, 13, 13};
 
 ffc_internal ffc_inline size_t ffc_max_digits_u64(int base) {
   return FFC_MAXDIGITS_OF_BASE_U64[base - 2];
@@ -806,32 +1465,36 @@ ffc_internal ffc_inline bool ffc_is_integer(char c) {
   return (unsigned)(c - '0') <= 9u;
 }
 
-
 ffc_internal uint64_t FFC_MIN_SAFE_OF_BASE_U64[] = {
-      9223372036854775808ull,  12157665459056928801ull, 4611686018427387904,
-      7450580596923828125,     4738381338321616896,     3909821048582988049,
-      9223372036854775808ull,  12157665459056928801ull, 10000000000000000000ull,
-      5559917313492231481,     2218611106740436992,     8650415919381337933,
-      2177953337809371136,     6568408355712890625,     1152921504606846976,
-      2862423051509815793,     6746640616477458432,     15181127029874798299ull,
-      1638400000000000000,     3243919932521508681,     6221821273427820544,
-      11592836324538749809ull, 876488338465357824,      1490116119384765625,
-      2481152873203736576,     4052555153018976267,     6502111422497947648,
-      10260628712958602189ull, 15943230000000000000ull, 787662783788549761,
-      1152921504606846976,     1667889514952984961,     2386420683693101056,
-      3379220508056640625,     4738381338321616896};
+    9223372036854775808ull,  12157665459056928801ull, 4611686018427387904,
+    7450580596923828125,     4738381338321616896,     3909821048582988049,
+    9223372036854775808ull,  12157665459056928801ull, 10000000000000000000ull,
+    5559917313492231481,     2218611106740436992,     8650415919381337933,
+    2177953337809371136,     6568408355712890625,     1152921504606846976,
+    2862423051509815793,     6746640616477458432,     15181127029874798299ull,
+    1638400000000000000,     3243919932521508681,     6221821273427820544,
+    11592836324538749809ull, 876488338465357824,      1490116119384765625,
+    2481152873203736576,     4052555153018976267,     6502111422497947648,
+    10260628712958602189ull, 15943230000000000000ull, 787662783788549761,
+    1152921504606846976,     1667889514952984961,     2386420683693101056,
+    3379220508056640625,     4738381338321616896};
 
 ffc_internal ffc_inline uint64_t ffc_min_safe_u64_of_base(int base) {
   return FFC_MIN_SAFE_OF_BASE_U64[base - 2];
 }
 
-ffc_internal ffc_inline
-bool ffc_strncasecmp3(char const *actual_mixedcase, char const *expected_lowercase, size_t char_width) {
+ffc_internal ffc_inline bool ffc_strncasecmp3(char const *actual_mixedcase,
+                                              char const *expected_lowercase, size_t char_width) {
   uint64_t mask = 0;
-  if (char_width == 1) { mask = 0x2020202020202020; }
-  else if (char_width == 2) { mask = 0x0020002000200020; }
-  else if (char_width == 4) { mask = 0x0000002000000020; }
-  else { return false; }
+  if (char_width == 1) {
+    mask = 0x2020202020202020;
+  } else if (char_width == 2) {
+    mask = 0x0020002000200020;
+  } else if (char_width == 4) {
+    mask = 0x0000002000000020;
+  } else {
+    return false;
+  }
 
   uint64_t val1 = 0;
   uint64_t val2 = 0;
@@ -854,8 +1517,8 @@ bool ffc_strncasecmp3(char const *actual_mixedcase, char const *expected_lowerca
   }
 }
 
-ffc_internal ffc_inline
-bool ffc_strncasecmp5(char *actual_mixedcase, char const *expected_lowercase, size_t char_width) {
+ffc_internal ffc_inline bool ffc_strncasecmp5(char *actual_mixedcase,
+                                              char const *expected_lowercase, size_t char_width) {
   uint64_t mask = 0;
   uint64_t val1 = 0;
   uint64_t val2 = 0;
@@ -900,8 +1563,7 @@ bool ffc_strncasecmp5(char *actual_mixedcase, char const *expected_lowercase, si
  * Credit : @mwalcott3
  */
 
-ffc_internal ffc_inline
-bool ffc_rounds_to_nearest(void) {
+ffc_internal ffc_inline bool ffc_rounds_to_nearest(void) {
 #if defined(FFC_ROUNDS_TO_NEAREST)
   // We're being compiled under a mode where IEEE 754 round-to-nearest mode is
   // guaranteed.
@@ -969,8 +1631,9 @@ bool ffc_rounds_to_nearest(void) {
 }
 
 ffc_internal ffc_inline
-// packs up an adjusted_mantissa into a double
-void ffc_am_to_float(bool negative, ffc_adjusted_mantissa am, ffc_value* value, ffc_value_kind vk) {
+    // packs up an adjusted_mantissa into a double
+    void ffc_am_to_float(bool negative, ffc_adjusted_mantissa am, ffc_value *value,
+                         ffc_value_kind vk) {
   if (vk == FFC_VALUE_KIND_FLOAT) {
     uint32_t word = (uint32_t)am.mantissa;
     word = word | (uint32_t)(am.power2) << ffc_const(vk, MANTISSA_EXPLICIT_BITS);
@@ -984,15 +1647,12 @@ void ffc_am_to_float(bool negative, ffc_adjusted_mantissa am, ffc_value* value, 
   }
 }
 
-static const double FFC_DOUBLE_POWERS_OF_TEN[] = {
-  1e0,  1e1,  1e2,  1e3,  1e4,  1e5,  1e6,  1e7,  1e8,  1e9,  1e10, 1e11,
- 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22
-};
+static const double FFC_DOUBLE_POWERS_OF_TEN[] = {1e0,  1e1,  1e2,  1e3,  1e4,  1e5,  1e6,  1e7,
+                                                  1e8,  1e9,  1e10, 1e11, 1e12, 1e13, 1e14, 1e15,
+                                                  1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22};
 
-static const float FFC_FLOAT_POWERS_OF_TEN[] = {
-  1e0f, 1e1f, 1e2f, 1e3f, 1e4f, 1e5f,
-  1e6f, 1e7f, 1e8f, 1e9f, 1e10f
-};
+static const float FFC_FLOAT_POWERS_OF_TEN[] = {1e0f, 1e1f, 1e2f, 1e3f, 1e4f, 1e5f,
+                                                1e6f, 1e7f, 1e8f, 1e9f, 1e10f};
 
 // Largest integer value v so that (5**index * v) <= 1<<53.
 // 0x20000000000000 == 1 << 53
@@ -1025,28 +1685,31 @@ static const uint64_t FFC_DOUBLE_MAX_MANTISSA[] = {
 
 // Largest integer value v so that (5**index * v) <= 1<<24.
 // 0x1000000 == 1<<24
-static const uint64_t FFC_FLOAT_MAX_MANTISSA[] = {
-    0x1000000,
-    0x1000000 / 5,
-    0x1000000 / (5 * 5),
-    0x1000000 / (5 * 5 * 5),
-    0x1000000 / (5 * 5 * 5 * 5),
-    0x1000000 / (FFC_55555),
-    0x1000000 / (FFC_55555 * 5),
-    0x1000000 / (FFC_55555 * 5 * 5),
-    0x1000000 / (FFC_55555 * 5 * 5 * 5),
-    0x1000000 / (FFC_55555 * 5 * 5 * 5 * 5),
-    0x1000000 / (FFC_55555 * FFC_55555),
-    0x1000000 / (FFC_55555 * FFC_55555 * 5)};
+static const uint64_t FFC_FLOAT_MAX_MANTISSA[] = {0x1000000,
+                                                  0x1000000 / 5,
+                                                  0x1000000 / (5 * 5),
+                                                  0x1000000 / (5 * 5 * 5),
+                                                  0x1000000 / (5 * 5 * 5 * 5),
+                                                  0x1000000 / (FFC_55555),
+                                                  0x1000000 / (FFC_55555 * 5),
+                                                  0x1000000 / (FFC_55555 * 5 * 5),
+                                                  0x1000000 / (FFC_55555 * 5 * 5 * 5),
+                                                  0x1000000 / (FFC_55555 * 5 * 5 * 5 * 5),
+                                                  0x1000000 / (FFC_55555 * FFC_55555),
+                                                  0x1000000 / (FFC_55555 * FFC_55555 * 5)};
 
 #ifndef FFC_ASSERT
-#define FFC_ASSERT(x)                                                    \
-  { ((void)(x)); }
+#define FFC_ASSERT(x)                                                                              \
+  {                                                                                                \
+    ((void)(x));                                                                                   \
+  }
 #endif
 
 #ifndef FFC_DEBUG_ASSERT
-#define FFC_DEBUG_ASSERT(x)                                              \
-  { ((void)(x)); }
+#define FFC_DEBUG_ASSERT(x)                                                                        \
+  {                                                                                                \
+    ((void)(x));                                                                                   \
+  }
 #endif
 
 #endif // FFC_COMMON_H
@@ -1058,22 +1721,18 @@ static const uint64_t FFC_FLOAT_MAX_MANTISSA[] = {
 
 /* section: read digits */
 
-ffc_internal ffc_inline
-uint64_t ffc_byteswap(uint64_t val) {
+ffc_internal ffc_inline uint64_t ffc_byteswap(uint64_t val) {
   return (val & 0xFF00000000000000) >> 56 | (val & 0x00FF000000000000) >> 40 |
-         (val & 0x0000FF0000000000) >> 24 | (val & 0x000000FF00000000) >> 8  |
-         (val & 0x00000000FF000000) <<  8 | (val & 0x0000000000FF0000) << 24 |
+         (val & 0x0000FF0000000000) >> 24 | (val & 0x000000FF00000000) >> 8 |
+         (val & 0x00000000FF000000) << 8 | (val & 0x0000000000FF0000) << 24 |
          (val & 0x000000000000FF00) << 40 | (val & 0x00000000000000FF) << 56;
 }
 
-ffc_internal ffc_inline
-uint32_t ffc_byteswap_32(uint32_t val) {
-  return (val >> 24) | ((val >> 8) & 0x0000FF00u) | ((val << 8) & 0x00FF0000u) |
-         (val << 24);
+ffc_internal ffc_inline uint32_t ffc_byteswap_32(uint32_t val) {
+  return (val >> 24) | ((val >> 8) & 0x0000FF00u) | ((val << 8) & 0x00FF0000u) | (val << 24);
 }
 
-ffc_inline ffc_internal
-uint64_t ffc_read8_to_u64(char const *chars) {
+ffc_inline ffc_internal uint64_t ffc_read8_to_u64(char const *chars) {
   uint64_t val;
   memcpy(&val, chars, sizeof(uint64_t));
 #if FFC_IS_BIG_ENDIAN == 1
@@ -1084,8 +1743,7 @@ uint64_t ffc_read8_to_u64(char const *chars) {
 }
 
 // Read 4 UC into a u32. Truncates UC if not char.
-ffc_internal ffc_inline uint32_t
-ffc_read4_to_u32(char const *chars) {
+ffc_internal ffc_inline uint32_t ffc_read4_to_u32(char const *chars) {
   uint32_t val;
   memcpy(&val, chars, sizeof(uint32_t));
 #if FFC_IS_BIG_ENDIAN == 1
@@ -1096,8 +1754,7 @@ ffc_read4_to_u32(char const *chars) {
 
 #ifdef FFC_SSE2
 
-ffc_internal ffc_inline
-uint64_t ffc_simd_read8_to_u64_simdreg(__m128i const data) {
+ffc_internal ffc_inline uint64_t ffc_simd_read8_to_u64_simdreg(__m128i const data) {
   FFC_SIMD_DISABLE_WARNINGS
   __m128i const packed = _mm_packus_epi16(data, data);
 #ifdef FFC_64BIT
@@ -1105,32 +1762,28 @@ uint64_t ffc_simd_read8_to_u64_simdreg(__m128i const data) {
 #else
   uint64_t value;
   // Visual Studio + older versions of GCC don't support _mm_storeu_si64
-  _mm_storel_epi64((__m128i*)&value, packed);
+  _mm_storel_epi64((__m128i *)&value, packed);
   return value;
 #endif
   FFC_SIMD_RESTORE_WARNINGS
 }
 
-ffc_internal ffc_inline
-uint64_t ffc_simd_read8_to_u64(uint16_t const *chars) {
+ffc_internal ffc_inline uint64_t ffc_simd_read8_to_u64(uint16_t const *chars) {
   FFC_SIMD_DISABLE_WARNINGS
-  return ffc_simd_read8_to_u64_simdreg(
-      _mm_loadu_si128((const __m128i*)chars));
+  return ffc_simd_read8_to_u64_simdreg(_mm_loadu_si128((const __m128i *)chars));
   FFC_SIMD_RESTORE_WARNINGS
 }
 
 #elif defined(FFC_NEON)
 
-ffc_internal ffc_inline
-uint64_t ffc_simd_read8_to_u64_simdreg(uint16x8_t const data) {
+ffc_internal ffc_inline uint64_t ffc_simd_read8_to_u64_simdreg(uint16x8_t const data) {
   FFC_SIMD_DISABLE_WARNINGS
   uint8x8_t utf8_packed = vmovn_u16(data);
   return vget_lane_u64(vreinterpret_u64_u8(utf8_packed), 0);
   FFC_SIMD_RESTORE_WARNINGS
 }
 
-ffc_internal ffc_inline
-uint64_t ffc_simd_read8_to_u64(uint16_t const *chars) {
+ffc_internal ffc_inline uint64_t ffc_simd_read8_to_u64(uint16_t const *chars) {
   FFC_SIMD_DISABLE_WARNINGS
   return ffc_simd_read8_to_u64_simdreg(vld1q_u16(chars));
   FFC_SIMD_RESTORE_WARNINGS
@@ -1139,8 +1792,7 @@ uint64_t ffc_simd_read8_to_u64(uint16_t const *chars) {
 #endif // FFC_SSE2
 
 // credit  @aqrit
-ffc_internal ffc_inline uint32_t
-ffc_parse_eight_digits_unrolled_swar(uint64_t val) {
+ffc_internal ffc_inline uint32_t ffc_parse_eight_digits_unrolled_swar(uint64_t val) {
   uint64_t const mask = 0x000000FF000000FF;
   uint64_t const mul1 = 0x000F424000000064; // 100 + (1000000ULL << 32)
   uint64_t const mul2 = 0x0000271000000001; // 1 + (10000ULL << 32)
@@ -1151,25 +1803,20 @@ ffc_parse_eight_digits_unrolled_swar(uint64_t val) {
 }
 
 // Call this if chars are definitely 8 digits.
-ffc_internal ffc_inline
-uint32_t ffc_parse_eight_digits_unrolled(char const *chars) {
+ffc_internal ffc_inline uint32_t ffc_parse_eight_digits_unrolled(char const *chars) {
   return ffc_parse_eight_digits_unrolled_swar(ffc_read8_to_u64(chars)); // truncation okay
 }
 
 // credit @aqrit
-ffc_internal ffc_inline bool
-ffc_is_made_of_eight_digits_fast(uint64_t val) {
-  return !((((val + 0x4646464646464646) | (val - 0x3030303030303030)) &
-            0x8080808080808080));
+ffc_internal ffc_inline bool ffc_is_made_of_eight_digits_fast(uint64_t val) {
+  return !((((val + 0x4646464646464646) | (val - 0x3030303030303030)) & 0x8080808080808080));
 }
 
-ffc_internal ffc_inline bool
-ffc_is_made_of_four_digits_fast(uint32_t val) {
+ffc_internal ffc_inline bool ffc_is_made_of_four_digits_fast(uint32_t val) {
   return !((((val + 0x46464646) | (val - 0x30303030)) & 0x80808080));
 }
 
-ffc_internal ffc_inline
-uint32_t ffc_parse_four_digits_unrolled(uint32_t val) {
+ffc_internal ffc_inline uint32_t ffc_parse_four_digits_unrolled(uint32_t val) {
   val -= 0x30303030;
   val = (val * 10) + (val >> 8);
   return (((val & 0x00FF00FF) * 0x00640001) >> 16) & 0xFFFF;
@@ -1180,12 +1827,11 @@ uint32_t ffc_parse_four_digits_unrolled(uint32_t val) {
 // Call this if chars might not be 8 digits.
 // Using this style (instead of is_made_of_eight_digits_fast() then
 // parse_eight_digits_unrolled()) ensures we don't load SIMD registers twice.
-ffc_internal ffc_inline
-bool ffc_simd_parse_if_eight_digits_unrolled_simd(uint16_t const *chars, uint64_t* i) {
+ffc_internal ffc_inline bool ffc_simd_parse_if_eight_digits_unrolled_simd(uint16_t const *chars,
+                                                                          uint64_t *i) {
 #ifdef FFC_SSE2
   FFC_SIMD_DISABLE_WARNINGS
-  __m128i const data =
-      _mm_loadu_si128((__m128i const *)chars);
+  __m128i const data = _mm_loadu_si128((__m128i const *)chars);
 
   // (x - '0') <= 9
   // http://0x80.pl/articles/simd-parsing-int-sequences.html
@@ -1235,12 +1881,12 @@ bool ffc_simd_parse_if_eight_digits_unrolled_simd(uint16_t const *chars, uint64_
 // expression below, which is also what makes this safe to leave unconditional
 // at the call sites.
 #if defined(__aarch64__) && defined(__clang__)
-ffc_internal ffc_inline uint64_t
-ffc_digit_acc10(uint64_t acc, uint64_t d) {
+ffc_internal ffc_inline uint64_t ffc_digit_acc10(uint64_t acc, uint64_t d) {
   uint64_t result;
   __asm__("add %0, %2, %2, lsl #2\n\t"
           "add %0, %1, %0, lsl #1"
-          : "=&r"(result) : "r"(d), "r"(acc));
+          : "=&r"(result)
+          : "r"(d), "r"(acc));
   return result;
 }
 #define FFC_DIGIT_ACC10(acc, d_expr) ffc_digit_acc10((acc), (uint64_t)(d_expr))
@@ -1248,9 +1894,8 @@ ffc_digit_acc10(uint64_t acc, uint64_t d) {
 #define FFC_DIGIT_ACC10(acc, d_expr) ((acc) * 10 + (uint64_t)(d_expr))
 #endif
 
-ffc_internal ffc_inline void
-ffc_loop_parse_if_eight_digits(char const **p, char const *const pend,
-                           uint64_t* i) {
+ffc_internal ffc_inline void ffc_loop_parse_if_eight_digits(char const **p, char const *const pend,
+                                                            uint64_t *i) {
 #if defined(__aarch64__) && defined(__clang__)
   // Clang/AArch64: manual 2x unroll converts the hot path from a while loop
   // to a single linear block for typical float fractions (<=16 digits).
@@ -1260,10 +1905,13 @@ ffc_loop_parse_if_eight_digits(char const **p, char const *const pend,
   // line context. GCC auto-unrolls this naturally so we keep its while loop.
   while (pend - *p >= 16) {
     uint64_t val1 = ffc_read8_to_u64(*p);
-    if (!ffc_is_made_of_eight_digits_fast(val1)) { break; }
+    if (!ffc_is_made_of_eight_digits_fast(val1)) {
+      break;
+    }
     uint64_t val2 = ffc_read8_to_u64(*p + 8);
     if (!ffc_is_made_of_eight_digits_fast(val2)) {
-      *i = (*i * 100000000) + ffc_parse_eight_digits_unrolled_swar(val1); // in rare cases overflows, ok
+      *i = (*i * 100000000) +
+           ffc_parse_eight_digits_unrolled_swar(val1); // in rare cases overflows, ok
       *p += 8;
       break;
     }
@@ -1275,7 +1923,8 @@ ffc_loop_parse_if_eight_digits(char const **p, char const *const pend,
   if (pend - *p >= 8) {
     uint64_t val = ffc_read8_to_u64(*p);
     if (ffc_is_made_of_eight_digits_fast(val)) {
-      *i = (*i * 100000000) + ffc_parse_eight_digits_unrolled_swar(val); // in rare cases overflows, ok
+      *i = (*i * 100000000) +
+           ffc_parse_eight_digits_unrolled_swar(val); // in rare cases overflows, ok
       *p += 8;
     }
   }
@@ -1283,8 +1932,11 @@ ffc_loop_parse_if_eight_digits(char const **p, char const *const pend,
   // GCC and other compilers: original while loop that GCC auto-unrolls well.
   while (pend - *p >= 8) {
     uint64_t val = ffc_read8_to_u64(*p);
-    if (!ffc_is_made_of_eight_digits_fast(val)) { break; }
-    *i = (*i * 100000000) + ffc_parse_eight_digits_unrolled_swar(val); // in rare cases, this will overflow, but that's ok
+    if (!ffc_is_made_of_eight_digits_fast(val)) {
+      break;
+    }
+    *i = (*i * 100000000) + ffc_parse_eight_digits_unrolled_swar(
+                                val); // in rare cases, this will overflow, but that's ok
     *p += 8;
   }
 #endif
@@ -1311,23 +1963,23 @@ ffc_parse_options ffc_parse_options_default(void) {
 }
 
 typedef struct ffc_parsed {
-  int64_t  exponent;
+  int64_t exponent;
   uint64_t mantissa;
   /* Populated on error; indicates where parsing failed */
-  char     const *lastmatch;
-  bool     negative;
-  bool     valid;
-  bool     too_many_digits;
-  char*    int_part_start;
-  size_t   int_part_len;
-  char*    fraction_part_start;
-  size_t   fraction_part_len;
+  char const *lastmatch;
+  bool negative;
+  bool valid;
+  bool too_many_digits;
+  char *int_part_start;
+  size_t int_part_len;
+  char *fraction_part_start;
+  size_t fraction_part_len;
 
   ffc_parse_outcome outcome;
 } ffc_parsed;
 
-ffc_internal ffc_inline
-ffc_parsed ffc_report_parse_error(char const *p, ffc_parse_outcome outcome) {
+ffc_internal ffc_inline ffc_parsed ffc_report_parse_error(char const *p,
+                                                          ffc_parse_outcome outcome) {
   ffc_parsed answer;
   answer.valid = false;
   answer.lastmatch = p;
@@ -1335,15 +1987,12 @@ ffc_parsed ffc_report_parse_error(char const *p, ffc_parse_outcome outcome) {
   return answer;
 }
 
-ffc_internal ffc_inline
-ffc_parsed ffc_parse_number_string(
-    char const *p,
-    // CONTRACT: p < pend
-    char const *pend,
-    ffc_parse_options const options,
-    // explicitly passed to encourage optimizer to specialize
-    bool const basic_json_fmt
-) {
+ffc_internal ffc_inline ffc_parsed
+ffc_parse_number_string(char const *p,
+                        // CONTRACT: p < pend
+                        char const *pend, ffc_parse_options const options,
+                        // explicitly passed to encourage optimizer to specialize
+                        bool const basic_json_fmt) {
   ffc_format fmt = options.format;
   char decimal_point = options.decimal_point;
 
@@ -1401,7 +2050,7 @@ ffc_parsed ffc_parse_number_string(
   char const *const end_of_integer_part = p;
 
   int64_t digit_count = (int64_t)(end_of_integer_part - start_digits);
-  answer.int_part_start = (char*)start_digits;
+  answer.int_part_start = (char *)start_digits;
   answer.int_part_len = (size_t)(digit_count);
 
   if (basic_json_fmt) {
@@ -1411,7 +2060,8 @@ ffc_parsed ffc_parse_number_string(
     }
     // no leading zeros
     if ((start_digits[0] == '0' && digit_count > 1)) {
-      return ffc_report_parse_error(start_digits, FFC_PARSE_OUTCOME_JSON_LEADING_ZEROS_IN_INTEGER_PART);
+      return ffc_report_parse_error(start_digits,
+                                    FFC_PARSE_OUTCOME_JSON_LEADING_ZEROS_IN_INTEGER_PART);
     }
   }
 
@@ -1452,7 +2102,7 @@ ffc_parsed ffc_parse_number_string(
     // digit_count = 3 - (-3) = 6
     exponent = before - p;
     frac_end_local = p; // capture before p advances into explicit exponent
-    answer.fraction_part_start = (char*)before;
+    answer.fraction_part_start = (char *)before;
     answer.fraction_part_len = (size_t)(p - before);
     digit_count -= exponent;
   }
@@ -1470,11 +2120,9 @@ ffc_parsed ffc_parse_number_string(
   if (((uint64_t)(fmt & FFC_FORMAT_FLAG_SCIENTIFIC) && (p != pend) &&
        (('e' == *p) || ('E' == *p))) ||
       ((uint64_t)(fmt & FFC_FORMAT_FLAG_BASIC_FORTRAN) && (p != pend) &&
-       (('+' == *p) || ('-' == *p) || ('d' == *p) ||
-        ('D' == *p)))) {
+       (('+' == *p) || ('-' == *p) || ('d' == *p) || ('D' == *p)))) {
     char const *location_of_e = p;
-    if (('e' == *p) || ('E' == *p) || ('d' == *p) ||
-        ('D' == *p)) {
+    if (('e' == *p) || ('E' == *p) || ('d' == *p) || ('D' == *p)) {
       ++p;
     }
     bool neg_exp = false;
@@ -1511,8 +2159,7 @@ ffc_parsed ffc_parse_number_string(
     }
   } else {
     // If it scientific and not fixed, we have to bail out.
-    if ((uint64_t)(fmt & FFC_FORMAT_FLAG_SCIENTIFIC) &&
-        !(uint64_t)(fmt & FFC_FORMAT_FLAG_FIXED)) {
+    if ((uint64_t)(fmt & FFC_FORMAT_FLAG_SCIENTIFIC) && !(uint64_t)(fmt & FFC_FORMAT_FLAG_FIXED)) {
       return ffc_report_parse_error(p, FFC_PARSE_OUTCOME_MISSING_EXPONENTIAL_PART);
     }
   }
@@ -1544,8 +2191,8 @@ ffc_parsed ffc_parse_number_string(
       // from the local digit-range pointers (start_digits, end_of_integer_part,
       // before, frac_end_local) rather than the answer struct fields.
       i = 0;
-      p = (char*)start_digits;
-      char const *int_end = (char*)end_of_integer_part;
+      p = (char *)start_digits;
+      char const *int_end = (char *)end_of_integer_part;
       uint64_t const minimal_nineteen_digit_integer = 1000000000000000000;
       while ((i < minimal_nineteen_digit_integer) && (p != int_end)) {
         i = i * 10 + (uint64_t)(*p - '0');
@@ -1554,8 +2201,8 @@ ffc_parsed ffc_parse_number_string(
       if (i >= minimal_nineteen_digit_integer) { // We have a big integer
         exponent = end_of_integer_part - p + exp_number;
       } else { // We have a value with a fractional component.
-        p = (char*)before;
-        char const *frac_end = (char*)frac_end_local;
+        p = (char *)before;
+        char const *frac_end = (char *)frac_end_local;
         while ((i < minimal_nineteen_digit_integer) && (p != frac_end)) {
           i = i * 10 + (uint64_t)(*p - '0');
           ++p;
@@ -1575,13 +2222,8 @@ ffc_parsed ffc_parse_number_string(
  * The case comparisons could be made much faster given that we know that the
  * strings a null-free and fixed.
  **/
-ffc_internal ffc_inline
-ffc_result ffc_parse_infnan(
-    char *first, char *last,
-    ffc_value *value,
-    ffc_value_kind vk,
-    ffc_format fmt
-) {
+ffc_internal ffc_inline ffc_result ffc_parse_infnan(char *first, char *last, ffc_value *value,
+                                                    ffc_value_kind vk, ffc_format fmt) {
   ffc_debug("parse_infnan\n");
   ffc_result answer;
   answer.ptr = first;
@@ -1590,8 +2232,7 @@ ffc_result ffc_parse_infnan(
   bool const minus_sign = (*first == '-');
   // C++17 20.19.3.(7.1) explicitly forbids '+' sign here
   if ((*first == '-') ||
-      ((uint64_t)(fmt & FFC_FORMAT_FLAG_ALLOW_LEADING_PLUS) &&
-       (*first == '+'))) {
+      ((uint64_t)(fmt & FFC_FORMAT_FLAG_ALLOW_LEADING_PLUS) && (*first == '+'))) {
     ++first;
   }
   if (last - first >= 3) {
@@ -1609,8 +2250,7 @@ ffc_result ffc_parse_infnan(
           if (*ptr == ')') {
             answer.ptr = ptr + 1; // valid nan(n-char-seq-opt)
             break;
-          } else if (!(('a' <= *ptr && *ptr <= 'z') ||
-                       ('A' <= *ptr && *ptr <= 'Z') ||
+          } else if (!(('a' <= *ptr && *ptr <= 'z') || ('A' <= *ptr && *ptr <= 'Z') ||
                        ('0' <= *ptr && *ptr <= '9') || *ptr == '_'))
             break; // forbidden char, not nan(n-char-seq-opt)
         }
@@ -1618,8 +2258,7 @@ ffc_result ffc_parse_infnan(
       return answer;
     }
     if (ffc_strncasecmp3(first, "infinity", 1)) {
-      if ((last - first >= 8) &&
-          ffc_strncasecmp5(first + 3, (char*)&"infinity"[3], 1)) {
+      if ((last - first >= 8) && ffc_strncasecmp5(first + 3, (char *)&"infinity"[3], 1)) {
         answer.ptr = first + 8;
       } else {
         answer.ptr = first + 3;
@@ -1632,15 +2271,9 @@ ffc_result ffc_parse_infnan(
   return answer;
 }
 
-ffc_internal ffc_inline
-ffc_result ffc_parse_int_string(
-    char const *p,
-    char const *pend,
-    ffc_int_value *value,
-    ffc_int_kind ik,
-    ffc_parse_options options,
-    int const base
-  ) {
+ffc_internal ffc_inline ffc_result ffc_parse_int_string(char const *p, char const *pend,
+                                                        ffc_int_value *value, ffc_int_kind ik,
+                                                        ffc_parse_options options, int const base) {
   ffc_debug("input '%.*s'... ", (int)(pend - p), p);
   ffc_format const fmt = options.format;
 
@@ -1652,7 +2285,7 @@ ffc_result ffc_parse_int_string(
 
   if (p == pend || base < 2 || base > 36) {
     ffc_result invalid_input_result;
-    invalid_input_result.ptr = (char*)p;
+    invalid_input_result.ptr = (char *)p;
     invalid_input_result.outcome = FFC_OUTCOME_INVALID_INPUT;
     return invalid_input_result;
   }
@@ -1664,7 +2297,7 @@ ffc_result ffc_parse_int_string(
 
   if (!ffc_int_kind_is_signed(ik) && negative) {
     answer.outcome = FFC_OUTCOME_INVALID_INPUT;
-    answer.ptr = (char*)first;
+    answer.ptr = (char *)first;
     return answer;
   }
   if ((*p == (char)('-')) ||
@@ -1691,7 +2324,7 @@ ffc_result ffc_parse_int_string(
     if (digit >= base) {
       break;
     }
-    i = (uint64_t)(base) * i + digit; // might overflow, check this later
+    i = (uint64_t)(base)*i + digit; // might overflow, check this later
     p++;
   }
 
@@ -1725,10 +2358,12 @@ ffc_result ffc_parse_int_string(
     return answer;
   }
 
-  ffc_debug("i is %lld, ik is %s\n", i, (ik == FFC_INT_KIND_U64 ? "u64" :
-                                         ik == FFC_INT_KIND_S64 ? "s64" :
-                                         ik == FFC_INT_KIND_U32 ? "u32" :
-                                         ik == FFC_INT_KIND_S32 ? "s32" : "?"));
+  ffc_debug("i is %lld, ik is %s\n", i,
+            (ik == FFC_INT_KIND_U64   ? "u64"
+             : ik == FFC_INT_KIND_S64 ? "s64"
+             : ik == FFC_INT_KIND_U32 ? "u32"
+             : ik == FFC_INT_KIND_S32 ? "s32"
+                                      : "?"));
   // check other types overflow
   if (ik != FFC_INT_KIND_U64) {
     // Allow 1 greater magnitude when negative
@@ -1743,18 +2378,30 @@ ffc_result ffc_parse_int_string(
     uint64_t neg_i = ~i + 1; // This is the two's complement negation
     // write into the signed slot via union
     switch (ik) {
-      case FFC_INT_KIND_S64: value->s64 = (int64_t)neg_i; break; // implementation-defined, but works everywhere
-      case FFC_INT_KIND_S32: value->s32 = (int32_t)(int64_t)neg_i; break;
+    case FFC_INT_KIND_S64:
+      value->s64 = (int64_t)neg_i;
+      break; // implementation-defined, but works everywhere
+    case FFC_INT_KIND_S32:
+      value->s32 = (int32_t)(int64_t)neg_i;
+      break;
       // unsigned kinds can't be negative — guarded by the range check above
       // case FFC_INT_KIND_S16: value.i16 = (int16_t)(int64_t)neg_i; break;
       // case FFC_INT_KIND_S8:  value.i8  = (int8_t)(int64_t)neg_i;  break;
     }
   } else {
     switch (ik) {
-      case FFC_INT_KIND_S64: value->s64 = (int64_t)i;          break;
-      case FFC_INT_KIND_S32: value->s32 = (int32_t)(int64_t)i; break;
-      case FFC_INT_KIND_U64: value->u64 = i;                   break;
-      case FFC_INT_KIND_U32: value->u32 = (uint32_t)i;         break;
+    case FFC_INT_KIND_S64:
+      value->s64 = (int64_t)i;
+      break;
+    case FFC_INT_KIND_S32:
+      value->s32 = (int32_t)(int64_t)i;
+      break;
+    case FFC_INT_KIND_U64:
+      value->u64 = i;
+      break;
+    case FFC_INT_KIND_U32:
+      value->u32 = (uint32_t)i;
+      break;
     }
   }
 
@@ -1765,8 +2412,7 @@ ffc_result ffc_parse_int_string(
 #ifdef FFC_DEBUG
 
 #include <stdio.h>
-ffc_internal ffc_inline
-void ffc_dump_parsed(ffc_parsed const p) {
+ffc_internal ffc_inline void ffc_dump_parsed(ffc_parsed const p) {
   (void)p;
   ffc_debug("mantissa: %llu\n", (unsigned long long)p.mantissa);
   ffc_debug("exponent: %lld\n", (long long)p.exponent);
@@ -1788,12 +2434,11 @@ void ffc_dump_parsed(ffc_parsed const p) {
 #ifndef FFC_BIGINT_H
 #define FFC_BIGINT_H
 
-
 // rust style `try!()` macro, or `?` operator
-#define FFC_TRY(x)                                                       \
-  {                                                                      \
-    if (!(x))                                                            \
-      return false;                                                      \
+#define FFC_TRY(x)                                                                                 \
+  {                                                                                                \
+    if (!(x))                                                                                      \
+      return false;                                                                                \
   }
 
 // the limb width: we want efficient multiplication of double the bits in
@@ -1812,10 +2457,13 @@ typedef uint32_t ffc_bigint_limb;
 #define FFC_LIMB_BITS 32
 #endif
 
-typedef struct { ffc_bigint_limb* ptr; size_t len; } ffc_bigint_limb_span;
+typedef struct {
+  ffc_bigint_limb *ptr;
+  size_t len;
+} ffc_bigint_limb_span;
 
-ffc_internal ffc_inline
-ffc_bigint_limb ffc_limb_span_index(ffc_bigint_limb_span limb_span, size_t index) {
+ffc_internal ffc_inline ffc_bigint_limb ffc_limb_span_index(ffc_bigint_limb_span limb_span,
+                                                            size_t index) {
   FFC_DEBUG_ASSERT(index < limb_span.len);
   return limb_span.ptr[index];
 }
@@ -1840,8 +2488,7 @@ typedef struct ffc_sv {
 } ffc_sv;
 
 // add items to the vector, from a span, without bounds checking
-ffc_internal ffc_inline
-void ffc_sv_extend_unchecked(ffc_sv* sv, ffc_bigint_limb_span s) {
+ffc_internal ffc_inline void ffc_sv_extend_unchecked(ffc_sv *sv, ffc_bigint_limb_span s) {
   ffc_bigint_limb *ptr = sv->data + sv->len;
 
   size_t s_bytes = s.len * sizeof(ffc_bigint_limb);
@@ -1850,8 +2497,7 @@ void ffc_sv_extend_unchecked(ffc_sv* sv, ffc_bigint_limb_span s) {
 }
 
 // try to add items to the vector, returning if items were added
-ffc_internal ffc_inline
-bool ffc_sv_try_extend(ffc_sv* sv, ffc_bigint_limb_span s) {
+ffc_internal ffc_inline bool ffc_sv_try_extend(ffc_sv *sv, ffc_bigint_limb_span s) {
   if (sv->len + s.len <= SV_LIMB_COUNT) {
     ffc_sv_extend_unchecked(sv, s);
     return true;
@@ -1861,38 +2507,33 @@ bool ffc_sv_try_extend(ffc_sv* sv, ffc_bigint_limb_span s) {
 }
 
 // create from existing limb span.
-ffc_internal ffc_inline
-ffc_sv ffc_sv_create(ffc_bigint_limb_span s) {
+ffc_internal ffc_inline ffc_sv ffc_sv_create(ffc_bigint_limb_span s) {
   ffc_sv new_one;
   new_one.len = 0;
   ffc_sv_try_extend(&new_one, s);
   return new_one;
 }
 
-ffc_internal ffc_inline
-ffc_bigint_limb ffc_sv_index(ffc_sv sv, size_t index) {
+ffc_internal ffc_inline ffc_bigint_limb ffc_sv_index(ffc_sv sv, size_t index) {
   FFC_DEBUG_ASSERT(index < sv.len);
   return sv.data[index];
 }
 
 // index from the end of the container
-ffc_internal ffc_inline
-ffc_bigint_limb ffc_sv_rindex(ffc_sv sv, size_t index) {
+ffc_internal ffc_inline ffc_bigint_limb ffc_sv_rindex(ffc_sv sv, size_t index) {
   FFC_DEBUG_ASSERT(index < sv.len);
   size_t rindex = sv.len - index - 1;
   return sv.data[rindex];
 }
 
 // append item to vector, without bounds checking
-ffc_internal ffc_inline
-void ffc_sv_push_unchecked(ffc_sv* sv, ffc_bigint_limb value) {
+ffc_internal ffc_inline void ffc_sv_push_unchecked(ffc_sv *sv, ffc_bigint_limb value) {
   sv->data[sv->len] = value;
   sv->len++;
 }
 
 // append item to vector, returning if item was added
-ffc_internal ffc_inline
-bool ffc_sv_try_push(ffc_sv* sv, ffc_bigint_limb value) {
+ffc_internal ffc_inline bool ffc_sv_try_push(ffc_sv *sv, ffc_bigint_limb value) {
   if (sv->len < SV_LIMB_COUNT) {
     ffc_sv_push_unchecked(sv, value);
     return true;
@@ -1903,8 +2544,7 @@ bool ffc_sv_try_push(ffc_sv* sv, ffc_bigint_limb value) {
 
 // try to reserve new_len limbs, filling with limbs
 // FF_DIVERGE: We remove some extra helpers and simply fill with zeros
-ffc_internal ffc_inline
-bool ffc_sv_try_reserve(ffc_sv* sv, size_t new_len) {
+ffc_internal ffc_inline bool ffc_sv_try_reserve(ffc_sv *sv, size_t new_len) {
   if (new_len > SV_LIMB_COUNT) {
     return false;
   } else {
@@ -1912,7 +2552,7 @@ bool ffc_sv_try_reserve(ffc_sv* sv, size_t new_len) {
       size_t fill_count = new_len - sv->len;
       ffc_bigint_limb *first = sv->data + sv->len;
       ffc_bigint_limb *last = first + fill_count;
-      for (ffc_bigint_limb* p = first; p < last; p++) {
+      for (ffc_bigint_limb *p = first; p < last; p++) {
         *p = 0;
       }
       sv->len = (uint16_t)new_len;
@@ -1924,8 +2564,7 @@ bool ffc_sv_try_reserve(ffc_sv* sv, size_t new_len) {
 }
 
 // check if any limbs are non-zero after the given index.
-ffc_internal ffc_inline
-bool ffc_sv_exists_nonzero_after(ffc_sv sv, size_t index) {
+ffc_internal ffc_inline bool ffc_sv_exists_nonzero_after(ffc_sv sv, size_t index) {
   while (index < sv.len) {
     if (ffc_sv_rindex(sv, index) != 0) {
       return true;
@@ -1936,23 +2575,20 @@ bool ffc_sv_exists_nonzero_after(ffc_sv sv, size_t index) {
 }
 
 // normalize the big integer, so most-significant zero limbs are removed.
-ffc_internal ffc_inline
-void ffc_sv_normalize(ffc_sv* sv) {
+ffc_internal ffc_inline void ffc_sv_normalize(ffc_sv *sv) {
   while (sv->len > 0 && ffc_sv_rindex(*sv, 0) == 0) {
     sv->len--;
   }
 }
 
-ffc_internal ffc_inline
-uint64_t ffc_uint64_hi64_1(uint64_t r0, bool* truncated) {
+ffc_internal ffc_inline uint64_t ffc_uint64_hi64_1(uint64_t r0, bool *truncated) {
   FFC_DEBUG_ASSERT(r0 != 0);
   *truncated = false;
   int shl = (int)ffc_count_leading_zeroes(r0);
   return r0 << shl;
 }
 
-ffc_internal ffc_inline
-uint64_t ffc_uint64_hi64_2(uint64_t r0, uint64_t r1, bool* truncated) {
+ffc_internal ffc_inline uint64_t ffc_uint64_hi64_2(uint64_t r0, uint64_t r1, bool *truncated) {
   FFC_DEBUG_ASSERT(r0 != 0);
   int shl = (int)ffc_count_leading_zeroes(r0);
   if (shl == 0) {
@@ -1965,20 +2601,18 @@ uint64_t ffc_uint64_hi64_2(uint64_t r0, uint64_t r1, bool* truncated) {
   }
 }
 
-ffc_internal ffc_inline
-uint64_t ffc_uint32_hi64_1(uint32_t r0, bool* truncated) {
+ffc_internal ffc_inline uint64_t ffc_uint32_hi64_1(uint32_t r0, bool *truncated) {
   return ffc_uint64_hi64_1(r0, truncated);
 }
 
-ffc_internal ffc_inline
-uint64_t ffc_uint32_hi64_2(uint32_t r0, uint32_t r1, bool* truncated) {
+ffc_internal ffc_inline uint64_t ffc_uint32_hi64_2(uint32_t r0, uint32_t r1, bool *truncated) {
   uint64_t x0 = r0;
   uint64_t x1 = r1;
   return ffc_uint64_hi64_1((x0 << 32) | x1, truncated);
 }
 
-ffc_internal ffc_inline
-uint64_t ffc_uint32_hi64_3(uint32_t r0, uint32_t r1, uint32_t r2, bool* truncated) {
+ffc_internal ffc_inline uint64_t ffc_uint32_hi64_3(uint32_t r0, uint32_t r1, uint32_t r2,
+                                                   bool *truncated) {
   uint64_t x0 = r0;
   uint64_t x1 = r1;
   uint64_t x2 = r2;
@@ -1989,8 +2623,8 @@ uint64_t ffc_uint32_hi64_3(uint32_t r0, uint32_t r1, uint32_t r2, bool* truncate
 // we want an efficient operation. for msvc, where
 // we don't have built-in intrinsics, this is still
 // pretty fast.
-ffc_internal ffc_inline
-ffc_bigint_limb ffc_bigint_scalar_add(ffc_bigint_limb x, ffc_bigint_limb y, bool* overflow) {
+ffc_internal ffc_inline ffc_bigint_limb ffc_bigint_scalar_add(ffc_bigint_limb x, ffc_bigint_limb y,
+                                                              bool *overflow) {
   ffc_bigint_limb z;
 // gcc and clang
 #if defined(__has_builtin)
@@ -2007,8 +2641,8 @@ ffc_bigint_limb ffc_bigint_scalar_add(ffc_bigint_limb x, ffc_bigint_limb y, bool
 }
 
 // multiply two small integers, getting both the high and low bits.
-ffc_inline ffc_internal
-ffc_bigint_limb ffc_bigint_scalar_mul(ffc_bigint_limb x, ffc_bigint_limb y, ffc_bigint_limb* carry) {
+ffc_inline ffc_internal ffc_bigint_limb ffc_bigint_scalar_mul(ffc_bigint_limb x, ffc_bigint_limb y,
+                                                              ffc_bigint_limb *carry) {
 #ifdef FFC_64BIT_LIMB
 #if defined(__SIZEOF_INT128__)
   // GCC and clang both define it as an extension.
@@ -2034,8 +2668,8 @@ ffc_bigint_limb ffc_bigint_scalar_mul(ffc_bigint_limb x, ffc_bigint_limb y, ffc_
 
 // add scalar value to bigint starting from offset.
 // used in grade school multiplication
-ffc_internal ffc_inline
-bool ffc_bigint_small_add_from(ffc_sv* sv, ffc_bigint_limb y, size_t start) {
+ffc_internal ffc_inline bool ffc_bigint_small_add_from(ffc_sv *sv, ffc_bigint_limb y,
+                                                       size_t start) {
   size_t index = start;
   ffc_bigint_limb carry = y;
   bool overflow;
@@ -2051,14 +2685,12 @@ bool ffc_bigint_small_add_from(ffc_sv* sv, ffc_bigint_limb y, size_t start) {
 }
 
 // add scalar value to bigint.
-ffc_internal ffc_inline
-bool ffc_bigint_small_add(ffc_sv* sv, ffc_bigint_limb y) {
+ffc_internal ffc_inline bool ffc_bigint_small_add(ffc_sv *sv, ffc_bigint_limb y) {
   return ffc_bigint_small_add_from(sv, y, 0);
 }
 
 // multiply bigint by scalar value.
-ffc_internal
-bool ffc_bigint_small_mul(ffc_sv* sv, ffc_bigint_limb y) {
+ffc_internal bool ffc_bigint_small_mul(ffc_sv *sv, ffc_bigint_limb y) {
   ffc_bigint_limb carry = 0;
   for (size_t index = 0; index < sv->len; index++) {
     sv->data[index] = ffc_bigint_scalar_mul(sv->data[index], y, &carry);
@@ -2071,8 +2703,7 @@ bool ffc_bigint_small_mul(ffc_sv* sv, ffc_bigint_limb y) {
 
 // add bigint to bigint starting from index.
 // used in grade school multiplication
-ffc_internal
-bool ffc_bigint_large_add_from(ffc_sv* x, ffc_bigint_limb_span y, size_t start) {
+ffc_internal bool ffc_bigint_large_add_from(ffc_sv *x, ffc_bigint_limb_span y, size_t start) {
   // the effective x buffer is from `xstart..x.len()`, so exit early
   // if we can't get that current range.
 
@@ -2103,14 +2734,12 @@ bool ffc_bigint_large_add_from(ffc_sv* x, ffc_bigint_limb_span y, size_t start) 
 }
 
 // add bigint to bigint.
-ffc_internal ffc_inline
-bool ffc_sv_large_add_from_zero(ffc_sv* x, ffc_bigint_limb_span y) {
+ffc_internal ffc_inline bool ffc_sv_large_add_from_zero(ffc_sv *x, ffc_bigint_limb_span y) {
   return ffc_bigint_large_add_from(x, y, 0);
 }
 
 // grade-school multiplication algorithm
-ffc_internal
-bool ffc_bigint_long_mul(ffc_sv* x, ffc_bigint_limb_span y) {
+ffc_internal bool ffc_bigint_long_mul(ffc_sv *x, ffc_bigint_limb_span y) {
   ffc_bigint_limb_span xs;
   xs.ptr = x->data;
   xs.len = x->len;
@@ -2147,10 +2776,9 @@ bool ffc_bigint_long_mul(ffc_sv* x, ffc_bigint_limb_span y) {
 }
 
 // grade-school multiplication algorithm
-ffc_internal ffc_inline
-bool ffc_bigint_large_mul(ffc_sv* x, ffc_bigint_limb_span y) {
+ffc_internal ffc_inline bool ffc_bigint_large_mul(ffc_sv *x, ffc_bigint_limb_span y) {
   if (y.len == 1) {
-    FFC_TRY(ffc_bigint_small_mul(x, ffc_span_index(y,0)));
+    FFC_TRY(ffc_bigint_small_mul(x, ffc_span_index(y, 0)));
   } else {
     FFC_TRY(ffc_bigint_long_mul(x, y));
   }
@@ -2189,13 +2817,13 @@ static const uint64_t pow5_tables_small_powers[] = {
     7450580596923828125ULL,
 };
 #ifdef FFC_64BIT_LIMB
-  static const ffc_bigint_limb ffc_large_power_of_5[] = {
-      1414648277510068013ULL, 9180637584431281687ULL, 4539964771860779200ULL,
-      10482974169319127550ULL, 198276706040285095ULL};
+static const ffc_bigint_limb ffc_large_power_of_5[] = {
+    1414648277510068013ULL, 9180637584431281687ULL, 4539964771860779200ULL, 10482974169319127550ULL,
+    198276706040285095ULL};
 #else
-  static const ffc_bigint_limb ffc_large_power_of_5[] = {
-      4279965485U, 329373468U,  4020270615U, 2137533757U, 4287402176U,
-      1057042919U, 1071430142U, 2440757623U, 381945767U,  46164893U};
+static const ffc_bigint_limb ffc_large_power_of_5[] = {
+    4279965485U, 329373468U,  4020270615U, 2137533757U, 4287402176U,
+    1057042919U, 1071430142U, 2440757623U, 381945767U,  46164893U};
 #endif
 
 // big integer type. implements a small subset of big integer
@@ -2207,8 +2835,7 @@ typedef struct ffc_bigint {
   ffc_sv vec;
 } ffc_bigint;
 
-ffc_inline ffc_internal
-ffc_bigint ffc_bigint_empty(void) {
+ffc_inline ffc_internal ffc_bigint ffc_bigint_empty(void) {
   ffc_sv sv;
   sv.len = 0;
 
@@ -2217,8 +2844,7 @@ ffc_bigint ffc_bigint_empty(void) {
   return sv_bigint;
 }
 
-ffc_inline ffc_internal
-ffc_bigint ffc_bigint_make(uint64_t value) {
+ffc_inline ffc_internal ffc_bigint ffc_bigint_make(uint64_t value) {
   ffc_sv sv;
   sv.len = 0;
 #ifdef FFC_64BIT_LIMB
@@ -2236,15 +2862,14 @@ ffc_bigint ffc_bigint_make(uint64_t value) {
 
 // get the high 64 bits from the vector, and if bits were truncated.
 // this is to get the significant digits for the float.
-ffc_inline ffc_internal
-uint64_t ffc_bigint_hi64(ffc_bigint me, bool* truncated) {
+ffc_inline ffc_internal uint64_t ffc_bigint_hi64(ffc_bigint me, bool *truncated) {
   ffc_sv vec = me.vec;
 #ifdef FFC_64BIT_LIMB
   if (vec.len == 0) {
     *truncated = false;
     return 0;
   } else if (vec.len == 1) {
-    return ffc_uint64_hi64_1(ffc_sv_rindex(vec,0), truncated);
+    return ffc_uint64_hi64_1(ffc_sv_rindex(vec, 0), truncated);
   } else {
     uint64_t result = ffc_uint64_hi64_2(ffc_sv_rindex(vec, 0), ffc_sv_rindex(vec, 1), truncated);
     *truncated |= ffc_sv_exists_nonzero_after(vec, 2);
@@ -2255,17 +2880,13 @@ uint64_t ffc_bigint_hi64(ffc_bigint me, bool* truncated) {
     *truncated = false;
     return 0;
   } else if (vec.len == 1) {
-    return ffc_uint32_hi64_1(ffc_sv_rindex(vec,0), truncated);
+    return ffc_uint32_hi64_1(ffc_sv_rindex(vec, 0), truncated);
   } else if (vec.len == 2) {
-    return ffc_uint32_hi64_2(ffc_sv_rindex(vec,0), ffc_sv_rindex(vec,1), truncated);
+    return ffc_uint32_hi64_2(ffc_sv_rindex(vec, 0), ffc_sv_rindex(vec, 1), truncated);
   } else {
-    uint64_t result = ffc_uint32_hi64_3(
-        ffc_sv_rindex(vec,0),
-        ffc_sv_rindex(vec,1),
-        ffc_sv_rindex(vec,2),
-        truncated
-    );
-    *truncated |= ffc_sv_exists_nonzero_after(vec , 3);
+    uint64_t result = ffc_uint32_hi64_3(ffc_sv_rindex(vec, 0), ffc_sv_rindex(vec, 1),
+                                        ffc_sv_rindex(vec, 2), truncated);
+    *truncated |= ffc_sv_exists_nonzero_after(vec, 3);
     return result;
   }
 #endif
@@ -2277,8 +2898,7 @@ uint64_t ffc_bigint_hi64(ffc_bigint me, bool* truncated) {
 // positive, this is larger, otherwise they are equal.
 // the limbs are stored in little-endian order, so we
 // must compare the limbs in ever order.
-ffc_internal ffc_inline
-int ffc_bigint_compare(ffc_bigint me, ffc_bigint const *other) {
+ffc_internal ffc_inline int ffc_bigint_compare(ffc_bigint me, ffc_bigint const *other) {
   if (me.vec.len > other->vec.len) {
     return 1;
   } else if (me.vec.len < other->vec.len) {
@@ -2299,8 +2919,7 @@ int ffc_bigint_compare(ffc_bigint me, ffc_bigint const *other) {
 
 // shift left each limb n bits, carrying over to the new limb
 // returns true if we were able to shift all the digits.
-ffc_internal ffc_inline
-bool ffc_bigint_shl_bits(ffc_bigint* me, size_t n) {
+ffc_internal ffc_inline bool ffc_bigint_shl_bits(ffc_bigint *me, size_t n) {
   // Internally, for each item, we shift left by n, and add the previous
   // right shifted limb-bits.
   // For example, we transform (for u8) shifted left 2, to:
@@ -2326,8 +2945,7 @@ bool ffc_bigint_shl_bits(ffc_bigint* me, size_t n) {
 }
 
 // move the limbs left by `n` limbs.
-ffc_internal ffc_inline
-bool ffc_bigint_shl_limbs(ffc_bigint* me, size_t n) {
+ffc_internal ffc_inline bool ffc_bigint_shl_limbs(ffc_bigint *me, size_t n) {
   FFC_DEBUG_ASSERT(n != 0);
   if (n + me->vec.len > SV_LIMB_COUNT) {
     return false;
@@ -2352,8 +2970,7 @@ bool ffc_bigint_shl_limbs(ffc_bigint* me, size_t n) {
 }
 
 // move the limbs left by `n` bits.
-ffc_internal ffc_inline
-bool ffc_bigint_shl(ffc_bigint* me, size_t n) {
+ffc_internal ffc_inline bool ffc_bigint_shl(ffc_bigint *me, size_t n) {
   size_t rem = n % FFC_LIMB_BITS;
   size_t div = n / FFC_LIMB_BITS;
   if (rem != 0) {
@@ -2366,8 +2983,7 @@ bool ffc_bigint_shl(ffc_bigint* me, size_t n) {
 }
 
 // get the number of leading zeros in the bigint.
-ffc_internal ffc_inline
-int ffc_bigint_ctlz(ffc_bigint me) {
+ffc_internal ffc_inline int ffc_bigint_ctlz(ffc_bigint me) {
   if (me.vec.len == 0) {
     return 0;
   } else {
@@ -2382,30 +2998,31 @@ int ffc_bigint_ctlz(ffc_bigint me) {
 }
 
 // get the number of bits in the bigint.
-ffc_internal ffc_inline
-int ffc_bigint_bit_length(ffc_bigint me) {
+ffc_internal ffc_inline int ffc_bigint_bit_length(ffc_bigint me) {
   int lz = ffc_bigint_ctlz(me);
   return (int)(FFC_LIMB_BITS * me.vec.len) - lz;
 }
 
-ffc_internal ffc_inline
-bool ffc_bigint_mul(ffc_bigint* me, ffc_bigint_limb y) { return ffc_bigint_small_mul(&me->vec, y); }
+ffc_internal ffc_inline bool ffc_bigint_mul(ffc_bigint *me, ffc_bigint_limb y) {
+  return ffc_bigint_small_mul(&me->vec, y);
+}
 
-ffc_internal ffc_inline
-bool ffc_bigint_add(ffc_bigint* me, ffc_bigint_limb y) { return ffc_bigint_small_add(&me->vec, y); }
+ffc_internal ffc_inline bool ffc_bigint_add(ffc_bigint *me, ffc_bigint_limb y) {
+  return ffc_bigint_small_add(&me->vec, y);
+}
 
 // multiply as if by 2 raised to a power.
-ffc_internal ffc_inline
-bool ffc_bigint_pow2(ffc_bigint* me, uint32_t exp) { return ffc_bigint_shl(me, exp); }
+ffc_internal ffc_inline bool ffc_bigint_pow2(ffc_bigint *me, uint32_t exp) {
+  return ffc_bigint_shl(me, exp);
+}
 
 // multiply as if by 5 raised to a power.
-ffc_internal ffc_inline
-bool ffc_bigint_pow5(ffc_bigint* me, uint32_t exp) {
+ffc_internal ffc_inline bool ffc_bigint_pow5(ffc_bigint *me, uint32_t exp) {
   // multiply by a power of 5
   size_t large_length = sizeof(ffc_large_power_of_5) / sizeof(ffc_bigint_limb);
 
   ffc_bigint_limb_span large;
-  large.ptr = (ffc_bigint_limb*)ffc_large_power_of_5;
+  large.ptr = (ffc_bigint_limb *)ffc_large_power_of_5;
   large.len = large_length;
 
   while (exp >= pow5_tables_large_step) {
@@ -2424,17 +3041,14 @@ bool ffc_bigint_pow5(ffc_bigint* me, uint32_t exp) {
     exp -= small_step;
   }
   if (exp != 0) {
-    FFC_TRY(
-      ffc_bigint_small_mul(&me->vec, (ffc_bigint_limb)(pow5_tables_small_powers[exp]))
-    );
+    FFC_TRY(ffc_bigint_small_mul(&me->vec, (ffc_bigint_limb)(pow5_tables_small_powers[exp])));
   }
 
   return true;
 }
 
 // multiply as if by 10 raised to a power.
-ffc_internal ffc_inline
-bool ffc_bigint_pow10(ffc_bigint* me, uint32_t exp) {
+ffc_internal ffc_inline bool ffc_bigint_pow10(ffc_bigint *me, uint32_t exp) {
   FFC_TRY(ffc_bigint_pow5(me, exp));
   return ffc_bigint_pow2(me, exp);
 }
@@ -2470,8 +3084,7 @@ static const uint64_t ffc_powers_of_ten_uint64[] = {1UL,
 // this algorithm is not even close to optimized, but it has no practical
 // effect on performance: in order to have a faster algorithm, we'd need
 // to slow down performance for faster algorithms, and this is still fast.
-ffc_inline ffc_internal int32_t
-ffc_scientific_exponent(uint64_t mantissa, int32_t exponent) {
+ffc_inline ffc_internal int32_t ffc_scientific_exponent(uint64_t mantissa, int32_t exponent) {
   while (mantissa >= 10000) {
     mantissa /= 10000;
     exponent += 4;
@@ -2488,8 +3101,7 @@ ffc_scientific_exponent(uint64_t mantissa, int32_t exponent) {
 }
 
 // this converts a native floating-point number to an extended-precision float.
-ffc_internal ffc_inline ffc_adjusted_mantissa
-ffc_to_extended(ffc_value value, ffc_value_kind vk) {
+ffc_internal ffc_inline ffc_adjusted_mantissa ffc_to_extended(ffc_value value, ffc_value_kind vk) {
   uint64_t const exponent_mask = ffc_const(vk, EXPONENT_MASK);
   uint64_t const mantissa_mask = ffc_const(vk, MANTISSA_MASK);
   uint64_t const hidden_bit_mask = ffc_const(vk, HIDDEN_BIT_MASK);
@@ -2497,7 +3109,7 @@ ffc_to_extended(ffc_value value, ffc_value_kind vk) {
   // Finish converting this one
   ffc_adjusted_mantissa am;
   int32_t bias = ffc_const(vk, MANTISSA_EXPLICIT_BITS) - ffc_const(vk, MINIMUM_EXPONENT);
-  //ffc_int_value bits = ffc_get_value_bits(value, vk);
+  // ffc_int_value bits = ffc_get_value_bits(value, vk);
 
   switch (vk) {
   case FFC_VALUE_KIND_DOUBLE: {
@@ -2536,8 +3148,8 @@ ffc_to_extended(ffc_value value, ffc_value_kind vk) {
 // get the extended precision value of the halfway point between b and b+u.
 // we are given a native float that represents b, so we need to adjust it
 // halfway between b and b+u.
-ffc_internal ffc_inline
-ffc_adjusted_mantissa ffc_to_extended_halfway(ffc_value value, ffc_value_kind vk) {
+ffc_internal ffc_inline ffc_adjusted_mantissa ffc_to_extended_halfway(ffc_value value,
+                                                                      ffc_value_kind vk) {
   ffc_adjusted_mantissa am = ffc_to_extended(value, vk);
   am.mantissa <<= 1;
   am.mantissa += 1;
@@ -2545,8 +3157,7 @@ ffc_adjusted_mantissa ffc_to_extended_halfway(ffc_value value, ffc_value_kind vk
   return am;
 }
 
-ffc_internal ffc_inline
-void ffc_round_down_impl(ffc_adjusted_mantissa* am, int32_t shift) {
+ffc_internal ffc_inline void ffc_round_down_impl(ffc_adjusted_mantissa *am, int32_t shift) {
   if (shift == 64) {
     am->mantissa = 0;
   } else {
@@ -2556,9 +3167,8 @@ void ffc_round_down_impl(ffc_adjusted_mantissa* am, int32_t shift) {
 }
 
 // round nearest tie even, resolving ties using the truncated flag
-ffc_internal ffc_inline
-void ffc_round_nearest_tie_even_truncated(ffc_adjusted_mantissa *am,
-                                             int32_t shift, bool truncated) {
+ffc_internal ffc_inline void ffc_round_nearest_tie_even_truncated(ffc_adjusted_mantissa *am,
+                                                                  int32_t shift, bool truncated) {
   uint64_t const mask = (shift == 64) ? UINT64_MAX : ((uint64_t)(1) << shift) - 1;
   uint64_t const halfway = (shift == 0) ? 0 : (uint64_t)(1) << (shift - 1);
   uint64_t truncated_bits = am->mantissa & mask;
@@ -2574,14 +3184,12 @@ void ffc_round_nearest_tie_even_truncated(ffc_adjusted_mantissa *am,
   am->power2 += shift;
 
   bool is_odd = (am->mantissa & 1) == 1;
-  am->mantissa += (uint64_t)(is_above || (is_halfway && truncated) ||
-                             (is_odd && is_halfway));
+  am->mantissa += (uint64_t)(is_above || (is_halfway && truncated) || (is_odd && is_halfway));
 }
 
 // round nearest tie even, resolving ties using a precomputed comparison result
-ffc_internal ffc_inline
-void ffc_round_nearest_tie_even_cmp(ffc_adjusted_mantissa *am,
-                                       int32_t shift, int ord) {
+ffc_internal ffc_inline void ffc_round_nearest_tie_even_cmp(ffc_adjusted_mantissa *am,
+                                                            int32_t shift, int ord) {
   // shift digits into position
   if (shift == 64) {
     am->mantissa = 0;
@@ -2597,8 +3205,7 @@ void ffc_round_nearest_tie_even_cmp(ffc_adjusted_mantissa *am,
 // Finalize rounding for a double after the shift callback has been applied.
 // This is the common tail of ffc_round_double factored out to avoid
 // duplicating the carry/infinite checks at every call site.
-ffc_internal ffc_inline
-void ffc_round_finish(ffc_adjusted_mantissa *am, ffc_value_kind vk) {
+ffc_internal ffc_inline void ffc_round_finish(ffc_adjusted_mantissa *am, ffc_value_kind vk) {
   // check for carry
   if (am->mantissa >= ((uint64_t)(2) << ffc_const(vk, MANTISSA_EXPLICIT_BITS))) {
     am->mantissa = ((uint64_t)(1) << ffc_const(vk, MANTISSA_EXPLICIT_BITS));
@@ -2614,83 +3221,86 @@ void ffc_round_finish(ffc_adjusted_mantissa *am, ffc_value_kind vk) {
 }
 
 // Common structure for round_double variants
-#define ffc_round_core(sub_routine_call, vk) \
-  do { \
-    int32_t mantissa_shift = 64 - ffc_const(vk, MANTISSA_EXPLICIT_BITS) - 1; \
-    if (-am->power2 >= mantissa_shift) { \
-      int32_t _shift = -am->power2 + 1; \
-      if (_shift > 64) _shift = 64; \
-      sub_routine_call; \
-      am->power2 = (am->mantissa < ((uint64_t)(1) << ffc_const(vk, MANTISSA_EXPLICIT_BITS))) \
-                      ? 0 \
-                      : 1; \
-      return; \
-    } \
-    { int32_t _shift = mantissa_shift; sub_routine_call; } \
-    ffc_round_finish(am, vk); \
+#define ffc_round_core(sub_routine_call, vk)                                                       \
+  do {                                                                                             \
+    int32_t mantissa_shift = 64 - ffc_const(vk, MANTISSA_EXPLICIT_BITS) - 1;                       \
+    if (-am->power2 >= mantissa_shift) {                                                           \
+      int32_t _shift = -am->power2 + 1;                                                            \
+      if (_shift > 64)                                                                             \
+        _shift = 64;                                                                               \
+      sub_routine_call;                                                                            \
+      am->power2 =                                                                                 \
+          (am->mantissa < ((uint64_t)(1) << ffc_const(vk, MANTISSA_EXPLICIT_BITS))) ? 0 : 1;       \
+      return;                                                                                      \
+    }                                                                                              \
+    {                                                                                              \
+      int32_t _shift = mantissa_shift;                                                             \
+      sub_routine_call;                                                                            \
+    }                                                                                              \
+    ffc_round_finish(am, vk);                                                                      \
   } while (0)
 
 // round down variant of round_double
-ffc_internal ffc_inline
-void ffc_round_down(ffc_adjusted_mantissa *am, ffc_value_kind vk) {
+ffc_internal ffc_inline void ffc_round_down(ffc_adjusted_mantissa *am, ffc_value_kind vk) {
   ffc_round_core(ffc_round_down_impl(am, _shift), vk);
 }
 
 // tie-even (truncated) variant of round_double
-ffc_internal ffc_inline
-void ffc_round_tie_even_truncated(ffc_adjusted_mantissa *am,
-                                            bool truncated, ffc_value_kind vk) {
+ffc_internal ffc_inline void ffc_round_tie_even_truncated(ffc_adjusted_mantissa *am, bool truncated,
+                                                          ffc_value_kind vk) {
   ffc_round_core(ffc_round_nearest_tie_even_truncated(am, _shift, truncated), vk);
 }
 
 // tie-even (comparison) variant of round_double
-ffc_internal ffc_inline
-void ffc_round_double_tie_even_cmp(ffc_adjusted_mantissa *am, int ord, ffc_value_kind vk) {
+ffc_internal ffc_inline void ffc_round_double_tie_even_cmp(ffc_adjusted_mantissa *am, int ord,
+                                                           ffc_value_kind vk) {
   ffc_round_core(ffc_round_nearest_tie_even_cmp(am, _shift, ord), vk);
 }
 
 /* 1-byte chars (char, uint8_t) */
 #define FFC_INT_CMP_ZEROS_1 0x3030303030303030ULL
-#define FFC_INT_CMP_LEN_1   8
+#define FFC_INT_CMP_LEN_1 8
 
 /* 2-byte chars (uint16_t, wchar_t on Windows) */
 #define FFC_INT_CMP_ZEROS_2 0x0030003000300030ULL
-#define FFC_INT_CMP_LEN_2   4
+#define FFC_INT_CMP_LEN_2 4
 
 /* 4-byte chars (uint32_t, wchar_t on Linux) */
 #define FFC_INT_CMP_ZEROS_4 0x0000003000000030ULL
-#define FFC_INT_CMP_LEN_4   2
+#define FFC_INT_CMP_LEN_4 2
 
-ffc_internal ffc_inline
-bool ffc_char_eq_zero(char const *p, size_t char_width) {
+ffc_internal ffc_inline bool ffc_char_eq_zero(char const *p, size_t char_width) {
   switch (char_width) {
-    case 1: return *p == '0';
-    case 2: return *(uint16_t const *)p == 0x0030;
-    case 4: return *(uint32_t const *)p == 0x00000030;
-    default: return false;
+  case 1:
+    return *p == '0';
+  case 2:
+    return *(uint16_t const *)p == 0x0030;
+  case 4:
+    return *(uint32_t const *)p == 0x00000030;
+  default:
+    return false;
   }
 }
 
-ffc_internal ffc_inline
-void ffc_skip_zeros(char **first, char *last, size_t char_width) {
+ffc_internal ffc_inline void ffc_skip_zeros(char **first, char *last, size_t char_width) {
   size_t cmp_len;
   uint64_t cmp_mask;
   switch (char_width) {
-    case 1:
-      cmp_len = FFC_INT_CMP_LEN_1;
-      cmp_mask = FFC_INT_CMP_ZEROS_1;
-      break;
-    case 2:
-      cmp_len = FFC_INT_CMP_LEN_2;
-      cmp_mask = FFC_INT_CMP_ZEROS_2;
-      break;
-    case 4:
-      cmp_len = FFC_INT_CMP_LEN_4;
-      cmp_mask = FFC_INT_CMP_ZEROS_4;
-      break;
-    default:
-      FFC_DEBUG_ASSERT(0);
-      return;
+  case 1:
+    cmp_len = FFC_INT_CMP_LEN_1;
+    cmp_mask = FFC_INT_CMP_ZEROS_1;
+    break;
+  case 2:
+    cmp_len = FFC_INT_CMP_LEN_2;
+    cmp_mask = FFC_INT_CMP_ZEROS_2;
+    break;
+  case 4:
+    cmp_len = FFC_INT_CMP_LEN_4;
+    cmp_mask = FFC_INT_CMP_ZEROS_4;
+    break;
+  default:
+    FFC_DEBUG_ASSERT(0);
+    return;
   }
 
   uint64_t val;
@@ -2711,26 +3321,26 @@ void ffc_skip_zeros(char **first, char *last, size_t char_width) {
 
 // determine if any non-zero digits were truncated.
 // all characters must be valid digits.
-ffc_internal ffc_inline
-bool ffc_is_truncated(char const *first, char const *last, size_t char_width) {
+ffc_internal ffc_inline bool ffc_is_truncated(char const *first, char const *last,
+                                              size_t char_width) {
   size_t cmp_len;
   uint64_t cmp_mask;
   switch (char_width) {
-    case 1:
-      cmp_len = FFC_INT_CMP_LEN_1;
-      cmp_mask = FFC_INT_CMP_ZEROS_1;
-      break;
-    case 2:
-      cmp_len = FFC_INT_CMP_LEN_2;
-      cmp_mask = FFC_INT_CMP_ZEROS_2;
-      break;
-    case 4:
-      cmp_len = FFC_INT_CMP_LEN_4;
-      cmp_mask = FFC_INT_CMP_ZEROS_4;
-      break;
-    default:
-      FFC_DEBUG_ASSERT(0);
-      return 0;
+  case 1:
+    cmp_len = FFC_INT_CMP_LEN_1;
+    cmp_mask = FFC_INT_CMP_ZEROS_1;
+    break;
+  case 2:
+    cmp_len = FFC_INT_CMP_LEN_2;
+    cmp_mask = FFC_INT_CMP_ZEROS_2;
+    break;
+  case 4:
+    cmp_len = FFC_INT_CMP_LEN_4;
+    cmp_mask = FFC_INT_CMP_ZEROS_4;
+    break;
+  default:
+    FFC_DEBUG_ASSERT(0);
+    return 0;
   }
   // do 8-bit optimizations, can just compare to 8 literal 0s.
   uint64_t val;
@@ -2750,30 +3360,29 @@ bool ffc_is_truncated(char const *first, char const *last, size_t char_width) {
   return false;
 }
 
-ffc_internal ffc_inline
-void ffc_parse_eight_digits(char **p, ffc_bigint_limb *value, size_t *counter, size_t *count) {
+ffc_internal ffc_inline void ffc_parse_eight_digits(char **p, ffc_bigint_limb *value,
+                                                    size_t *counter, size_t *count) {
   *value = *value * 100000000 + ffc_parse_eight_digits_unrolled(*p);
   *p += 8;
   *counter += 8;
   *count += 8;
 }
 
-ffc_internal ffc_inline
-void ffc_parse_one_digit(char **p, ffc_bigint_limb *value, size_t *counter, size_t *count) {
+ffc_internal ffc_inline void ffc_parse_one_digit(char **p, ffc_bigint_limb *value, size_t *counter,
+                                                 size_t *count) {
   *value = *value * 10 + (ffc_bigint_limb)(**p - '0');
   *p += 1;
   *counter += 1;
   *count += 1;
 }
 
-ffc_internal ffc_inline
-void ffc_add_native(ffc_bigint *big, ffc_bigint_limb power, ffc_bigint_limb value) {
+ffc_internal ffc_inline void ffc_add_native(ffc_bigint *big, ffc_bigint_limb power,
+                                            ffc_bigint_limb value) {
   ffc_bigint_mul(big, power);
   ffc_bigint_add(big, value);
 }
 
-ffc_internal ffc_inline
-void ffc_round_up_bigint(ffc_bigint *big, size_t *count) {
+ffc_internal ffc_inline void ffc_round_up_bigint(ffc_bigint *big, size_t *count) {
   // need to round-up the digits, but need to avoid rounding
   // ....9999 to ...10000, which could cause a false halfway point.
   ffc_add_native(big, 10, 1);
@@ -2781,9 +3390,8 @@ void ffc_round_up_bigint(ffc_bigint *big, size_t *count) {
 }
 
 // parse the significant digits into a big integer
-ffc_internal ffc_inline
-void ffc_parse_mantissa(ffc_bigint *result, ffc_parsed num,
-               size_t max_digits, size_t *const digits) {
+ffc_internal ffc_inline void ffc_parse_mantissa(ffc_bigint *result, ffc_parsed num,
+                                                size_t max_digits, size_t *const digits) {
   // try to minimize the number of big integer and scalar multiplication.
   // therefore, try to parse 8 digits at a time, and multiply by the largest
   // scalar value (9 or 19 digits) for each step.
@@ -2802,8 +3410,7 @@ void ffc_parse_mantissa(ffc_bigint *result, ffc_parsed num,
   ffc_skip_zeros(&p, pend, 1);
   // process all digits, in increments of step per loop
   while (p != pend) {
-    while ((pend - p >= 8) && (step - counter >= 8) &&
-           (max_digits - *digits >= 8)) {
+    while ((pend - p >= 8) && (step - counter >= 8) && (max_digits - *digits >= 8)) {
       ffc_parse_eight_digits(&p, &value, &counter, digits);
     }
     while (counter < step && p != pend && *digits < max_digits) {
@@ -2814,7 +3421,8 @@ void ffc_parse_mantissa(ffc_bigint *result, ffc_parsed num,
       ffc_add_native(result, (ffc_bigint_limb)(ffc_powers_of_ten_uint64[counter]), value);
       bool truncated = ffc_is_truncated(p, pend, 1);
       if (num.fraction_part_start != NULL) {
-        truncated |= ffc_is_truncated(num.fraction_part_start, num.fraction_part_start + num.fraction_part_len, 1);
+        truncated |= ffc_is_truncated(num.fraction_part_start,
+                                      num.fraction_part_start + num.fraction_part_len, 1);
       }
       if (truncated) {
         ffc_round_up_bigint(result, digits);
@@ -2836,8 +3444,7 @@ void ffc_parse_mantissa(ffc_bigint *result, ffc_parsed num,
     }
     // process all digits, in increments of step per loop
     while (p != pend) {
-      while ((pend - p >= 8) && (step - counter >= 8) &&
-             (max_digits - *digits >= 8)) {
+      while ((pend - p >= 8) && (step - counter >= 8) && (max_digits - *digits >= 8)) {
         ffc_parse_eight_digits(&p, &value, &counter, digits);
       }
       while (counter < step && p != pend && *digits < max_digits) {
@@ -2864,8 +3471,9 @@ void ffc_parse_mantissa(ffc_bigint *result, ffc_parsed num,
   }
 }
 
-ffc_internal ffc_inline
-ffc_adjusted_mantissa ffc_positive_digit_comp(ffc_bigint *bigmant, int32_t exponent, ffc_value_kind vk) {
+ffc_internal ffc_inline ffc_adjusted_mantissa ffc_positive_digit_comp(ffc_bigint *bigmant,
+                                                                      int32_t exponent,
+                                                                      ffc_value_kind vk) {
   for (int i = 0; i < bigmant->vec.len; i++) {
     ffc_debug("limb %d: %lld\n", i, bigmant->vec.data[i]);
   }
@@ -2886,9 +3494,10 @@ ffc_adjusted_mantissa ffc_positive_digit_comp(ffc_bigint *bigmant, int32_t expon
 // to scale them identically, we do `n * 2^f * 5^-f`, so we now have `m * 2^e`.
 // we then need to scale by `2^(f- e)`, and then the two significant digits
 // are of the same magnitude.
-ffc_internal ffc_inline
-ffc_adjusted_mantissa ffc_negative_digit_comp(
-    ffc_bigint *bigmant, ffc_adjusted_mantissa am, int32_t exponent, ffc_value_kind vk) {
+ffc_internal ffc_inline ffc_adjusted_mantissa ffc_negative_digit_comp(ffc_bigint *bigmant,
+                                                                      ffc_adjusted_mantissa am,
+                                                                      int32_t exponent,
+                                                                      ffc_value_kind vk) {
   ffc_bigint *real_digits = bigmant;
   int32_t real_exp = exponent;
 
@@ -2911,7 +3520,7 @@ ffc_adjusted_mantissa ffc_negative_digit_comp(
   if (pow2_exp > 0) {
     FFC_ASSERT(ffc_bigint_pow2(&theor_digits, (uint32_t)(pow2_exp)));
   } else if (pow2_exp < 0) {
-    FFC_ASSERT(ffc_bigint_pow2(real_digits,(uint32_t)(-pow2_exp)));
+    FFC_ASSERT(ffc_bigint_pow2(real_digits, (uint32_t)(-pow2_exp)));
   }
 
   // compare digits, and use it to direct rounding
@@ -2935,14 +3544,13 @@ ffc_adjusted_mantissa ffc_negative_digit_comp(
 // `b` as a big-integer type, scaled to the same binary exponent as
 // the actual digits. we then compare the big integer representations
 // of both, and use that to direct rounding.
-ffc_internal
-ffc_adjusted_mantissa ffc_digit_comp(ffc_parsed num, ffc_adjusted_mantissa am, ffc_value_kind vk) {
+ffc_internal ffc_adjusted_mantissa ffc_digit_comp(ffc_parsed num, ffc_adjusted_mantissa am,
+                                                  ffc_value_kind vk) {
   ffc_debug("digit_comp\n");
   // remove the invalid exponent bias
   am.power2 -= FFC_INVALID_AM_BIAS;
 
-  int32_t sci_exp =
-      ffc_scientific_exponent(num.mantissa, (int32_t)(num.exponent));
+  int32_t sci_exp = ffc_scientific_exponent(num.mantissa, (int32_t)(num.exponent));
   size_t max_digits = ffc_const(vk, MAX_DIGITS);
   size_t digits = 0;
   ffc_bigint bigmant = ffc_bigint_empty();
@@ -2959,7 +3567,6 @@ ffc_adjusted_mantissa ffc_digit_comp(ffc_parsed num, ffc_adjusted_mantissa am, f
 #endif // FFC_DIGIT_COMPARISON_H
 #ifndef FFC_FORMAT_H
 #define FFC_FORMAT_H
-
 
 /* section: binary to decimal (fixed notation)
  *
@@ -2987,8 +3594,7 @@ ffc_adjusted_mantissa ffc_digit_comp(ffc_parsed num, ffc_adjusted_mantissa am, f
 // Divide in place by a divisor below 2^32, returning the remainder.
 // Each 64-bit limb is split into 32-bit halves so the only division needed
 // is 64-by-32, which is native everywhere and never a compiler-rt libcall.
-ffc_internal
-uint32_t ffc_bigint_divmod_u32(ffc_bigint* me, uint32_t d) {
+ffc_internal uint32_t ffc_bigint_divmod_u32(ffc_bigint *me, uint32_t d) {
   uint64_t rem = 0;
   for (size_t index = me->vec.len; index > 0; index--) {
     ffc_bigint_limb x = me->vec.data[index - 1];
@@ -3011,8 +3617,7 @@ uint32_t ffc_bigint_divmod_u32(ffc_bigint* me, uint32_t d) {
 }
 
 // Test bit `n` (0 = least significant).
-ffc_internal ffc_inline
-bool ffc_bigint_test_bit(ffc_bigint const* me, size_t n) {
+ffc_internal ffc_inline bool ffc_bigint_test_bit(ffc_bigint const *me, size_t n) {
   size_t limb = n / FFC_LIMB_BITS;
   if (limb >= me->vec.len) {
     return false;
@@ -3021,8 +3626,7 @@ bool ffc_bigint_test_bit(ffc_bigint const* me, size_t n) {
 }
 
 // True if any of the bits [0, n) is set.
-ffc_internal
-bool ffc_bigint_any_bits_below(ffc_bigint const* me, size_t n) {
+ffc_internal bool ffc_bigint_any_bits_below(ffc_bigint const *me, size_t n) {
   size_t whole = n / FFC_LIMB_BITS;
   size_t rem = n % FFC_LIMB_BITS;
   if (whole > me->vec.len) {
@@ -3042,8 +3646,7 @@ bool ffc_bigint_any_bits_below(ffc_bigint const* me, size_t n) {
 }
 
 // Shift right by `n` bits, discarding the low bits.
-ffc_internal
-void ffc_bigint_shr(ffc_bigint* me, size_t n) {
+ffc_internal void ffc_bigint_shr(ffc_bigint *me, size_t n) {
   size_t limbs = n / FFC_LIMB_BITS;
   size_t bits = n % FFC_LIMB_BITS;
   if (limbs >= me->vec.len) {
@@ -3058,8 +3661,8 @@ void ffc_bigint_shr(ffc_bigint* me, size_t n) {
   if (bits != 0) {
     size_t last = me->vec.len - 1;
     for (size_t index = 0; index < last; index++) {
-      me->vec.data[index] = (me->vec.data[index] >> bits) |
-                            (me->vec.data[index + 1] << (FFC_LIMB_BITS - bits));
+      me->vec.data[index] =
+          (me->vec.data[index] >> bits) | (me->vec.data[index + 1] << (FFC_LIMB_BITS - bits));
     }
     me->vec.data[last] >>= bits;
   }
@@ -3074,23 +3677,20 @@ typedef struct ffc_writer {
   size_t len;
 } ffc_writer;
 
-ffc_internal ffc_inline
-void ffc_writer_put(ffc_writer* w, char c) {
+ffc_internal ffc_inline void ffc_writer_put(ffc_writer *w, char c) {
   if (w->len < w->cap) {
     w->buf[w->len] = c;
   }
   w->len++;
 }
 
-ffc_internal ffc_inline
-void ffc_writer_put_str(ffc_writer* w, char const* s) {
+ffc_internal ffc_inline void ffc_writer_put_str(ffc_writer *w, char const *s) {
   while (*s) {
     ffc_writer_put(w, *s++);
   }
 }
 
-ffc_internal ffc_inline
-void ffc_writer_put_zeros(ffc_writer* w, size_t n) {
+ffc_internal ffc_inline void ffc_writer_put_zeros(ffc_writer *w, size_t n) {
   while (n--) {
     ffc_writer_put(w, '0');
   }
@@ -3111,7 +3711,8 @@ size_t ffc_format_double_fixed(char *buf, size_t cap, double value, int places) 
 
   uint64_t bits = ffc_get_double_bits(value);
   bool negative = (bits >> FFC_DOUBLE_SIGN_INDEX) != 0;
-  int32_t biased_exp = (int32_t)((bits & FFC_DOUBLE_EXPONENT_MASK) >> FFC_DOUBLE_MANTISSA_EXPLICIT_BITS);
+  int32_t biased_exp =
+      (int32_t)((bits & FFC_DOUBLE_EXPONENT_MASK) >> FFC_DOUBLE_MANTISSA_EXPLICIT_BITS);
   uint64_t m = bits & FFC_DOUBLE_MANTISSA_MASK;
 
   if (negative) {
@@ -3204,8 +3805,8 @@ size_t ffc_format_double_fixed(char *buf, size_t cap, double value, int places) 
 
 /* section: decimal to binary */
 
-ffc_inline ffc_internal
-ffc_u128 ffc_compute_product_approximation(int64_t q, uint64_t w, ffc_value_kind vk) {
+ffc_inline ffc_internal ffc_u128 ffc_compute_product_approximation(int64_t q, uint64_t w,
+                                                                   ffc_value_kind vk) {
   // The required precision is mantissa_explicit_bits + 3 because
   // 1. We need the implicit bit
   // 2. We need an extra bit for rounding purposes
@@ -3263,8 +3864,8 @@ ffc_internal ffc_inline int32_t ffc_b10_to_b2(int32_t q) {
 // packed. However, in some very rare cases, the computation will fail. In such
 // cases, we return an adjusted_mantissa with a negative power of 2: the caller
 // should recompute in such cases.
-ffc_inline ffc_internal
-ffc_adjusted_mantissa ffc_compute_float(int64_t q, uint64_t w, ffc_value_kind vk) {
+ffc_inline ffc_internal ffc_adjusted_mantissa ffc_compute_float(int64_t q, uint64_t w,
+                                                                ffc_value_kind vk) {
   ffc_adjusted_mantissa answer;
   if ((w == 0) || (q < ffc_const(vk, SMALLEST_POWER_OF_10))) {
     answer.power2 = 0;
@@ -3302,7 +3903,8 @@ ffc_adjusted_mantissa ffc_compute_float(int64_t q, uint64_t w, ffc_value_kind vk
   answer.mantissa = product.high >> shift;
 
   // compute a biased-up power of 2
-  answer.power2 = (int32_t)(ffc_b10_to_b2((int32_t)(q)) + upperbit - lz - ffc_const(vk, MINIMUM_EXPONENT));
+  answer.power2 =
+      (int32_t)(ffc_b10_to_b2((int32_t)(q)) + upperbit - lz - ffc_const(vk, MINIMUM_EXPONENT));
 
   if (answer.power2 <= 0) { // subnormal path
 
@@ -3331,7 +3933,7 @@ ffc_adjusted_mantissa ffc_compute_float(int64_t q, uint64_t w, ffc_value_kind vk
     // subnormal, but we can only know this after rounding.
     // So we only declare a subnormal if we are smaller than the threshold.
     answer.power2 =
-      (answer.mantissa < ((uint64_t)(1) << ffc_const(vk, MANTISSA_EXPLICIT_BITS))) ? 0 : 1;
+        (answer.mantissa < ((uint64_t)(1) << ffc_const(vk, MANTISSA_EXPLICIT_BITS))) ? 0 : 1;
     return answer;
   } // subnormal
 
@@ -3376,21 +3978,21 @@ ffc_adjusted_mantissa ffc_compute_float(int64_t q, uint64_t w, ffc_value_kind vk
 
 // create an adjusted mantissa, biased by the invalid power2
 // for significant digits already multiplied by 10 ** q.
-ffc_internal ffc_inline
-ffc_adjusted_mantissa ffc_compute_error_scaled(int64_t q, uint64_t w, int lz, ffc_value_kind vk) {
+ffc_internal ffc_inline ffc_adjusted_mantissa ffc_compute_error_scaled(int64_t q, uint64_t w,
+                                                                       int lz, ffc_value_kind vk) {
   int hilz = (int)(w >> 63) ^ 1;
   ffc_adjusted_mantissa answer;
   answer.mantissa = w << hilz;
   int bias = ffc_const(vk, MANTISSA_EXPLICIT_BITS) - ffc_const(vk, MINIMUM_EXPONENT);
-  answer.power2 = (int32_t)(ffc_b10_to_b2((int32_t)(q)) + bias - hilz - lz - 62 +
-                          FFC_INVALID_AM_BIAS);
+  answer.power2 =
+      (int32_t)(ffc_b10_to_b2((int32_t)(q)) + bias - hilz - lz - 62 + FFC_INVALID_AM_BIAS);
   return answer;
 }
 
 // w * 10 ** q, without rounding the representation up.
 // the power2 in the exponent will be adjusted by invalid_am_bias.
-ffc_internal ffc_inline
-ffc_adjusted_mantissa ffc_compute_error(int64_t q, uint64_t w, ffc_value_kind vk) {
+ffc_internal ffc_inline ffc_adjusted_mantissa ffc_compute_error(int64_t q, uint64_t w,
+                                                                ffc_value_kind vk) {
   int32_t lz = (int32_t)ffc_count_leading_zeroes(w);
   w <<= lz;
   ffc_u128 product = ffc_compute_product_approximation(q, w, vk);
@@ -3401,9 +4003,9 @@ ffc_adjusted_mantissa ffc_compute_error(int64_t q, uint64_t w, ffc_value_kind vk
 
 /* section: entrypoint */
 
-ffc_internal ffc_inline
-bool ffc_clinger_fast_path_impl(uint64_t mantissa, int64_t exponent, bool is_negative,
-                       ffc_value *value, ffc_value_kind value_kind) {
+ffc_internal ffc_inline bool ffc_clinger_fast_path_impl(uint64_t mantissa, int64_t exponent,
+                                                        bool is_negative, ffc_value *value,
+                                                        ffc_value_kind value_kind) {
   bool is_double = value_kind == FFC_VALUE_KIND_DOUBLE;
   // The implementation of the Clinger's fast path is convoluted because
   // we want round-to-nearest in all cases, irrespective of the rounding mode
@@ -3413,7 +4015,8 @@ bool ffc_clinger_fast_path_impl(uint64_t mantissa, int64_t exponent, bool is_neg
   // Single unsigned range check replaces two signed comparisons, matching
   // fast_float's layout: (uint64_t)(e - MIN) <= (MAX - MIN) in one compare.
   if ((uint64_t)((int64_t)exponent - (int64_t)ffc_const(value_kind, MIN_EXPONENT_FAST_PATH)) <=
-      (uint64_t)((int64_t)ffc_const(value_kind, MAX_EXPONENT_FAST_PATH) - (int64_t)ffc_const(value_kind, MIN_EXPONENT_FAST_PATH))) {
+      (uint64_t)((int64_t)ffc_const(value_kind, MAX_EXPONENT_FAST_PATH) -
+                 (int64_t)ffc_const(value_kind, MIN_EXPONENT_FAST_PATH))) {
     // Unfortunately, the conventional Clinger's fast path is only possible
     // when the system rounds to the nearest float.
     //
@@ -3449,8 +4052,7 @@ bool ffc_clinger_fast_path_impl(uint64_t mantissa, int64_t exponent, bool is_neg
       // We do not have that fegetround() == FE_TONEAREST.
       // Next is a modified Clinger's fast path, inspired by Jakub Jelínek's
       // proposal
-      if (exponent >= 0 &&
-          mantissa <= ffc_const(value_kind, MAX_MANTISSA)[exponent]) {
+      if (exponent >= 0 && mantissa <= ffc_const(value_kind, MAX_MANTISSA)[exponent]) {
 #if defined(__clang__) || defined(FFC_32BIT)
         // Clang may map 0 to -0.0 when fegetround() == FE_DOWNWARD
         if (mantissa == 0) {
@@ -3473,12 +4075,12 @@ bool ffc_clinger_fast_path_impl(uint64_t mantissa, int64_t exponent, bool is_neg
   return false;
 }
 
-ffc_internal ffc_inline
-ffc_result ffc_from_chars_advanced(ffc_parsed const pns, ffc_value* value, ffc_value_kind vk) {
+ffc_internal ffc_inline ffc_result ffc_from_chars_advanced(ffc_parsed const pns, ffc_value *value,
+                                                           ffc_value_kind vk) {
   ffc_result answer;
 
   answer.outcome = FFC_OUTCOME_OK; // be optimistic :')
-  answer.ptr = (char*)pns.lastmatch;
+  answer.ptr = (char *)pns.lastmatch;
 
   if (!pns.too_many_digits && pns.exponent == 0 &&
       pns.mantissa <= ffc_const(vk, MAX_MANTISSA_FAST_PATH)) {
@@ -3489,7 +4091,9 @@ ffc_result ffc_from_chars_advanced(ffc_parsed const pns, ffc_value* value, ffc_v
     }
 #endif
     ffc_set_value(value, vk, pns.mantissa);
-    if (pns.negative) { ffc_set_value(value, vk, -ffc_read_value(value, vk)); }
+    if (pns.negative) {
+      ffc_set_value(value, vk, -ffc_read_value(value, vk));
+    }
     return answer;
   }
 
@@ -3527,8 +4131,9 @@ ffc_result ffc_from_chars_advanced(ffc_parsed const pns, ffc_value* value, ffc_v
   return answer;
 }
 
-ffc_internal ffc_inline
-ffc_result ffc_from_chars(char* first, char* last, ffc_parse_options options, ffc_value *value, ffc_value_kind vk) {
+ffc_internal ffc_inline ffc_result ffc_from_chars(char *first, char *last,
+                                                  ffc_parse_options options, ffc_value *value,
+                                                  ffc_value_kind vk) {
 
   // Alias for parity with cpp code, no feature macros to apply
   ffc_format const fmt = options.format;
@@ -3547,9 +4152,9 @@ ffc_result ffc_from_chars(char* first, char* last, ffc_parse_options options, ff
   uint64_t json_mode = (uint64_t)(fmt & FFC_FORMAT_FLAG_BASIC_JSON);
   ffc_parsed pns = ffc_parse_number_string(first, last, options, json_mode);
 
-  #ifdef FFC_DEBUG
+#ifdef FFC_DEBUG
   ffc_dump_parsed(pns);
-  #endif
+#endif
 
   if (!pns.valid) {
     if ((uint64_t)(fmt & FFC_FORMAT_FLAG_NO_INFNAN)) {
@@ -3566,21 +4171,25 @@ ffc_result ffc_from_chars(char* first, char* last, ffc_parse_options options, ff
 }
 
 /* See FFC_API_INLINE in api.h: force-inlined in this TU, still exported. */
-FFC_DOUBLE_IMPL_INLINE ffc_result ffc_from_chars_double_options(const char *start, const char *end, double* out, ffc_parse_options options) {
+FFC_DOUBLE_IMPL_INLINE ffc_result ffc_from_chars_double_options(const char *start, const char *end,
+                                                                double *out,
+                                                                ffc_parse_options options) {
   // It would be UB to directly use *out as our ffc_value, even though its the same layout
   ffc_value out_value = {0};
 
   // The all-important call with a constant VALUE_KIND that should cascade in tons of inlining
-  ffc_result result = ffc_from_chars((char*)start, (char*)end, options, &out_value, FFC_VALUE_KIND_DOUBLE);
+  ffc_result result =
+      ffc_from_chars((char *)start, (char *)end, options, &out_value, FFC_VALUE_KIND_DOUBLE);
   *out = out_value.d;
   return result;
 }
-FFC_DOUBLE_IMPL_INLINE ffc_result ffc_from_chars_double(char const* first, char const* last, double* out) {
+FFC_DOUBLE_IMPL_INLINE ffc_result ffc_from_chars_double(char const *first, char const *last,
+                                                        double *out) {
   ffc_parse_options options = ffc_parse_options_default();
   return ffc_from_chars_double_options(first, last, out, options);
 }
 ffc_result ffc_parse_double(size_t len, const char *s, double *out) {
-  char *pend = (char*)(s + len);
+  char *pend = (char *)(s + len);
   return ffc_from_chars_double(s, pend, out);
 }
 double ffc_parse_double_simple(size_t len, const char *s, ffc_outcome *outcome) {
@@ -3592,18 +4201,22 @@ double ffc_parse_double_simple(size_t len, const char *s, ffc_outcome *outcome) 
   return out;
 }
 
-FFC_FLOAT_IMPL_INLINE ffc_result ffc_from_chars_float_options(const char *start,  const char *end, float* out, ffc_parse_options options) {
+FFC_FLOAT_IMPL_INLINE ffc_result ffc_from_chars_float_options(const char *start, const char *end,
+                                                              float *out,
+                                                              ffc_parse_options options) {
   ffc_value out_value = {0};
-  ffc_result result = ffc_from_chars((char*)start, (char*)end, options, &out_value, FFC_VALUE_KIND_FLOAT);
+  ffc_result result =
+      ffc_from_chars((char *)start, (char *)end, options, &out_value, FFC_VALUE_KIND_FLOAT);
   *out = out_value.f;
   return result;
 }
-FFC_FLOAT_IMPL_INLINE ffc_result ffc_from_chars_float(char const* first, char const* last, float* out) {
+FFC_FLOAT_IMPL_INLINE ffc_result ffc_from_chars_float(char const *first, char const *last,
+                                                      float *out) {
   ffc_parse_options options = ffc_parse_options_default();
   return ffc_from_chars_float_options(first, last, out, options);
 }
 ffc_result ffc_parse_float(size_t len, const char *s, float *out) {
-  char *pend = (char*)(s + len);
+  char *pend = (char *)(s + len);
   return ffc_from_chars_float(s, pend, out);
 }
 float ffc_parse_float_simple(size_t len, const char *s, ffc_outcome *outcome) {
@@ -3615,66 +4228,69 @@ float ffc_parse_float_simple(size_t len, const char *s, ffc_outcome *outcome) {
   return out;
 }
 
-ffc_result ffc_from_chars_i64_options(const char *start, const char *end, int base, int64_t* out, ffc_parse_options options) {
+ffc_result ffc_from_chars_i64_options(const char *start, const char *end, int base, int64_t *out,
+                                      ffc_parse_options options) {
   ffc_int_value value_out = {0};
   ffc_result result = ffc_parse_int_string(start, end, &value_out, FFC_INT_KIND_S64, options, base);
   *out = value_out.s64;
   return result;
 }
-ffc_result ffc_from_chars_i64(char const* first, char const* last, int base, int64_t* out) {
+ffc_result ffc_from_chars_i64(char const *first, char const *last, int base, int64_t *out) {
   ffc_parse_options options = ffc_parse_options_default();
   return ffc_from_chars_i64_options(first, last, base, out, options);
 }
-ffc_result ffc_from_chars_u64_options(const char *start, const char *end, int base, uint64_t* out, ffc_parse_options options) {
+ffc_result ffc_from_chars_u64_options(const char *start, const char *end, int base, uint64_t *out,
+                                      ffc_parse_options options) {
   ffc_int_value value_out = {0};
   ffc_result result = ffc_parse_int_string(start, end, &value_out, FFC_INT_KIND_U64, options, base);
   *out = value_out.u64;
   return result;
 }
-ffc_result ffc_from_chars_u64(char const* first, char const* last, int base, uint64_t* out) {
+ffc_result ffc_from_chars_u64(char const *first, char const *last, int base, uint64_t *out) {
   ffc_parse_options options = ffc_parse_options_default();
   return ffc_from_chars_u64_options(first, last, base, out, options);
 }
-ffc_result ffc_from_chars_i32_options(const char *start, const char *end, int base, int32_t* out, ffc_parse_options options) {
+ffc_result ffc_from_chars_i32_options(const char *start, const char *end, int base, int32_t *out,
+                                      ffc_parse_options options) {
   ffc_int_value value_out = {0};
   ffc_result result = ffc_parse_int_string(start, end, &value_out, FFC_INT_KIND_S32, options, base);
   *out = value_out.s32;
   return result;
 }
-ffc_result ffc_from_chars_i32(char const* first, char const* last, int base, int32_t* out) {
+ffc_result ffc_from_chars_i32(char const *first, char const *last, int base, int32_t *out) {
   ffc_parse_options options = ffc_parse_options_default();
   return ffc_from_chars_i32_options(first, last, base, out, options);
 }
-ffc_result ffc_from_chars_u32_options(const char *start, const char *end, int base, uint32_t* out, ffc_parse_options options) {
+ffc_result ffc_from_chars_u32_options(const char *start, const char *end, int base, uint32_t *out,
+                                      ffc_parse_options options) {
   ffc_int_value value_out = {0};
   ffc_result result = ffc_parse_int_string(start, end, &value_out, FFC_INT_KIND_U32, options, base);
   *out = value_out.u32;
   return result;
 }
-ffc_result ffc_from_chars_u32(char const* first, char const* last, int base, uint32_t* out) {
+ffc_result ffc_from_chars_u32(char const *first, char const *last, int base, uint32_t *out) {
   ffc_parse_options options = ffc_parse_options_default();
   return ffc_from_chars_u32_options(first, last, base, out, options);
 }
 
-
-ffc_result ffc_parse_i64(size_t len, const char *input, int base, int64_t  *out) {
-  char *pend = (char*)(input + len);
+ffc_result ffc_parse_i64(size_t len, const char *input, int base, int64_t *out) {
+  char *pend = (char *)(input + len);
   return ffc_from_chars_i64(input, pend, base, out);
 }
 ffc_result ffc_parse_u64(size_t len, const char *input, int base, uint64_t *out) {
-  char *pend = (char*)(input + len);
+  char *pend = (char *)(input + len);
   return ffc_from_chars_u64(input, pend, base, out);
 }
-ffc_result ffc_parse_i32(size_t len, const char *input, int base, int32_t  *out) {
-  char *pend = (char*)(input + len);
+ffc_result ffc_parse_i32(size_t len, const char *input, int base, int32_t *out) {
+  char *pend = (char *)(input + len);
   return ffc_from_chars_i32(input, pend, base, out);
 }
 ffc_result ffc_parse_u32(size_t len, const char *input, int base, uint32_t *out) {
-  char *pend = (char*)(input + len);
+  char *pend = (char *)(input + len);
   return ffc_from_chars_u32(input, pend, base, out);
 }
 
-int64_t  ffc_parse_i64_simple(size_t len, const char *input, int base, ffc_outcome *outcome) {
+int64_t ffc_parse_i64_simple(size_t len, const char *input, int base, ffc_outcome *outcome) {
   int64_t out = 0;
   ffc_result result = ffc_parse_i64(len, input, base, &out);
   if (outcome) {
@@ -3690,7 +4306,7 @@ uint64_t ffc_parse_u64_simple(size_t len, const char *input, int base, ffc_outco
   }
   return out;
 }
-int32_t  ffc_parse_i32_simple(size_t len, const char *input, int base, ffc_outcome *outcome) {
+int32_t ffc_parse_i32_simple(size_t len, const char *input, int base, ffc_outcome *outcome) {
   int32_t out = 0;
   ffc_result result = ffc_parse_i32(len, input, base, &out);
   if (outcome) {
@@ -3707,8 +4323,7 @@ uint32_t ffc_parse_u32_simple(size_t len, const char *input, int base, ffc_outco
   return out;
 }
 
-ffc_result ffc_parse_json_number(const char *start, const char *end,
-                                 ffc_json_number *out) {
+ffc_result ffc_parse_json_number(const char *start, const char *end, ffc_json_number *out) {
   ffc_result answer;
 
   if (start == end) {

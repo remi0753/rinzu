@@ -1,0 +1,30 @@
+class CapturedPair {
+    const first: Future<Int>,
+    const second: Future<Int>,
+    next: Option<CapturedPair>
+}
+
+fn capturePair(first: Future<Int>, second: Future<Int>) -> fn () -> CapturedPair {
+    let node = CapturedPair(first: first, second: second, next: Option<CapturedPair>.None());
+    node.next = Option<CapturedPair>.Some(value: node);
+    return fn () -> CapturedPair {
+        switch node.next {
+            case Option.Some(alias): {
+                return alias;
+            }
+            case Option.None: {
+                return node;
+            }
+        }
+    };
+}
+
+fn capturedFirst(saved: fn () -> CapturedPair) -> Future<Int> {
+    let pair = saved();
+    return pair.first;
+}
+
+fn capturedSecond(saved: fn () -> CapturedPair) -> Future<Int> {
+    let pair = saved();
+    return pair.second;
+}

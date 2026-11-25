@@ -1,7 +1,70 @@
+import rinzu.bytes as bytesApi;
 import rinzu.stdio;
+import rinzu.string as textApi;
+
+native {
+    fn beginCase(name: ByteArray, length: CSize) -> Int symbol "rinzu_testing_case_begin";
+
+    fn recordError(name: ByteArray, nameLength: CSize, message: ByteArray, messageLength: CSize)
+        symbol "rinzu_testing_case_error";
+
+    fn endCase(failed: Int) symbol "rinzu_testing_case_end";
+}
 
 /// A recoverable test assertion failure, including the caller's message.
 error AssertionFailed {}
+
+/// A named case could not start in the current test context.
+error InvalidTestCase {}
+
+fn selectCase(name: String) throws(InvalidTestCase) -> Bool {
+    let encoded = textApi.encodeUtf8(name);
+    let selection = beginCase(encoded, bytesApi.byteLength(encoded));
+    if selection < 0 {
+        throw InvalidTestCase(message: f"cannot start test case: {name}");
+    }
+    return selection == 1;
+}
+
+fn recordFailure(problems: List<Error>) {
+    for problem in problems {
+        let name = textApi.encodeUtf8(problem.name);
+        let message = textApi.encodeUtf8(problem.message);
+        recordError(name, bytesApi.byteLength(name), message, bytesApi.byteLength(message));
+    }
+    endCase(1);
+}
+
+/// Run a named synchronous case in a .test.rinzu file.
+/// Record ordinary Errors as case failures and return to the file's main.
+fn runCase(name: String, body: fn () throws(Error) -> Unit) throws(InvalidTestCase) {
+    if !selectCase(name) {
+        return;
+    }
+    try {
+        body();
+    }
+    catch problems {
+        recordFailure(problems);
+        return;
+    }
+    endCase(0);
+}
+
+/// Run and await a named asynchronous case in a .test.rinzu file.
+async fn runAsyncCase(name: String, body: fn () throws(Error) -> Future<Unit>) throws(InvalidTestCase) {
+    if !selectCase(name) {
+        return;
+    }
+    try {
+        await body();
+    }
+    catch problems {
+        recordFailure(problems);
+        return;
+    }
+    endCase(0);
+}
 
 /// Assert a condition using AssertionFailed on failure.
 /// Success returns Unit without output. A failed assertion prints the message.
@@ -46,3 +109,6 @@ fn assertEqual<T: Equality>(actual: T, expected: T, message: String) {
 export assertTrue;
 export assertEqual;
 export AssertionFailed;
+export InvalidTestCase;
+export runCase;
+export runAsyncCase;

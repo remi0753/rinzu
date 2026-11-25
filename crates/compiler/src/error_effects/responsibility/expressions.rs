@@ -243,10 +243,10 @@ impl Engine<'_> {
             }
             ExpressionKind::Name(path) => {
                 let mut value = if let Some(ty) =
-                    self.checked.error_narrowings.get(&expression.range)
+                    self.checked.fact_error_narrowings(&expression.range)
                 {
                     Tracked::data(self.typed(ty))
-                } else if let Some(name) = self.checked.static_references.get(&expression.range) {
+                } else if let Some(name) = self.checked.fact_static_references(&expression.range) {
                     Tracked::data(Value::Callable(BTreeSet::from([name.clone()])))
                 } else {
                     state
@@ -258,13 +258,12 @@ impl Engine<'_> {
                 if value == Tracked::Unbound {
                     return self.errors(state, &language::one(Tag::Any), None);
                 }
-                let native_read = self.checked.native_record_reads.contains(&expression.range);
+                let native_read = self.checked.fact_native_record_reads(&expression.range);
                 for (index, name) in path[1..].iter().enumerate() {
                     let owner = value.effect().nominal().unwrap_or_default().to_owned();
                     let ty = self
                         .checked
-                        .source_types
-                        .get(&owner)
+                        .memo_schema(&owner)
                         .and_then(|schema| schema.fields.iter().find(|(field, _)| field == name))
                         .map(|(_, ty)| ty.clone())
                         .unwrap_or_else(|| {
@@ -318,8 +317,7 @@ impl Engine<'_> {
                     match (
                         &value.effect(),
                         self.checked
-                            .error_tests
-                            .get(&expression.range)
+                            .fact_error_tests(&expression.range)
                             .and_then(|ty| tag(self.checked, ty)),
                     ) {
                         (Value::Error(tags), Some(expected))
@@ -405,12 +403,9 @@ impl Engine<'_> {
             }
             ExpressionKind::FormatString(values) | ExpressionKind::List(values) => {
                 let native_display = matches!(expression.kind, ExpressionKind::FormatString(_))
-                    && values.iter().any(|value| {
-                        crate::sema::display_reads_native_record(
-                            &self.checked.source_types,
-                            &self.type_at(value.range),
-                        )
-                    });
+                    && values
+                        .iter()
+                        .any(|value| self.checked.memo_display_native(&self.type_at(value.range)));
                 let (normal, mut result) = self.sequence(values.iter(), state);
                 for (state, values) in normal {
                     if native_display {

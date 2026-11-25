@@ -1,7 +1,7 @@
 //! Deferred field facts become current only on an unambiguous completion.
 //! An intervening store or overlapping writer permanently taints that snapshot.
 use super::*;
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
 pub(super) struct Completion {
     pub objects: BTreeMap<Token, objects::Object>,
     pub observed: BTreeSet<Token>,
@@ -463,7 +463,7 @@ impl Engine<'_> {
                         parameter, effect, ..
                     } => {
                         let ty = effect.nominal()?;
-                        let schema = self.checked.source_types.get(ty)?;
+                        let schema = self.checked.memo_schema(ty)?;
                         if schema.kind != "state" {
                             return None;
                         }
@@ -511,7 +511,10 @@ impl Engine<'_> {
             state.invalidate_watches(Some(identity));
             if let Some(object) = state.objects.get_mut(identity) {
                 for (name, value) in &mut object.fields {
-                    let ty = self.checked.source_types[&object.ty]
+                    let ty = self
+                        .checked
+                        .memo_schema(&object.ty)
+                        .expect("checked source types")
                         .fields
                         .iter()
                         .find(|(field, _)| field == name)

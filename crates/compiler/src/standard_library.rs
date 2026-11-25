@@ -11,7 +11,7 @@ use rinzu_abi::target::Target;
 pub const TARGET: &str = Target::Aarch64AppleDarwin.triple();
 pub const REVISION: u32 = 7;
 /// Shared by the embedded registry and its distribution fingerprint.
-pub const RUNTIME_CODEGEN_REVISION: u32 = 187;
+pub const RUNTIME_CODEGEN_REVISION: u32 = 188;
 pub const SOURCE_PACKAGES: [&str; 10] = [
     "rinzu.option",
     "rinzu.io",
@@ -167,6 +167,7 @@ pub(crate) fn resources_for_target(target: Target) -> BTreeMap<&'static str, &'s
         repository_resource!("include/rinzu/resource_counters.h", "include/rinzu/resource_counters.h"),
         repository_resource!("include/rinzu/resource_report.h", "include/rinzu/resource_report.h"),
         repository_resource!("include/rinzu/runtime.h", "include/rinzu/runtime.h"),
+        repository_resource!("include/rinzu/runtime_storage.h", "include/rinzu/runtime_storage.h"),
         repository_resource!("include/rinzu/scalar.h", "include/rinzu/scalar.h"),
         repository_resource!("include/rinzu/scalar_transport.h", "include/rinzu/scalar_transport.h"),
         repository_resource!("include/rinzu/source_async.h", "include/rinzu/source_async.h"),
@@ -212,6 +213,8 @@ pub(crate) fn resources_for_target(target: Target) -> BTreeMap<&'static str, &'s
         sdk_resource!("stream", "src/stream.rinzu"),
         sdk_resource!("testing", "rinzu.toml"),
         sdk_resource!("testing", "src/testing.rinzu"),
+        sdk_resource!("testing", "native/cases.c"),
+        sdk_resource!("testing", "native/cases.h"),
         sdk_resource!("option", "rinzu.toml"),
         sdk_resource!("option", "src/option.rinzu"),
         sdk_resource!("shutdown", "rinzu.toml"),

@@ -69,6 +69,67 @@ fn interface() -> SourceInterface {
 }
 
 #[test]
+fn shared_key_fields_preserve_the_wire_keys_and_preliminary_header() {
+    let input = interface();
+    let header = generate_source_package_header(input.clone()).unwrap();
+    let package = generate_source_package(input, b"native").unwrap();
+    assert_eq!(header, package.header);
+    let descriptor = package.descriptor;
+    let interface = descriptor.interface;
+    for (function, key) in interface.functions.iter().zip(&descriptor.import_keys) {
+        let legacy_tuple = serde_json::to_vec(&(
+            function,
+            &interface.types,
+            &interface.backend,
+            &interface.package.target,
+            &interface.package.data_layout,
+            &interface.provided_header_digest,
+            &interface.constants,
+            &interface.constant_types,
+            &interface.source_types,
+            &interface.source_templates,
+            &interface.source_values,
+        ))
+        .unwrap();
+        assert_eq!(*key, sha256(&legacy_tuple));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn compact_c_initializer_round_trips_every_byte() {
+    let payload: Vec<_> = (0..=255_u8).cycle().take(800).chain(*b"??/").collect();
+    let directory =
+        std::env::temp_dir().join(format!("rinzu-c-byte-string-{}", std::process::id()));
+    std::fs::create_dir(&directory).unwrap();
+    let source = directory.join("bytes.c");
+    let binary = directory.join("bytes");
+    std::fs::write(
+        &source,
+        format!(
+            "#include <stdint.h>\n#include <stdio.h>\nstatic const uint8_t wire[] =\n{};\nint main(void) {{ return fwrite(wire, 1, sizeof(wire) - 1, stdout) != sizeof(wire) - 1; }}\n",
+            c_byte_string(&payload)
+        ),
+    )
+    .unwrap();
+    let build = native::clang()
+        .args(["-std=c11", "-trigraphs", "-Wall", "-Wextra", "-Werror"])
+        .arg(source)
+        .arg("-o")
+        .arg(&binary)
+        .output()
+        .unwrap();
+    let result = build
+        .status
+        .success()
+        .then(|| std::process::Command::new(binary).output().unwrap());
+    std::fs::remove_dir_all(directory).unwrap();
+    let result = result.unwrap_or_else(|| panic!("{}", String::from_utf8_lossy(&build.stderr)));
+    assert!(result.status.success());
+    assert_eq!(result.stdout, payload);
+}
+
+#[test]
 fn repeated_validation_keeps_results_isolated_and_rejects_changed_bytes() {
     let generated = generate_source_package(interface(), b"cache-isolation").unwrap();
     let mut first = validate_source_descriptor(&generated.wire).unwrap();

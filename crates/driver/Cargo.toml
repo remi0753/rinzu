@@ -20,11 +20,19 @@ serde.workspace = true
 libc.workspace = true
 flate2 = "1.1.11"
 tar = { version = "0.4.46", default-features = false }
-object = { version = "0.40.0", default-features = false, features = ["read", "std"] }
+object = { version = "0.40.0", default-features = false, features = [
+  "read",
+  "std",
+] }
+rmp-serde = "1.3"
 
 [dev-dependencies]
+rinzu-runtime-model = { path = "../../tests/runtime-model" }
 libc.workspace = true
-rinzu-codegen = { path = "../codegen", features = ["test-allocation-probe", "test-dispatcher-probe"] }
+rinzu-codegen = { path = "../codegen", features = [
+  "test-allocation-probe",
+  "test-dispatcher-probe",
+] }
 
 [lints]
 workspace = true

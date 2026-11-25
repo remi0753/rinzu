@@ -4,6 +4,10 @@ use std::cell::Cell;
 
 #[derive(Clone, Copy, Default)]
 struct State {
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(dead_code)
+    )]
     configured: bool,
     used: bool,
     active: bool,
@@ -27,7 +31,9 @@ pub fn allocations() -> Option<usize> {
         (state.used && !state.active).then_some(state.allocations)
     })
 }
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(crate) struct Preparation;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(crate) fn preparation() -> Preparation {
     STATE.with(|state| {
         let mut value = state.get();
@@ -39,6 +45,7 @@ pub(crate) fn preparation() -> Preparation {
     });
     Preparation
 }
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 impl Drop for Preparation {
     fn drop(&mut self) {
         STATE.with(|state| {

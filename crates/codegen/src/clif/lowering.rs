@@ -1,4 +1,5 @@
 //! Lower typed IR functions, control flow and runtime calls into Cranelift IR.
+use super::link_values::{LinkValue, LinkValues};
 use super::*;
 
 #[allow(clippy::too_many_arguments)]
@@ -44,6 +45,10 @@ pub(super) fn define_function<M: Module>(
         };
         string_literals.insert(operation.result.as_ref().unwrap().id, address);
     }
+    let linked = runtime_functions
+        .link_values
+        .then(|| LinkValues::declare(module, &mut context.func))
+        .transpose()?;
     let mut builder_context = FunctionBuilderContext::new();
     let c_managed_signatures;
     {
@@ -71,6 +76,7 @@ pub(super) fn define_function<M: Module>(
                         .declare_func_in_func(runtime.supplant_settle, &mut context.func),
                 });
         let runtime_refs = RuntimeFunctionRefs {
+            linked: linked.as_ref(),
             proven_owner_operations: runtime_functions
                 .proven_owner_operations
                 .get(&function.name)
@@ -87,7 +93,7 @@ pub(super) fn define_function<M: Module>(
                 .cloned()
                 .unwrap_or_default(),
             direct_source: runtime_functions.direct_c_context,
-            virtual_bytes_options: HashSet::new(),
+            virtual_options: Default::default(),
             dead_temporary_roots: HashSet::new(),
             dead_local_roots: HashSet::new(),
             proven_frame_roots: runtime_functions
@@ -101,9 +107,9 @@ pub(super) fn define_function<M: Module>(
                 .cloned()
                 .unwrap_or_default(),
             function_index,
-            data_schema: runtime_functions.data_schema.clone(),
-            reference_targets: runtime_functions.reference_targets.clone(),
-            native_plans: runtime_functions.native_plans.clone(),
+            data_schema: &runtime_functions.data_schema,
+            reference_targets: &runtime_functions.reference_targets,
+            native_plans: &runtime_functions.native_plans,
             supplant_values: Default::default(),
             native_helpers: runtime_functions
                 .native_helpers
@@ -122,7 +128,7 @@ pub(super) fn define_function<M: Module>(
                 .collect(),
             source_async,
             unwind: None,
-            source_ids: runtime_functions.source_ids.clone(),
+            source_ids: &runtime_functions.source_ids,
             string_literals,
             set_source: module
                 .declare_func_in_func(runtime_functions.set_source, &mut context.func),
@@ -147,6 +153,9 @@ pub(super) fn define_function<M: Module>(
                 .declare_func_in_func(runtime_functions.data_operation, &mut context.func),
             bytes_slice_payload: runtime_functions
                 .bytes_slice_payload
+                .map(|id| module.declare_func_in_func(id, &mut context.func)),
+            indexed_option: runtime_functions
+                .indexed_option
                 .map(|id| module.declare_func_in_func(id, &mut context.func)),
             bytes_int_length: module
                 .declare_func_in_func(runtime_functions.bytes_int_length, &mut context.func),
@@ -203,15 +212,20 @@ pub(super) fn define_function<M: Module>(
             native_invoke: module
                 .declare_func_in_func(runtime_functions.native_invoke, &mut context.func),
         };
-        let managed_signatures = functions
-            .iter()
-            .map(|(name, info)| {
-                (
-                    name.clone(),
-                    context.func.import_signature(info.signature.clone()),
-                )
-            })
-            .collect::<HashMap<_, _>>();
+        let mut managed_signatures = HashMap::new();
+        for operation in function.blocks.iter().flat_map(|block| &block.operations) {
+            if let OperationKind::ManagedCall { arguments, .. }
+            | OperationKind::Spawn { arguments, .. }
+            | OperationKind::IndirectCall { arguments, .. } = &operation.kind
+            {
+                let arity = arguments.len();
+                managed_signatures.entry(arity).or_insert_with(|| {
+                    context
+                        .func
+                        .import_signature(managed_signature(module, arity))
+                });
+            }
+        }
         c_managed_signatures = managed_signatures.values().copied().collect::<HashSet<_>>();
         let mut builder = FunctionBuilder::new(&mut context.func, &mut builder_context);
         lower_function(
@@ -220,10 +234,13 @@ pub(super) fn define_function<M: Module>(
             function_index,
             functions,
             &managed_signatures,
-            &runtime_refs,
+            runtime_refs,
             native_imports,
         )?;
         builder.finalize(target_config);
+    }
+    if let Some(linked) = linked {
+        linked.define(module)?;
     }
     if colocate_runtime_calls {
         // AOT links these fixed helpers with their generated C runtime in
@@ -389,28 +406,28 @@ struct AsyncRuntimeRefs {
     supplant_settle: cranelift_codegen::ir::FuncRef,
 }
 
-#[derive(Clone)]
-struct RuntimeFunctionRefs {
+struct RuntimeFunctionRefs<'a> {
+    linked: Option<&'a LinkValues>,
     proven_owner_operations: HashSet<(BlockId, usize)>,
     owner_helpers: BTreeMap<&'static str, cranelift_codegen::ir::FuncRef>,
     direct_source: bool,
-    virtual_bytes_options: HashSet<ValueId>,
+    virtual_options: rinzu_compiler::VirtualOptions,
     dead_temporary_roots: HashSet<(BlockId, usize, ValueId)>,
     dead_local_roots: HashSet<(BlockId, usize, String)>,
     proven_frame_roots: HashSet<(BlockId, usize)>,
     proven_frame_memberships: HashMap<(BlockId, usize), u64>,
     fresh_return_consuming_awaits: HashSet<(BlockId, usize)>,
     function_index: usize,
-    reference_targets: crate::function_reference::ReferenceTargets,
-    native_plans: crate::native_call::NativeCallPlans,
+    reference_targets: &'a crate::function_reference::ReferenceTargets,
+    native_plans: &'a crate::native_call::NativeCallPlans,
     supplant_values: std::rc::Rc<
         std::cell::RefCell<HashMap<rinzu_compiler::ReservationId, cranelift_codegen::ir::Value>>,
     >,
     native_helpers: BTreeMap<&'static str, cranelift_codegen::ir::FuncRef>,
     native_stubs: BTreeMap<String, cranelift_codegen::ir::FuncRef>,
-    data_schema: crate::data_schema::DataSchema,
+    data_schema: &'a crate::data_schema::DataSchema,
     source_async: Option<AsyncRuntimeRefs>,
-    source_ids: HashMap<u32, u64>,
+    source_ids: &'a HashMap<u32, u64>,
     set_source: cranelift_codegen::ir::FuncRef,
     observe_source: cranelift_codegen::ir::FuncRef,
     failure: cranelift_codegen::ir::FuncRef,
@@ -423,6 +440,7 @@ struct RuntimeFunctionRefs {
     construct: cranelift_codegen::ir::FuncRef,
     data_operation: cranelift_codegen::ir::FuncRef,
     bytes_slice_payload: Option<cranelift_codegen::ir::FuncRef>,
+    indexed_option: Option<cranelift_codegen::ir::FuncRef>,
     bytes_int_length: cranelift_codegen::ir::FuncRef,
     string_scalar_length: cranelift_codegen::ir::FuncRef,
     collection_length: cranelift_codegen::ir::FuncRef,
@@ -456,6 +474,21 @@ struct RuntimeFunctionRefs {
     native_invoke: cranelift_codegen::ir::FuncRef,
     unwind: Option<UnwindRoutes>,
 }
+impl RuntimeFunctionRefs<'_> {
+    fn number(&self, builder: &mut FunctionBuilder<'_>, value: LinkValue) -> Value {
+        if let Some(linked) = self.linked {
+            linked.load(builder, value)
+        } else {
+            builder.ins().iconst(types::I64, value.value())
+        }
+    }
+
+    fn type_number(&self, builder: &mut FunctionBuilder<'_>, ty: &Type) -> Result<Value> {
+        let index = i64::try_from(self.data_schema.index(ty)?)?;
+        Ok(self.number(builder, LinkValue::Type(index)))
+    }
+}
+
 #[derive(Clone)]
 struct UnwindRoutes {
     variable: Variable,
@@ -490,7 +523,7 @@ impl UnwindRoutes {
 }
 
 fn owner_helper(
-    runtime: &RuntimeFunctionRefs,
+    runtime: &RuntimeFunctionRefs<'_>,
     name: &str,
     checked: cranelift_codegen::ir::FuncRef,
     proven: bool,
@@ -508,13 +541,12 @@ fn lower_function(
     function: &IrFunction,
     function_index: usize,
     functions: &HashMap<String, FunctionInfo>,
-    managed_signatures: &HashMap<String, cranelift_codegen::ir::SigRef>,
-    runtime: &RuntimeFunctionRefs,
+    managed_signatures: &HashMap<usize, cranelift_codegen::ir::SigRef>,
+    mut runtime: RuntimeFunctionRefs<'_>,
     native_imports: &HashMap<String, u64>,
 ) -> Result<()> {
-    let mut runtime = runtime.clone();
     if runtime.bytes_slice_payload.is_some() && runtime.direct_source {
-        runtime.virtual_bytes_options = rinzu_compiler::virtual_bytes_options(function);
+        runtime.virtual_options = rinzu_compiler::virtual_options(function);
         runtime.dead_temporary_roots = rinzu_compiler::dead_temporary_roots(function);
         runtime.dead_local_roots = rinzu_compiler::dead_local_roots(function);
     }
@@ -620,6 +652,9 @@ fn lower_function(
         }
     }
     builder.switch_to_block(entry);
+    if let Some(linked) = runtime.linked {
+        linked.bind(builder);
+    }
     let zero = builder.ins().iconst(types::I64, 0);
     builder.def_var(runtime.unwind.as_ref().unwrap().variable, zero);
     for variable in locals.values().chain(bound_locals.values()) {
@@ -634,9 +669,7 @@ fn lower_function(
     for variable in locals.values() {
         builder.def_var(*variable, zero);
     }
-    let function_id = builder
-        .ins()
-        .iconst(types::I64, i64::try_from(function_index)?);
+    let function_id = runtime.number(builder, LinkValue::Function(i64::try_from(function_index)?));
     let entered = builder
         .ins()
         .call(runtime.entry, &[context_value, function_id]);
@@ -690,14 +723,15 @@ fn lower_function(
             }
         });
         if begins_cleanup {
-            let region = builder
-                .ins()
-                .iconst(types::I64, unwind.cleanup_ids[&block.range]);
+            let region = runtime.number(
+                builder,
+                LinkValue::Cleanup(unwind.cleanup_ids[&block.range]),
+            );
             builder
                 .ins()
                 .call(runtime.begin_cleanup, &[context_value, region]);
         }
-        lower_block_operations(
+        let indexed_tag = lower_block_operations(
             builder,
             block,
             function,
@@ -724,6 +758,7 @@ fn lower_function(
             &blocks,
             &values,
             cleanup_exit,
+            indexed_tag,
         )?;
     }
     let unwind = runtime.unwind.as_ref().unwrap();
@@ -757,8 +792,8 @@ fn lower_block_operations(
     block: &BasicBlock,
     function: &IrFunction,
     functions: &HashMap<String, FunctionInfo>,
-    managed_signatures: &HashMap<String, cranelift_codegen::ir::SigRef>,
-    runtime: &RuntimeFunctionRefs,
+    managed_signatures: &HashMap<usize, cranelift_codegen::ir::SigRef>,
+    runtime: &RuntimeFunctionRefs<'_>,
     native_imports: &HashMap<String, u64>,
     context_value: Value,
     source_region: Value,
@@ -769,7 +804,7 @@ fn lower_block_operations(
     values: &mut HashMap<ValueId, Value>,
     value_types: &HashMap<ValueId, rinzu_compiler::Type>,
     is_cleanup: bool,
-) -> Result<()> {
+) -> Result<Option<Value>> {
     let unwind = runtime.unwind.as_ref().unwrap();
     *unwind.active_cleanup.borrow_mut() = block
         .entry_scopes
@@ -778,6 +813,7 @@ fn lower_block_operations(
         .copied()
         .collect();
     let mut cleanup_chain = Vec::new();
+    let mut indexed_tag = None;
     for (operation_index, operation) in block.operations.iter().enumerate() {
         let owner_proven = runtime
             .proven_owner_operations
@@ -808,9 +844,9 @@ fn lower_block_operations(
                     )
             );
         if records_source {
-            let file = builder.ins().iconst(types::I64, identity as i64);
+            let file = runtime.number(builder, LinkValue::SourceFile(identity as i64));
             let span = u64::from(source.start_byte) | (u64::from(source.end_byte) << 32);
-            let span = builder.ins().iconst(types::I64, span as i64);
+            let span = runtime.number(builder, LinkValue::SourceSpan(span as i64));
             if runtime.direct_source {
                 // Stores and their source positions are unchanged. Trace
                 // observation reads this same region only when enabled;
@@ -921,18 +957,8 @@ fn lower_block_operations(
             }
             OperationKind::TakeTaskErrors { scope } => {
                 let async_runtime = runtime.source_async.as_ref().unwrap();
-                let identity = builder.ins().iconst(
-                    types::I64,
-                    ((u64::from(scope.start_byte) << 32) | u64::from(scope.end_byte)) as i64,
-                );
-                let ty = builder.ins().iconst(
-                    types::I64,
-                    i64::try_from(
-                        runtime
-                            .data_schema
-                            .index(&Type::List(Box::new(Type::Error)))?,
-                    )?,
-                );
+                let identity = runtime.number(builder, LinkValue::Scope(scope_identity(*scope)));
+                let ty = runtime.type_number(builder, &Type::List(Box::new(Type::Error)))?;
                 let call = builder.ins().call(
                     async_runtime.take_task_errors,
                     &[context_value, identity, ty],
@@ -948,8 +974,7 @@ fn lower_block_operations(
             } => {
                 let operand = value_of(values, *operand)?;
                 let value = value_of(values, *value)?;
-                let ty = runtime.data_schema.index(&Type::Named(identity.clone()))?;
-                let ty = builder.ins().iconst(types::I64, i64::try_from(ty)?);
+                let ty = runtime.type_number(builder, &Type::Named(identity.clone()))?;
                 let field = builder.ins().iconst(types::I64, i64::from(*field));
                 builder.ins().call(
                     runtime.store_field,
@@ -966,10 +991,9 @@ fn lower_block_operations(
                 None
             }
             OperationKind::EnumPayload { operand, .. }
-                if runtime.virtual_bytes_options.contains(operand) =>
+                if runtime.virtual_options.values.contains(operand) =>
             {
-                // Verification and the leaf def-use plan prove the matching
-                // Some edge. The same managed payload remains a typed root.
+                // The verified Some edge can take the payload directly.
                 let value = value_of(values, *operand)?;
                 branch_after_runtime_call(
                     builder,
@@ -982,10 +1006,9 @@ fn lower_block_operations(
                 Some(value)
             }
             OperationKind::ListElement { operand, index } => {
-                let ty = runtime.data_schema.index(&value_types[operand])?;
+                let ty = runtime.type_number(builder, &value_types[operand])?;
                 let operand = value_of(values, *operand)?;
                 let index = value_of(values, *index)?;
-                let ty = builder.ins().iconst(types::I64, i64::try_from(ty)?);
                 let variant = builder.ins().iconst(types::I64, -1);
                 let call = builder.ins().call(
                     owner_helper(runtime, "project", runtime.project, owner_proven),
@@ -1018,9 +1041,8 @@ fn lower_block_operations(
                     OperationKind::EnumPayload { variant, .. } => i64::from(*variant),
                     _ => -1,
                 };
-                let ty = runtime.data_schema.index(&Type::Named(identity.clone()))?;
                 let operand = value_of(values, *operand)?;
-                let ty = builder.ins().iconst(types::I64, i64::try_from(ty)?);
+                let ty = runtime.type_number(builder, &Type::Named(identity.clone()))?;
                 let variant = builder.ins().iconst(types::I64, variant);
                 let field = builder.ins().iconst(types::I64, i64::from(*field));
                 let call = builder.ins().call(
@@ -1055,11 +1077,7 @@ fn lower_block_operations(
             }
             OperationKind::StaticHandlerReference { target } => {
                 let (_, function) = find_function(functions, target)?;
-                Some(
-                    builder
-                        .ins()
-                        .iconst(types::I64, i64::try_from(function.index)?),
-                )
+                Some(runtime.number(builder, LinkValue::Function(i64::try_from(function.index)?)))
             }
             OperationKind::StoreLocal { name, value } => {
                 builder.def_var(locals[name], value_of(values, *value)?);
@@ -1147,9 +1165,10 @@ fn lower_block_operations(
                 let count = builder
                     .ins()
                     .iconst(types::I64, i64::try_from(arguments.len())?);
-                let index = builder
-                    .ins()
-                    .iconst(types::I64, i64::try_from(function_info.index)?);
+                let index = runtime.number(
+                    builder,
+                    LinkValue::Function(i64::try_from(function_info.index)?),
+                );
                 let call = builder.ins().call(
                     runtime.source_async.as_ref().unwrap().spawn,
                     &[context_value, index, address, count],
@@ -1185,9 +1204,10 @@ fn lower_block_operations(
                 let count = builder
                     .ins()
                     .iconst(types::I64, i64::try_from(arguments.len())?);
-                let index = builder
-                    .ins()
-                    .iconst(types::I64, i64::try_from(function_info.index)?);
+                let index = runtime.number(
+                    builder,
+                    LinkValue::Function(i64::try_from(function_info.index)?),
+                );
                 let Type::Future(inner) = &operation.result.as_ref().unwrap().ty else {
                     unreachable!()
                 };
@@ -1222,7 +1242,7 @@ fn lower_block_operations(
                 cleanup_chain: operation_cleanup,
                 ..
             } => {
-                let (name, function_info) = find_function(functions, target)?;
+                let (_, function_info) = find_function(functions, target)?;
                 ensure!(
                     function_info.parameter_count == arguments.len(),
                     "managed call argument count mismatch for {target}"
@@ -1234,17 +1254,19 @@ fn lower_block_operations(
                         .map(|argument| value_of(values, *argument))
                         .collect::<Result<Vec<_>>>()?,
                 );
-                let function_index = builder
-                    .ins()
-                    .iconst(types::I64, i64::try_from(function_info.index)?);
+                let function_index = runtime.number(
+                    builder,
+                    LinkValue::Function(i64::try_from(function_info.index)?),
+                );
                 let resolve = builder
                     .ins()
                     .call(runtime.resolve_dispatch, &[context_value, function_index]);
                 let address = builder.inst_results(resolve)[0];
-                let call =
-                    builder
-                        .ins()
-                        .call_indirect(managed_signatures[name], address, &call_arguments);
+                let call = builder.ins().call_indirect(
+                    managed_signatures[&arguments.len()],
+                    address,
+                    &call_arguments,
+                );
                 let value = builder.inst_results(call)[0];
                 builder.ins().call(runtime.leave_dispatch, &[context_value]);
                 if let OperationKind::ManagedCall { error, .. } = &operation.kind {
@@ -1294,17 +1316,45 @@ fn lower_block_operations(
                 // The verified closed signatures make scalar lengths leaf
                 // calls. Keep roots/source/error routing at this same IR site;
                 // only the compiler-owned metadata arrays and dispatch go.
+                let mut indexed_payload = None;
+                let virtual_option = operation
+                    .result
+                    .as_ref()
+                    .is_some_and(|v| runtime.virtual_options.values.contains(&v.id));
                 let call = match kind {
-                    rinzu_compiler::DataOperation::BytesSlice
-                        if operation
-                            .result
-                            .as_ref()
-                            .is_some_and(|v| runtime.virtual_bytes_options.contains(&v.id)) =>
+                    rinzu_compiler::DataOperation::BytesGet
+                    | rinzu_compiler::DataOperation::ListGet
+                        if virtual_option =>
                     {
-                        let result = runtime
-                            .data_schema
-                            .index(&operation.result.as_ref().unwrap().ty)?;
-                        let result = builder.ins().iconst(types::I64, i64::try_from(result)?);
+                        let ty = runtime.type_number(builder, &argument_types[0])?;
+                        let slot = builder.create_sized_stack_slot(
+                            cranelift_codegen::ir::StackSlotData::new(
+                                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                                8,
+                                3,
+                            ),
+                        );
+                        indexed_payload = Some(slot);
+                        let address = builder.ins().stack_addr(types::I64, slot, 0);
+                        builder.ins().call(
+                            owner_helper(
+                                runtime,
+                                "indexed_option",
+                                runtime.indexed_option.expect("C indexed option entry"),
+                                owner_proven,
+                            ),
+                            &[
+                                context_value,
+                                ty,
+                                argument_values[0],
+                                argument_values[1],
+                                address,
+                            ],
+                        )
+                    }
+                    rinzu_compiler::DataOperation::BytesSlice if virtual_option => {
+                        let result =
+                            runtime.type_number(builder, &operation.result.as_ref().unwrap().ty)?;
                         builder.ins().call(
                             owner_helper(
                                 runtime,
@@ -1341,8 +1391,7 @@ fn lower_block_operations(
                     ),
                     rinzu_compiler::DataOperation::ListLength
                     | rinzu_compiler::DataOperation::MapLength => {
-                        let ty = runtime.data_schema.index(&argument_types[0])?;
-                        let ty = builder.ins().iconst(types::I64, i64::try_from(ty)?);
+                        let ty = runtime.type_number(builder, &argument_types[0])?;
                         builder.ins().call(
                             owner_helper(
                                 runtime,
@@ -1354,24 +1403,13 @@ fn lower_block_operations(
                         )
                     }
                     _ => {
-                        let result = builder.ins().iconst(
-                            types::I64,
-                            i64::try_from(
-                                runtime
-                                    .data_schema
-                                    .index(&operation.result.as_ref().unwrap().ty)?,
-                            )?,
-                        );
+                        let result =
+                            runtime.type_number(builder, &operation.result.as_ref().unwrap().ty)?;
                         let op = builder.ins().iconst(types::I64, *kind as i64);
                         let argument_array = stack_array(builder, &argument_values)?;
                         let type_values = argument_types
                             .iter()
-                            .map(|ty| {
-                                Ok(builder.ins().iconst(
-                                    types::I64,
-                                    i64::try_from(runtime.data_schema.index(ty)?)?,
-                                ))
-                            })
+                            .map(|ty| runtime.type_number(builder, ty))
                             .collect::<Result<Vec<_>>>()?;
                         let type_array = stack_array(builder, &type_values)?;
                         let count = builder.ins().iconst(types::I64, arguments.len() as i64);
@@ -1396,7 +1434,13 @@ fn lower_block_operations(
                     function.failure,
                     &cleanup_chain,
                 )?;
-                Some(value)
+                if let Some(slot) = indexed_payload {
+                    // The verified immediate switch terminates this block.
+                    indexed_tag = Some(value);
+                    Some(builder.ins().stack_load(types::I64, types::I64, slot, 0))
+                } else {
+                    Some(value)
+                }
             }
             OperationKind::Construct {
                 arguments,
@@ -1404,14 +1448,8 @@ fn lower_block_operations(
                 cleanup_chain: operation_cleanup,
                 ..
             } => {
-                let type_id = builder.ins().iconst(
-                    types::I64,
-                    i64::try_from(
-                        runtime
-                            .data_schema
-                            .index(&operation.result.as_ref().unwrap().ty)?,
-                    )?,
-                );
+                let type_id =
+                    runtime.type_number(builder, &operation.result.as_ref().unwrap().ty)?;
                 let fields = builder
                     .ins()
                     .iconst(types::I64, i64::try_from(arguments.len())?);
@@ -1466,6 +1504,18 @@ fn lower_block_operations(
                         continue;
                     }
                     let root = match root {
+                        // Keep the verified root vector's membership mask
+                        // aligned. A virtual scalar contributes an empty root.
+                        StackRoot::Value { value, .. }
+                            if runtime.virtual_options.scalar_values.contains(value) =>
+                        {
+                            builder.ins().iconst(types::I64, 0)
+                        }
+                        StackRoot::Local { name, .. }
+                            if runtime.virtual_options.scalar_locals.contains(name) =>
+                        {
+                            builder.ins().iconst(types::I64, 0)
+                        }
                         StackRoot::Value { value, .. } => value_of(values, *value)?,
                         StackRoot::Local { name, .. } => builder.use_var(locals[name]),
                     };
@@ -1605,8 +1655,7 @@ fn lower_block_operations(
                 let mut indices = Vec::with_capacity(parts.len());
                 for (value, ty) in parts {
                     words.push(value_of(values, *value)?);
-                    let index = runtime.data_schema.index(ty)?;
-                    indices.push(builder.ins().iconst(types::I64, i64::try_from(index)?));
+                    indices.push(runtime.type_number(builder, ty)?);
                 }
                 let words = stack_array(builder, &words)?;
                 let indices = stack_array(builder, &indices)?;
@@ -1647,8 +1696,7 @@ fn lower_block_operations(
                 cleanup_chain: operation_cleanup,
                 ..
             } => {
-                let ty = runtime.data_schema.index(&value_types[operand])?;
-                let ty = builder.ins().iconst(types::I64, i64::try_from(ty)?);
+                let ty = runtime.type_number(builder, &value_types[operand])?;
                 let operand = value_of(values, *operand)?;
                 let newline = builder.ins().iconst(types::I64, i64::from(*newline));
                 let call = builder
@@ -1689,24 +1737,15 @@ fn lower_block_operations(
                     builder.def_var(unwind.owner, owner);
                 }
                 let (opcode, operand, argument, expected) = match &operation.kind {
-                    OperationKind::EnterErrorGroup { scope } => (
-                        8,
-                        None,
-                        ((u64::from(scope.start_byte) << 32) | u64::from(scope.end_byte)) as i64,
-                        Vec::new(),
-                    ),
-                    OperationKind::RecordTaskError { scope } => (
-                        9,
-                        None,
-                        ((u64::from(scope.start_byte) << 32) | u64::from(scope.end_byte)) as i64,
-                        Vec::new(),
-                    ),
-                    OperationKind::FinishErrorGroup { scope, .. } => (
-                        10,
-                        None,
-                        ((u64::from(scope.start_byte) << 32) | u64::from(scope.end_byte)) as i64,
-                        Vec::new(),
-                    ),
+                    OperationKind::EnterErrorGroup { scope } => {
+                        (8, None, scope_identity(*scope), Vec::new())
+                    }
+                    OperationKind::RecordTaskError { scope } => {
+                        (9, None, scope_identity(*scope), Vec::new())
+                    }
+                    OperationKind::FinishErrorGroup { scope, .. } => {
+                        (10, None, scope_identity(*scope), Vec::new())
+                    }
                     OperationKind::ErrorIs { operand, target } => (
                         7,
                         Some(*operand),
@@ -1753,13 +1792,13 @@ fn lower_block_operations(
                     OperationKind::ThrowError { value, .. } => (6, Some(*value), 0, Vec::new()),
                     _ => unreachable!(),
                 };
-                let ty = runtime.data_schema.index(
+                let type_id = runtime.type_number(
+                    builder,
                     operation
                         .result
                         .as_ref()
                         .map_or(&Type::Error, |result| &result.ty),
                 )?;
-                let type_id = builder.ins().iconst(types::I64, i64::try_from(ty)?);
                 let value = if let OperationKind::FinishErrorGroup {
                     handles, preserve, ..
                 } = operation.kind
@@ -1772,13 +1811,32 @@ fn lower_block_operations(
                 } else {
                     builder.ins().iconst(types::I64, 0)
                 };
-                let argument = builder.ins().iconst(types::I64, argument);
+                let argument = match operation.kind {
+                    OperationKind::EnterErrorGroup { .. }
+                    | OperationKind::RecordTaskError { .. }
+                    | OperationKind::FinishErrorGroup { .. } => {
+                        runtime.number(builder, LinkValue::Scope(argument))
+                    }
+                    OperationKind::ErrorIs { .. } => {
+                        runtime.number(builder, LinkValue::Type(argument))
+                    }
+                    _ => builder.ins().iconst(types::I64, argument),
+                };
                 let length = builder
                     .ins()
                     .iconst(types::I64, i64::try_from(expected.len())?);
                 let expected = expected
                     .iter()
-                    .map(|ty| Ok(builder.ins().iconst(types::I64, i64::try_from(*ty)?)))
+                    .map(|index| {
+                        let number = i64::try_from(*index)?;
+                        Ok(
+                            if matches!(operation.kind, OperationKind::ErrorMatch { .. }) {
+                                runtime.number(builder, LinkValue::Type(number))
+                            } else {
+                                builder.ins().iconst(types::I64, number)
+                            },
+                        )
+                    })
                     .collect::<Result<Vec<_>>>()?;
                 let array = stack_array(builder, &expected)?;
                 let opcode = builder.ins().iconst(types::I64, opcode);
@@ -1913,7 +1971,7 @@ fn lower_block_operations(
                 ..
             } => {
                 let plan = runtime.native_plans.index(runtime.function_index, *call)?;
-                let plan = builder.ins().iconst(types::I64, i64::try_from(plan)?);
+                let plan = runtime.number(builder, LinkValue::NativePlan(i64::try_from(plan)?));
                 let arguments = arguments
                     .iter()
                     .map(|value| value_of(values, *value))
@@ -1944,7 +2002,7 @@ fn lower_block_operations(
                     runtime.native_plans.records[index].signature == *signature,
                     "physical native call changed its prepared signature"
                 );
-                let plan = builder.ins().iconst(types::I64, i64::try_from(index)?);
+                let plan = runtime.number(builder, LinkValue::NativePlan(i64::try_from(index)?));
                 let call = builder
                     .ins()
                     .call(runtime.native_helpers["address"], &[context_value, plan]);
@@ -1967,7 +2025,7 @@ fn lower_block_operations(
             | OperationKind::SettleNativeAdmissions { call, .. }
             | OperationKind::ReleaseNativeCall { call } => {
                 let plan = runtime.native_plans.index(runtime.function_index, *call)?;
-                let plan = builder.ins().iconst(types::I64, i64::try_from(plan)?);
+                let plan = runtime.number(builder, LinkValue::NativePlan(i64::try_from(plan)?));
                 let helper = match operation.kind {
                     OperationKind::CloseNativeCall { .. } => "close",
                     OperationKind::SettleNativeAdmissions { .. } => "settle",
@@ -1980,7 +2038,7 @@ fn lower_block_operations(
             }
             OperationKind::ReadNativeResult { call, error, .. } => {
                 let plan = runtime.native_plans.index(runtime.function_index, *call)?;
-                let plan = builder.ins().iconst(types::I64, i64::try_from(plan)?);
+                let plan = runtime.number(builder, LinkValue::NativePlan(i64::try_from(plan)?));
                 let call = builder
                     .ins()
                     .call(runtime.native_helpers["read"], &[context_value, plan]);
@@ -2035,13 +2093,19 @@ fn lower_block_operations(
                         let target = runtime
                             .reference_targets
                             .identity(&runtime.native_plans.records[*index].signature.name)?;
-                        let matches = builder.ins().icmp_imm_s(IntCC::Equal, selected, target);
-                        let candidate = builder.ins().iconst(types::I64, i64::try_from(*index)?);
+                        let matches = if let Some(linked) = runtime.linked {
+                            let target = linked.load(builder, LinkValue::Reference(target));
+                            builder.ins().icmp(IntCC::Equal, selected, target)
+                        } else {
+                            builder.ins().icmp_imm_s(IntCC::Equal, selected, target)
+                        };
+                        let candidate =
+                            runtime.number(builder, LinkValue::NativePlan(i64::try_from(*index)?));
                         plan = builder.ins().select(matches, candidate, plan);
                     }
                 } else {
                     ensure!(plans.len() == 1, "direct supplant requires a unique plan");
-                    plan = builder.ins().iconst(types::I64, i64::try_from(plans[0])?);
+                    plan = runtime.number(builder, LinkValue::NativePlan(i64::try_from(plans[0])?));
                 }
                 let arguments = arguments
                     .iter()
@@ -2098,11 +2162,10 @@ fn lower_block_operations(
                         || runtime.native_stubs.contains_key(target),
                     "function reference has no managed/core/validated native target"
                 );
-                Some(
-                    builder
-                        .ins()
-                        .iconst(types::I64, runtime.reference_targets.identity(target)?),
-                )
+                Some(runtime.number(
+                    builder,
+                    LinkValue::Reference(runtime.reference_targets.identity(target)?),
+                ))
             }
             OperationKind::IndirectCall { .. } => Some(lower_reference_call(
                 builder,
@@ -2285,14 +2348,11 @@ fn lower_block_operations(
             }
             OperationKind::EnterTaskScope { scope, .. }
             | OperationKind::JoinTaskScope { scope, .. } => {
-                let runtime = runtime
+                let async_runtime = runtime
                     .source_async
                     .as_ref()
                     .ok_or_else(|| anyhow!("task scopes require the async runtime"))?;
-                let identity = builder.ins().iconst(
-                    types::I64,
-                    ((u64::from(scope.start_byte) << 32) | u64::from(scope.end_byte)) as i64,
-                );
+                let identity = runtime.number(builder, LinkValue::Scope(scope_identity(*scope)));
                 let phase = builder.ins().iconst(
                     types::I64,
                     match operation.kind {
@@ -2304,7 +2364,7 @@ fn lower_block_operations(
                 );
                 builder
                     .ins()
-                    .call(runtime.task_scope, &[context_value, identity, phase]);
+                    .call(async_runtime.task_scope, &[context_value, identity, phase]);
                 None
             }
             OperationKind::AsyncStart
@@ -2315,7 +2375,7 @@ fn lower_block_operations(
             values.insert(result.id, value);
         }
     }
-    Ok(())
+    Ok(indexed_tag)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2323,11 +2383,12 @@ fn lower_terminator(
     builder: &mut FunctionBuilder<'_>,
     block: &BasicBlock,
     function: &IrFunction,
-    runtime: &RuntimeFunctionRefs,
+    runtime: &RuntimeFunctionRefs<'_>,
     context_value: Value,
     blocks: &HashMap<BlockId, cranelift_codegen::ir::Block>,
     values: &HashMap<ValueId, Value>,
     cleanup_exit: Option<BlockId>,
+    indexed_tag: Option<Value>,
 ) -> Result<()> {
     match &block.terminator {
         Terminator::Goto { target, .. } if cleanup_exit.is_some() => {
@@ -2428,12 +2489,13 @@ fn lower_terminator(
             cases,
         } => {
             let bits = value_of(values, *value)?;
-            let variant = if runtime.virtual_bytes_options.contains(value) {
+            let variant = if let Some(tag) = indexed_tag {
+                tag
+            } else if runtime.virtual_options.values.contains(value) {
                 let present = builder.ins().icmp_imm_s(IntCC::NotEqual, bits, 0);
                 builder.ins().uextend(types::I64, present)
             } else {
-                let ty = runtime.data_schema.index(&Type::Named(identity.clone()))?;
-                let ty = builder.ins().iconst(types::I64, i64::try_from(ty)?);
+                let ty = runtime.type_number(builder, &Type::Named(identity.clone()))?;
                 let call = builder
                     .ins()
                     .call(runtime.enum_variant, &[context_value, bits, ty]);
@@ -2456,8 +2518,8 @@ fn lower_reference_call(
     operation: &rinzu_compiler::Operation,
     values: &HashMap<ValueId, Value>,
     functions: &HashMap<String, FunctionInfo>,
-    managed_signatures: &HashMap<String, cranelift_codegen::ir::SigRef>,
-    runtime: &RuntimeFunctionRefs,
+    managed_signatures: &HashMap<usize, cranelift_codegen::ir::SigRef>,
+    runtime: &RuntimeFunctionRefs<'_>,
     context_value: Value,
     blocks: &HashMap<BlockId, cranelift_codegen::ir::Block>,
     function: &IrFunction,
@@ -2485,11 +2547,28 @@ fn lower_reference_call(
         .iter()
         .map(|_| builder.create_block())
         .collect::<Vec<_>>();
+    let identities = targets
+        .iter()
+        .map(|target| runtime.reference_targets.identity(target))
+        .collect::<Result<Vec<_>>>()?;
+    // Translate a contiguous shift of reference identities through a linked
+    // base while retaining Cranelift's normal switch lowering.
+    let base = if runtime.linked.is_some() {
+        identities.iter().min().copied().unwrap_or(0)
+    } else {
+        0
+    };
+    let selector = if base != 0 {
+        let offset = runtime.number(builder, LinkValue::Reference(base));
+        builder.ins().isub(callee, offset)
+    } else {
+        callee
+    };
     let mut switch = Switch::new();
-    for (target, block) in targets.iter().zip(&target_blocks) {
-        switch.set_entry(runtime.reference_targets.identity(target)? as u128, *block);
+    for (identity, block) in identities.into_iter().zip(&target_blocks) {
+        switch.set_entry((identity - base) as u128, *block);
     }
-    switch.emit(builder, callee, invalid);
+    switch.emit(builder, selector, invalid);
     builder.switch_to_block(invalid);
     builder
         .ins()
@@ -2513,12 +2592,12 @@ fn lower_reference_call(
             let call = builder.ins().call(entry, &args);
             builder.inst_results(call)[0]
         } else {
-            let (name, info) = find_function(functions, target)?;
+            let (_, info) = find_function(functions, target)?;
             ensure!(
                 info.parameter_count == arguments.len(),
                 "indirect call argument count mismatch"
             );
-            let index = builder.ins().iconst(types::I64, i64::try_from(info.index)?);
+            let index = runtime.number(builder, LinkValue::Function(i64::try_from(info.index)?));
             if info.is_async
                 && let Some(source_async) = &runtime.source_async
             {
@@ -2548,9 +2627,11 @@ fn lower_reference_call(
                 let address = builder.inst_results(resolve)[0];
                 let mut args = vec![context_value];
                 args.extend_from_slice(&arguments);
-                let call = builder
-                    .ins()
-                    .call_indirect(managed_signatures[name], address, &args);
+                let call = builder.ins().call_indirect(
+                    managed_signatures[&arguments.len()],
+                    address,
+                    &args,
+                );
                 let value = builder.inst_results(call)[0];
                 builder.ins().call(runtime.leave_dispatch, &[context_value]);
                 value
@@ -2584,7 +2665,7 @@ fn lower_constant(
     value: &ConstantValue,
     ty: &rinzu_compiler::Type,
     id: ValueId,
-    runtime: &RuntimeFunctionRefs,
+    runtime: &RuntimeFunctionRefs<'_>,
     context_value: Value,
 ) -> Result<Value> {
     match value {
@@ -2633,7 +2714,7 @@ fn lower_binary(
     left: Value,
     right: Value,
     operand_type: &rinzu_compiler::Type,
-    runtime: &RuntimeFunctionRefs,
+    runtime: &RuntimeFunctionRefs<'_>,
     context_value: Value,
     blocks: &HashMap<BlockId, cranelift_codegen::ir::Block>,
     failure: BlockId,
@@ -2744,12 +2825,8 @@ fn lower_binary(
     }
     if matches!(operator, BinaryOperator::Equal | BinaryOperator::NotEqual) {
         let ty = runtime
-            .data_schema
-            .index(operand_type)
+            .type_number(builder, operand_type)
             .expect("closed verified operand type");
-        let ty = builder
-            .ins()
-            .iconst(types::I64, i64::try_from(ty).expect("bounded catalog"));
         let code = builder
             .ins()
             .iconst(types::I64, i64::from(operator == BinaryOperator::NotEqual));
@@ -2812,15 +2889,19 @@ fn lower_binary(
     }
 }
 
+fn scope_identity(scope: rinzu_compiler::SourceRange) -> i64 {
+    ((u64::from(scope.start_byte) << 32) | u64::from(scope.end_byte)) as i64
+}
+
 fn end_cleanup(
     builder: &mut FunctionBuilder<'_>,
-    runtime: &RuntimeFunctionRefs,
+    runtime: &RuntimeFunctionRefs<'_>,
     context: Value,
     scope: rinzu_compiler::SourceRange,
 ) {
-    let region = builder.ins().iconst(
-        types::I64,
-        runtime.unwind.as_ref().unwrap().cleanup_ids[&scope],
+    let region = runtime.number(
+        builder,
+        LinkValue::Cleanup(runtime.unwind.as_ref().unwrap().cleanup_ids[&scope]),
     );
     builder.ins().call(runtime.end_cleanup, &[context, region]);
 }
@@ -2830,7 +2911,7 @@ fn end_cleanup(
 // original helper point; Rust reference contexts retain their typed entry.
 fn failure_status(
     builder: &mut FunctionBuilder<'_>,
-    runtime: &RuntimeFunctionRefs,
+    runtime: &RuntimeFunctionRefs<'_>,
     context: Value,
 ) -> Value {
     if runtime.direct_source {
@@ -2848,7 +2929,7 @@ fn failure_status(
 
 fn branch_if_recoverable(
     builder: &mut FunctionBuilder<'_>,
-    runtime: &RuntimeFunctionRefs,
+    runtime: &RuntimeFunctionRefs<'_>,
     context: Value,
     recoverable: cranelift_codegen::ir::Block,
     terminal: cranelift_codegen::ir::Block,
@@ -2871,7 +2952,7 @@ fn branch_if_recoverable(
 #[allow(clippy::too_many_arguments)]
 fn branch_after_error_call(
     builder: &mut FunctionBuilder<'_>,
-    runtime: &RuntimeFunctionRefs,
+    runtime: &RuntimeFunctionRefs<'_>,
     context: Value,
     blocks: &HashMap<BlockId, cranelift_codegen::ir::Block>,
     error: &rinzu_compiler::ErrorEdge,
@@ -2885,7 +2966,7 @@ fn branch_after_error_call(
     builder.seal_block(failed);
     for call in &error.release_native_calls {
         let index = runtime.native_plans.index(runtime.function_index, *call)?;
-        let plan = builder.ins().iconst(types::I64, i64::try_from(index)?);
+        let plan = runtime.number(builder, LinkValue::NativePlan(i64::try_from(index)?));
         builder
             .ins()
             .call(runtime.native_helpers["release"], &[context, plan]);
@@ -2937,7 +3018,7 @@ fn branch_after_error_call(
 
 fn branch_after_runtime_call(
     builder: &mut FunctionBuilder<'_>,
-    runtime: &RuntimeFunctionRefs,
+    runtime: &RuntimeFunctionRefs<'_>,
     context_value: Value,
     blocks: &HashMap<BlockId, cranelift_codegen::ir::Block>,
     failure: BlockId,
@@ -2957,7 +3038,7 @@ fn branch_after_runtime_call(
 
 fn branch_after_runtime_status(
     builder: &mut FunctionBuilder<'_>,
-    runtime: &RuntimeFunctionRefs,
+    runtime: &RuntimeFunctionRefs<'_>,
     context_value: Value,
     failed: Value,
     blocks: &HashMap<BlockId, cranelift_codegen::ir::Block>,
@@ -2990,7 +3071,7 @@ fn branch_after_runtime_status(
 
 fn jump_unwind(
     builder: &mut FunctionBuilder<'_>,
-    runtime: &RuntimeFunctionRefs,
+    runtime: &RuntimeFunctionRefs<'_>,
     blocks: &HashMap<BlockId, cranelift_codegen::ir::Block>,
     cleanup: &[BlockId],
     target: BlockId,

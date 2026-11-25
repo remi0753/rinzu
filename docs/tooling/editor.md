@@ -25,7 +25,7 @@ Structural record types, literals, and updates also wrap when they have three or
 
 ## Use the local VS Code extension
 
-The repository contains a development extension at `tools/vscode-rinzu`. Build a debug driver, then launch VS Code with it:
+The repository contains the local Rinzu Source extension (`0.3.0`) at `tools/vscode-rinzu`. Build a debug driver and launch VS Code with the extension.
 
 ```sh
 cargo build -p rinzu-driver --bin rinzu
@@ -56,13 +56,6 @@ Hover shows checked function signatures, type aliases, and the types of bindings
 
 The extension also supports diagnostics for open buffers, definition/reference navigation, completion, formatting, and import organization. Diagnostics show related source locations and explanation-only suggestions under **Help**. Results for separate packages stay visible as you switch between files. **Rinzu: Refresh Diagnostics** rechecks the open buffers and their dependencies. Import organization sorts and deduplicates eligible groups without guessing which imports are unused.
 
-Run the integration tests with an installed VS Code from a desktop session. The runner creates a temporary workspace and profile. On macOS the process must be able to register a desktop application.
-
-```sh
-cargo build -p rinzu-driver --bin rinzu
-python3 tests/integration/test_vscode_editor.py
-```
-
 The optional hover method accepts the same document version and UTF-16 position as definition. Its result includes a token range, checked or syntax resolution, and any available definition and contract locations. Each checked effect gives the phase, the basis, and a none, finite, open, or unknown bound. Consecutive requests in a verified snapshot reuse a bounded index. The extension sends hover requests to a separate process so type checking and Error inference can answer while diagnostics verify Future observation. Protocol clients can also prepare the hover index during a full diagnostics request with `prepareHover: true`.
 
 This is a local development extension, not an automatically installed Marketplace package. The editor service is a versioned JSON-lines protocol; it is not a claim of full LSP compatibility. It supports one folder/service and file documents. Native provider/header/receipt validation still requires CLI check/build with actual inputs.
@@ -80,5 +73,7 @@ rinzu dev ./my-app --restart cooperative --stdin null --shutdown-timeout-ms 5000
 ```
 
 Cooperative restart waits for shutdown acknowledgment and cleanup before launching a fresh process. The default timeout preserves the old run in a blocked state. `--on-timeout force` explicitly permits killing it; that does not mean its save completed. Invalid source edits keep the previous run available when possible.
+
+Both restart modes share the disk caches used by `rinzu run`. A successful preflight can publish a checked frontend after validating its disk inputs, so the child can restore it and unchanged SDK or function results. Every fresh child revalidates its inputs, native ABI and signatures and publishes JIT code through the usual executable-memory protection steps. Diagnostic reports capture the exact checked source bytes and a new identity for each run. Missing or invalid cache entries fall back to compilation. The default watcher also retains parsed sources between scans and discards entries no longer consumed by the current input.
 
 Watchers follow declared source/native inputs and package settings. They do not guarantee observation of undeclared C includes or every environment change. Restart creates a new process; live object/closure migration is unavailable.

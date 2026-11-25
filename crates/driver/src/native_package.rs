@@ -1,4 +1,6 @@
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, mpsc::Receiver};
+use std::thread::ScopedJoinHandle;
 
 use rinzu_codegen::NativePackageArtifact;
 use rinzu_compiler::ResolvedSdkPackage;
@@ -26,8 +28,11 @@ impl Drop for Scratch {
 }
 
 fn create_native_directory() -> Result<PathBuf, String> {
+    use std::os::unix::fs::DirBuilderExt;
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
+    let mut builder = std::fs::DirBuilder::new();
+    builder.mode(0o700);
     loop {
         let directory = std::env::temp_dir().join(format!(
             "rinzu-native-packages-{}-{}",
@@ -36,7 +41,7 @@ fn create_native_directory() -> Result<PathBuf, String> {
         ));
         // Exclusive creation also handles stale directories after PID reuse.
         // A clock reading and create_dir_all cannot establish ownership.
-        match std::fs::create_dir(&directory) {
+        match builder.create(&directory) {
             Ok(()) => return Ok(directory),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => {
@@ -158,6 +163,150 @@ pub fn build_artifact(
     manifest: &rinzu_compiler::Manifest,
     artifact: &rinzu_compiler::FrontendArtifact,
 ) -> Result<BuiltNativePackages, String> {
+    build_artifact_with_dependencies(manifest, artifact, None)
+}
+
+/// A speculative SDK build owns scratch files until the checked application
+/// consumes it. Frontend failures never publish it or emit its diagnostics.
+pub(crate) struct PreparedDependencies {
+    root: PathBuf,
+    packages: Vec<ResolvedSdkPackage>,
+    result: Option<Result<BuiltNativePackages, String>>,
+    diagnostics: Vec<String>,
+}
+
+pub(crate) fn can_prepare_independently(package: &ResolvedSdkPackage) -> bool {
+    package.source.is_some()
+        && package.native_imports.is_empty()
+        && package.manifest.dependencies.is_empty()
+        && rinzu_compiler::standard_library::dependencies(&package.manifest.name).is_empty()
+        && !package.manifest.native.sources.is_empty()
+        && package.manifest.native.config_tools.is_empty()
+}
+
+fn same_checked_sdk(before: &ResolvedSdkPackage, after: &ResolvedSdkPackage) -> bool {
+    before.manifest.name == after.manifest.name
+        && before.manifest.root == after.manifest.root
+        && before
+            .source
+            .as_ref()
+            .zip(after.source.as_ref())
+            .is_some_and(|(before, after)| Arc::ptr_eq(before, after))
+}
+
+type SdkBuild = Result<crate::source_native_package::BuiltSourcePackage, String>;
+type SdkWorker<'scope> = ScopedJoinHandle<'scope, (SdkBuild, Vec<String>)>;
+
+struct EarlySdk<'scope> {
+    package: ResolvedSdkPackage,
+    worker: Mutex<Option<SdkWorker<'scope>>>,
+}
+
+impl PreparedDependencies {
+    pub(crate) fn build(
+        root: PathBuf,
+        first: Option<ResolvedSdkPackage>,
+        ready: Receiver<Vec<ResolvedSdkPackage>>,
+    ) -> Option<Self> {
+        let _timing = rinzu_compiler::timing::span("native.build.early_dependencies");
+        let mut scratch = create_native_directory().map(|path| Scratch { path, keep: false });
+        let jobs = native_jobs();
+        let inputs = rinzu_compiler::NativeCliInputs::default();
+        let (packages, result, diagnostics) = std::thread::scope(|scope| {
+            let early = if let (Ok(scratch), Ok(jobs), Some(package)) =
+                (&scratch, &jobs, first.filter(can_prepare_independently))
+                && *jobs > 1
+            {
+                let output = scratch.path.join("early-source");
+                let selected = package.clone();
+                let root = &root;
+                let inputs = &inputs;
+                std::thread::Builder::new()
+                    .name("rinzu-sdk-early-source".into())
+                    .stack_size(8 * 1024 * 1024)
+                    .spawn_scoped(scope, move || {
+                        crate::cli_diagnostics::capture(|| {
+                            crate::source_native_package::build_with_dependencies(
+                                &selected,
+                                root,
+                                inputs,
+                                &output,
+                                &Default::default(),
+                            )
+                        })
+                    })
+                    .ok()
+                    .map(|worker| EarlySdk {
+                        package,
+                        worker: Mutex::new(Some(worker)),
+                    })
+            } else {
+                None
+            };
+            let packages = ready.recv().ok()?;
+            let (result, diagnostics) = crate::cli_diagnostics::capture(|| {
+                let scratch = scratch.as_ref().map_err(Clone::clone)?;
+                let jobs = *jobs.as_ref().map_err(Clone::clone)?;
+                build_into_directory(
+                    &packages,
+                    &root,
+                    &inputs,
+                    &scratch.path,
+                    jobs,
+                    early.as_ref(),
+                )
+            });
+            Some((packages, result, diagnostics))
+        })?;
+        if result.is_ok()
+            && let Ok(scratch) = &mut scratch
+        {
+            scratch.keep = true;
+        }
+        Some(Self {
+            root,
+            packages,
+            result: Some(result),
+            diagnostics,
+        })
+    }
+
+    fn take_for(
+        &mut self,
+        manifest: &rinzu_compiler::Manifest,
+        artifact: &rinzu_compiler::FrontendArtifact,
+    ) -> Option<Result<BuiltNativePackages, String>> {
+        if self.root != manifest.root
+            || !artifact.native_inputs.is_empty()
+            || self.packages.len() != artifact.sdk_packages.len()
+            || !self
+                .packages
+                .iter()
+                .zip(&artifact.sdk_packages)
+                .all(|(before, after)| same_checked_sdk(before, after))
+        {
+            return None;
+        }
+        for block in &self.diagnostics {
+            crate::cli_diagnostics::write_block(block);
+        }
+        self.result.take()
+    }
+}
+
+impl Drop for PreparedDependencies {
+    fn drop(&mut self) {
+        if let Some(Ok(built)) = &self.result {
+            let _ = std::fs::remove_dir_all(&built.directory);
+        }
+    }
+}
+
+pub(crate) fn build_artifact_with_dependencies(
+    manifest: &rinzu_compiler::Manifest,
+    artifact: &rinzu_compiler::FrontendArtifact,
+    mut dependencies: Option<PreparedDependencies>,
+) -> Result<BuiltNativePackages, String> {
     crate::input::validate_native_inputs(manifest, artifact)?;
     let _timing = rinzu_compiler::timing::span("native.build");
     let mut snapshot = crate::source_receipt::InputSnapshot::checked(
@@ -173,11 +322,17 @@ pub fn build_artifact(
     }
     // Each owner validates its ABI with the same toolchain used to compile it.
     // A separate artifact-wide pass would repeat those Clang queries.
-    let mut built = build_unlocked(
-        &artifact.sdk_packages,
-        &manifest.root,
-        &artifact.native_inputs,
-    )?;
+    let mut built = match dependencies
+        .as_mut()
+        .and_then(|built| built.take_for(manifest, artifact))
+    {
+        Some(built) => built?,
+        None => build_unlocked(
+            &artifact.sdk_packages,
+            &manifest.root,
+            &artifact.native_inputs,
+        )?,
+    };
     let mut scratch = Scratch {
         path: built.directory.clone(),
         keep: false,
@@ -205,6 +360,7 @@ pub fn build_artifact(
             Ok(owner) => {
                 built.context(manifest, artifact, Some(&owner))?;
                 if !artifact.is_file_input
+                    && !crate::package_tests::is_file_worker()
                     && let Err(error) = crate::package_commands::check_sdk_lock(
                         &package,
                         &artifact.native_inputs,
@@ -226,6 +382,7 @@ pub fn build_artifact(
     } else {
         built.context(manifest, artifact, None)?;
         if !artifact.is_file_input
+            && !crate::package_tests::is_file_worker()
             && let Err(error) = crate::package_commands::check_application_lock(
                 &manifest.root,
                 &artifact.native_inputs,
@@ -293,22 +450,42 @@ pub fn build_unlocked(
     application_root: &Path,
     inputs: &rinzu_compiler::NativeCliInputs,
 ) -> Result<BuiltNativePackages, String> {
-    let directory = create_native_directory()?;
-    let mut scratch = Scratch {
-        path: directory.clone(),
-        keep: false,
-    };
-    let artifacts = Vec::new();
+    let path = create_native_directory()?;
+    let mut scratch = Scratch { path, keep: false };
+    let result = build_into_directory(
+        packages,
+        application_root,
+        inputs,
+        &scratch.path,
+        native_jobs()?,
+        None,
+    )?;
+    scratch.keep = true;
+    Ok(result)
+}
+
+fn native_jobs() -> Result<usize, String> {
     let default_jobs = std::thread::available_parallelism().map_or(4, |count| count.get().min(4));
-    let jobs = match std::env::var("RINZU_NATIVE_JOBS") {
+    match std::env::var("RINZU_NATIVE_JOBS") {
         Ok(value) => value
             .parse::<usize>()
             .ok()
             .filter(|jobs| (1..=4).contains(jobs))
-            .ok_or("RINZU_NATIVE_JOBS must be an integer from 1 to 4")?,
-        Err(std::env::VarError::NotPresent) => default_jobs,
-        Err(_) => return Err("RINZU_NATIVE_JOBS must be an integer from 1 to 4".into()),
-    };
+            .ok_or_else(|| "RINZU_NATIVE_JOBS must be an integer from 1 to 4".into()),
+        Err(std::env::VarError::NotPresent) => Ok(default_jobs),
+        Err(_) => Err("RINZU_NATIVE_JOBS must be an integer from 1 to 4".into()),
+    }
+}
+
+fn build_into_directory(
+    packages: &[ResolvedSdkPackage],
+    application_root: &Path,
+    inputs: &rinzu_compiler::NativeCliInputs,
+    directory: &Path,
+    jobs: usize,
+    early: Option<&EarlySdk<'_>>,
+) -> Result<BuiltNativePackages, String> {
+    let artifacts = Vec::new();
     let mut explicit_link_inputs = std::collections::BTreeMap::new();
     let mut dependencies = Vec::new();
     let mut outputs = Vec::new();
@@ -341,27 +518,56 @@ pub fn build_unlocked(
         .iter()
         .map(|package| package.manifest.name.clone())
         .collect();
-    let (source_packages, dependency_digests) =
-        crate::native_build_scheduler::build(&names, &dependencies, jobs, |index, digests| {
-            let built = crate::source_native_package::build_with_dependencies(
-                &packages[index],
-                application_root,
-                inputs,
-                &outputs[index],
-                digests,
-            )?;
+    let priority = early.and_then(|early| {
+        packages
+            .iter()
+            .position(|package| same_checked_sdk(&early.package, package))
+    });
+    if priority.is_none()
+        && let Some(early) = early
+        && let Some(worker) = early.worker.lock().unwrap().take()
+    {
+        let _ = worker.join();
+    }
+    let (source_packages, dependency_digests) = crate::native_build_scheduler::build(
+        &names,
+        &dependencies,
+        jobs,
+        priority,
+        |index, digests| {
+            let package = &packages[index];
+            let built = if let Some(early) = early
+                && Some(index) == priority
+                && let Some(worker) = early.worker.lock().unwrap().take()
+            {
+                let (result, diagnostics) = worker
+                    .join()
+                    .map_err(|_| "early native SDK compiler worker panicked".to_owned())?;
+                for block in diagnostics {
+                    crate::cli_diagnostics::write_block(&block);
+                }
+                result?
+            } else {
+                crate::source_native_package::build_with_dependencies(
+                    package,
+                    application_root,
+                    inputs,
+                    &outputs[index],
+                    digests,
+                )?
+            };
             let digest = rinzu_bindgen::source_package::sha256(&built.artifact.expected_wire);
             Ok((built, digest))
-        })?;
+        },
+    )?;
     drop(packages_timing);
     if !inputs.is_empty() {
         let index =
-            crate::native_binding::ReferenceIndex::for_cli(application_root, inputs, &directory)?;
+            crate::native_binding::ReferenceIndex::for_cli(application_root, inputs, directory)?;
         explicit_link_inputs = index.inputs;
     }
-    scratch.keep = true;
     Ok(BuiltNativePackages {
-        directory,
+        directory: directory.to_owned(),
         artifacts,
         source_packages,
         dependency_digests,

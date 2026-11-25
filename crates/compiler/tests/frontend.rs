@@ -180,7 +180,7 @@ fn package_check_rejects_an_undeclared_sdk_import() {
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("rinzu.toml"),
-        "[package]\nname = \"undeclared_sdk\"\nlanguage = \"0.2\"\n",
+        "[package]\nname = \"undeclared_sdk\"\nlanguage = \"0.5\"\n",
     )
     .unwrap();
     fs::write(

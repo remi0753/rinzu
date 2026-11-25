@@ -2,7 +2,7 @@
 //! Summary snapshots are analysis data, not copies of runtime class instances.
 use super::*;
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
 pub(super) struct Object {
     pub ty: String,
     pub fields: BTreeMap<String, Tracked>,
@@ -136,7 +136,7 @@ impl Engine<'_> {
                 return true;
             };
             self.immutable_type(owner)
-                || self.checked.source_types.get(owner).is_some_and(|schema| {
+                || self.checked.memo_schema(owner).is_some_and(|schema| {
                     schema.kind == "error"
                         || schema
                             .fields
@@ -158,8 +158,7 @@ impl Engine<'_> {
                 .and_then(|access| {
                     if let Access::Field(owner, name) = access {
                         self.checked
-                            .source_types
-                            .get(owner)
+                            .memo_schema(owner)
                             .and_then(|schema| {
                                 schema.fields.iter().find(|(field, _)| field == name)
                             })
@@ -180,8 +179,7 @@ impl Engine<'_> {
             for (name, value) in &mut object.fields {
                 let ty = self
                     .checked
-                    .source_types
-                    .get(&object.ty)
+                    .memo_schema(&object.ty)
                     .and_then(|schema| schema.fields.iter().find(|(field, _)| field == name))
                     .map(|(_, ty)| ty.clone())
                     .unwrap_or(Type::Never);
@@ -211,7 +209,7 @@ impl Engine<'_> {
             }
             return Tracked::unknown(self.typed(ty), BTreeSet::new());
         }
-        let immutable = self.checked.source_types.get(owner).is_some_and(|schema| {
+        let immutable = self.checked.memo_schema(owner).is_some_and(|schema| {
             schema.kind == "record"
                 || schema.kind == "error"
                 || schema
@@ -248,8 +246,7 @@ impl Engine<'_> {
                 let owner = base.effect().nominal().unwrap_or_default().to_owned();
                 if self
                     .checked
-                    .source_types
-                    .get(&owner)
+                    .memo_schema(&owner)
                     .and_then(|schema| schema.fields.iter().find(|(field, _)| field == name))
                     .is_some_and(|(_, ty)| self.contains_mutable_class(ty, &mut BTreeSet::new()))
                 {
@@ -289,8 +286,7 @@ impl Engine<'_> {
                 {
                     let ty = self
                         .checked
-                        .source_types
-                        .get(&owner)
+                        .memo_schema(&owner)
                         .and_then(|schema| schema.fields.iter().find(|(field, _)| field == name))
                         .map(|(_, ty)| ty.clone())
                         .unwrap_or(Type::Never);
@@ -309,8 +305,7 @@ impl Engine<'_> {
             let value = if state.async_mutable.contains(identity) {
                 let ty = self
                     .checked
-                    .source_types
-                    .get(&object.ty)
+                    .memo_schema(&object.ty)
                     .and_then(|schema| schema.fields.iter().find(|(field, _)| field == name))
                     .map(|(_, ty)| ty.clone())
                     .unwrap_or(Type::Never);

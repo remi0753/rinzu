@@ -10,17 +10,19 @@ Start with [value.h](../../include/rinzu/value.h), [native_record.h](../../inclu
 
 Native source declarations are validated against supported scalar/record mappings. Classes and enums are not directly C structs. Managed record callback context tokens have call-bound validity. SDKs must contain foreign exceptions and preserve physical Owner and settlement contracts. See [Native interoperability](../language/native-interop.md).
 
+[Native lifetime during cancellation](native-lifetime.md) defines the normative completion, callback, carrier, and wake-target state machines. SDK publication ends the producer's carrier access; retirement also requires all admitted consumer and control accesses to end.
+
 ## Schemas
 
-| Schema | Purpose |
-| --- | --- |
-| [event-trace.schema.json](event-trace.schema.json) | Versioned runtime trace events |
-| [resource-report-v1.schema.json](resource-report-v1.schema.json) | Resource accounting records |
-| [package-api-v4.schema.json](package-api-v4.schema.json) | Public API snapshots with visibility, interface constraints and declared/inferred Error contracts |
-| [package-api-v3.schema.json](package-api-v3.schema.json) | Previous snapshots with visibility and owner/method parameter groups |
-| [package-api-v2.schema.json](package-api-v2.schema.json) | Older snapshots; comparison cannot prove the missing visibility contracts |
-| [package-lock-v2.schema.json](package-lock-v2.schema.json) | Checked package/dependency locks |
-| [package-exports-v1.schema.json](package-exports-v1.schema.json) | Export descriptor wire format |
-| [package-lock-v1.schema.json](package-lock-v1.schema.json) | Earlier lock wire format; new locks use v2 |
+| Schema                                                           | Purpose                                                                                           |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| [event-trace.schema.json](event-trace.schema.json)               | Versioned runtime trace events                                                                    |
+| [resource-report-v1.schema.json](resource-report-v1.schema.json) | Resource accounting records                                                                       |
+| [package-api-v4.schema.json](package-api-v4.schema.json)         | Public API snapshots with visibility, interface constraints and declared/inferred Error contracts |
+| [package-api-v3.schema.json](package-api-v3.schema.json)         | Previous snapshots with visibility and owner/method parameter groups                              |
+| [package-api-v2.schema.json](package-api-v2.schema.json)         | Older snapshots; comparison cannot prove the missing visibility contracts                         |
+| [package-lock-v2.schema.json](package-lock-v2.schema.json)       | Checked package/dependency locks                                                                  |
+| [package-exports-v1.schema.json](package-exports-v1.schema.json) | Export descriptor wire format                                                                     |
+| [package-lock-v1.schema.json](package-lock-v1.schema.json)       | Earlier lock wire format; new locks use v2                                                        |
 
 A JSON schema documents shape. The compiler additionally validates type/effect semantics, native capability scope, source identity, provider receipts, and compatibility. Passing shape validation alone does not authorize execution of native code.

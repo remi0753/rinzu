@@ -1,14 +1,19 @@
 use crate::native_clang::TargetClang;
-use crate::native_contract::validate_package_with_toolchain;
+use crate::native_contract::validate_package_with_cache_inputs;
 use rinzu_abi::target::Target;
-use rinzu_bindgen::source_package::{SourceInterface, generate_source_package, sha256};
+use rinzu_bindgen::source_package::{
+    SourceInterface, generate_source_package, generate_source_package_header, sha256,
+};
 use rinzu_codegen::source_package::SourcePackageArtifact;
 use rinzu_compiler::ast::NativeBinding;
 use rinzu_compiler::{NativeCliInputs, ResolvedSdkPackage, SourceAbiType};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+mod early_cache;
 mod interface;
+pub(crate) use early_cache::Pending as PendingEarlySdkCache;
+pub(crate) use interface::compiler_digest;
 
 #[derive(Clone)]
 pub struct BuiltSourcePackage {
@@ -19,6 +24,7 @@ pub struct BuiltSourcePackage {
     pub input_snapshot: Option<crate::source_receipt::InputSnapshot>,
     pub reference_check: Option<crate::native_binding::ReferenceCheck>,
     pub owner_manifest: Option<rinzu_compiler::Manifest>,
+    pub pending_early_cache: Option<PendingEarlySdkCache>,
 }
 
 impl BuiltSourcePackage {
@@ -144,37 +150,88 @@ pub fn build_with_mode(
     crate::native_binding::validate_signatures(source)?;
     let toolchain = TargetClang::resolve()?;
     let linux = toolchain.target == Target::X86_64UnknownLinuxGnu;
-    let contract =
-        validate_package_with_toolchain(&package.manifest, source, directory, &toolchain)?;
+    let has_native = source
+        .signatures
+        .iter()
+        .any(|signature| matches!(signature.binding, NativeBinding::Symbol(_)));
+    let dependency_inputs = dependency_inputs(package, dependency_digests);
+    let early = has_native
+        .then(|| {
+            early_cache::EarlyCache::open(
+                package,
+                &toolchain,
+                inputs,
+                &checked,
+                dependency_inputs.as_ref().ok()?,
+                mode,
+            )
+        })
+        .flatten();
+    if let Some(built) = early.as_ref().and_then(|cache| {
+        cache.restore(
+            package,
+            application_root,
+            inputs,
+            &toolchain,
+            directory,
+            &input_snapshot,
+        )
+    }) {
+        return Ok(built);
+    }
+    // With public headers, implementation compilation and the ABI query use
+    // the same captured inputs and write independent outputs. Headerless SDKs
+    // still need the validated generated header before Clang can compile them.
+    let validate = || {
+        validate_package_with_cache_inputs(
+            &package.manifest,
+            source,
+            directory,
+            &toolchain,
+            early.is_some(),
+        )
+    };
+    let (contract, compiled) = if has_native
+        && !package.manifest.native.sources.is_empty()
+        && !package.manifest.native.headers.is_empty()
+        && package.manifest.native.config_tools.is_empty()
+        && std::thread::available_parallelism().is_ok_and(|count| count.get() > 1)
+    {
+        std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+        std::thread::scope(|scope| {
+            let worker = std::thread::Builder::new()
+                .name("rinzu-sdk-sources".into())
+                .spawn_scoped(scope, || {
+                    crate::cli_diagnostics::capture(|| {
+                        compile_sources(package, directory, &toolchain)
+                    })
+                })
+                .ok();
+            let contract = validate();
+            let compiled = worker.map(|worker| worker.join());
+            let contract = contract?;
+            let compiled = compiled
+                .map(|result| {
+                    let (compiled, diagnostics) = result
+                        .map_err(|_| "native SDK source compiler worker panicked".to_owned())?;
+                    for block in diagnostics {
+                        crate::cli_diagnostics::write_block(&block);
+                    }
+                    compiled
+                })
+                .transpose()?;
+            Ok::<_, String>((contract, compiled))
+        })?
+    } else {
+        (validate()?, None)
+    };
     let mut interface = interface::build(package, source, &contract, application_root, inputs)?;
     input_snapshot.recorded(
         &package.manifest.root,
         &toolchain.sysroot,
         &interface.package.build_inputs,
     )?;
-    for dependency in &package.manifest.dependencies {
-        let digest = dependency_digests.get(&dependency.name).ok_or_else(|| {
-            format!(
-                "source SDK dependency `{}` has no validated build interface",
-                dependency.name
-            )
-        })?;
-        interface
-            .package
-            .build_inputs
-            .insert(format!("dependency:{}", dependency.name), digest.clone());
-    }
-    if rinzu_compiler::standard_library::is_standard_manifest(&package.manifest)? {
-        for name in rinzu_compiler::standard_library::dependencies(&package.manifest.name) {
-            let digest = dependency_digests.get(*name).ok_or_else(|| {
-                format!("standard dependency `{name}` has no validated build interface")
-            })?;
-            interface
-                .package
-                .build_inputs
-                .insert(format!("dependency:{name}"), digest.clone());
-        }
-    }
+    interface.package.build_inputs.extend(dependency_inputs?);
     let header_includes = header_includes(&package.manifest)?;
     let generate = |interface: SourceInterface, bytes: &[u8]| {
         let _timing = rinzu_compiler::timing::span("native.package.generate");
@@ -230,97 +287,39 @@ pub fn build_with_mode(
         slot_index += 1;
     }
     std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
-    let preliminary = generate(interface.clone(), &[])?;
+    let header_timing = rinzu_compiler::timing::span("native.package.header");
+    let mut preliminary = generate_source_package_header(interface.clone())?;
+    preliminary.insert_str(0, &header_includes);
+    drop(header_timing);
     let native_contract_path = directory.join("native-contract.h");
     std::fs::write(&native_contract_path, &contract.header).map_err(|error| error.to_string())?;
     let header_path = directory.join("source-package.h");
     let wrapper_path = directory.join("source-wrappers.c");
     let table_path = directory.join("source-table.c");
     let descriptor_path = directory.join("source-package-v2.json");
-    std::fs::write(&header_path, &preliminary.header).map_err(|error| error.to_string())?;
+    std::fs::write(&header_path, &preliminary).map_err(|error| error.to_string())?;
     std::fs::write(&wrapper_path, &wrappers).map_err(|error| error.to_string())?;
-    let has_native = source
-        .signatures
-        .iter()
-        .any(|signature| matches!(signature.binding, NativeBinding::Symbol(_)));
     let mut native_digests = BTreeMap::new();
     let mut reference_inputs = None;
-    let mut consumption = crate::native_consumption::prepare(package);
-    let analyze_consumption =
-        !linux && crate::native_consumption::supported(package, &mut consumption);
+    let mut reference_proof = None;
+    let mut source_input_keys = Vec::new();
+    let mut provider_input_key = None;
+    let consumption = if has_native {
+        let compiled = match compiled {
+            Some(objects) => objects,
+            None => compile_sources(package, directory, &toolchain)?,
+        };
+        interface
+            .package
+            .build_inputs
+            .extend(compiled.header_inputs);
+        native_digests.extend(compiled.object_digests);
+        source_input_keys = compiled.input_keys;
+        compiled.consumption
+    } else {
+        crate::native_consumption::prepare(package)
+    };
     if has_native {
-        for (index, source_path) in package.manifest.native.sources.iter().enumerate() {
-            let output = directory.join(format!("source-{index}.o"));
-            let mut command = toolchain.command();
-            let dependencies = directory.join(format!("source-{index}.d"));
-            let ir = directory.join(format!("source-{index}.ll"));
-            if analyze_consumption {
-                command.args(crate::native_consumption::IR_FLAGS);
-            } else {
-                command.args(["-c", "-O2"]);
-            }
-            command
-                .args([
-                    "-Wall",
-                    "-Wextra",
-                    "-Werror",
-                    "-fno-builtin",
-                    "-MD",
-                    "-MT",
-                    "rinzu",
-                    "-MF",
-                ])
-                .arg(&dependencies);
-            command.args(source_language_flags(source_path));
-            if linux {
-                command.arg("-fPIC");
-            }
-            add_package_flags(&mut command, package, false)?;
-            if package.manifest.native.headers.is_empty() {
-                command.arg("-include").arg(&native_contract_path);
-            } else {
-                for header in &package.manifest.native.headers {
-                    command
-                        .arg("-include")
-                        .arg(package.manifest.root.join(header));
-                }
-            }
-            let source = package.manifest.root.join(source_path);
-            command
-                .arg(&source)
-                .arg("-o")
-                .arg(if analyze_consumption { &ir } else { &output });
-            crate::compile_cache::compile(
-                &toolchain,
-                command,
-                directory,
-                if analyze_consumption { &ir } else { &output },
-                &source,
-                "compile source SDK object",
-            )?;
-            if analyze_consumption {
-                let mut backend = toolchain.command();
-                backend.args(["-c", "-O0"]).arg(&ir).arg("-o").arg(&output);
-                crate::cli_diagnostics::tool_output(
-                    backend.output(),
-                    Some(&ir),
-                    "native compilation",
-                    "clang",
-                )?;
-                crate::native_consumption::analyze(package, &mut consumption, &ir, &output)?;
-            }
-            crate::native_fingerprint::include_inputs(
-                &package.manifest.root,
-                &toolchain.sysroot,
-                directory,
-                &std::fs::read_to_string(dependencies).map_err(|error| error.to_string())?,
-                &mut interface.package.build_inputs,
-            )?;
-            native_digests.insert(
-                format!("compiled:{index}"),
-                sha256(&std::fs::read(&output).map_err(|error| error.to_string())?),
-            );
-        }
         for object in &package.manifest.native.objects {
             native_digests.insert(
                 format!("sdk-object:{}", object.display()),
@@ -351,6 +350,7 @@ pub fn build_with_mode(
             inputs,
             directory,
             &toolchain,
+            early.is_some(),
         )
         .map_err(|error| {
             format!(
@@ -374,8 +374,18 @@ pub fn build_with_mode(
             directory,
             &index,
         ));
+        if early.is_some() {
+            reference_proof = index.proof(directory);
+        }
         let (plan, binding_inputs) = index
-            .bind(source, directory, &toolchain, &provider_name, package)
+            .bind(
+                source,
+                directory,
+                &toolchain,
+                &provider_name,
+                package,
+                early.as_ref().map(|_| &mut provider_input_key),
+            )
             .map_err(|error| {
                 format!(
                     "native scope `{}` / target {} / declarations [{}]: {error}",
@@ -421,6 +431,24 @@ pub fn build_with_mode(
             .build_inputs
             .insert(rinzu_bindgen::consumption::KEY.into(), report);
     }
+    let record_early = early.is_some() && consumption.analyzer.is_none();
+    let pending_early = |build_inputs: &BTreeMap<String, String>, facade: Option<[String; 2]>| {
+        if !record_early {
+            return None;
+        }
+        early?.prepare_store(
+            directory,
+            &toolchain,
+            build_inputs,
+            early_cache::Evidence {
+                abi: contract.abi_input_key?,
+                sources: source_input_keys.into_iter().collect::<Option<_>>()?,
+                provider: provider_input_key,
+                facade: facade?,
+                references: reference_proof?,
+            },
+        )
+    };
     let native_bytes = serde_json::to_vec(&native_digests).map_err(|error| error.to_string())?;
     // Local providers have just been linked against the current search results,
     // including implicit dependencies. Keep that proof and the fresh ABI/object
@@ -521,53 +549,55 @@ pub fn build_with_mode(
                         input_snapshot: Some(snapshot),
                         reference_check: reference_inputs,
                         owner_manifest: Some(package.manifest.clone()),
+                        pending_early_cache: pending_early(
+                            &descriptor.interface.package.build_inputs,
+                            record_early
+                                .then(|| facade_input_keys(package, directory, &toolchain))
+                                .flatten(),
+                        ),
                     });
                 }
             }
         }
     }
-    crate::source_receipt::fingerprint(
-        &package.manifest,
-        mode,
-        &source.module_graph,
-        &checked,
-        inputs,
-        &mut interface.package.build_inputs,
-    )?;
-    let mut generated = generate(interface.clone(), &native_bytes)?;
-    std::fs::write(&header_path, &generated.header).map_err(|error| error.to_string())?;
-    std::fs::write(&table_path, &generated.c_table).map_err(|error| error.to_string())?;
-    std::fs::write(&descriptor_path, &generated.wire).map_err(|error| error.to_string())?;
+    let finish = |mut interface: SourceInterface, native_bytes: &[u8]| {
+        crate::source_receipt::fingerprint(
+            &package.manifest,
+            mode,
+            &source.module_graph,
+            &checked,
+            inputs,
+            &mut interface.package.build_inputs,
+        )?;
+        let generated = generate(interface, native_bytes)?;
+        std::fs::write(&header_path, &generated.header).map_err(|error| error.to_string())?;
+        std::fs::write(&table_path, &generated.c_table).map_err(|error| error.to_string())?;
+        std::fs::write(&descriptor_path, &generated.wire).map_err(|error| error.to_string())?;
+        Ok::<_, String>(generated)
+    };
     let mut cache_hit = false;
     let mut pending_cache = None;
-    let library = if has_native {
+    let mut facade_keys = None;
+    let (generated, library) = if has_native {
+        // The trace probe resolves the same link inputs using the final
+        // header and checked wrappers. Only the immutable table data depends
+        // on that trace, and it is generated once before the final link.
+        std::fs::write(
+            &table_path,
+            "#include \"rinzu/runtime.h\"\n#include \"source-package.h\"\nRINZU_API const rinzu_source_package_descriptor_v2_t *rinzu_source_package_v2(void) { return NULL; }\n",
+        )
+        .map_err(|error| error.to_string())?;
         let library_name = toolchain.target.shared_library_name(&format!(
             "source-{}",
             &sha256(package.manifest.name.as_bytes())[..24]
         ));
         let library = directory.join(&library_name);
-        let mut command = toolchain.shared_command(&library_name);
-        command.args([
-            "-O2",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-Wcast-function-type-strict",
-            "-Wincompatible-function-pointer-types-strict",
-            "-Wl,-t",
-            "-fno-builtin",
-            "-fno-lto",
-        ]);
-        command
-            .arg("-I")
-            .arg(rinzu_compiler::standard_library::resource_root()?.join("include"));
-        command.arg("-I").arg(&package.manifest.root);
-        add_package_flags(&mut command, package, false)?;
-        command
-            .arg("-I")
-            .arg(directory)
-            .arg(&wrapper_path)
-            .arg(&table_path);
+        let mut command =
+            facade_source_command(toolchain.shared_command(&library_name), package, directory)?;
+        if record_early {
+            crate::compile_cache::map_generated_paths(&mut command, directory);
+        }
+        command.arg("-Wl,-t").arg(&wrapper_path).arg(&table_path);
         let runtime_paths: BTreeSet<_> = package
             .manifest
             .native
@@ -620,12 +650,15 @@ pub fn build_with_mode(
             }
         }
         command.arg("-o").arg(&library);
+        let link_timing = rinzu_compiler::timing::span("native.package.link.probe")
+            .detail(&package.manifest.name);
         let first_link = crate::cli_diagnostics::tool_output(
             command.output(),
             Some(&library),
             "source SDK linking",
             "clang",
         )?;
+        drop(link_timing);
         let linked = crate::native_fingerprint::link_inputs(
             &package.manifest.root,
             &toolchain.sysroot,
@@ -636,21 +669,10 @@ pub fn build_with_mode(
         }
         interface.package.build_inputs.extend(linked.clone());
         native_digests.extend(linked.clone());
-        crate::source_receipt::fingerprint(
-            &package.manifest,
-            mode,
-            &source.module_graph,
-            &checked,
-            inputs,
-            &mut interface.package.build_inputs,
-        )?;
-        generated = generate(
+        let generated = finish(
             interface,
             &serde_json::to_vec(&native_digests).map_err(|error| error.to_string())?,
         )?;
-        std::fs::write(&header_path, &generated.header).map_err(|error| error.to_string())?;
-        std::fs::write(&table_path, &generated.c_table).map_err(|error| error.to_string())?;
-        std::fs::write(&descriptor_path, &generated.wire).map_err(|error| error.to_string())?;
         let cached_files = cache_files(&generated, &wrappers, &contract.header);
         let cache = if package.manifest.kind == rinzu_compiler::PackageKind::Sdk {
             crate::source_package_cache::directory(
@@ -671,12 +693,18 @@ pub fn build_with_mode(
             )?;
         }
         if !cache_hit {
+            if record_early {
+                facade_keys = facade_input_keys(package, directory, &toolchain);
+            }
+            let link_timing = rinzu_compiler::timing::span("native.package.link.final")
+                .detail(&package.manifest.name);
             let final_link = crate::cli_diagnostics::tool_output(
                 command.output(),
                 Some(&library),
                 "source SDK linking",
                 "clang",
             )?;
+            drop(link_timing);
             let final_inputs = crate::native_fingerprint::link_inputs(
                 &package.manifest.root,
                 &toolchain.sysroot,
@@ -699,11 +727,9 @@ pub fn build_with_mode(
             &toolchain.sysroot,
             &linked,
         )?;
-        Some(library)
+        (generated, Some(library))
     } else {
-        None
-    };
-    if !has_native {
+        let generated = finish(interface, &native_bytes)?;
         let files = cache_files(&generated, &wrappers, &contract.header);
         if package.manifest.kind == rinzu_compiler::PackageKind::Sdk
             && let Ok((cache, key)) = crate::source_package_cache::directory(
@@ -717,7 +743,8 @@ pub fn build_with_mode(
                 pending_cache = Some((cache, key, files, None));
             }
         }
-    }
+        (generated, None)
+    };
     if let Some(check) = &reference_inputs {
         check.verify_with_toolchain(&toolchain)?;
     }
@@ -754,18 +781,21 @@ pub fn build_with_mode(
         &generated.descriptor.interface.package.build_inputs,
         &sealed_files,
     )?;
+    if completed_cache.is_some() || pending_cache.is_some() {
+        input_snapshot.verify()?;
+    }
+    // These generations only accelerate future builds. Cache save/GC errors
+    // leave the verified artifacts in directory available to this build.
     if let Some((cache, key)) = completed_cache {
         sealed_files.insert(
             "source-input-receipt.json".into(),
             std::fs::read(directory.join("source-input-receipt.json"))
                 .map_err(|error| error.to_string())?,
         );
-        input_snapshot.verify()?;
-        crate::source_package_cache::store(&cache, &key, &sealed_files, None)?;
+        let _ = crate::source_package_cache::store(&cache, &key, &sealed_files, None);
     }
     if let Some((cache, key, files, facade)) = pending_cache {
-        input_snapshot.verify()?;
-        crate::source_package_cache::store(&cache, &key, &files, facade.as_deref())?;
+        let _ = crate::source_package_cache::store(&cache, &key, &files, facade.as_deref());
     }
     std::fs::write(directory.join("source-cache-report.json"), serde_json::to_vec(&serde_json::json!({ "schema": "rinzu.source-cache-report-v4", "hit": cache_hit, "inputFingerprint": generated.descriptor.interface.package.build_inputs[rinzu_bindgen::compilation::DIGEST_KEY], "descriptorDigest": sha256(&generated.wire) })).map_err(|error| error.to_string())?).map_err(|error| error.to_string())?;
     let facade_digest = library
@@ -773,6 +803,10 @@ pub fn build_with_mode(
         .map(|path| std::fs::read(path).map(|bytes| sha256(&bytes)))
         .transpose()
         .map_err(|error| error.to_string())?;
+    let pending_early_cache = pending_early(
+        &generated.descriptor.interface.package.build_inputs,
+        facade_keys,
+    );
     Ok(BuiltSourcePackage {
         artifact: SourcePackageArtifact {
             library,
@@ -785,7 +819,235 @@ pub fn build_with_mode(
         input_snapshot: Some(input_snapshot),
         reference_check: reference_inputs,
         owner_manifest: Some(package.manifest.clone()),
+        pending_early_cache,
     })
+}
+
+fn dependency_inputs(
+    package: &ResolvedSdkPackage,
+    digests: &BTreeMap<String, String>,
+) -> Result<BTreeMap<String, String>, String> {
+    let mut inputs = BTreeMap::new();
+    for dependency in &package.manifest.dependencies {
+        let digest = digests.get(&dependency.name).ok_or_else(|| {
+            format!(
+                "source SDK dependency `{}` has no validated build interface",
+                dependency.name
+            )
+        })?;
+        inputs.insert(format!("dependency:{}", dependency.name), digest.clone());
+    }
+    if rinzu_compiler::standard_library::is_standard_manifest(&package.manifest)? {
+        for name in rinzu_compiler::standard_library::dependencies(&package.manifest.name) {
+            let digest = digests.get(*name).ok_or_else(|| {
+                format!("standard dependency `{name}` has no validated build interface")
+            })?;
+            inputs.insert(format!("dependency:{name}"), digest.clone());
+        }
+    }
+    Ok(inputs)
+}
+
+struct CompiledSources {
+    header_inputs: BTreeMap<String, String>,
+    object_digests: BTreeMap<String, String>,
+    consumption: rinzu_bindgen::consumption::Report,
+    input_keys: Vec<Option<String>>,
+}
+
+fn compile_sources(
+    package: &ResolvedSdkPackage,
+    directory: &Path,
+    toolchain: &TargetClang,
+) -> Result<CompiledSources, String> {
+    let _timing = rinzu_compiler::timing::span("native.sources").detail(&package.manifest.name);
+    let linux = toolchain.target == Target::X86_64UnknownLinuxGnu;
+    let mut consumption = crate::native_consumption::prepare(package);
+    let analyze_consumption =
+        !linux && crate::native_consumption::supported(package, &mut consumption);
+    let mut header_inputs = BTreeMap::new();
+    let mut object_digests = BTreeMap::new();
+    let mut input_keys = Vec::with_capacity(package.manifest.native.sources.len());
+    for (index, source_path) in package.manifest.native.sources.iter().enumerate() {
+        let output = directory.join(format!("source-{index}.o"));
+        let dependencies = directory.join(format!("source-{index}.d"));
+        let ir = directory.join(format!("source-{index}.ll"));
+        let source = package.manifest.root.join(source_path);
+        let destination = if analyze_consumption { &ir } else { &output };
+        let command = source_command(package, directory, toolchain, index, analyze_consumption)?;
+        let input_key = crate::compile_cache::compile(
+            toolchain,
+            command,
+            directory,
+            destination,
+            &source,
+            "compile source SDK object",
+        )?;
+        input_keys.push(input_key);
+        if analyze_consumption {
+            let mut backend = toolchain.command();
+            backend.args(["-c", "-O0"]).arg(&ir).arg("-o").arg(&output);
+            crate::cli_diagnostics::tool_output(
+                backend.output(),
+                Some(&ir),
+                "native compilation",
+                "clang",
+            )?;
+            crate::native_consumption::analyze(package, &mut consumption, &ir, &output)?;
+        }
+        crate::native_fingerprint::include_inputs(
+            &package.manifest.root,
+            &toolchain.sysroot,
+            directory,
+            &std::fs::read_to_string(dependencies).map_err(|error| error.to_string())?,
+            &mut header_inputs,
+        )?;
+        object_digests.insert(
+            format!("compiled:{index}"),
+            sha256(&std::fs::read(&output).map_err(|error| error.to_string())?),
+        );
+    }
+    Ok(CompiledSources {
+        header_inputs,
+        object_digests,
+        consumption,
+        input_keys,
+    })
+}
+
+fn source_command(
+    package: &ResolvedSdkPackage,
+    directory: &Path,
+    toolchain: &TargetClang,
+    index: usize,
+    analyze_consumption: bool,
+) -> Result<std::process::Command, String> {
+    let path = &package.manifest.native.sources[index];
+    let mut command = toolchain.command();
+    if analyze_consumption {
+        command.args(crate::native_consumption::IR_FLAGS);
+    } else {
+        command.args(["-c", "-O2"]);
+    }
+    command
+        .args([
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-fno-builtin",
+            "-MD",
+            "-MT",
+            "rinzu",
+            "-MF",
+        ])
+        .arg(directory.join(format!("source-{index}.d")));
+    command.args(source_language_flags(path));
+    if toolchain.target == Target::X86_64UnknownLinuxGnu {
+        command.arg("-fPIC");
+    }
+    add_package_flags(&mut command, package, false)?;
+    if package.manifest.native.headers.is_empty() {
+        command
+            .arg("-include")
+            .arg(directory.join("native-contract.h"));
+    } else {
+        for header in &package.manifest.native.headers {
+            command
+                .arg("-include")
+                .arg(package.manifest.root.join(header));
+        }
+    }
+    let extension = if analyze_consumption { "ll" } else { "o" };
+    command
+        .arg(package.manifest.root.join(path))
+        .arg("-o")
+        .arg(directory.join(format!("source-{index}.{extension}")));
+    Ok(command)
+}
+
+fn source_input_keys(
+    package: &ResolvedSdkPackage,
+    directory: &Path,
+    toolchain: &TargetClang,
+    build_inputs: &BTreeMap<String, String>,
+) -> Option<Vec<String>> {
+    let mut consumption = crate::native_consumption::prepare(package);
+    if toolchain.target != Target::X86_64UnknownLinuxGnu
+        && crate::native_consumption::supported(package, &mut consumption)
+    {
+        // An analyzed body also needs the analyzer's executable and IR proof.
+        return None;
+    }
+    if !consumption.functions.is_empty()
+        && build_inputs.get(rinzu_bindgen::consumption::KEY)
+            != Some(&serde_json::to_string(&consumption).ok()?)
+    {
+        return None;
+    }
+    (0..package.manifest.native.sources.len())
+        .map(|index| {
+            let mut command = source_command(package, directory, toolchain, index, false).ok()?;
+            crate::compile_cache::map_generated_paths(&mut command, directory);
+            crate::compile_cache::input_key(
+                toolchain,
+                &command,
+                directory,
+                &directory.join(format!("source-{index}.d")),
+            )
+        })
+        .collect()
+}
+
+fn facade_source_command(
+    mut command: std::process::Command,
+    package: &ResolvedSdkPackage,
+    directory: &Path,
+) -> Result<std::process::Command, String> {
+    command.args([
+        "-O2",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-Wcast-function-type-strict",
+        "-Wincompatible-function-pointer-types-strict",
+        "-fno-builtin",
+        "-fno-lto",
+    ]);
+    command
+        .arg("-I")
+        .arg(rinzu_compiler::standard_library::resource_root()?.join("include"));
+    command.arg("-I").arg(&package.manifest.root);
+    add_package_flags(&mut command, package, false)?;
+    command.arg("-I").arg(directory);
+    Ok(command)
+}
+
+fn facade_input_keys(
+    package: &ResolvedSdkPackage,
+    directory: &Path,
+    toolchain: &TargetClang,
+) -> Option<[String; 2]> {
+    let label = &sha256(package.manifest.name.as_bytes())[..24];
+    let facade = toolchain
+        .target
+        .shared_library_name(&format!("source-{label}"));
+    let key = |name: &str| {
+        let path = directory.join(name);
+        let mut command =
+            facade_source_command(toolchain.shared_command(&facade), package, directory).ok()?;
+        // The real link passes these flags; the proof preprocesses only one
+        // translation unit. Keep compile flags such as -pthread and -fPIC.
+        command.arg("-Qunused-arguments");
+        crate::compile_cache::map_generated_paths(&mut command, directory);
+        command.arg(&path);
+        crate::compile_cache::input_key(
+            toolchain,
+            &command,
+            directory,
+            &path.with_extension("cache.d"),
+        )
+    };
+    Some([key("source-wrappers.c")?, key("source-table.c")?])
 }
 
 fn completed_cache_key(

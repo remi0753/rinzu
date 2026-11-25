@@ -93,26 +93,26 @@
 #if defined(HAS_UINT128)
 
 // Best case: use 128-bit type.
-static inline uint64_t mulShift(const uint64_t m, const uint64_t* const mul, const int32_t j) {
-  const uint128_t b0 = ((uint128_t) m) * mul[0];
-  const uint128_t b2 = ((uint128_t) m) * mul[1];
-  return (uint64_t) (((b0 >> 64) + b2) >> (j - 64));
+static inline uint64_t mulShift(const uint64_t m, const uint64_t *const mul, const int32_t j) {
+  const uint128_t b0 = ((uint128_t)m) * mul[0];
+  const uint128_t b2 = ((uint128_t)m) * mul[1];
+  return (uint64_t)(((b0 >> 64) + b2) >> (j - 64));
 }
 
-static inline uint64_t mulShiftAll(const uint64_t m, const uint64_t* const mul, const int32_t j,
-  uint64_t* const vp, uint64_t* const vm, const uint32_t mmShift) {
-//  m <<= 2;
-//  uint128_t b0 = ((uint128_t) m) * mul[0]; // 0
-//  uint128_t b2 = ((uint128_t) m) * mul[1]; // 64
-//
-//  uint128_t hi = (b0 >> 64) + b2;
-//  uint128_t lo = b0 & 0xffffffffffffffffull;
-//  uint128_t factor = (((uint128_t) mul[1]) << 64) + mul[0];
-//  uint128_t vpLo = lo + (factor << 1);
-//  *vp = (uint64_t) ((hi + (vpLo >> 64)) >> (j - 64));
-//  uint128_t vmLo = lo - (factor << mmShift);
-//  *vm = (uint64_t) ((hi + (vmLo >> 64) - (((uint128_t) 1ull) << 64)) >> (j - 64));
-//  return (uint64_t) (hi >> (j - 64));
+static inline uint64_t mulShiftAll(const uint64_t m, const uint64_t *const mul, const int32_t j,
+                                   uint64_t *const vp, uint64_t *const vm, const uint32_t mmShift) {
+  //  m <<= 2;
+  //  uint128_t b0 = ((uint128_t) m) * mul[0]; // 0
+  //  uint128_t b2 = ((uint128_t) m) * mul[1]; // 64
+  //
+  //  uint128_t hi = (b0 >> 64) + b2;
+  //  uint128_t lo = b0 & 0xffffffffffffffffull;
+  //  uint128_t factor = (((uint128_t) mul[1]) << 64) + mul[0];
+  //  uint128_t vpLo = lo + (factor << 1);
+  //  *vp = (uint64_t) ((hi + (vpLo >> 64)) >> (j - 64));
+  //  uint128_t vmLo = lo - (factor << mmShift);
+  //  *vm = (uint64_t) ((hi + (vmLo >> 64) - (((uint128_t) 1ull) << 64)) >> (j - 64));
+  //  return (uint64_t) (hi >> (j - 64));
   *vp = mulShift(4 * m + 2, mul, j);
   *vm = mulShift(4 * m - 1 - mmShift, mul, j);
   return mulShift(4 * m, mul, j);
@@ -120,7 +120,7 @@ static inline uint64_t mulShiftAll(const uint64_t m, const uint64_t* const mul, 
 
 #elif defined(HAS_64_BIT_INTRINSICS)
 
-static inline uint64_t mulShift(const uint64_t m, const uint64_t* const mul, const int32_t j) {
+static inline uint64_t mulShift(const uint64_t m, const uint64_t *const mul, const int32_t j) {
   // m is maximum 55 bits
   uint64_t high1;                                   // 128
   const uint64_t low1 = umul128(m, mul[1], &high1); // 64
@@ -133,8 +133,8 @@ static inline uint64_t mulShift(const uint64_t m, const uint64_t* const mul, con
   return shiftright128(sum, high1, j - 64);
 }
 
-static inline uint64_t mulShiftAll(const uint64_t m, const uint64_t* const mul, const int32_t j,
-  uint64_t* const vp, uint64_t* const vm, const uint32_t mmShift) {
+static inline uint64_t mulShiftAll(const uint64_t m, const uint64_t *const mul, const int32_t j,
+                                   uint64_t *const vp, uint64_t *const vm, const uint32_t mmShift) {
   *vp = mulShift(4 * m + 2, mul, j);
   *vm = mulShift(4 * m - 1 - mmShift, mul, j);
   return mulShift(4 * m, mul, j);
@@ -142,8 +142,8 @@ static inline uint64_t mulShiftAll(const uint64_t m, const uint64_t* const mul, 
 
 #else // !defined(HAS_UINT128) && !defined(HAS_64_BIT_INTRINSICS)
 
-static inline uint64_t mulShiftAll(uint64_t m, const uint64_t* const mul, const int32_t j,
-  uint64_t* const vp, uint64_t* const vm, const uint32_t mmShift) {
+static inline uint64_t mulShiftAll(uint64_t m, const uint64_t *const mul, const int32_t j,
+                                   uint64_t *const vp, uint64_t *const vm, const uint32_t mmShift) {
   m <<= 1;
   // m is maximum 55 bits
   uint64_t tmp;
@@ -155,13 +155,13 @@ static inline uint64_t mulShiftAll(uint64_t m, const uint64_t* const mul, const 
   const uint64_t lo2 = lo + mul[0];
   const uint64_t mid2 = mid + mul[1] + (lo2 < lo);
   const uint64_t hi2 = hi + (mid2 < mid);
-  *vp = shiftright128(mid2, hi2, (uint32_t) (j - 64 - 1));
+  *vp = shiftright128(mid2, hi2, (uint32_t)(j - 64 - 1));
 
   if (mmShift == 1) {
     const uint64_t lo3 = lo - mul[0];
     const uint64_t mid3 = mid - mul[1] - (lo3 > lo);
     const uint64_t hi3 = hi - (mid3 > mid);
-    *vm = shiftright128(mid3, hi3, (uint32_t) (j - 64 - 1));
+    *vm = shiftright128(mid3, hi3, (uint32_t)(j - 64 - 1));
   } else {
     const uint64_t lo3 = lo + lo;
     const uint64_t mid3 = mid + mid + (lo3 < lo);
@@ -169,10 +169,10 @@ static inline uint64_t mulShiftAll(uint64_t m, const uint64_t* const mul, const 
     const uint64_t lo4 = lo3 - mul[0];
     const uint64_t mid4 = mid3 - mul[1] - (lo4 > lo3);
     const uint64_t hi4 = hi3 - (mid4 > mid3);
-    *vm = shiftright128(mid4, hi4, (uint32_t) (j - 64));
+    *vm = shiftright128(mid4, hi4, (uint32_t)(j - 64));
   }
 
-  return shiftright128(mid, hi, (uint32_t) (j - 64 - 1));
+  return shiftright128(mid, hi, (uint32_t)(j - 64 - 1));
 }
 
 #endif // HAS_64_BIT_INTRINSICS
@@ -183,22 +183,54 @@ static inline uint32_t decimalLength17(const uint64_t v) {
   // Function precondition: v is not an 18, 19, or 20-digit number.
   // (17 digits are sufficient for round-tripping.)
   assert(v < 100000000000000000L);
-  if (v >= 10000000000000000L) { return 17; }
-  if (v >= 1000000000000000L) { return 16; }
-  if (v >= 100000000000000L) { return 15; }
-  if (v >= 10000000000000L) { return 14; }
-  if (v >= 1000000000000L) { return 13; }
-  if (v >= 100000000000L) { return 12; }
-  if (v >= 10000000000L) { return 11; }
-  if (v >= 1000000000L) { return 10; }
-  if (v >= 100000000L) { return 9; }
-  if (v >= 10000000L) { return 8; }
-  if (v >= 1000000L) { return 7; }
-  if (v >= 100000L) { return 6; }
-  if (v >= 10000L) { return 5; }
-  if (v >= 1000L) { return 4; }
-  if (v >= 100L) { return 3; }
-  if (v >= 10L) { return 2; }
+  if (v >= 10000000000000000L) {
+    return 17;
+  }
+  if (v >= 1000000000000000L) {
+    return 16;
+  }
+  if (v >= 100000000000000L) {
+    return 15;
+  }
+  if (v >= 10000000000000L) {
+    return 14;
+  }
+  if (v >= 1000000000000L) {
+    return 13;
+  }
+  if (v >= 100000000000L) {
+    return 12;
+  }
+  if (v >= 10000000000L) {
+    return 11;
+  }
+  if (v >= 1000000000L) {
+    return 10;
+  }
+  if (v >= 100000000L) {
+    return 9;
+  }
+  if (v >= 10000000L) {
+    return 8;
+  }
+  if (v >= 1000000L) {
+    return 7;
+  }
+  if (v >= 100000L) {
+    return 6;
+  }
+  if (v >= 10000L) {
+    return 5;
+  }
+  if (v >= 1000L) {
+    return 4;
+  }
+  if (v >= 100L) {
+    return 3;
+  }
+  if (v >= 10L) {
+    return 2;
+  }
   return 1;
 }
 
@@ -218,7 +250,7 @@ static inline floating_decimal_64 d2d(const uint64_t ieeeMantissa, const uint32_
     e2 = 1 - DOUBLE_BIAS - DOUBLE_MANTISSA_BITS - 2;
     m2 = ieeeMantissa;
   } else {
-    e2 = (int32_t) ieeeExponent - DOUBLE_BIAS - DOUBLE_MANTISSA_BITS - 2;
+    e2 = (int32_t)ieeeExponent - DOUBLE_BIAS - DOUBLE_MANTISSA_BITS - 2;
     m2 = (1ull << DOUBLE_MANTISSA_BITS) | ieeeMantissa;
   }
   const bool even = (m2 & 1) == 0;
@@ -245,9 +277,9 @@ static inline floating_decimal_64 d2d(const uint64_t ieeeMantissa, const uint32_
     // I tried special-casing q == 0, but there was no effect on performance.
     // This expression is slightly faster than max(0, log10Pow2(e2) - 1).
     const uint32_t q = log10Pow2(e2) - (e2 > 3);
-    e10 = (int32_t) q;
-    const int32_t k = DOUBLE_POW5_INV_BITCOUNT + pow5bits((int32_t) q) - 1;
-    const int32_t i = -e2 + (int32_t) q + k;
+    e10 = (int32_t)q;
+    const int32_t k = DOUBLE_POW5_INV_BITCOUNT + pow5bits((int32_t)q) - 1;
+    const int32_t i = -e2 + (int32_t)q + k;
 #if defined(RYU_OPTIMIZE_SIZE)
     uint64_t pow5[2];
     double_computeInvPow5(q, pow5);
@@ -263,7 +295,7 @@ static inline floating_decimal_64 d2d(const uint64_t ieeeMantissa, const uint32_
       // This should use q <= 22, but I think 21 is also safe. Smaller values
       // may still be safe, but it's more difficult to reason about them.
       // Only one of mp, mv, and mm can be a multiple of 5, if any.
-      const uint32_t mvMod5 = ((uint32_t) mv) - 5 * ((uint32_t) div5(mv));
+      const uint32_t mvMod5 = ((uint32_t)mv) - 5 * ((uint32_t)div5(mv));
       if (mvMod5 == 0) {
         vrIsTrailingZeros = multipleOfPowerOf5(mv, q);
       } else if (acceptBounds) {
@@ -279,10 +311,10 @@ static inline floating_decimal_64 d2d(const uint64_t ieeeMantissa, const uint32_
   } else {
     // This expression is slightly faster than max(0, log10Pow5(-e2) - 1).
     const uint32_t q = log10Pow5(-e2) - (-e2 > 1);
-    e10 = (int32_t) q + e2;
-    const int32_t i = -e2 - (int32_t) q;
+    e10 = (int32_t)q + e2;
+    const int32_t i = -e2 - (int32_t)q;
     const int32_t k = pow5bits(i) - DOUBLE_POW5_BITCOUNT;
-    const int32_t j = (int32_t) q - k;
+    const int32_t j = (int32_t)q - k;
 #if defined(RYU_OPTIMIZE_SIZE)
     uint64_t pow5[2];
     double_computePow5(i, pow5);
@@ -337,12 +369,12 @@ static inline floating_decimal_64 d2d(const uint64_t ieeeMantissa, const uint32_
       if (vpDiv10 <= vmDiv10) {
         break;
       }
-      const uint32_t vmMod10 = ((uint32_t) vm) - 10 * ((uint32_t) vmDiv10);
+      const uint32_t vmMod10 = ((uint32_t)vm) - 10 * ((uint32_t)vmDiv10);
       const uint64_t vrDiv10 = div10(vr);
-      const uint32_t vrMod10 = ((uint32_t) vr) - 10 * ((uint32_t) vrDiv10);
+      const uint32_t vrMod10 = ((uint32_t)vr) - 10 * ((uint32_t)vrDiv10);
       vmIsTrailingZeros &= vmMod10 == 0;
       vrIsTrailingZeros &= lastRemovedDigit == 0;
-      lastRemovedDigit = (uint8_t) vrMod10;
+      lastRemovedDigit = (uint8_t)vrMod10;
       vr = vrDiv10;
       vp = vpDiv10;
       vm = vmDiv10;
@@ -355,15 +387,15 @@ static inline floating_decimal_64 d2d(const uint64_t ieeeMantissa, const uint32_
     if (vmIsTrailingZeros) {
       for (;;) {
         const uint64_t vmDiv10 = div10(vm);
-        const uint32_t vmMod10 = ((uint32_t) vm) - 10 * ((uint32_t) vmDiv10);
+        const uint32_t vmMod10 = ((uint32_t)vm) - 10 * ((uint32_t)vmDiv10);
         if (vmMod10 != 0) {
           break;
         }
         const uint64_t vpDiv10 = div10(vp);
         const uint64_t vrDiv10 = div10(vr);
-        const uint32_t vrMod10 = ((uint32_t) vr) - 10 * ((uint32_t) vrDiv10);
+        const uint32_t vrMod10 = ((uint32_t)vr) - 10 * ((uint32_t)vrDiv10);
         vrIsTrailingZeros &= lastRemovedDigit == 0;
-        lastRemovedDigit = (uint8_t) vrMod10;
+        lastRemovedDigit = (uint8_t)vrMod10;
         vr = vrDiv10;
         vp = vpDiv10;
         vm = vmDiv10;
@@ -387,7 +419,7 @@ static inline floating_decimal_64 d2d(const uint64_t ieeeMantissa, const uint32_
     const uint64_t vmDiv100 = div100(vm);
     if (vpDiv100 > vmDiv100) { // Optimization: remove two digits at a time (~86.2%).
       const uint64_t vrDiv100 = div100(vr);
-      const uint32_t vrMod100 = ((uint32_t) vr) - 100 * ((uint32_t) vrDiv100);
+      const uint32_t vrMod100 = ((uint32_t)vr) - 100 * ((uint32_t)vrDiv100);
       roundUp = vrMod100 >= 50;
       vr = vrDiv100;
       vp = vpDiv100;
@@ -405,7 +437,7 @@ static inline floating_decimal_64 d2d(const uint64_t ieeeMantissa, const uint32_
         break;
       }
       const uint64_t vrDiv10 = div10(vr);
-      const uint32_t vrMod10 = ((uint32_t) vr) - 10 * ((uint32_t) vrDiv10);
+      const uint32_t vrMod10 = ((uint32_t)vr) - 10 * ((uint32_t)vrDiv10);
       roundUp = vrMod10 >= 5;
       vr = vrDiv10;
       vp = vpDiv10;
@@ -433,7 +465,7 @@ static inline floating_decimal_64 d2d(const uint64_t ieeeMantissa, const uint32_
   return fd;
 }
 
-static inline int to_chars(const floating_decimal_64 v, const bool sign, char* const result) {
+static inline int to_chars(const floating_decimal_64 v, const bool sign, char *const result) {
   // Step 5: Print the decimal representation.
   int index = 0;
   if (sign) {
@@ -465,7 +497,7 @@ static inline int to_chars(const floating_decimal_64 v, const bool sign, char* c
   if ((output >> 32) != 0) {
     // Expensive 64-bit division.
     const uint64_t q = div1e8(output);
-    uint32_t output2 = ((uint32_t) output) - 100000000 * ((uint32_t) q);
+    uint32_t output2 = ((uint32_t)output) - 100000000 * ((uint32_t)q);
     output = q;
 
     const uint32_t c = output2 % 10000;
@@ -481,7 +513,7 @@ static inline int to_chars(const floating_decimal_64 v, const bool sign, char* c
     memcpy(result + index + olength - i - 7, DIGIT_TABLE + d1, 2);
     i += 8;
   }
-  uint32_t output2 = (uint32_t) output;
+  uint32_t output2 = (uint32_t)output;
   while (output2 >= 10000) {
 #ifdef __clang__ // https://bugs.llvm.org/show_bug.cgi?id=38217
     const uint32_t c = output2 - 10000 * (output2 / 10000);
@@ -507,7 +539,7 @@ static inline int to_chars(const floating_decimal_64 v, const bool sign, char* c
     result[index + olength - i] = DIGIT_TABLE[c + 1];
     result[index] = DIGIT_TABLE[c];
   } else {
-    result[index] = (char) ('0' + output2);
+    result[index] = (char)('0' + output2);
   }
 
   // Print decimal point if needed.
@@ -520,7 +552,7 @@ static inline int to_chars(const floating_decimal_64 v, const bool sign, char* c
 
   // Print the exponent.
   result[index++] = 'E';
-  int32_t exp = v.exponent + (int32_t) olength - 1;
+  int32_t exp = v.exponent + (int32_t)olength - 1;
   if (exp < 0) {
     result[index++] = '-';
     exp = -exp;
@@ -529,22 +561,22 @@ static inline int to_chars(const floating_decimal_64 v, const bool sign, char* c
   if (exp >= 100) {
     const int32_t c = exp % 10;
     memcpy(result + index, DIGIT_TABLE + 2 * (exp / 10), 2);
-    result[index + 2] = (char) ('0' + c);
+    result[index + 2] = (char)('0' + c);
     index += 3;
   } else if (exp >= 10) {
     memcpy(result + index, DIGIT_TABLE + 2 * exp, 2);
     index += 2;
   } else {
-    result[index++] = (char) ('0' + exp);
+    result[index++] = (char)('0' + exp);
   }
 
   return index;
 }
 
 static inline bool d2d_small_int(const uint64_t ieeeMantissa, const uint32_t ieeeExponent,
-  floating_decimal_64* const v) {
+                                 floating_decimal_64 *const v) {
   const uint64_t m2 = (1ull << DOUBLE_MANTISSA_BITS) | ieeeMantissa;
-  const int32_t e2 = (int32_t) ieeeExponent - DOUBLE_BIAS - DOUBLE_MANTISSA_BITS;
+  const int32_t e2 = (int32_t)ieeeExponent - DOUBLE_BIAS - DOUBLE_MANTISSA_BITS;
 
   if (e2 > 0) {
     // f = m2 * 2^e2 >= 2^53 is an integer.
@@ -573,14 +605,14 @@ static inline bool d2d_small_int(const uint64_t ieeeMantissa, const uint32_t iee
   return true;
 }
 
-int d2s_buffered_n(double f, char* result) {
+int d2s_buffered_n(double f, char *result) {
   // Step 1: Decode the floating-point number, and unify normalized and subnormal cases.
   const uint64_t bits = double_to_bits(f);
 
 #ifdef RYU_DEBUG
   printf("IN=");
   for (int32_t bit = 63; bit >= 0; --bit) {
-    printf("%d", (int) ((bits >> bit) & 1));
+    printf("%d", (int)((bits >> bit) & 1));
   }
   printf("\n");
 #endif
@@ -588,9 +620,11 @@ int d2s_buffered_n(double f, char* result) {
   // Decode bits into sign, mantissa, and exponent.
   const bool ieeeSign = ((bits >> (DOUBLE_MANTISSA_BITS + DOUBLE_EXPONENT_BITS)) & 1) != 0;
   const uint64_t ieeeMantissa = bits & ((1ull << DOUBLE_MANTISSA_BITS) - 1);
-  const uint32_t ieeeExponent = (uint32_t) ((bits >> DOUBLE_MANTISSA_BITS) & ((1u << DOUBLE_EXPONENT_BITS) - 1));
+  const uint32_t ieeeExponent =
+      (uint32_t)((bits >> DOUBLE_MANTISSA_BITS) & ((1u << DOUBLE_EXPONENT_BITS) - 1));
   // Case distinction; exit early for the easy cases.
-  if (ieeeExponent == ((1u << DOUBLE_EXPONENT_BITS) - 1u) || (ieeeExponent == 0 && ieeeMantissa == 0)) {
+  if (ieeeExponent == ((1u << DOUBLE_EXPONENT_BITS) - 1u) ||
+      (ieeeExponent == 0 && ieeeMantissa == 0)) {
     return copy_special_str(result, ieeeSign, ieeeExponent, ieeeMantissa);
   }
 
@@ -603,7 +637,7 @@ int d2s_buffered_n(double f, char* result) {
     // trailing zeros in to_chars only if needed - once fixed-point notation output is implemented.)
     for (;;) {
       const uint64_t q = div10(v.mantissa);
-      const uint32_t r = ((uint32_t) v.mantissa) - 10 * ((uint32_t) q);
+      const uint32_t r = ((uint32_t)v.mantissa) - 10 * ((uint32_t)q);
       if (r != 0) {
         break;
       }
@@ -617,15 +651,15 @@ int d2s_buffered_n(double f, char* result) {
   return to_chars(v, ieeeSign, result);
 }
 
-void d2s_buffered(double f, char* result) {
+void d2s_buffered(double f, char *result) {
   const int index = d2s_buffered_n(f, result);
 
   // Terminate the string.
   result[index] = '\0';
 }
 
-char* d2s(double f) {
-  char* const result = (char*) malloc(25);
+char *d2s(double f) {
+  char *const result = (char *)malloc(25);
   d2s_buffered(f, result);
   return result;
 }
